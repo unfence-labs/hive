@@ -32,6 +32,7 @@ import { ResizeHandle } from "@/components/ResizeHandle";
 import { Badge } from "@/components/ui/badge";
 import { wsTransport } from "@/lib/ws-transport";
 import { BRAIN_WORKSPACE_ID, brainFileQueryKey } from "@/lib/brain";
+import { removeCachedSessionMessages } from "@/hooks/useSessionMessages";
 import { buildInitialExpanded, countFiles, DEFAULT_EXPANDED } from "@/lib/file-tree";
 import { formatAbsoluteTime, formatRelativeTime } from "@/lib/time";
 import { cn } from "@/lib/utils";
@@ -101,7 +102,8 @@ export default function BrainView() {
 
   const onLastSessionDeleted = useCallback(() => {
     wsTransport.clearCachedData(BRAIN_WORKSPACE_ID);
-  }, []);
+    removeCachedSessionMessages(queryClient, BRAIN_WORKSPACE_ID);
+  }, [queryClient]);
 
   const clearUnread = useClearUnread();
 

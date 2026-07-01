@@ -28,12 +28,4 @@ final class ConversationStoreCache {
     func evict(_ workspaceId: String) {
         stores.removeValue(forKey: workspaceId)
     }
-
-    /// Clear all streaming state from every cached store.
-    /// Called before force-reconnect so bootstrap data writes into a clean slate.
-    func clearAllStreamingState() {
-        for store in stores.values {
-            store.sessionStreams.removeAll()
-        }
-    }
 }

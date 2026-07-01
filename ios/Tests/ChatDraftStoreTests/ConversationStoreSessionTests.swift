@@ -364,6 +364,313 @@ struct ConversationStoreSessionTests {
     }
 
     @Test @MainActor
+    func reconnectBootstrapKeepsActiveStreamAlive() {
+        // Models the non-destructive reconnect (issue #259): the hub no longer wipes
+        // sessionStreams on (re)connect, so an in-progress stream must survive a fresh
+        // bootstrap and be reconciled in place by the authoritative stream_snapshot.
+        let store = ConversationStore()
+        store.handle(.status(
+            status: .busy,
+            sessionId: "session-1",
+            streaming: true,
+            streamingStartedAt: nil,
+            lockedProvider: nil
+        ))
+        store.handle(.textDelta(sessionId: "session-1", text: "In progress before reconnect"))
+        store.handle(.toolUse(
+            sessionId: "session-1",
+            id: "tool-1",
+            name: "Read",
+            input: "{}",
+            parentToolUseId: nil
+        ))
+        #expect(store.currentText == "In progress before reconnect")
+        #expect(store.activeToolCalls.count == 1)
+
+        // Reconnect re-bootstraps: a status event reasserts streaming, then the snapshot
+        // replaces the accumulated state. No clear happens in between.
+        store.handle(.status(
+            status: .busy,
+            sessionId: "session-1",
+            streaming: true,
+            streamingStartedAt: nil,
+            lockedProvider: nil
+        ))
+        // Stream slot is intact immediately after the status re-bootstrap.
+        #expect(store.sessionStreams["session-1"]?.isStreaming == true)
+        #expect(store.sessionStreams["session-1"]?.currentText == "In progress before reconnect")
+        #expect(store.sessionStreams["session-1"]?.activeToolCalls.count == 1)
+
+        store.handle(.streamSnapshot(
+            sessionId: "session-1",
+            text: "In progress before reconnect, now continued",
+            thinking: "",
+            toolCalls: [
+                ToolCall(id: "tool-1", name: "Read", input: "{}", output: "ok", parentToolUseId: nil)
+            ],
+            agentActivities: [],
+            agentPlanMode: false,
+            streamingStartedAt: 1_700_000_002_000.0
+        ))
+
+        // Snapshot REPLACED rather than appended — no duplicate tool calls.
+        #expect(store.isStreaming == true)
+        #expect(store.currentText == "In progress before reconnect, now continued")
+        #expect(store.activeToolCalls.count == 1)
+        #expect(store.activeToolCalls.first?.output == "ok")
+    }
+
+    @Test @MainActor
+    func historyDropsStaleNonStreamingStreamSlot() {
+        // A turn finished while the socket was a backgrounded zombie. On reconnect the
+        // status arrives as idle (not streaming) and history carries the finalized turn.
+        // The stale in-progress stream slot must be dropped so it is not rendered as a
+        // duplicate bubble alongside the persisted message (issue #259).
+        let store = ConversationStore()
+        store.handle(.status(
+            status: .busy,
+            sessionId: "session-1",
+            streaming: true,
+            streamingStartedAt: nil,
+            lockedProvider: nil
+        ))
+        store.handle(.textDelta(sessionId: "session-1", text: "Half-finished answer"))
+        #expect(store.sessionStreams["session-1"]?.currentText == "Half-finished answer")
+
+        // The turn is no longer streaming (e.g. idle status from bootstrap).
+        store.handle(.status(
+            status: .idle,
+            sessionId: "session-1",
+            streaming: false,
+            streamingStartedAt: nil,
+            lockedProvider: nil
+        ))
+        #expect(store.sessionStreams["session-1"] != nil)
+
+        // REST history arrives with the finalized assistant turn (no unanswered question).
+        store.applyFetchedHistory([
+            ChatMessage(
+                id: "message-1",
+                sessionId: "session-1",
+                role: .user,
+                content: "Question",
+                images: nil,
+                toolCalls: nil,
+                thinkingContent: nil,
+                timestamp: "2026-01-01T00:00:00.000Z",
+                cancelled: nil,
+                durationMs: nil
+            ),
+            ChatMessage(
+                id: "message-2",
+                sessionId: "session-1",
+                role: .assistant,
+                content: "Half-finished answer, now complete",
+                images: nil,
+                toolCalls: nil,
+                thinkingContent: nil,
+                timestamp: "2026-01-01T00:00:01.000Z",
+                cancelled: nil,
+                durationMs: nil
+            )
+        ], for: "session-1")
+
+        #expect(store.messages.count == 2)
+        #expect(store.sessionStreams["session-1"] == nil)
+    }
+
+    @Test @MainActor
+    func historyRebuildsCleanSlotWithPendingToolInputs() {
+        // The last finalized assistant turn ends on an unanswered AskUserQuestion. History
+        // must rebuild a CLEAN slot carrying only those pending inputs (no stale streaming
+        // text/tool calls), so the question prompt survives reconnect.
+        let store = ConversationStore()
+        store.handle(.status(
+            status: .busy,
+            sessionId: "session-1",
+            streaming: true,
+            streamingStartedAt: nil,
+            lockedProvider: nil
+        ))
+        store.handle(.textDelta(sessionId: "session-1", text: "stale streaming text"))
+        store.handle(.status(
+            status: .idle,
+            sessionId: "session-1",
+            streaming: false,
+            streamingStartedAt: nil,
+            lockedProvider: nil
+        ))
+
+        store.applyFetchedHistory([
+            ChatMessage(
+                id: "message-1",
+                sessionId: "session-1",
+                role: .assistant,
+                content: "Which option?",
+                images: nil,
+                toolCalls: [
+                    ToolCall(id: "ask-1", name: "AskUserQuestion", input: "{}", output: nil, parentToolUseId: nil)
+                ],
+                thinkingContent: nil,
+                timestamp: "2026-01-01T00:00:01.000Z",
+                cancelled: nil,
+                durationMs: nil
+            )
+        ], for: "session-1")
+
+        let stream = store.sessionStreams["session-1"]
+        #expect(stream != nil)
+        #expect(stream?.currentText == "")
+        #expect(stream?.activeToolCalls.isEmpty == true)
+        #expect(stream?.isStreaming == false)
+        #expect(stream?.pendingToolInputs.count == 1)
+        #expect(stream?.pendingToolInputs.first?.toolName == "AskUserQuestion")
+    }
+
+    @Test @MainActor
+    func historyLeavesActiveStreamingSessionUntouched() {
+        // While a session is actively streaming, history (finalized turns) must not
+        // disturb the live stream slot — live WS state wins.
+        let store = ConversationStore()
+        store.handle(.status(
+            status: .busy,
+            sessionId: "session-1",
+            streaming: true,
+            streamingStartedAt: nil,
+            lockedProvider: nil
+        ))
+        store.handle(.textDelta(sessionId: "session-1", text: "Live streaming content"))
+
+        store.applyFetchedHistory([
+            ChatMessage(
+                id: "message-1",
+                sessionId: "session-1",
+                role: .user,
+                content: "Earlier turn",
+                images: nil,
+                toolCalls: nil,
+                thinkingContent: nil,
+                timestamp: "2026-01-01T00:00:00.000Z",
+                cancelled: nil,
+                durationMs: nil
+            )
+        ], for: "session-1")
+
+        #expect(store.sessionStreams["session-1"]?.isStreaming == true)
+        #expect(store.sessionStreams["session-1"]?.currentText == "Live streaming content")
+        #expect(store.messages.count == 1)
+    }
+
+    @Test @MainActor
+    func switchBackRestoresCachedMessagesInstantly() {
+        // View session A (REST history applied), switch to B, switch back to A.
+        // A's messages must reappear instantly from the per-session cache — no
+        // empty flash, no refetch required. Mirrors web's React Query cache.
+        let store = ConversationStore()
+        store.setFocusedSessionId("session-A")
+        store.applyFetchedHistory([
+            ChatMessage(
+                id: "a-1",
+                sessionId: "session-A",
+                role: .user,
+                content: "Hello from A",
+                images: nil,
+                toolCalls: nil,
+                thinkingContent: nil,
+                timestamp: "2026-01-01T00:00:00.000Z",
+                cancelled: nil,
+                durationMs: nil
+            )
+        ], for: "session-A")
+        #expect(store.messages.count == 1)
+
+        // Switch to B (never viewed) — empty.
+        store.prepareSessionSwitch("session-B")
+        #expect(store.sessionId == "session-B")
+        #expect(store.messages.isEmpty)
+
+        // Switch back to A — restored instantly from cache without a refetch.
+        store.prepareSessionSwitch("session-A")
+        #expect(store.sessionId == "session-A")
+        #expect(store.messages.count == 1)
+        #expect(store.messages.first?.content == "Hello from A")
+    }
+
+    @Test @MainActor
+    func userMessageKeepsCacheInSyncForSwitchBack() {
+        // A user message appended over WS must land in the cache so switching
+        // away and back shows the turn without a refetch.
+        let store = ConversationStore()
+        store.setFocusedSessionId("session-A")
+        store.applyFetchedHistory([], for: "session-A")
+
+        store.handle(.userMessage(message: ChatMessage(
+            id: "u-1",
+            sessionId: "session-A",
+            role: .user,
+            content: "New question",
+            images: nil,
+            toolCalls: nil,
+            thinkingContent: nil,
+            timestamp: "2026-01-01T00:00:00.000Z",
+            cancelled: nil,
+            durationMs: nil
+        )))
+        #expect(store.messages.count == 1)
+
+        store.prepareSessionSwitch("session-B")
+        #expect(store.messages.isEmpty)
+
+        store.prepareSessionSwitch("session-A")
+        #expect(store.messages.count == 1)
+        #expect(store.messages.first?.content == "New question")
+    }
+
+    @Test @MainActor
+    func doneKeepsCacheInSyncForSwitchBack() {
+        // A finalized assistant turn (done) must land in the cache so switching
+        // away and back shows the finalized turn from cache.
+        let store = ConversationStore()
+        store.setFocusedSessionId("session-A")
+        store.applyFetchedHistory([], for: "session-A")
+        store.handle(.status(
+            status: .busy,
+            sessionId: "session-A",
+            streaming: true,
+            streamingStartedAt: nil,
+            lockedProvider: nil
+        ))
+        store.handle(.textDelta(sessionId: "session-A", text: "Finalized answer"))
+        store.handle(.done(
+            sessionId: "session-A",
+            durationMs: 100,
+            inputTokens: nil,
+            outputTokens: nil,
+            contextUsedTokens: nil,
+            contextWindowTokens: nil,
+            pendingToolName: nil
+        ))
+        #expect(store.messages.contains { $0.content == "Finalized answer" })
+
+        store.prepareSessionSwitch("session-B")
+        #expect(store.messages.isEmpty)
+
+        store.prepareSessionSwitch("session-A")
+        #expect(store.messages.contains { $0.content == "Finalized answer" })
+    }
+
+    @Test @MainActor
+    func syncWorkspacesEncodesHistoryViaRest() throws {
+        let message = HubIncoming.syncWorkspaces(workspaceIds: ["ws-1"])
+        let data = try JSONEncoder().encode(message)
+        let object = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+
+        #expect(object?["type"] as? String == "sync_workspaces")
+        #expect(object?["historyViaRest"] as? Bool == true)
+        #expect((object?["workspaceIds"] as? [String]) == ["ws-1"])
+    }
+
+    @Test @MainActor
     func toolInputResolvedClearsPendingToolInputs() throws {
         let store = ConversationStore()
         store.handle(.status(

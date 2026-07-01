@@ -36,6 +36,11 @@ final class ConversationStore {
 
     var messages: [ChatMessage] = []
 
+    /// Per-session finalized-history cache. Mirrors web's React Query cache so
+    /// switching back to a previously-viewed session restores its messages
+    /// instantly (no empty flash) while the authoritative REST refetch runs.
+    private var messagesBySession: [String: [ChatMessage]] = [:]
+
     /// Session currently displayed in chat.
     var sessionId: String?
 
@@ -237,6 +242,8 @@ final class ConversationStore {
             let alreadyExists = messages.contains { $0.id == msg.id }
             if isActive && !alreadyExists {
                 messages.append(msg)
+                // Keep the cache in sync so switch-away/back shows this turn.
+                messagesBySession[sid] = messages
             }
             sessionId = sessionId ?? sid
             ensureStream(for: sid)
@@ -247,29 +254,18 @@ final class ConversationStore {
             sessionStreams[sid]?.pendingToolInputs = []
 
         case .history(let msgs, let incomingSessionId):
+            // iOS opts into `historyViaRest`, so the backend no longer sends a
+            // `history` bootstrap event. This case remains only as a defensive
+            // fallback (e.g. an older backend) and routes through the same path
+            // the REST fetch uses, so reconciliation logic lives in one place.
             let historySessionId = incomingSessionId ?? msgs.first?.sessionId ?? sessionId
-            // Only update messages for the active session
-            guard historySessionId == nil || sessionId == nil || historySessionId == sessionId else { return }
-
-            // Always apply history — it contains finalized turns only.
-            // Streaming content lives in sessionStreams and is rendered as a
-            // separate in-progress bubble by the chat view.
-            messages = msgs
-            bumpHistoryToken(for: historySessionId)
-            sessionId = historySessionId ?? sessionId
-
-            // Derive pending tool inputs from history only when not actively
-            // streaming (during streaming, live WS tool inputs take precedence).
-            let activeStream = historySessionId.flatMap { sessionStreams[$0] }
-            if activeStream?.isStreaming != true {
-                let derived = derivePendingToolInputsFromHistory(msgs)
-                if let sid = historySessionId {
-                    if activeStream != nil || !derived.isEmpty {
-                        ensureStream(for: sid, streaming: false)
-                        sessionStreams[sid]?.pendingToolInputs = derived
-                    }
-                }
+            guard let sid = historySessionId else { return }
+            // Adopt the session when none is focused yet so the messages land on
+            // the active conversation (matches the pre-REST history behaviour).
+            if sessionId == nil {
+                sessionId = sid
             }
+            applyFetchedHistory(msgs, for: sid)
 
         case .branchInfo(let info):
             branchInfo = info
@@ -286,6 +282,47 @@ final class ConversationStore {
 
         case .unknown:
             break
+        }
+    }
+
+    /// Cached finalized messages for a session, if any have been fetched before.
+    /// Used by ChatView to render instantly on switch-back while the authoritative
+    /// REST refetch runs in the background.
+    func cachedMessages(for sessionId: String) -> [ChatMessage]? {
+        messagesBySession[sessionId]
+    }
+
+    /// Apply finalized history fetched from REST (or, defensively, a WS `history`
+    /// event) for a session. Caches it for instant switch-back, and — if the
+    /// session is currently active — applies it to `messages` and reconciles any
+    /// stale in-progress stream slot.
+    ///
+    /// History contains only finalized turns. Streaming content lives in
+    /// `sessionStreams` and is rendered as a separate in-progress bubble.
+    func applyFetchedHistory(_ msgs: [ChatMessage], for sessionId: String) {
+        messagesBySession[sessionId] = msgs
+
+        guard sessionId == self.sessionId else { return }
+
+        messages = msgs
+
+        // Reconcile any stale in-progress stream slot for a non-streaming session.
+        // History only carries finalized turns, so when it arrives for a session
+        // that is NOT actively streaming, any leftover stream slot has already been
+        // persisted into `messages` (e.g. the turn finished while the socket was a
+        // backgrounded zombie). Rebuild a CLEAN slot containing only pending tool
+        // inputs (an unanswered question/plan), or drop the stale slot entirely.
+        // During streaming, live WS state takes precedence, so we leave it untouched.
+        let existingStream = sessionStreams[sessionId]
+        if existingStream?.isStreaming != true {
+            let derived = derivePendingToolInputsFromHistory(msgs)
+            if !derived.isEmpty {
+                var rebuilt = SessionStreamState()
+                rebuilt.pendingToolInputs = derived
+                sessionStreams[sessionId] = rebuilt
+            } else if existingStream != nil {
+                sessionStreams.removeValue(forKey: sessionId)
+            }
         }
     }
 
@@ -329,7 +366,10 @@ final class ConversationStore {
     func prepareSessionSwitch(_ newSessionId: String) {
         let previousSessionId = sessionId
         sessionId = newSessionId
-        messages = []
+        // Restore from the per-session cache for instant switch-back (no empty
+        // flash). The REST refetch in ChatView replaces this with the
+        // authoritative copy. Empty array when this session was never viewed.
+        messages = messagesBySession[newSessionId] ?? []
         lockedProvider = nil
         bumpHistoryToken(for: previousSessionId)
         bumpHistoryToken(for: newSessionId)
@@ -339,17 +379,20 @@ final class ConversationStore {
     func removeSessionState(_ removedSessionId: String, fallbackSessionId: String?) {
         sessionStreams.removeValue(forKey: removedSessionId)
         historyTokenBySession.removeValue(forKey: removedSessionId)
+        messagesBySession.removeValue(forKey: removedSessionId)
 
         guard sessionId == removedSessionId else { return }
 
-        messages = []
-        lockedProvider = nil
-
+        // Restore the fallback's cached messages (if any) for instant display.
         if let fallbackSessionId, fallbackSessionId != removedSessionId {
             sessionId = fallbackSessionId
+            messages = messagesBySession[fallbackSessionId] ?? []
+            lockedProvider = nil
             bumpHistoryToken(for: fallbackSessionId)
         } else {
             sessionId = nil
+            messages = []
+            lockedProvider = nil
         }
     }
 
@@ -442,6 +485,10 @@ final class ConversationStore {
                 )
                 messages.append(msg)
             }
+            // Keep the cache in sync so switch-away/back shows the finalized turn.
+            // The onTurnCompleted REST refetch later replaces it with the
+            // authoritative (backend-ID'd) copy.
+            messagesBySession[sid] = messages
         }
     }
 

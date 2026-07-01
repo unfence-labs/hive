@@ -60,7 +60,9 @@ export function ThinkingSelector({
           </span>
         </div>
         <DropdownMenuGroup className="p-1">
-          {levels.map((level) => {
+          {/* Render highest level first so the menu reads Max → Low top-to-bottom.
+              Copy before reversing to avoid mutating the caller's array. */}
+          {[...levels].reverse().map((level) => {
             const isSelected = level === selectedLevel;
 
             return (

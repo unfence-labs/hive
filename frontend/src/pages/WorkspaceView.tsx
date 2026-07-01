@@ -4,6 +4,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Group, Panel, useDefaultLayout, usePanelRef } from "react-resizable-panels";
 import { api } from "@/hooks/useApi";
 import { useConversationColumn } from "@/hooks/useConversationColumn";
+import { removeCachedSessionMessages } from "@/hooks/useSessionMessages";
 import { useWorkspaceLiveDataContext, useClearUnread } from "@/contexts/WorkspaceLiveDataContext";
 
 import { FileTree, renderFileTreeNodes } from "@/components/ai-elements/file-tree";
@@ -141,7 +142,10 @@ export default function WorkspaceView() {
   }, [wsId, filesQuery.data]);
 
   const onLastSessionDeleted = useCallback(() => {
-    if (wsId) wsTransport.clearCachedData(wsId);
+    if (wsId) {
+      wsTransport.clearCachedData(wsId);
+      removeCachedSessionMessages(queryClient, wsId);
+    }
     void queryClient.invalidateQueries({ queryKey: ["workspace", wsId] });
   }, [wsId, queryClient]);
 

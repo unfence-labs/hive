@@ -6,7 +6,10 @@ import {
   getSessionById,
   getOrCreateSession,
   getSessionMessages,
+  getSpecificSessionMessages,
+  getDefaultSessionId,
   getStreamingSessionIds,
+  isLoadedDefaultSessionCandidate,
   stopStreaming,
 } from "../agents/session-dispatch.js";
 import type { SessionOptions } from "../agents/agent-manager.js";
@@ -39,6 +42,8 @@ type ActiveSession = NonNullable<ReturnType<typeof getSession>>;
 interface HubSocket {
   ws: WebSocket;
   subscribedWorkspaces: Set<string>;
+  /** Client fetches finalized history over REST, so skip the `history` bootstrap event. */
+  historyViaRest: boolean;
 }
 
 interface WorkspaceChannel {
@@ -178,8 +183,10 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
       lockedProvider: session.metadata.lockedProvider,
     });
     try {
-      const messages = await session.getMessages();
-      sendToHub(hub, workspaceId, { type: "history", sessionId: session.sessionId, messages });
+      if (!hub.historyViaRest) {
+        const messages = await session.getMessages();
+        sendToHub(hub, workspaceId, { type: "history", sessionId: session.sessionId, messages });
+      }
     } catch {
       // History load failure is non-fatal.
     }
@@ -297,41 +304,82 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
   // ── Workspace bootstrap (sent to one hub socket on subscribe) ─────
 
   const sendWorkspaceBootstrap = async (hub: HubSocket, wsId: string, channel: WorkspaceChannel): Promise<void> => {
-    const session = getSession(wsId);
-
-    if (session) {
-      attachSessionListeners(wsId, channel, session);
-      await sendSessionBootstrap(hub, wsId, session);
+    const sendStreamingBootstraps = (primarySessionId?: string): void => {
       for (const streamingId of getStreamingSessionIds(wsId)) {
-        if (streamingId !== session.sessionId) {
-          const streamingSession = getSessionById(wsId, streamingId);
-          if (streamingSession) {
-            attachSessionListeners(wsId, channel, streamingSession);
-          }
-          sendToHub(hub, wsId, {
-            type: "status",
-            status: "busy",
-            sessionId: streamingId,
-            streaming: true,
-            ...(streamingSession?.streamingStartedAt
-              ? { streamingStartedAt: streamingSession.streamingStartedAt }
-              : {}),
-          });
-          if (streamingSession) {
-            sendStreamingSnapshot(hub, wsId, streamingSession);
-          }
+        if (streamingId === primarySessionId) continue;
+        const streamingSession = getSessionById(wsId, streamingId);
+        if (streamingSession) {
+          attachSessionListeners(wsId, channel, streamingSession);
+        }
+        sendToHub(hub, wsId, {
+          type: "status",
+          status: "busy",
+          sessionId: streamingId,
+          streaming: true,
+          ...(streamingSession?.streamingStartedAt
+            ? { streamingStartedAt: streamingSession.streamingStartedAt }
+            : {}),
+        });
+        if (streamingSession) {
+          sendStreamingSnapshot(hub, wsId, streamingSession);
         }
       }
+    };
+
+    const session = getSession(wsId);
+    const sessionIsDefaultCandidate = session
+      ? isLoadedDefaultSessionCandidate(wsId, session)
+      : false;
+    const defaultSessionId = !session || !sessionIsDefaultCandidate
+      ? await getDefaultSessionId(wsId, dataDir).catch(() => undefined)
+      : undefined;
+
+    if (session && (sessionIsDefaultCandidate || !defaultSessionId)) {
+      attachSessionListeners(wsId, channel, session);
+      await sendSessionBootstrap(hub, wsId, session);
+      sendStreamingBootstraps(session.sessionId);
     } else {
-      sendToHub(hub, wsId, { type: "status", status: "idle", streaming: false });
-      try {
-        const messages = await getSessionMessages(wsId, dataDir);
-        if (messages.length > 0) {
-          const firstSessionId = messages[0]?.sessionId;
-          sendToHub(hub, wsId, { type: "history", sessionId: firstSessionId, messages });
+      // The in-memory active session is empty/idle, so we steer a fresh client
+      // to a different default chat. Still attach the active chat session's
+      // listeners: a client that stays on it (instead of adopting the redirect)
+      // must keep receiving its live events, as it did before this redirect.
+      if (session && session.metadata.kind !== "terminal") {
+        attachSessionListeners(wsId, channel, session);
+      }
+
+      const defaultSession = defaultSessionId ? getSessionById(wsId, defaultSessionId) : undefined;
+      if (defaultSession) {
+        // The default chat is already loaded: bootstrap it as the primary
+        // session so its listeners are attached and its real status/snapshot are
+        // sent — a streaming default must not be announced as idle first.
+        attachSessionListeners(wsId, channel, defaultSession);
+        await sendSessionBootstrap(hub, wsId, defaultSession);
+        sendStreamingBootstraps(defaultSession.sessionId);
+      } else {
+        // No default-worthy chat is loaded in memory. Tell the client which
+        // session to open (persisted active / most-recent non-empty chat) so a
+        // first visit lands on real history instead of a blank "new conversation"
+        // — resolved from metadata only, without shipping history over the WS.
+        sendToHub(hub, wsId, {
+          type: "status",
+          status: "idle",
+          streaming: false,
+          ...(defaultSessionId ? { sessionId: defaultSessionId } : {}),
+        });
+        if (!hub.historyViaRest) {
+          try {
+            const messages = defaultSessionId
+              ? await getSpecificSessionMessages(wsId, defaultSessionId, dataDir)
+              : await getSessionMessages(wsId, dataDir);
+            if (messages.length > 0) {
+              const firstSessionId = messages[0]?.sessionId;
+              sendToHub(hub, wsId, { type: "history", sessionId: firstSessionId, messages });
+            }
+          } catch {
+            // Ignore missing/corrupt persisted history.
+          }
         }
-      } catch {
-        // Ignore missing/corrupt persisted history.
+        sendStreamingBootstraps();
       }
     }
 
@@ -574,7 +622,7 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
         return;
       }
 
-      const hub: HubSocket = { ws: socket, subscribedWorkspaces: new Set() };
+      const hub: HubSocket = { ws: socket, subscribedWorkspaces: new Set(), historyViaRest: false };
       hubSockets.add(hub);
 
       const pingTimer = setInterval(() => {
@@ -611,7 +659,14 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
           return;
         }
 
-        if ("type" in parsed && parsed.type === "sync_workspaces") {
+        if ("type" in parsed && parsed.type === "ping") {
+          // Application-level liveness probe: reply immediately so the client
+          // can distinguish a healthy idle socket from a frozen one.
+          if (socket.readyState === socket.OPEN) {
+            socket.send(JSON.stringify({ type: "pong" }));
+          }
+        } else if ("type" in parsed && parsed.type === "sync_workspaces") {
+          if (parsed.historyViaRest !== undefined) hub.historyViaRest = parsed.historyViaRest;
           await handleSyncWorkspaces(hub, parsed.workspaceIds);
         } else if ("workspaceId" in parsed && "event" in parsed) {
           await handleWorkspaceMessage(hub, parsed.workspaceId, parsed.event);

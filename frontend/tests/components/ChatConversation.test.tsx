@@ -385,8 +385,11 @@ describe("ChatConversation hydration on session/workspace switch", () => {
       />,
     );
 
-    expect(conversation.className).toContain("invisible");
-    expect(conversation).toHaveAttribute("data-resize", "instant");
+    // switchCounter is a remount key on <Conversation>, so a switch replaces the
+    // node — re-query to assert on the fresh, re-hydrating instance.
+    const conversationAfterSwitch = screen.getByTestId("conversation");
+    expect(conversationAfterSwitch.className).toContain("invisible");
+    expect(conversationAfterSwitch).toHaveAttribute("data-resize", "instant");
 
     vi.useRealTimers();
     vi.unstubAllGlobals();

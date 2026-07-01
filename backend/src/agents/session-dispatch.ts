@@ -33,6 +33,16 @@ export function getSession(wsId: string): ConversationSession | undefined {
   return isBrain(wsId) ? brainManager.getBrainSession() : workspaceManager.getSession(wsId);
 }
 
+export function isLoadedDefaultSessionCandidate(
+  wsId: string,
+  session: ConversationSession,
+): boolean {
+  // The Brain has a single shared session and no terminal/empty-skip concept:
+  // getDefaultBrainSessionId always resolves the active session, so a loaded
+  // brain session is always its own default. Keep this in sync with that.
+  return isBrain(wsId) || workspaceManager.isLoadedDefaultSessionCandidate(session);
+}
+
 export function getSessionById(wsId: string, sessionId: string): ConversationSession | undefined {
   return isBrain(wsId)
     ? brainManager.getBrainSessionById(sessionId)
@@ -76,6 +86,16 @@ export async function listWorkspaceSessions(
   return isBrain(wsId)
     ? brainManager.listBrainSessions(dataDir)
     : workspaceManager.listWorkspaceSessions(wsId, dataDir);
+}
+
+/** Session a fresh client should open for a workspace (metadata only). */
+export async function getDefaultSessionId(
+  wsId: string,
+  dataDir = getDataDir(),
+): Promise<string | undefined> {
+  return isBrain(wsId)
+    ? brainManager.getDefaultBrainSessionId(dataDir)
+    : workspaceManager.getDefaultSessionId(wsId, dataDir);
 }
 
 export async function createNewSession(

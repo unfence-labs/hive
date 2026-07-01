@@ -7,17 +7,24 @@ type MessageHandler = (msg: WsOutgoing) => void;
 type GlobalMessageHandler = (workspaceId: string, msg: WsOutgoing) => void;
 type StatusListener = () => void;
 type StatusMessage = Extract<WsOutgoing, { type: "status" }>;
-export type HistoryMessage = Extract<WsOutgoing, { type: "history" }>;
 type DiffStatsMessage = Extract<WsOutgoing, { type: "diff_stats" }>;
 type BranchInfoMessage = Extract<WsOutgoing, { type: "branch_info" }>;
 
 const MAX_RECONNECT_DELAY = 30_000;
 const BASE_RECONNECT_DELAY = 1_000;
+// Application-level heartbeat. The browser WebSocket API never surfaces
+// protocol ping/pong to JS, so a frozen-but-OPEN socket (after OS sleep/wake or
+// a network change) is invisible to onclose. We send our own `ping` and watch
+// for the matching `pong` to detect liveness.
+const HEARTBEAT_INTERVAL_MS = 25_000;
+const PONG_TIMEOUT_MS = 10_000;
+// On window focus / tab visibility / network regain, probe the socket and only
+// reconnect if the probe goes unanswered within this window. Active probing (vs.
+// "reconnect any silent socket") is what avoids reconnecting healthy idle sockets.
+const FOCUS_PROBE_TIMEOUT_MS = 3_000;
 
-/** Resolve the session a history message belongs to (undefined if session-less). */
-function historySessionKey(msg: HistoryMessage): string | undefined {
-  return msg.sessionId ?? msg.messages[0]?.sessionId;
-}
+/** Narrowed hub envelope carrying a workspace event (the non-pong variant). */
+type WorkspaceEnvelope = { workspaceId: string; event: WsOutgoing };
 
 // ── Hub socket state ────────────────────────────────────────────────
 
@@ -26,6 +33,9 @@ interface HubState {
   status: ConnectionStatus;
   reconnectAttempt: number;
   reconnectTimer: ReturnType<typeof setTimeout> | null;
+  /** Timestamp of the last `pong` received (liveness signal). */
+  lastPongAt: number;
+  heartbeatTimer: ReturnType<typeof setInterval> | null;
 }
 
 // ── Per-workspace subscription data (no socket) ─────────────────────
@@ -36,8 +46,6 @@ interface WorkspaceSubscription {
   statusListeners: Set<StatusListener>;
   lastStatus?: StatusMessage;
   lastStatusBySession: Map<string, StatusMessage>;
-  /** Latest message history per session, so switching between sessions replays instantly. */
-  lastHistoryBySession: Map<string, HistoryMessage>;
   lastDiffStats?: DiffStatsMessage;
   lastBranchInfo?: BranchInfoMessage;
   /** Messages received while no handler was subscribed. Replayed on next onMessage(). */
@@ -50,6 +58,8 @@ class WsTransport {
     status: "disconnected",
     reconnectAttempt: 0,
     reconnectTimer: null,
+    lastPongAt: 0,
+    heartbeatTimer: null,
   };
   private subscriptions = new Map<string, WorkspaceSubscription>();
   private subscribedWorkspaceIds = new Set<string>();
@@ -86,38 +96,12 @@ class WsTransport {
     this.sendSyncWorkspaces();
   }
 
-  /** Update the cached history for its session so switch-back replays are fresh. */
-  updateCachedHistory(workspaceId: string, historyMsg: HistoryMessage): void {
-    const sub = this.subscriptions.get(workspaceId);
-    if (!sub) return;
-    const sessionId = historySessionKey(historyMsg);
-    if (sessionId) sub.lastHistoryBySession.set(sessionId, historyMsg);
-  }
-
-  /** Return the cached history for a specific session, if any. */
-  getCachedHistory(workspaceId: string, sessionId: string): HistoryMessage | undefined {
-    return this.subscriptions.get(workspaceId)?.lastHistoryBySession.get(sessionId);
-  }
-
-  /**
-   * Check whether cached history exists. With a sessionId, checks that session;
-   * without one, checks whether any session has cached history.
-   */
-  hasCachedHistory(workspaceId: string, sessionId?: string): boolean {
-    const sub = this.subscriptions.get(workspaceId);
-    if (!sub) return false;
-    return sessionId !== undefined
-      ? sub.lastHistoryBySession.has(sessionId)
-      : sub.lastHistoryBySession.size > 0;
-  }
-
-  /** Clear cached status/history for a workspace (e.g. after session deletion). */
+  /** Clear cached live status for a workspace (e.g. after session deletion). */
   clearCachedData(workspaceId: string): void {
     const sub = this.subscriptions.get(workspaceId);
     if (!sub) return;
     sub.lastStatus = undefined;
     sub.lastStatusBySession.clear();
-    sub.lastHistoryBySession.clear();
     sub.lastBranchInfo = undefined;
     sub.messageBuffer = [];
   }
@@ -137,6 +121,32 @@ class WsTransport {
     this.subscribedWorkspaceIds.clear();
   }
 
+  /**
+   * Verify the hub socket is alive and reconnect if it is not. Call on window
+   * focus / tab visibility / network regain — moments when a zombie socket
+   * (frozen OPEN after sleep, never firing onclose) typically surfaces.
+   *
+   * A closed/closing/absent socket reconnects immediately. An OPEN socket is
+   * actively probed with a `ping`; we reconnect only if no `pong` arrives within
+   * FOCUS_PROBE_TIMEOUT_MS. Probing (rather than reconnecting any silent socket)
+   * is what keeps healthy idle conversations from needlessly reconnecting.
+   */
+  probeLiveness(): void {
+    if (this.subscribedWorkspaceIds.size === 0) return;
+    const ws = this.hub.ws;
+    if (!ws || ws.readyState === WebSocket.CLOSING || ws.readyState === WebSocket.CLOSED) {
+      this.forceReconnect();
+      return;
+    }
+    if (ws.readyState === WebSocket.CONNECTING) return; // attempt already in flight
+    const pongBefore = this.hub.lastPongAt;
+    this.sendPing();
+    setTimeout(() => {
+      if (this.hub.ws !== ws) return; // socket already replaced
+      if (this.hub.lastPongAt === pongBefore) this.forceReconnect();
+    }, FOCUS_PROBE_TIMEOUT_MS);
+  }
+
   /** Send a message to the backend for a specific workspace. Returns false if the hub isn't open. */
   send(workspaceId: string, msg: WsIncoming): boolean {
     if (!this.hub.ws || this.hub.ws.readyState !== WebSocket.OPEN) return false;
@@ -146,7 +156,7 @@ class WsTransport {
 
   /**
    * Register a handler for incoming messages.
-   * Replays cached status, history, and any buffered messages immediately.
+   * Replays cached live status and any buffered messages immediately.
    * Returns `{ unsubscribe, hadBufferedMessages }`.
    */
   onMessage(workspaceId: string, handler: MessageHandler): { unsubscribe: () => void; hadBufferedMessages: boolean } {
@@ -159,9 +169,6 @@ class WsTransport {
       }
     } else if (sub.lastStatus) {
       handler(sub.lastStatus);
-    }
-    for (const historyMsg of sub.lastHistoryBySession.values()) {
-      handler(historyMsg);
     }
     if (sub.lastDiffStats) {
       handler(sub.lastDiffStats);
@@ -222,7 +229,6 @@ class WsTransport {
       reconnectListeners: new Set<() => void>(),
       statusListeners: new Set<StatusListener>(),
       lastStatusBySession: new Map(),
-      lastHistoryBySession: new Map(),
       messageBuffer: [],
     };
     this.subscriptions.set(workspaceId, created);
@@ -273,6 +279,8 @@ class WsTransport {
       if (this.hub.ws !== ws) return;
       const isReconnect = this.hub.reconnectAttempt > 0;
       this.hub.reconnectAttempt = 0;
+      this.hub.lastPongAt = Date.now();
+      this.startHeartbeat();
       // Clear per-session status caches on reconnect (will be repopulated by bootstrap)
       for (const sub of this.subscriptions.values()) {
         sub.lastStatusBySession.clear();
@@ -293,7 +301,11 @@ class WsTransport {
       if (this.hub.ws !== ws) return;
       try {
         const envelope = JSON.parse(event.data as string) as HubOutgoing;
-        this.handleIncomingEnvelope(envelope);
+        if ("type" in envelope && envelope.type === "pong") {
+          this.hub.lastPongAt = Date.now();
+          return;
+        }
+        this.handleIncomingEnvelope(envelope as WorkspaceEnvelope);
       } catch (err) {
         if (import.meta.env.DEV) {
           console.warn("[ws] Failed to parse message:", err);
@@ -303,6 +315,7 @@ class WsTransport {
 
     ws.onclose = () => {
       if (this.hub.ws !== ws) return;
+      this.stopHeartbeat();
       this.hub.ws = null;
       this.setHubStatus("disconnected");
       if (this.subscribedWorkspaceIds.size > 0) {
@@ -315,7 +328,7 @@ class WsTransport {
     };
   }
 
-  private handleIncomingEnvelope(envelope: HubOutgoing): void {
+  private handleIncomingEnvelope(envelope: WorkspaceEnvelope): void {
     const { workspaceId, event: msg } = envelope;
 
     // Notify global listeners (toast notifications, etc.) regardless of subscription state
@@ -324,7 +337,7 @@ class WsTransport {
     const sub = this.subscriptions.get(workspaceId);
     if (!sub) return;
 
-    // Update per-workspace caches
+    // Update per-workspace live caches (history is owned by React Query / REST).
     if (msg.type === "status") {
       sub.lastStatus = msg;
       if (msg.sessionId) {
@@ -332,9 +345,6 @@ class WsTransport {
       } else if (msg.status === "idle") {
         sub.lastStatusBySession.clear();
       }
-    } else if (msg.type === "history") {
-      const sessionId = historySessionKey(msg);
-      if (sessionId) sub.lastHistoryBySession.set(sessionId, msg);
     } else if (msg.type === "diff_stats") {
       sub.lastDiffStats = msg;
     } else if (msg.type === "branch_info") {
@@ -360,7 +370,50 @@ class WsTransport {
     this.hub.ws.send(JSON.stringify({
       type: "sync_workspaces",
       workspaceIds: [...this.subscribedWorkspaceIds],
+      // Finalized history is loaded over REST (React Query); skip the heavy WS
+      // `history` bootstrap event.
+      historyViaRest: true,
     }));
+  }
+
+  private sendPing(): void {
+    if (this.hub.ws?.readyState === WebSocket.OPEN) {
+      this.hub.ws.send(JSON.stringify({ type: "ping" }));
+    }
+  }
+
+  private startHeartbeat(): void {
+    this.stopHeartbeat();
+    this.hub.heartbeatTimer = setInterval(() => {
+      if (!this.hub.ws || this.hub.ws.readyState !== WebSocket.OPEN) return;
+      // No pong since the previous ping window → the socket is a zombie.
+      if (Date.now() - this.hub.lastPongAt > HEARTBEAT_INTERVAL_MS + PONG_TIMEOUT_MS) {
+        this.forceReconnect();
+        return;
+      }
+      this.sendPing();
+    }, HEARTBEAT_INTERVAL_MS);
+  }
+
+  private stopHeartbeat(): void {
+    if (this.hub.heartbeatTimer) {
+      clearInterval(this.hub.heartbeatTimer);
+      this.hub.heartbeatTimer = null;
+    }
+  }
+
+  /**
+   * Tear down a (possibly zombie) socket and open a fresh one, marking it as a
+   * reconnect so onReconnect listeners fire. The conversation reducer reconciles
+   * non-destructively from the bootstrap (snapshot replace + REST history cache),
+   * so this does not blank the visible stream.
+   */
+  private forceReconnect(): void {
+    if (this.subscribedWorkspaceIds.size === 0) return;
+    this.teardownHub();
+    this.hub.reconnectAttempt = 1;
+    this.setHubStatus("connecting");
+    this.openHubSocket();
   }
 
   private scheduleHubReconnect(): void {
@@ -379,6 +432,7 @@ class WsTransport {
   }
 
   private teardownHub(): void {
+    this.stopHeartbeat();
     if (this.hub.reconnectTimer) {
       clearTimeout(this.hub.reconnectTimer);
       this.hub.reconnectTimer = null;

@@ -244,6 +244,17 @@ export async function listBrainSessions(dataDir = getDataDir()): Promise<Session
   return sortByUpdatedAtDesc(sessions);
 }
 
+/** Session a fresh client should open for the Brain (metadata only — no message
+ *  bodies). In-memory active/most-recent, else the most-recently-updated
+ *  non-empty session, else undefined. Mirrors agent-manager.getDefaultSessionId. */
+export async function getDefaultBrainSessionId(dataDir = getDataDir()): Promise<string | undefined> {
+  const active = getActiveSession() ?? getMostRecentlyUpdatedLoadedSession();
+  if (active) return active.sessionId;
+
+  const sessions = await listBrainSessions(dataDir); // sorted updatedAt-desc
+  return sessions.find((s) => s.messageCount > 0)?.sessionId;
+}
+
 /** Create a new Brain session and make it active. Enforces the shared session cap. */
 export async function createNewBrainSession(
   dataDir = getDataDir(),
