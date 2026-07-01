@@ -21,7 +21,7 @@ function renderContentWithMentions(
   const atMentions = atMatches ? [...new Set(atMatches)] : [];
 
   if (!mentions?.length && atMentions.length === 0)
-    return <p className="whitespace-pre-wrap wrap-anywhere">{content}</p>;
+    return <p className="whitespace-pre-wrap wrap-anywhere" data-find-content="">{content}</p>;
 
   const segments = splitByAllMentions(content, mentions, atMentions).map((segment, i) => {
     if (segment.mention) {
@@ -50,7 +50,7 @@ function renderContentWithMentions(
     return <span key={i}>{segment.text}</span>;
   });
 
-  return <p className="whitespace-pre-wrap wrap-anywhere">{segments}</p>;
+  return <p className="whitespace-pre-wrap wrap-anywhere" data-find-content="">{segments}</p>;
 }
 
 interface ChatMessageProps {
@@ -142,7 +142,7 @@ const ChatMessage = memo(function ChatMessage({
             <ThinkingBlock content={message.thinkingContent} />
           )}
           {message.content && (
-            <div className="prose-sm">
+            <div className="prose-sm" data-find-content="">
               <MessageResponse>{message.content}</MessageResponse>
             </div>
           )}

@@ -34,6 +34,13 @@ vi.mock("@/components/ai-elements/conversation", () => ({
   ConversationScrollTrigger: () => null,
 }));
 
+// ConversationFind reads the stick-to-bottom context, which the mocked
+// Conversation above does not provide; stub it out since these tests exercise
+// ChatConversation, not the find bar (which has its own tests).
+vi.mock("@/components/chat/ConversationFind", () => ({
+  ConversationFind: () => null,
+}));
+
 vi.mock("@/components/ChatMessage", () => ({
   default: ({
     message,

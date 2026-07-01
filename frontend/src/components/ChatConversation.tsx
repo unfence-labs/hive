@@ -8,6 +8,7 @@ import {
   ConversationScrollTrigger,
 } from "@/components/ai-elements/conversation";
 import ChatMessage from "@/components/ChatMessage";
+import { ConversationFind } from "@/components/chat/ConversationFind";
 import AgentActivityPreview from "@/components/chat/AgentActivityPreview";
 import { MessageResponse } from "@/components/ai-elements/message";
 import { ThinkingBlock } from "@/components/chat/ThinkingBlock";
@@ -258,7 +259,7 @@ export default function ChatConversation({
                 <ThinkingBlock content={currentThinking} defaultOpen streaming />
               )}
               {currentStreamingText && (
-                <div className="prose-sm">
+                <div className="prose-sm" data-find-content="">
                   <MessageResponse isAnimating>{currentStreamingText}</MessageResponse>
                 </div>
               )}
@@ -302,6 +303,7 @@ export default function ChatConversation({
       <ConversationScrollButton />
       <ConversationScrollLockReEngager />
       <ConversationScrollTrigger trigger={scrollToBottomTrigger} />
+      <ConversationFind switchCounter={switchCounter} />
     </Conversation>
   );
 }
