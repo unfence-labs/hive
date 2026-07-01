@@ -10,6 +10,15 @@ import { bareRepoPath, workspacesDir } from "../utils/paths.js";
 import { getBranchName, GitSyncService } from "./git-sync.js";
 import type { BranchInfo, DiffStatResponse } from "../types.js";
 
+vi.mock("../utils/github.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../utils/github.js")>();
+  return {
+    ...actual,
+    parseGitHubRepo: vi.fn(() => ({ owner: "o", repo: "r" })),
+    fetchPrForBranch: vi.fn(async () => ({ pr: null })),
+  };
+});
+
 let tempDir: string;
 let dataDir: string;
 let fixtureRepoUrl: string;
@@ -108,6 +117,23 @@ describe("GitSyncService", () => {
     expect(callbackInfo).toBeDefined();
     expect(callbackInfo!.name).toBe(newBranchName);
     expect(callbackInfo!.lastSyncedAt).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/);
+  });
+
+  it("emits onPrStatusChange only for workspaces with hub subscribers (C17)", async () => {
+    const ws = await createWorkspace(projectId, dataDir);
+    const subscribed = new Set<string>();
+    const prService = new GitSyncService(dataDir, (id) => subscribed.has(id));
+    const events: string[] = [];
+    prService.onPrStatusChange((wsId) => events.push(wsId));
+
+    await prService.poll();
+    expect(events).toEqual([]);
+
+    subscribed.add(ws.id);
+    await prService.poll();
+    expect(events).toEqual([ws.id]);
+
+    prService._clearForTests();
   });
 
   it("does NOT emit callback when branch has not changed", async () => {

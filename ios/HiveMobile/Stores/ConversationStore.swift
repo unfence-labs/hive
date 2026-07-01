@@ -3,7 +3,8 @@ import Observation
 
 // MARK: - Per-session streaming state
 
-struct SessionStreamState {
+@Observable
+final class SessionStreamState {
     var currentText = ""
     var currentThinking = ""
     var activeToolCalls: [ToolCall] = []
@@ -34,12 +35,18 @@ final class ConversationStore {
     /// Returns `true` if the message was handed to the WebSocket, `false` otherwise.
     var send: ((WsIncoming) async -> Bool)?
 
-    var messages: [ChatMessage] = []
+    var messages: [ChatMessage] = [] {
+        didSet { recomputeDerivations() }
+    }
 
     /// Per-session finalized-history cache. Mirrors web's React Query cache so
     /// switching back to a previously-viewed session restores its messages
     /// instantly (no empty flash) while the authoritative REST refetch runs.
     private var messagesBySession: [String: [ChatMessage]] = [:]
+    private var serverHistory: [String: [ChatMessage]] = [:]
+    private var cacheOrder: [String] = []
+    private let maxCachedSessions = 6
+    private var lastHistoryFetchAt: [String: Date] = [:]
 
     /// Session currently displayed in chat.
     var sessionId: String?
@@ -83,29 +90,23 @@ final class ConversationStore {
     var activeAgentActivities: [AgentActivity] { activeStream?.activeAgentActivities ?? [] }
     var pendingToolInputs: [PendingToolInput] { activeStream?.pendingToolInputs ?? [] }
 
-    /// Derived task tracking state from task tools and Codex plan updates.
-    var tasksState: TasksState {
-        deriveTasks(
-            from: messages,
-            activeToolCalls: activeStream?.activeToolCalls ?? [],
-            activeAgentActivities: activeStream?.activeAgentActivities ?? []
-        )
-    }
+    private(set) var tasksState: TasksState =
+        deriveTasks(from: [], activeToolCalls: [], activeAgentActivities: [])
+    private(set) var goalState: GoalState? =
+        deriveGoalState(from: [], activeAgentActivities: [])
+    private(set) var backgroundAgents: BackgroundAgentsState =
+        deriveBackgroundAgents(from: [], activeToolCalls: [])
 
-    /// Active Codex goal, if any (mirrors `useGoalState`).
-    var goalState: GoalState? {
-        deriveGoalState(
+    private func recomputeDerivations() {
+        let toolCalls = activeStream?.activeToolCalls ?? []
+        let activities = activeStream?.activeAgentActivities ?? []
+        tasksState = deriveTasks(
             from: messages,
-            activeAgentActivities: activeStream?.activeAgentActivities ?? []
+            activeToolCalls: toolCalls,
+            activeAgentActivities: activities
         )
-    }
-
-    /// Background sub-agents and their running state (mirrors `useBackgroundAgents`).
-    var backgroundAgents: BackgroundAgentsState {
-        deriveBackgroundAgents(
-            from: messages,
-            activeToolCalls: activeStream?.activeToolCalls ?? []
-        )
+        goalState = deriveGoalState(from: messages, activeAgentActivities: activities)
+        backgroundAgents = deriveBackgroundAgents(from: messages, activeToolCalls: toolCalls)
     }
 
     // MARK: - Event handling
@@ -126,6 +127,7 @@ final class ConversationStore {
                 id: id, name: name, input: input,
                 output: nil, parentToolUseId: parentToolUseId
             ))
+            recomputeDerivations()
 
         case .toolResult(let sid, let toolUseId, let output):
             guard let stream = sessionStreams[sid],
@@ -135,13 +137,14 @@ final class ConversationStore {
                 id: tc.id, name: tc.name, input: tc.input,
                 output: output, parentToolUseId: tc.parentToolUseId
             )
+            recomputeDerivations()
 
         case .agentActivity(let sid, let activity):
             upsertAgentActivity(activity, for: sid)
 
         case .streamSnapshot(let sid, let text, let thinking, let toolCalls,
                              let agentActivities, let agentPlanMode, let startedAt):
-            var stream = sessionStreams[sid] ?? SessionStreamState()
+            let stream = sessionStreams[sid] ?? SessionStreamState()
             stream.currentText = text
             stream.currentThinking = thinking
             stream.activeToolCalls = toolCalls
@@ -154,6 +157,7 @@ final class ConversationStore {
             if sessionId == nil {
                 sessionId = sid
             }
+            recomputeDerivations()
 
         case .toolInputRequired(let sid, let requestId, let toolName, let toolUseId, let input):
             if sessionStreams[sid] == nil && hasTerminalAssistantMessage(for: sid) {
@@ -175,10 +179,12 @@ final class ConversationStore {
                             inputTokens: inputTokens, outputTokens: outputTokens,
                             contextUsedTokens: contextUsedTokens,
                             contextWindowTokens: contextWindowTokens)
+            lastHistoryFetchAt.removeValue(forKey: sid)
             onTurnCompleted?(sid)
 
         case .cancelled(let sid, let errorDetail, _, let durationMs):
             finalizeMessage(sessionId: sid, durationMs: durationMs, cancelled: true, errorDetail: errorDetail)
+            lastHistoryFetchAt.removeValue(forKey: sid)
             onTurnCompleted?(sid)
 
         case .error(let message, let errorSessionId):
@@ -199,7 +205,7 @@ final class ConversationStore {
             if let sid = incomingSessionId, let newIsStreaming {
                 if newIsStreaming {
                     ensureStream(for: sid)
-                    if var stream = sessionStreams[sid] {
+                    if let stream = sessionStreams[sid] {
                         stream.isStreaming = true
                         // A (re)starting turn means any pending question was
                         // answered, possibly on another client (e.g. web).
@@ -212,7 +218,7 @@ final class ConversationStore {
                         }
                         sessionStreams[sid] = stream
                     }
-                } else if var stream = sessionStreams[sid] {
+                } else if let stream = sessionStreams[sid] {
                     // Session stopped streaming. Clean up if no content.
                     if stream.currentText.isEmpty && stream.currentThinking.isEmpty
                         && stream.activeToolCalls.isEmpty && stream.activeAgentActivities.isEmpty
@@ -235,6 +241,7 @@ final class ConversationStore {
             if sessionId == nil, let incomingSessionId {
                 sessionId = incomingSessionId
             }
+            recomputeDerivations()
 
         case .userMessage(let msg):
             let sid = msg.sessionId
@@ -242,8 +249,9 @@ final class ConversationStore {
             let alreadyExists = messages.contains { $0.id == msg.id }
             if isActive && !alreadyExists {
                 messages.append(msg)
-                // Keep the cache in sync so switch-away/back shows this turn.
-                messagesBySession[sid] = messages
+                cacheMessages(messages, for: sid)
+            } else if !isActive {
+                lastHistoryFetchAt.removeValue(forKey: sid)
             }
             sessionId = sessionId ?? sid
             ensureStream(for: sid)
@@ -252,6 +260,7 @@ final class ConversationStore {
             sessionStreams[sid]?.activeToolCalls = []
             sessionStreams[sid]?.activeAgentActivities = []
             sessionStreams[sid]?.pendingToolInputs = []
+            recomputeDerivations()
 
         case .history(let msgs, let incomingSessionId):
             // Conversation history is REST-owned unconditionally, so the backend
@@ -274,7 +283,7 @@ final class ConversationStore {
         case .diffStats(let stats):
             diffStats = stats
 
-        case .scriptStatus:
+        case .scriptStatus, .prStatus:
             break // Handled by sidebar, not relevant to chat
 
         case .planModeChanged(let sid, let active):
@@ -301,7 +310,9 @@ final class ConversationStore {
     /// History contains only finalized turns. Streaming content lives in
     /// `sessionStreams` and is rendered as a separate in-progress bubble.
     func applyFetchedHistory(_ msgs: [ChatMessage], for sessionId: String) {
-        messagesBySession[sessionId] = msgs
+        serverHistory[sessionId] = msgs
+        cacheMessages(msgs, for: sessionId)
+        lastHistoryFetchAt[sessionId] = Date()
 
         guard sessionId == self.sessionId else { return }
 
@@ -318,13 +329,26 @@ final class ConversationStore {
         if existingStream?.isStreaming != true {
             let derived = derivePendingToolInputsFromHistory(msgs)
             if !derived.isEmpty {
-                var rebuilt = SessionStreamState()
+                let rebuilt = SessionStreamState()
                 rebuilt.pendingToolInputs = derived
                 sessionStreams[sessionId] = rebuilt
             } else if existingStream != nil {
                 sessionStreams.removeValue(forKey: sessionId)
             }
+            recomputeDerivations()
         }
+    }
+
+    func lastServerMessageId(for sessionId: String?) -> String? {
+        guard let sessionId else { return nil }
+        return serverHistory[sessionId]?.last?.id
+    }
+
+    func applyIncrementalHistory(_ tail: [ChatMessage], for sessionId: String) {
+        let base = serverHistory[sessionId] ?? messagesBySession[sessionId] ?? []
+        var seen = Set<String>()
+        let merged = (base + tail).filter { seen.insert($0.id).inserted }
+        applyFetchedHistory(merged, for: sessionId)
     }
 
     func clearPendingToolInputs() {
@@ -362,6 +386,7 @@ final class ConversationStore {
 
     func setFocusedSessionId(_ value: String?) {
         sessionId = value
+        recomputeDerivations()
     }
 
     func prepareSessionSwitch(_ newSessionId: String) {
@@ -381,6 +406,9 @@ final class ConversationStore {
         sessionStreams.removeValue(forKey: removedSessionId)
         historyTokenBySession.removeValue(forKey: removedSessionId)
         messagesBySession.removeValue(forKey: removedSessionId)
+        serverHistory.removeValue(forKey: removedSessionId)
+        lastHistoryFetchAt.removeValue(forKey: removedSessionId)
+        cacheOrder.removeAll { $0 == removedSessionId }
 
         guard sessionId == removedSessionId else { return }
 
@@ -402,7 +430,7 @@ final class ConversationStore {
     /// Ensure a stream slot exists for the given session, defaulting to streaming state.
     private func ensureStream(for sid: String, streaming: Bool = true) {
         if sessionStreams[sid] == nil {
-            var stream = SessionStreamState()
+            let stream = SessionStreamState()
             stream.isStreaming = streaming
             if streaming {
                 stream.streamingStartedAt = Date()
@@ -417,13 +445,13 @@ final class ConversationStore {
     }
 
     private func upsertAgentActivity(_ activity: AgentActivity, for sid: String) {
-        guard var stream = sessionStreams[sid] else { return }
+        guard let stream = sessionStreams[sid] else { return }
         if let index = stream.activeAgentActivities.firstIndex(where: { $0.id == activity.id }) {
             stream.activeAgentActivities[index] = activity
         } else {
             stream.activeAgentActivities.append(activity)
         }
-        sessionStreams[sid] = stream
+        recomputeDerivations()
     }
 
     private func hasTerminalAssistantMessage(for sid: String) -> Bool {
@@ -486,11 +514,34 @@ final class ConversationStore {
                 )
                 messages.append(msg)
             }
-            // Keep the cache in sync so switch-away/back shows the finalized turn.
-            // The onTurnCompleted REST refetch later replaces it with the
-            // authoritative (backend-ID'd) copy.
-            messagesBySession[sid] = messages
+            cacheMessages(messages, for: sid)
         }
+    }
+
+    private func cacheMessages(_ msgs: [ChatMessage], for sid: String) {
+        messagesBySession[sid] = msgs
+        cacheOrder.removeAll { $0 == sid }
+        cacheOrder.append(sid)
+        while cacheOrder.count > maxCachedSessions {
+            guard let victim = cacheOrder.first(where: { $0 != sessionId }) else { break }
+            cacheOrder.removeAll { $0 == victim }
+            messagesBySession.removeValue(forKey: victim)
+            serverHistory.removeValue(forKey: victim)
+            lastHistoryFetchAt.removeValue(forKey: victim)
+        }
+    }
+
+    func isHistoryFresh(_ sessionId: String?, within seconds: TimeInterval) -> Bool {
+        guard let sessionId, let at = lastHistoryFetchAt[sessionId] else { return false }
+        return Date().timeIntervalSince(at) < seconds
+    }
+
+    func handleMemoryWarning() {
+        let keep = sessionId
+        messagesBySession = messagesBySession.filter { $0.key == keep }
+        serverHistory = serverHistory.filter { $0.key == keep }
+        lastHistoryFetchAt = lastHistoryFetchAt.filter { $0.key == keep }
+        cacheOrder = cacheOrder.filter { $0 == keep }
     }
 
     /// Derive pending tool inputs from history — mirrors frontend's derivePendingToolInputsFromHistory.

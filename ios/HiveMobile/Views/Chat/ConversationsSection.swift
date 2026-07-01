@@ -42,6 +42,7 @@ struct ConversationsSection<Header: View>: View {
     @State private var isLoading = true
     @State private var isCreatingSession = false
     @State private var errorMessage: String?
+    @State private var lastRefreshAt = Date.distantPast
 
     private let api = APIClient()
     private var focusedSessionId: String? {
@@ -144,7 +145,8 @@ struct ConversationsSection<Header: View>: View {
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
         .refreshable {
-            await refreshContent()
+            projectStore.statusMonitor.forceRefresh()
+            await refreshContent(force: true)
         }
         .overlay {
             if isLoading {
@@ -173,8 +175,9 @@ struct ConversationsSection<Header: View>: View {
         )
     }
 
-    private func refreshContent() async {
-        projectStore.statusMonitor.forceRefresh()
+    private func refreshContent(force: Bool = false) async {
+        if !force, Date().timeIntervalSince(lastRefreshAt) < 0.5 { return }
+        lastRefreshAt = Date()
         await loadSessions()
         await onExtraRefresh?()
     }

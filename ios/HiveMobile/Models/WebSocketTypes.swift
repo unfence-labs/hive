@@ -10,15 +10,16 @@ struct HubOutgoing: Decodable {
 
 /// Client -> Server (hub-level).
 enum HubIncoming: Encodable {
-    case syncWorkspaces(workspaceIds: [String])
+    case syncWorkspaces(workspaceIds: [String], focusWorkspaces: [String])
     case workspaceEvent(workspaceId: String, event: WsIncoming)
 
     func encode(to encoder: Encoder) throws {
         switch self {
-        case .syncWorkspaces(let workspaceIds):
+        case .syncWorkspaces(let workspaceIds, let focusWorkspaces):
             var container = encoder.container(keyedBy: SyncCodingKeys.self)
             try container.encode("sync_workspaces", forKey: .type)
             try container.encode(workspaceIds, forKey: .workspaceIds)
+            try container.encode(focusWorkspaces, forKey: .focusWorkspaces)
         case .workspaceEvent(let workspaceId, let event):
             var container = encoder.container(keyedBy: EventCodingKeys.self)
             try container.encode(workspaceId, forKey: .workspaceId)
@@ -27,7 +28,7 @@ enum HubIncoming: Encodable {
     }
 
     private enum SyncCodingKeys: String, CodingKey {
-        case type, workspaceIds
+        case type, workspaceIds, focusWorkspaces
     }
 
     private enum EventCodingKeys: String, CodingKey {
@@ -125,6 +126,7 @@ enum WsOutgoing: Decodable {
     case history(messages: [ChatMessage], sessionId: String?)
     case branchInfo(info: BranchInfo)
     case diffStats(stats: DiffStatResponse)
+    case prStatus(status: PrStatusResponse)
     case scriptStatus(scriptType: String, state: String, exitCode: Int?)
     case planModeChanged(sessionId: String, active: Bool)
     case unknown(type: String)
@@ -293,6 +295,8 @@ enum WsOutgoing: Decodable {
             self = .branchInfo(info: try container.decode(BranchInfo.self, forKey: .info))
         case "diff_stats":
             self = .diffStats(stats: try container.decode(DiffStatResponse.self, forKey: .stats))
+        case "pr_status":
+            self = .prStatus(status: try container.decode(PrStatusResponse.self, forKey: .status))
         case "script_status":
             self = .scriptStatus(
                 scriptType: try container.decode(String.self, forKey: .scriptType),

@@ -17,7 +17,7 @@ enum APIError: Error, LocalizedError {
 }
 
 final class APIClient {
-    private let session = URLSession.shared
+    private let session = HiveHTTP.session
     private let decoder = JSONDecoder()
 
     private var baseURL: String {
@@ -45,7 +45,7 @@ final class APIClient {
 
         var req = URLRequest(url: url)
         req.httpMethod = method
-        req.cachePolicy = .reloadIgnoringLocalCacheData
+        req.cachePolicy = method == "GET" ? .reloadRevalidatingCacheData : .reloadIgnoringLocalCacheData
         if !authToken.isEmpty {
             req.setValue("Bearer \(authToken)", forHTTPHeaderField: "Authorization")
         }
@@ -166,8 +166,12 @@ final class APIClient {
         try await get(path: "/api/workspaces/\(workspaceId)/sessions")
     }
 
-    func fetchMessages(workspaceId: String, sessionId: String) async throws -> [ChatMessage] {
-        try await get(path: "/api/workspaces/\(workspaceId)/sessions/\(sessionId)/messages")
+    func fetchMessages(workspaceId: String, sessionId: String, since: String? = nil) async throws -> [ChatMessage] {
+        var path = "/api/workspaces/\(workspaceId)/sessions/\(sessionId)/messages"
+        if let since, let encoded = since.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) {
+            path += "?since=\(encoded)"
+        }
+        return try await get(path: path)
     }
 
     func createSession(workspaceId: String) async throws -> SessionMetadata {

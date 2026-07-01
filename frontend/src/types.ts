@@ -433,6 +433,7 @@ export type WsOutgoing =
   | { type: "history"; messages: ChatMessage[]; sessionId?: string }
   | { type: "branch_info"; info: BranchInfo }
   | { type: "diff_stats"; stats: DiffStatResponse }
+  | { type: "pr_status"; status: PrStatusResponse }
   | { type: "script_status"; scriptType: ScriptType; state: ScriptState; exitCode?: number }
   | { type: "browser_status"; status: BrowserStatusPayload }
   | { type: "plan_mode_changed"; sessionId: string; active: boolean };

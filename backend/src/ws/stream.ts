@@ -24,6 +24,7 @@ import { replaceCompletionAliases, type CompletionProvider } from "../utils/comp
 interface GitSyncSnapshotProvider {
   getCachedBranchInfo: (workspaceId: string) => Extract<WsOutgoing, { type: "branch_info" }>["info"] | undefined;
   getCachedDiffStats: (workspaceId: string) => Extract<WsOutgoing, { type: "diff_stats" }>["stats"] | undefined;
+  getCachedPrStatus?: (workspaceId: string) => Extract<WsOutgoing, { type: "pr_status" }>["status"] | undefined;
 }
 
 export interface StreamRoutesOptions {
@@ -42,6 +43,22 @@ interface HubSocket {
   subscribedWorkspaces: Set<string>;
   /** WS-level heartbeat flag: set true on `pong`, cleared each ping tick. A missed cycle reaps the socket. */
   isAlive: boolean;
+  focusWorkspaces?: Set<string>;
+}
+
+const HIGH_FREQUENCY_EVENTS: ReadonlySet<WsOutgoing["type"]> = new Set([
+  "text_delta",
+  "thinking",
+  "tool_use",
+  "tool_result",
+  "agent_activity",
+  "stream_snapshot",
+]);
+
+function hubReceivesEvent(hub: HubSocket, workspaceId: string, msg: WsOutgoing): boolean {
+  if (!hub.focusWorkspaces) return true;
+  if (!HIGH_FREQUENCY_EVENTS.has(msg.type)) return true;
+  return hub.focusWorkspaces.has(workspaceId);
 }
 
 interface WorkspaceChannel {
@@ -110,7 +127,7 @@ export function broadcastToWorkspace(workspaceId: string, msg: WsOutgoing): void
   const envelope: HubOutgoing = { workspaceId, event: msg };
   const serialized = JSON.stringify(envelope);
   for (const hub of channel.hubSockets) {
-    if (hub.ws.readyState === hub.ws.OPEN) {
+    if (hub.ws.readyState === hub.ws.OPEN && hubReceivesEvent(hub, workspaceId, msg)) {
       hub.ws.send(serialized);
     }
   }
@@ -129,6 +146,11 @@ function tickHubLiveness(hub: HubSocket): void {
   }
   hub.isAlive = false;
   if (hub.ws.readyState === hub.ws.OPEN) hub.ws.ping();
+}
+
+export function hasActiveHubSubscribers(workspaceId: string): boolean {
+  const channel = channels.get(workspaceId);
+  return !!channel && channel.hubSockets.size > 0;
 }
 
 export function _getChannelsForTests(): Map<string, WorkspaceChannel> {
@@ -180,7 +202,7 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
     const envelope: HubOutgoing = { workspaceId, event: msg };
     const serialized = JSON.stringify(envelope);
     for (const hub of channel.hubSockets) {
-      if (hub.ws.readyState === hub.ws.OPEN) {
+      if (hub.ws.readyState === hub.ws.OPEN && hubReceivesEvent(hub, workspaceId, msg)) {
         hub.ws.send(serialized);
       }
     }
@@ -389,6 +411,11 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
       sendToHub(hub, wsId, { type: "diff_stats", stats: diffStats });
     }
 
+    const prStatus = gitSyncSnapshotProvider?.getCachedPrStatus?.(wsId);
+    if (prStatus) {
+      sendToHub(hub, wsId, { type: "pr_status", status: prStatus });
+    }
+
     const scriptStatus = getScriptStatus(wsId);
     for (const [scriptType, info] of Object.entries(scriptStatus)) {
       if (info.state !== "idle") {
@@ -408,8 +435,13 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
 
   // ── sync_workspaces handler ───────────────────────────────────────
 
-  const handleSyncWorkspaces = async (hub: HubSocket, workspaceIds: string[]): Promise<void> => {
+  const handleSyncWorkspaces = async (
+    hub: HubSocket,
+    workspaceIds: string[],
+    focusWorkspaces?: string[],
+  ): Promise<void> => {
     const desired = new Set(workspaceIds);
+    hub.focusWorkspaces = focusWorkspaces ? new Set(focusWorkspaces) : undefined;
 
     // Unsubscribe from removed workspaces
     for (const wsId of hub.subscribedWorkspaces) {
@@ -663,7 +695,7 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
             socket.send(JSON.stringify({ type: "pong" }));
           }
         } else if ("type" in parsed && parsed.type === "sync_workspaces") {
-          await handleSyncWorkspaces(hub, parsed.workspaceIds);
+          await handleSyncWorkspaces(hub, parsed.workspaceIds, parsed.focusWorkspaces);
         } else if ("workspaceId" in parsed && "event" in parsed) {
           await handleWorkspaceMessage(hub, parsed.workspaceId, parsed.event);
         }

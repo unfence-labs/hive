@@ -35,6 +35,10 @@ export function useWsCacheInvalidation(workspaceIds: string[]): void {
             void queryClient.invalidateQueries({ queryKey: ["file-completions", wsId] });
             break;
 
+          case "pr_status":
+            queryClient.setQueryData(["pr-status", wsId], msg.status);
+            break;
+
           case "status":
             // Workspace busy/idle transition.
             void queryClient.invalidateQueries({ queryKey: ["workspace", wsId] });

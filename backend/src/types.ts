@@ -443,6 +443,7 @@ export type WsOutgoing =
   | { type: "history"; messages: ChatMessage[]; sessionId?: string }
   | { type: "branch_info"; info: BranchInfo }
   | { type: "diff_stats"; stats: DiffStatResponse }
+  | { type: "pr_status"; status: PrStatusResponse }
   | { type: "script_status"; scriptType: ScriptType; state: ScriptState; exitCode?: number }
   | { type: "browser_status"; status: BrowserStatusPayload }
   | { type: "plan_mode_changed"; sessionId: string; active: boolean };
@@ -730,8 +731,9 @@ export type HubIncoming =
   // Finalized conversation history is REST-owned for all clients (React Query on
   // web, per-session cache on iOS), so the server never sends the `history`
   // bootstrap event; the hub bootstrap ships `status` and live stream snapshots
-  // only. The WS `history` frame survives only as a legacy inbound clients tolerate.
-  | { type: "sync_workspaces"; workspaceIds: string[] }
+  // only. `focusWorkspaces` restricts high-frequency stream events to the
+  // workspaces the client is actively viewing.
+  | { type: "sync_workspaces"; workspaceIds: string[]; focusWorkspaces?: string[] }
   // Application-level liveness probe. The browser WebSocket API never exposes
   // protocol-level ping/pong to JS, so clients send this to actively detect a
   // frozen-but-OPEN socket (e.g. after the OS wakes from sleep).

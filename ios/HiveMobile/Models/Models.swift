@@ -99,6 +99,7 @@ struct Project: Codable, Identifiable {
     let createdAt: String
     var workspaces: [Workspace]
     var hasFavicon: Bool? = nil
+    var faviconVersion: String? = nil
 }
 
 struct Workspace: Codable, Identifiable, Hashable {

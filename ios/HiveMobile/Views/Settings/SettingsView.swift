@@ -200,6 +200,7 @@ struct SettingsView: View {
     }
 
     private func scheduleConnectionCheck() {
+        HiveHTTP.clearCache()
         debouncedCheckTask?.cancel()
         debouncedCheckTask = Task {
             try? await Task.sleep(for: .milliseconds(400))

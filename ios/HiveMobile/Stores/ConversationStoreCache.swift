@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import UIKit
 
 /// App-level cache for ConversationStore instances, keyed by workspace ID.
 ///
@@ -14,6 +15,19 @@ final class ConversationStoreCache {
 
     /// Called when a new store is created, so HubStatusMonitor can wire the send closure.
     var onStoreCreated: ((String, ConversationStore) -> Void)?
+
+    init() {
+        NotificationCenter.default.addObserver(
+            forName: UIApplication.didReceiveMemoryWarningNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                guard let self else { return }
+                for store in self.stores.values { store.handleMemoryWarning() }
+            }
+        }
+    }
 
     /// Returns the cached store or creates a new one.
     func getOrCreate(_ workspaceId: String) -> ConversationStore {

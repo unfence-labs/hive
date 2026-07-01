@@ -5,31 +5,29 @@ struct ProjectAvatar: View {
     let projectId: String
     let projectName: String
     let hasFaviconFlag: Bool
+    let faviconVersion: String?
 
     @State private var favicon: UIImage?
 
     init(project: Project) {
-        self.projectId = project.id
-        self.projectName = project.name
-        self.hasFaviconFlag = project.hasFavicon == true
-        if hasFaviconFlag {
-            let host = UserDefaults.standard.string(forKey: "serverHost") ?? "localhost"
-            let port = UserDefaults.standard.string(forKey: "serverPort") ?? "3000"
-            let urlString = "http://\(host):\(port)/api/projects/\(project.id)/favicon"
-            _favicon = State(initialValue: ImageCache.shared.image(forKey: ImageCache.key(for: urlString)))
-        }
+        self.init(id: project.id, name: project.name, hasFavicon: project.hasFavicon, faviconVersion: project.faviconVersion)
     }
 
-    init(id: String, name: String, hasFavicon: Bool?) {
+    init(id: String, name: String, hasFavicon: Bool?, faviconVersion: String? = nil) {
         self.projectId = id
         self.projectName = name
         self.hasFaviconFlag = hasFavicon == true
-        if hasFaviconFlag {
-            let host = UserDefaults.standard.string(forKey: "serverHost") ?? "localhost"
-            let port = UserDefaults.standard.string(forKey: "serverPort") ?? "3000"
-            let urlString = "http://\(host):\(port)/api/projects/\(id)/favicon"
-            _favicon = State(initialValue: ImageCache.shared.image(forKey: ImageCache.key(for: urlString)))
+        self.faviconVersion = faviconVersion
+        if hasFavicon == true {
+            let source = Self.faviconSource(id: id, version: faviconVersion)
+            _favicon = State(initialValue: ImageCache.shared.image(forKey: ImageCache.key(for: source)))
         }
+    }
+
+    private static func faviconSource(id: String, version: String?) -> String {
+        var source = "/api/projects/\(id)/favicon"
+        if let version { source += "?v=\(version)" }
+        return source
     }
 
     private static let palette: [Color] = [
@@ -47,11 +45,8 @@ struct ProjectAvatar: View {
         return Self.palette[abs(hash) % Self.palette.count]
     }
 
-    private var faviconURLString: String? {
-        guard hasFaviconFlag else { return nil }
-        let host = UserDefaults.standard.string(forKey: "serverHost") ?? "localhost"
-        let port = UserDefaults.standard.string(forKey: "serverPort") ?? "3000"
-        return "http://\(host):\(port)/api/projects/\(projectId)/favicon"
+    private var faviconSource: String? {
+        hasFaviconFlag ? Self.faviconSource(id: projectId, version: faviconVersion) : nil
     }
 
     var body: some View {
@@ -78,11 +73,11 @@ struct ProjectAvatar: View {
     }
 
     private func loadFavicon() async {
-        guard favicon == nil,
-              let urlString = faviconURLString, let url = URL(string: urlString) else { return }
-        let key = ImageCache.key(for: urlString)
+        guard favicon == nil, let source = faviconSource,
+              let url = ChatImageResolver.apiURL(for: source) else { return }
+        let key = ImageCache.key(for: source)
 
-        guard let (data, _) = try? await URLSession.shared.data(from: url),
+        guard let (data, _) = try? await HiveHTTP.session.data(from: url),
               let image = UIImage(data: data) else { return }
         ImageCache.shared.store(image, forKey: key)
         favicon = image

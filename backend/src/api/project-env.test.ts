@@ -40,6 +40,7 @@ describe("project environment routes", () => {
     const res = await app.inject({ method: "GET", url: "/api/projects/proj-1/env" });
 
     expect(res.statusCode).toBe(200);
+    expect(res.headers["cache-control"]).toBe("no-store");
     expect(res.json()).toEqual({ exists: false, config: { variables: [] } });
   });
 

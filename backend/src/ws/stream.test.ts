@@ -73,10 +73,15 @@ function hubEvent(workspaceId: string, event: object): string {
 }
 
 /** Send sync_workspaces via a hub WebSocket. */
-function syncWorkspaces(ws: WebSocket, workspaceIds: string[]): void {
+function syncWorkspaces(
+  ws: WebSocket,
+  workspaceIds: string[],
+  focusWorkspaces?: string[],
+): void {
   ws.send(JSON.stringify({
     type: "sync_workspaces",
     workspaceIds,
+    ...(focusWorkspaces !== undefined ? { focusWorkspaces } : {}),
   }));
 }
 
@@ -93,6 +98,8 @@ function connectHub(
     query?: Record<string, string>;
     /** If set, collect ALL workspace messages (unfiltered). Default: first workspace. */
     collectAll?: boolean;
+    /** Restrict high-frequency events to these workspaces (C13). */
+    focusWorkspaces?: string[];
   },
 ): {
   wsReady: Promise<WebSocket>;
@@ -121,7 +128,7 @@ function connectHub(
         });
         // Subscribe to workspaces after the connection is established
         ws.on("open", () => {
-          syncWorkspaces(ws, workspaceIds);
+          syncWorkspaces(ws, workspaceIds, opts?.focusWorkspaces);
         });
       },
     },
@@ -1577,6 +1584,39 @@ describe("WS /ws/hub", () => {
     // Channel for other workspace should still exist
     const otherChannel = _getChannelsForTests().get(otherWorkspace.id);
     expect(otherChannel?.hubSockets.size).toBe(1);
+
+    ws.close();
+  });
+
+  it("delivers high-frequency events only to focused workspaces (C13)", async () => {
+    const unfocused = (await createWorkspace(projectId, dataDir)).id;
+
+    const { wsReady, allEnvelopes } = connectHub([wsId, unfocused], {
+      collectAll: true,
+      focusWorkspaces: [wsId],
+    });
+    const ws = await wsReady;
+
+    await waitForCondition(() =>
+      allEnvelopes.some((e) => e.workspaceId === wsId && e.event.type === "status") &&
+      allEnvelopes.some((e) => e.workspaceId === unfocused && e.event.type === "status"),
+    );
+
+    broadcastToWorkspace(unfocused, { type: "text_delta", sessionId: "s", text: "hidden" });
+    broadcastToWorkspace(wsId, { type: "text_delta", sessionId: "s", text: "shown" });
+    broadcastToWorkspace(unfocused, {
+      type: "branch_info",
+      info: { name: "feature-x", lastSyncedAt: "2026-02-10T00:00:00.000Z" },
+    });
+
+    await waitForCondition(() =>
+      allEnvelopes.some((e) => e.event.type === "text_delta" && e.workspaceId === wsId) &&
+      allEnvelopes.some((e) => e.event.type === "branch_info" && e.workspaceId === unfocused),
+    );
+
+    const deltas = allEnvelopes.filter((e) => e.event.type === "text_delta");
+    expect(deltas.length).toBe(1);
+    expect(deltas[0]?.workspaceId).toBe(wsId);
 
     ws.close();
   });
