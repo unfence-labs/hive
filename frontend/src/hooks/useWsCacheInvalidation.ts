@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { wsTransport } from "@/lib/ws-transport";
+import { invalidateSessionMessages } from "@/hooks/useSessionMessages";
 
 /**
  * Subscribe to WS messages for the given workspace IDs and invalidate
@@ -22,6 +23,9 @@ export function useWsCacheInvalidation(workspaceIds: string[]): void {
           case "cancelled":
             // Session titles update after a turn completes (naming.ts).
             void queryClient.invalidateQueries({ queryKey: ["sessions", wsId] });
+            if (msg.sessionId) {
+              invalidateSessionMessages(queryClient, wsId, msg.sessionId);
+            }
             break;
 
           case "diff_stats":

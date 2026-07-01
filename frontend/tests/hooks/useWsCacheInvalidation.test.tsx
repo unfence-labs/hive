@@ -1,6 +1,7 @@
 import { renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useWsCacheInvalidation } from "@/hooks/useWsCacheInvalidation";
+import { sessionMessagesKey } from "@/hooks/useSessionMessages";
 import { createWrapper } from "../test-utils";
 
 interface Message {
@@ -54,16 +55,18 @@ describe("useWsCacheInvalidation", () => {
     expect(mocks.onMessage).toHaveBeenNthCalledWith(2, "ws-2", expect.any(Function));
   });
 
-  it("invalidates sessions on done and cancelled messages", () => {
+  it("invalidates sessions and finalized messages on done and cancelled messages", () => {
     const { wrapper, queryClient } = createWrapper();
     const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries").mockResolvedValue(undefined);
     renderHook(() => useWsCacheInvalidation(["ws-1"]), { wrapper });
 
-    emit("ws-1", { type: "done" });
-    emit("ws-1", { type: "cancelled" });
+    emit("ws-1", { type: "done", sessionId: "sess-1" });
+    emit("ws-1", { type: "cancelled", sessionId: "sess-1" });
 
     expect(invalidateSpy).toHaveBeenNthCalledWith(1, { queryKey: ["sessions", "ws-1"] });
-    expect(invalidateSpy).toHaveBeenNthCalledWith(2, { queryKey: ["sessions", "ws-1"] });
+    expect(invalidateSpy).toHaveBeenNthCalledWith(2, { queryKey: sessionMessagesKey("ws-1", "sess-1") });
+    expect(invalidateSpy).toHaveBeenNthCalledWith(3, { queryKey: ["sessions", "ws-1"] });
+    expect(invalidateSpy).toHaveBeenNthCalledWith(4, { queryKey: sessionMessagesKey("ws-1", "sess-1") });
   });
 
   it("invalidates files and diff-stat caches on diff_stats messages", () => {
