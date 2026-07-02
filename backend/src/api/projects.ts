@@ -168,7 +168,7 @@ export async function projectRoutes(app: FastifyInstance, dataDir?: string) {
     ".svg": "image/svg+xml",
   };
 
-  app.get<{ Params: { id: string } }>("/api/projects/:id/favicon", async (req, reply) => {
+  app.get<{ Params: { id: string }; Querystring: { v?: string } }>("/api/projects/:id/favicon", async (req, reply) => {
     const dir = dataDir ?? getDataDir();
     const project = await getProject(req.params.id, dir);
     if (!project) return reply.status(404).send({ error: "Project not found" });
@@ -180,9 +180,13 @@ export async function projectRoutes(app: FastifyInstance, dataDir?: string) {
       if (favicon) {
         const ext = favicon.path.slice(favicon.path.lastIndexOf("."));
         const buf = await gitBuffer(["show", `HEAD:${favicon.path}`], bare);
+        const cacheControl =
+          req.query.v && req.query.v === favicon.version
+            ? "public, max-age=31536000, immutable"
+            : "public, max-age=3600";
         return reply
           .header("Content-Type", EXT_MIME[ext] ?? "application/octet-stream")
-          .header("Cache-Control", "public, max-age=3600")
+          .header("Cache-Control", cacheControl)
           .send(buf);
       }
     } catch {

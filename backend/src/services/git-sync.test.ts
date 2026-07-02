@@ -8,7 +8,32 @@ import { git } from "../utils/git.js";
 import { loadProject } from "../state/state.js";
 import { bareRepoPath, workspacesDir } from "../utils/paths.js";
 import { getBranchName, GitSyncService } from "./git-sync.js";
-import type { BranchInfo, DiffStatResponse } from "../types.js";
+import { fetchPrForBranch } from "../utils/github.js";
+import { PrStatusService } from "./pr-status.js";
+import type { BranchInfo, DiffStatResponse, PullRequestInfo } from "../types.js";
+
+vi.mock("../utils/github.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../utils/github.js")>();
+  return {
+    ...actual,
+    parseGitHubRepo: vi.fn(() => ({ owner: "o", repo: "r" })),
+    fetchPrForBranch: vi.fn(async () => ({ pr: null })),
+  };
+});
+
+function makePr(number: number): PullRequestInfo {
+  return {
+    number,
+    url: `https://github.com/o/r/pull/${number}`,
+    state: "open",
+    mergeable: null,
+    mergeableState: "unknown",
+    checksStatus: "success",
+    checksPassed: null,
+    checksTotal: null,
+    reviewStatus: null,
+  };
+}
 
 let tempDir: string;
 let dataDir: string;
@@ -108,6 +133,46 @@ describe("GitSyncService", () => {
     expect(callbackInfo).toBeDefined();
     expect(callbackInfo!.name).toBe(newBranchName);
     expect(callbackInfo!.lastSyncedAt).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/);
+  });
+
+  it("emits onPrStatusChange only for workspaces with PR status interest", async () => {
+    const ws = await createWorkspace(projectId, dataDir);
+    const interested = new Set<string>();
+    const prStatus = new PrStatusService(dataDir);
+    const prService = new GitSyncService(dataDir, prStatus, (id) => interested.has(id));
+    const events: string[] = [];
+    prService.onPrStatusChange((wsId) => events.push(wsId));
+
+    await prService.poll();
+    expect(events).toEqual([]);
+
+    interested.add(ws.id);
+    await prService.poll();
+    expect(events).toEqual([ws.id]);
+
+    prService._clearForTests();
+  });
+
+  it("clears cached PR status for a workspace when its branch changes", async () => {
+    const ws = await createWorkspace(projectId, dataDir);
+    const wsPath = join(workspacesDir(dataDir, projectId), ws.name);
+    const prStatus = new PrStatusService(dataDir);
+    const prService = new GitSyncService(dataDir, prStatus, (id) => id === ws.id);
+
+    vi.mocked(fetchPrForBranch).mockResolvedValueOnce({ pr: makePr(42) });
+    await prService.poll();
+    expect(prService.getCachedPrStatus(ws.id)?.pr?.number).toBe(42);
+
+    await git(["branch", "-m", "renamed-for-pr-test"], wsPath);
+
+    vi.mocked(fetchPrForBranch).mockResolvedValueOnce({ pr: null, error: "gh unavailable" });
+    await prService.poll();
+
+    const cached = prService.getCachedPrStatus(ws.id);
+    expect(cached?.pr?.number).not.toBe(42);
+    expect(cached).toEqual({ pr: null, error: "gh unavailable" });
+
+    prService._clearForTests();
   });
 
   it("does NOT emit callback when branch has not changed", async () => {

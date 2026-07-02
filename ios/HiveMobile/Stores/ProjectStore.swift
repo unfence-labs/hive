@@ -24,6 +24,7 @@ final class ProjectStore {
 
     private let api = APIClient()
     private var hasFetchedOnce = false
+    private var lastRefreshedAt = Date.distantPast
 
     init(storeCache: ConversationStoreCache) {
         self.statusMonitor = HubStatusMonitor(storeCache: storeCache)
@@ -154,7 +155,8 @@ final class ProjectStore {
     }
 
     /// Refresh projects from the API. Shows existing data while loading.
-    func refresh() async {
+    func refresh(force: Bool = false) async {
+        if !force, hasFetchedOnce, Date().timeIntervalSince(lastRefreshedAt) < 45 { return }
         isLoading = true
         errorMessage = nil
         do {
@@ -175,6 +177,7 @@ final class ProjectStore {
             projects = fresh
             uiPreferences = preferences
             hasFetchedOnce = true
+            lastRefreshedAt = Date()
             syncMonitoredWorkspaces()
         } catch is CancellationError {
             // View disappeared — ignore

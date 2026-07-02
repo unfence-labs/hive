@@ -26,11 +26,17 @@ interface GitSyncSnapshotProvider {
   getCachedDiffStats: (workspaceId: string) => Extract<WsOutgoing, { type: "diff_stats" }>["stats"] | undefined;
 }
 
+interface PrStatusProvider {
+  getCachedStatus: (workspaceId: string) => Extract<WsOutgoing, { type: "pr_status" }>["status"] | undefined;
+  getStatus: (workspaceId: string) => Promise<Extract<WsOutgoing, { type: "pr_status" }>["status"]>;
+}
+
 export interface StreamRoutesOptions {
   dataDir?: string;
   sessionOptions?: SessionOptions;
   authToken?: string;
   gitSyncSnapshotProvider?: GitSyncSnapshotProvider;
+  prStatusProvider?: PrStatusProvider;
 }
 
 type ActiveSession = NonNullable<ReturnType<typeof getSession>>;
@@ -42,6 +48,24 @@ interface HubSocket {
   subscribedWorkspaces: Set<string>;
   /** WS-level heartbeat flag: set true on `pong`, cleared each ping tick. A missed cycle reaps the socket. */
   isAlive: boolean;
+  focusWorkspaces?: Set<string>;
+  prWorkspaces: Set<string>;
+}
+
+const HIGH_FREQUENCY_EVENTS: ReadonlySet<WsOutgoing["type"]> = new Set([
+  "text_delta",
+  "thinking",
+  "tool_use",
+  "tool_result",
+  "agent_activity",
+  "stream_snapshot",
+]);
+
+function hubReceivesEvent(hub: HubSocket, workspaceId: string, msg: WsOutgoing): boolean {
+  if (msg.type === "pr_status") return hub.prWorkspaces.has(workspaceId);
+  if (!hub.focusWorkspaces) return true;
+  if (!HIGH_FREQUENCY_EVENTS.has(msg.type)) return true;
+  return hub.focusWorkspaces.has(workspaceId);
 }
 
 interface WorkspaceChannel {
@@ -97,7 +121,7 @@ function completionProviderForMessage(
 // ── Sending helpers ─────────────────────────────────────────────────
 
 function sendToHub(hub: HubSocket, workspaceId: string, msg: WsOutgoing): void {
-  if (hub.ws.readyState === hub.ws.OPEN) {
+  if (hub.ws.readyState === hub.ws.OPEN && hubReceivesEvent(hub, workspaceId, msg)) {
     const envelope: HubOutgoing = { workspaceId, event: msg };
     hub.ws.send(JSON.stringify(envelope));
   }
@@ -110,7 +134,7 @@ export function broadcastToWorkspace(workspaceId: string, msg: WsOutgoing): void
   const envelope: HubOutgoing = { workspaceId, event: msg };
   const serialized = JSON.stringify(envelope);
   for (const hub of channel.hubSockets) {
-    if (hub.ws.readyState === hub.ws.OPEN) {
+    if (hub.ws.readyState === hub.ws.OPEN && hubReceivesEvent(hub, workspaceId, msg)) {
       hub.ws.send(serialized);
     }
   }
@@ -129,6 +153,15 @@ function tickHubLiveness(hub: HubSocket): void {
   }
   hub.isAlive = false;
   if (hub.ws.readyState === hub.ws.OPEN) hub.ws.ping();
+}
+
+export function hasPrStatusInterest(workspaceId: string): boolean {
+  for (const hub of hubSockets) {
+    if (hub.subscribedWorkspaces.has(workspaceId) && hub.prWorkspaces.has(workspaceId)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 export function _getChannelsForTests(): Map<string, WorkspaceChannel> {
@@ -151,6 +184,7 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
     sessionOptions,
     authToken,
     gitSyncSnapshotProvider,
+    prStatusProvider,
   } = opts;
 
   const onBrowserStatus = (workspaceId: string, status: Extract<WsOutgoing, { type: "browser_status" }>["status"]) => {
@@ -180,7 +214,7 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
     const envelope: HubOutgoing = { workspaceId, event: msg };
     const serialized = JSON.stringify(envelope);
     for (const hub of channel.hubSockets) {
-      if (hub.ws.readyState === hub.ws.OPEN) {
+      if (hub.ws.readyState === hub.ws.OPEN && hubReceivesEvent(hub, workspaceId, msg)) {
         hub.ws.send(serialized);
       }
     }
@@ -406,10 +440,49 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
     }
   };
 
+  const sendWorkspacePrStatus = async (hub: HubSocket, wsId: string): Promise<void> => {
+    if (!hub.prWorkspaces.has(wsId) || !prStatusProvider) return;
+    try {
+      const status = await prStatusProvider.getStatus(wsId);
+      sendToHub(hub, wsId, { type: "pr_status", status });
+    } catch (err) {
+      app.log.warn({ err, wsId }, "Failed to refresh PR status for hub client");
+      sendToHub(hub, wsId, {
+        type: "pr_status",
+        status: { pr: null, error: "Failed to fetch PR status" },
+      });
+    }
+  };
+
   // ── sync_workspaces handler ───────────────────────────────────────
 
-  const handleSyncWorkspaces = async (hub: HubSocket, workspaceIds: string[]): Promise<void> => {
+  const handleSyncWorkspaces = async (
+    hub: HubSocket,
+    workspaceIds: string[],
+    focusWorkspaces?: string[],
+    prWorkspaces?: string[],
+    forceBootstrap?: boolean,
+  ): Promise<void> => {
     const desired = new Set(workspaceIds);
+    const previouslySubscribed = new Set(hub.subscribedWorkspaces);
+    const previousFocusWorkspaces = hub.focusWorkspaces;
+    const previousPrWorkspaces = hub.prWorkspaces;
+    hub.focusWorkspaces = focusWorkspaces ? new Set(focusWorkspaces) : undefined;
+    hub.prWorkspaces = new Set(prWorkspaces ?? []);
+
+    // A forced refresh resends full bootstrap below, which already covers the
+    // streaming snapshot replay -- skip the focus-only replay here to avoid
+    // sending the snapshot twice.
+    if (hub.focusWorkspaces && !forceBootstrap) {
+      for (const wsId of hub.focusWorkspaces) {
+        if (previousFocusWorkspaces?.has(wsId)) continue;
+        if (!hub.subscribedWorkspaces.has(wsId)) continue;
+        for (const streamingId of getStreamingSessionIds(wsId)) {
+          const session = getSessionById(wsId, streamingId);
+          if (session) sendStreamingSnapshot(hub, wsId, session);
+        }
+      }
+    }
 
     // Unsubscribe from removed workspaces
     for (const wsId of hub.subscribedWorkspaces) {
@@ -440,6 +513,26 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
     }
 
     hub.subscribedWorkspaces = desired;
+
+    // Resend full bootstrap for workspaces the client was already subscribed
+    // to (e.g. iOS foreground refresh over a healthy socket). Newly subscribed
+    // workspaces above already got a fresh bootstrap, so skip those to avoid
+    // duplicate delivery.
+    if (forceBootstrap) {
+      for (const wsId of desired) {
+        if (!previouslySubscribed.has(wsId)) continue;
+        const channel = channels.get(wsId);
+        if (channel) await sendWorkspaceBootstrap(hub, wsId, channel);
+      }
+    }
+
+    const prRefreshes = [...hub.prWorkspaces]
+      .filter((wsId) =>
+        desired.has(wsId) &&
+        (forceBootstrap || !previousPrWorkspaces.has(wsId))
+      )
+      .map((wsId) => sendWorkspacePrStatus(hub, wsId));
+    await Promise.all(prRefreshes);
   };
 
   // ── Workspace message handler ─────────────────────────────────────
@@ -619,7 +712,12 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
       }
 
       // Start alive so the socket gets a full cycle before it can be reaped.
-      const hub: HubSocket = { ws: socket, subscribedWorkspaces: new Set(), isAlive: true };
+      const hub: HubSocket = {
+        ws: socket,
+        subscribedWorkspaces: new Set(),
+        isAlive: true,
+        prWorkspaces: new Set(),
+      };
       hubSockets.add(hub);
 
       socket.on("pong", () => { hub.isAlive = true; });
@@ -663,7 +761,13 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
             socket.send(JSON.stringify({ type: "pong" }));
           }
         } else if ("type" in parsed && parsed.type === "sync_workspaces") {
-          await handleSyncWorkspaces(hub, parsed.workspaceIds);
+          await handleSyncWorkspaces(
+            hub,
+            parsed.workspaceIds,
+            parsed.focusWorkspaces,
+            parsed.prWorkspaces,
+            parsed.forceBootstrap === true,
+          );
         } else if ("workspaceId" in parsed && "event" in parsed) {
           await handleWorkspaceMessage(hub, parsed.workspaceId, parsed.event);
         }

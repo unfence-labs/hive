@@ -23,7 +23,7 @@ import {
   _setScriptStatusForTests,
   _clearAll as clearScripts,
 } from "../services/script-runner.js";
-import type { WsOutgoing, HubOutgoing } from "../types.js";
+import type { WsOutgoing, HubOutgoing, DiffStatResponse, BranchInfo } from "../types.js";
 
 /** Hub envelope carrying a workspace event (excludes hub-level pong frames). */
 type WorkspaceEnvelope = Extract<HubOutgoing, { workspaceId: string }>;
@@ -73,10 +73,19 @@ function hubEvent(workspaceId: string, event: object): string {
 }
 
 /** Send sync_workspaces via a hub WebSocket. */
-function syncWorkspaces(ws: WebSocket, workspaceIds: string[]): void {
+function syncWorkspaces(
+  ws: WebSocket,
+  workspaceIds: string[],
+  focusWorkspaces?: string[],
+  prWorkspaces?: string[],
+  forceBootstrap?: boolean,
+): void {
   ws.send(JSON.stringify({
     type: "sync_workspaces",
     workspaceIds,
+    ...(focusWorkspaces !== undefined ? { focusWorkspaces } : {}),
+    ...(prWorkspaces !== undefined ? { prWorkspaces } : {}),
+    ...(forceBootstrap !== undefined ? { forceBootstrap } : {}),
   }));
 }
 
@@ -93,6 +102,10 @@ function connectHub(
     query?: Record<string, string>;
     /** If set, collect ALL workspace messages (unfiltered). Default: first workspace. */
     collectAll?: boolean;
+    /** Restrict high-frequency events to these workspaces (C13). */
+    focusWorkspaces?: string[];
+    /** Request PR status for these workspaces. */
+    prWorkspaces?: string[];
   },
 ): {
   wsReady: Promise<WebSocket>;
@@ -121,7 +134,7 @@ function connectHub(
         });
         // Subscribe to workspaces after the connection is established
         ws.on("open", () => {
-          syncWorkspaces(ws, workspaceIds);
+          syncWorkspaces(ws, workspaceIds, opts?.focusWorkspaces, opts?.prWorkspaces);
         });
       },
     },
@@ -175,6 +188,14 @@ async function startWsApp(
       workspaceId: string,
     ) => Extract<WsOutgoing, { type: "diff_stats" }>["stats"] | undefined;
   },
+  prStatusProvider?: {
+    getCachedStatus: (
+      workspaceId: string,
+    ) => Extract<WsOutgoing, { type: "pr_status" }>["status"] | undefined;
+    getStatus: (
+      workspaceId: string,
+    ) => Promise<Extract<WsOutgoing, { type: "pr_status" }>["status"]>;
+  },
 ): Promise<{ app: FastifyInstance }> {
   const localApp = Fastify();
   await localApp.register(websocket, { options: { maxPayload: 10 * 1024 * 1024 } });
@@ -184,6 +205,7 @@ async function startWsApp(
       sessionOptions,
       authToken,
       gitSyncSnapshotProvider,
+      prStatusProvider,
     }),
   );
   await localApp.ready();
@@ -1370,6 +1392,110 @@ describe("WS /ws/hub", () => {
     await local.app.close();
   });
 
+  it("resends bootstrap for an already subscribed workspace on forceBootstrap without reconnecting", async () => {
+    const branchInfoV1: BranchInfo = { name: "workspace/tokyo", lastSyncedAt: "2026-02-15T10:00:00.000Z" };
+    const diffStatsV1: DiffStatResponse = {
+      committed: [{ file: "a.ts", additions: 1, deletions: 0, status: "added" }],
+      uncommitted: [],
+    };
+    const branchInfoV2: BranchInfo = { name: "workspace/tokyo", lastSyncedAt: "2026-02-16T00:00:00.000Z" };
+    const diffStatsV2: DiffStatResponse = {
+      committed: [],
+      uncommitted: [{ file: "b.ts", additions: 0, deletions: 2, status: "modified" }],
+    };
+
+    let branchInfo = branchInfoV1;
+    let diffStats = diffStatsV1;
+    const provider = {
+      getCachedBranchInfo: vi.fn((workspaceId: string) =>
+        workspaceId === wsId ? branchInfo : undefined,
+      ),
+      getCachedDiffStats: vi.fn((workspaceId: string) =>
+        workspaceId === wsId ? diffStats : undefined,
+      ),
+    };
+    const local = await startWsApp(undefined, CONV_CMD, provider);
+    const { wsReady, messages } = connectHub([wsId], { app: local.app });
+    const ws = await wsReady;
+
+    await waitForMessage(
+      messages,
+      (msgs) => msgs.some((m) => m.type === "branch_info") && msgs.some((m) => m.type === "diff_stats"),
+    );
+    expect(messages).toContainEqual({ type: "branch_info", info: branchInfoV1 });
+    expect(messages).toContainEqual({ type: "diff_stats", stats: diffStatsV1 });
+
+    // Backend-side state changes while the socket stays open (e.g. a background
+    // git sync completed while iOS was backgrounded).
+    branchInfo = branchInfoV2;
+    diffStats = diffStatsV2;
+
+    // Re-sync the same workspace with forceBootstrap: true, simulating iOS
+    // requesting a refresh over an already-healthy socket (no reconnect).
+    syncWorkspaces(ws, [wsId], undefined, undefined, true);
+
+    await waitForMessage(
+      messages,
+      (msgs) =>
+        msgs.filter((m) => m.type === "branch_info").length >= 2 &&
+        msgs.filter((m) => m.type === "diff_stats").length >= 2,
+    );
+    expect(messages).toContainEqual({ type: "branch_info", info: branchInfoV2 });
+    expect(messages).toContainEqual({ type: "diff_stats", stats: diffStatsV2 });
+    // The socket was never closed/reopened for this refresh.
+    expect(ws.readyState).toBe(ws.OPEN);
+
+    ws.close();
+    await local.app.close();
+  });
+
+  it("sends PR status immediately when a workspace enters prWorkspaces", async () => {
+    const prStatusProvider = {
+      getCachedStatus: vi.fn(() => undefined),
+      getStatus: vi.fn(async () => ({ pr: null })),
+    };
+    const local = await startWsApp(undefined, CONV_CMD, undefined, prStatusProvider);
+    const { wsReady, messages } = connectHub([wsId], { app: local.app });
+    const ws = await wsReady;
+
+    await waitForMessage(messages, (msgs) => msgs.some((m) => m.type === "status"));
+    expect(messages.some((m) => m.type === "pr_status")).toBe(false);
+
+    syncWorkspaces(ws, [wsId], undefined, [wsId]);
+
+    await waitForMessage(messages, (msgs) => msgs.some((m) => m.type === "pr_status"));
+    expect(prStatusProvider.getStatus).toHaveBeenCalledWith(wsId);
+    expect(messages).toContainEqual({ type: "pr_status", status: { pr: null } });
+
+    ws.close();
+    await local.app.close();
+  });
+
+  it("broadcasts PR status only to hubs interested in that workspace", async () => {
+    const interested = connectHub([wsId], { collectAll: true, prWorkspaces: [wsId] });
+    const uninterested = connectHub([wsId], { collectAll: true });
+    const wsInterested = await interested.wsReady;
+    const wsUninterested = await uninterested.wsReady;
+
+    await waitForCondition(() =>
+      interested.allEnvelopes.some((e) => e.event.type === "status") &&
+      uninterested.allEnvelopes.some((e) => e.event.type === "status"),
+    );
+
+    broadcastToWorkspace(wsId, { type: "pr_status", status: { pr: null } });
+
+    await waitForCondition(() =>
+      interested.allEnvelopes.some((e) => e.event.type === "pr_status"),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    expect(interested.allEnvelopes.some((e) => e.event.type === "pr_status")).toBe(true);
+    expect(uninterested.allEnvelopes.some((e) => e.event.type === "pr_status")).toBe(false);
+
+    wsInterested.close();
+    wsUninterested.close();
+  });
+
   it("delivers snapshots and script_status to listeners attached after injectWS resolves", async () => {
     const branchInfo = { name: "workspace/late-listener", lastSyncedAt: "2026-02-18T10:00:00.000Z" };
     const diffStats = {
@@ -1579,5 +1705,150 @@ describe("WS /ws/hub", () => {
     expect(otherChannel?.hubSockets.size).toBe(1);
 
     ws.close();
+  });
+
+  it("delivers high-frequency events only to focused workspaces (C13)", async () => {
+    const unfocused = (await createWorkspace(projectId, dataDir)).id;
+
+    const { wsReady, allEnvelopes } = connectHub([wsId, unfocused], {
+      collectAll: true,
+      focusWorkspaces: [wsId],
+    });
+    const ws = await wsReady;
+
+    await waitForCondition(() =>
+      allEnvelopes.some((e) => e.workspaceId === wsId && e.event.type === "status") &&
+      allEnvelopes.some((e) => e.workspaceId === unfocused && e.event.type === "status"),
+    );
+
+    broadcastToWorkspace(unfocused, { type: "text_delta", sessionId: "s", text: "hidden" });
+    broadcastToWorkspace(wsId, { type: "text_delta", sessionId: "s", text: "shown" });
+    broadcastToWorkspace(unfocused, {
+      type: "branch_info",
+      info: { name: "feature-x", lastSyncedAt: "2026-02-10T00:00:00.000Z" },
+    });
+
+    await waitForCondition(() =>
+      allEnvelopes.some((e) => e.event.type === "text_delta" && e.workspaceId === wsId) &&
+      allEnvelopes.some((e) => e.event.type === "branch_info" && e.workspaceId === unfocused),
+    );
+
+    const deltas = allEnvelopes.filter((e) => e.event.type === "text_delta");
+    expect(deltas.length).toBe(1);
+    expect(deltas[0]?.workspaceId).toBe(wsId);
+
+    ws.close();
+  });
+
+  it("replays the streaming snapshot when an already-subscribed workspace enters focus (C13)", async () => {
+    const fakeClaudePath = join(tempDir, "fake-claude-focus-replay.sh");
+    await writeFile(fakeClaudePath, "#!/bin/sh\nsleep 5\n", "utf-8");
+    await chmod(fakeClaudePath, 0o755);
+    const slowCmd = { command: fakeClaudePath, systemPrompt: false as const };
+    const local = await startWsApp(undefined, slowCmd);
+
+    const other = await createWorkspace(projectId, dataDir);
+    const { session } = await getOrCreateSession(other.id, dataDir, slowCmd);
+    session.sendMessage("streaming on other");
+    if (!session.getStreamingSnapshot()) throw new Error("Expected a streaming snapshot");
+
+    const { wsReady, allEnvelopes } = connectHub([wsId, other.id], {
+      app: local.app,
+      collectAll: true,
+      focusWorkspaces: [wsId],
+    });
+    const ws = await wsReady;
+
+    const snapshotsForOther = () =>
+      allEnvelopes.filter((e) => e.workspaceId === other.id && e.event.type === "stream_snapshot");
+
+    // The unfocused workspace still receives its low-frequency `status`
+    // bootstrap, which proves it is subscribed.
+    await waitForCondition(() =>
+      allEnvelopes.some((e) => e.workspaceId === other.id && e.event.type === "status"),
+    );
+
+    // But its high-frequency `stream_snapshot` bootstrap is filtered out while
+    // it is not focused.
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(snapshotsForOther().length).toBe(0);
+
+    // Entering focus replays the streaming snapshot exactly once.
+    syncWorkspaces(ws, [wsId, other.id], [other.id]);
+    await waitForCondition(() => snapshotsForOther().length === 1);
+
+    ws.close();
+    await local.app.close();
+    await endSession(other.id, dataDir).catch(() => {});
+  });
+
+  it("does not replay the streaming snapshot when focusWorkspaces is unchanged", async () => {
+    const fakeClaudePath = join(tempDir, "fake-claude-same-focus.sh");
+    await writeFile(fakeClaudePath, "#!/bin/sh\nsleep 5\n", "utf-8");
+    await chmod(fakeClaudePath, 0o755);
+    const slowCmd = { command: fakeClaudePath, systemPrompt: false as const };
+    const local = await startWsApp(undefined, slowCmd);
+
+    const { session } = await getOrCreateSession(wsId, dataDir, slowCmd);
+    session.sendMessage("streaming on focused workspace");
+    if (!session.getStreamingSnapshot()) throw new Error("Expected a streaming snapshot");
+
+    const { wsReady, allEnvelopes } = connectHub([wsId], {
+      app: local.app,
+      collectAll: true,
+      focusWorkspaces: [wsId],
+    });
+    const ws = await wsReady;
+
+    const snapshotsForWs = () =>
+      allEnvelopes.filter((e) => e.workspaceId === wsId && e.event.type === "stream_snapshot");
+
+    await waitForCondition(() => snapshotsForWs().length === 1);
+
+    syncWorkspaces(ws, [wsId], [wsId]);
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    expect(snapshotsForWs().length).toBe(1);
+
+    ws.close();
+    await local.app.close();
+    await endSession(wsId, dataDir).catch(() => {});
+  });
+
+  it("resends the streaming snapshot exactly once for a focused workspace on forceBootstrap", async () => {
+    const fakeClaudePath = join(tempDir, "fake-claude-force-bootstrap-focus.sh");
+    await writeFile(fakeClaudePath, "#!/bin/sh\nsleep 5\n", "utf-8");
+    await chmod(fakeClaudePath, 0o755);
+    const slowCmd = { command: fakeClaudePath, systemPrompt: false as const };
+    const local = await startWsApp(undefined, slowCmd);
+
+    const { session } = await getOrCreateSession(wsId, dataDir, slowCmd);
+    session.sendMessage("streaming on focused workspace");
+    if (!session.getStreamingSnapshot()) throw new Error("Expected a streaming snapshot");
+
+    const { wsReady, allEnvelopes } = connectHub([wsId], {
+      app: local.app,
+      collectAll: true,
+      focusWorkspaces: [wsId],
+    });
+    const ws = await wsReady;
+
+    const snapshotsForWs = () =>
+      allEnvelopes.filter((e) => e.workspaceId === wsId && e.event.type === "stream_snapshot");
+
+    // Initial bootstrap ships exactly one snapshot for the focused, streaming workspace.
+    await waitForCondition(() => snapshotsForWs().length === 1);
+
+    // A forced refresh re-syncing the same already-focused workspace resends
+    // the full bootstrap (one fresh snapshot) via a single code path -- it must
+    // NOT also fire the separate focus-enter replay, which would produce two
+    // additional snapshots (three total) instead of one (two total).
+    syncWorkspaces(ws, [wsId], [wsId], undefined, true);
+    await waitForCondition(() => snapshotsForWs().length === 2);
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    expect(snapshotsForWs().length).toBe(2);
+
+    ws.close();
+    await local.app.close();
+    await endSession(wsId, dataDir).catch(() => {});
   });
 });

@@ -28,7 +28,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useWorkspaceLiveDataContext } from "@/contexts/WorkspaceLiveDataContext";
 import { useProjects } from "@/hooks/useProjects";
 import { useBrain } from "@/hooks/useBrain";
-import { useBulkPrStatus, usePrStatusMap } from "@/hooks/usePrStatus";
+import { usePrStatusMap, useSyncPrWorkspaces } from "@/hooks/usePrStatus";
 import { useSidebarProjectFolders, type SidebarProjectFolderView } from "@/hooks/useSidebarProjectFolders";
 import { api } from "@/hooks/useApi";
 import {
@@ -107,7 +107,7 @@ export function collectVisiblePrWorkspaceIds({
     for (const project of folder.projects) addProjectWorkspaces(project);
   }
   for (const project of rootProjects) addProjectWorkspaces(project);
-  if (activeWsId) visible.add(activeWsId);
+  if (activeWsId && activeWsId !== BRAIN_WORKSPACE_ID) visible.add(activeWsId);
 
   return [...visible];
 }
@@ -228,7 +228,7 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
     }),
     [activeProjectId, activeWsId, expandedProjects, folders, isFolderExpanded, rootProjects],
   );
-  useBulkPrStatus(visiblePrWorkspaceIds);
+  useSyncPrWorkspaces(visiblePrWorkspaceIds);
   const prStatuses = usePrStatusMap(visiblePrWorkspaceIds);
   const sortedAutomations = useMemo(() => {
     if (!automations) return [];

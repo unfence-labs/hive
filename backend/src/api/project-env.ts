@@ -17,7 +17,7 @@ export async function projectEnvRoutes(app: FastifyInstance, dataDir?: string) {
       if (!(await ensureProject(req.params.id, dir))) {
         return reply.status(404).send({ error: "Project not found" });
       }
-      return reply.send(await loadProjectEnv(req.params.id, dir));
+      return reply.header("Cache-Control", "no-store").send(await loadProjectEnv(req.params.id, dir));
     } catch (err: unknown) {
       return reply.status(errorStatus(err)).send({ error: errorMessage(err, "Failed to load environment") });
     }

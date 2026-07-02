@@ -20,17 +20,13 @@ import { join } from "node:path";
 import { bareRepoPath, resolveDefaultBranch, workspacesDir } from "../utils/paths.js";
 import { getDataDir } from "../state/state.js";
 import { BadRequestError, errorMessage, errorStatus } from "../utils/errors.js";
-import { parseGitHubRepo, fetchPrForBranch } from "../utils/github.js";
-import { getBranchName } from "../services/git-sync.js";
 import { readHiveConfig } from "../utils/hive-config.js";
 import { startScript } from "../services/script-runner.js";
 import { broadcastToWorkspace } from "../ws/stream.js";
 import { headerFilename, rawFileContentType } from "../utils/raw-file.js";
-import type { BulkPrStatusResponse, DiffScope, PrStatusResponse } from "../types.js";
+import type { DiffScope } from "../types.js";
 
 const DIFF_SCOPES = new Set<DiffScope>(["combined", "committed", "uncommitted"]);
-const PR_TTL = 15_000;
-const PR_BULK_CONCURRENCY = 3;
 
 function parseDiffScope(scope: unknown): DiffScope {
   if (scope === undefined) return "combined";
@@ -38,22 +34,6 @@ function parseDiffScope(scope: unknown): DiffScope {
     return scope as DiffScope;
   }
   throw new BadRequestError("Invalid diff scope");
-}
-
-async function runWithConcurrency<T>(
-  items: T[],
-  limit: number,
-  fn: (item: T) => Promise<void>,
-): Promise<void> {
-  const executing = new Set<Promise<void>>();
-  for (const item of items) {
-    const task = fn(item).finally(() => executing.delete(task));
-    executing.add(task);
-    if (executing.size >= limit) {
-      await Promise.race(executing);
-    }
-  }
-  await Promise.allSettled([...executing]);
 }
 
 export async function workspaceRoutes(app: FastifyInstance, dataDir?: string) {
@@ -126,7 +106,6 @@ export async function workspaceRoutes(app: FastifyInstance, dataDir?: string) {
   app.delete<{ Params: { wsId: string } }>("/api/workspaces/:wsId", async (req, reply) => {
     try {
       await deleteWorkspace(req.params.wsId, dataDir);
-      prCache.delete(req.params.wsId);
       return reply.status(204).send();
     } catch (err: unknown) {
       return reply.status(errorStatus(err)).send({ error: errorMessage(err, "Failed") });
@@ -149,96 +128,6 @@ export async function workspaceRoutes(app: FastifyInstance, dataDir?: string) {
       return reply.status(errorStatus(err)).send({ error: errorMessage(err, "Failed") });
     }
   });
-
-  // ── PR status (on-demand, cached) ─────────────────────────────────
-  const prCache = new Map<string, { data: PrStatusResponse; at: number }>();
-
-  const fetchWorkspacePrStatus = async (
-    wsId: string,
-    loaded?: Awaited<ReturnType<typeof getWorkspace>>,
-  ): Promise<PrStatusResponse> => {
-    const cached = prCache.get(wsId);
-    if (cached && Date.now() - cached.at < PR_TTL) {
-      return cached.data;
-    }
-
-    const result = loaded ?? await getWorkspace(wsId, dataDir);
-    if (!result) throw new BadRequestError("Workspace not found");
-
-    const ghRepo = result.projectState.url ? parseGitHubRepo(result.projectState.url) : null;
-    if (!ghRepo) {
-      const data: PrStatusResponse = { pr: null };
-      prCache.set(wsId, { data, at: Date.now() });
-      return data;
-    }
-
-    const dir = dataDir ?? getDataDir();
-    const wsPath = join(workspacesDir(dir, result.projectState.id), result.workspace.name);
-    let branch: string;
-    try {
-      branch = await getBranchName(wsPath);
-    } catch {
-      branch = result.workspace.branch;
-    }
-
-    const prResult = await fetchPrForBranch(ghRepo.owner, ghRepo.repo, branch);
-    const data: PrStatusResponse = {
-      pr: prResult.pr,
-      ...(prResult.error ? { error: prResult.error } : {}),
-    };
-    prCache.set(wsId, { data, at: Date.now() });
-    return data;
-  };
-
-  app.get<{ Params: { wsId: string } }>("/api/workspaces/:wsId/pr-status", async (req, reply) => {
-    try {
-      const { wsId } = req.params;
-      const cached = prCache.get(wsId);
-      if (cached && Date.now() - cached.at < PR_TTL) {
-        return reply.send(cached.data);
-      }
-
-      const result = await getWorkspace(wsId, dataDir);
-      if (!result) return reply.status(404).send({ error: "Workspace not found" });
-      return reply.send(await fetchWorkspacePrStatus(wsId, result));
-    } catch (err: unknown) {
-      return reply
-        .status(errorStatus(err))
-        .send({ error: errorMessage(err, "Failed to fetch PR status") });
-    }
-  });
-
-  // ── Bulk PR status ──────────────────────────────────────────────────
-  app.post<{ Body: { workspaceIds: string[] } }>(
-    "/api/workspaces/pr-status/bulk",
-    async (req, reply) => {
-      const { workspaceIds } = req.body ?? {};
-      if (!Array.isArray(workspaceIds)) {
-        return reply.status(400).send({ error: "workspaceIds must be an array" });
-      }
-
-      const results: Record<string, PrStatusResponse> = {};
-      const uniqueWorkspaceIds = [...new Set(workspaceIds)];
-
-      await runWithConcurrency(
-        uniqueWorkspaceIds,
-        PR_BULK_CONCURRENCY,
-        async (wsId) => {
-          try {
-            results[wsId] = await fetchWorkspacePrStatus(wsId);
-          } catch (err) {
-            const message = err instanceof Error && err.message === "Workspace not found"
-              ? "Workspace not found"
-              : "Failed to fetch PR status";
-            results[wsId] = { pr: null, error: message };
-          }
-        },
-      );
-
-      const response: BulkPrStatusResponse = { results };
-      return reply.send(response);
-    },
-  );
 
   app.get<{ Params: { wsId: string } }>("/api/workspaces/:wsId/file-completions", async (req, reply) => {
     try {
@@ -318,7 +207,6 @@ export async function workspaceRoutes(app: FastifyInstance, dataDir?: string) {
       // End loaded sessions before archiving to avoid stale in-memory state.
       await endSession(req.params.wsId, dataDir);
       await archiveWorkspace(req.params.wsId, dataDir);
-      prCache.delete(req.params.wsId);
       return reply.status(204).send();
     } catch (err: unknown) {
       return reply

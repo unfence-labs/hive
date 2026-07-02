@@ -1,8 +1,10 @@
 import os from "node:os";
 import { readFileSync, statfsSync } from "node:fs";
+import { createHash } from "node:crypto";
 import Fastify from "fastify";
 import type { FastifyInstance } from "fastify";
 import cors from "@fastify/cors";
+import compress from "@fastify/compress";
 import websocket from "@fastify/websocket";
 import { projectRoutes } from "./api/projects.js";
 import { brainRoutes } from "./api/brain.js";
@@ -38,7 +40,8 @@ import { subagentRoutes } from "./api/subagents.js";
 import { uiPreferencesRoutes } from "./api/ui-preferences.js";
 import { AutomationScheduler } from "./services/automation-scheduler.js";
 import { loadConfig } from "./state/config.js";
-import { broadcastToWorkspace } from "./ws/stream.js";
+import { PrStatusService } from "./services/pr-status.js";
+import { broadcastToWorkspace, hasPrStatusInterest } from "./ws/stream.js";
 import type { StreamRoutesOptions } from "./ws/stream.js";
 import { preflight } from "./utils/preflight.js";
 import { detectAvailableProviders } from "./agents/providers/registry.js";
@@ -61,6 +64,7 @@ function parseBoolean(value: string | undefined, fallback: boolean): boolean {
 
 interface BuildAppOptions {
   gitSyncSnapshotProvider?: StreamRoutesOptions["gitSyncSnapshotProvider"];
+  prStatusProvider?: StreamRoutesOptions["prStatusProvider"];
   scheduler?: AutomationScheduler;
 }
 
@@ -272,6 +276,30 @@ export async function buildApp(opts: BuildAppOptions = {}) {
   });
   await app.register(websocket, { options: { maxPayload: 10 * 1024 * 1024 } });
 
+  app.addHook("onSend", async (req, reply, payload) => {
+    if (req.method !== "GET" || reply.statusCode !== 200) return payload;
+    if (typeof payload !== "string") return payload;
+    const contentType = reply.getHeader("content-type");
+    if (typeof contentType !== "string" || !contentType.includes("application/json")) {
+      return payload;
+    }
+    if (reply.getHeader("cache-control")) return payload;
+    const etag = `"${createHash("sha1").update(payload).digest("base64")}"`;
+    reply.header("ETag", etag);
+    reply.header("Cache-Control", "no-cache");
+    if (req.headers["if-none-match"] === etag) {
+      reply.code(304);
+      return "";
+    }
+    return payload;
+  });
+
+  await app.register(compress, {
+    global: true,
+    encodings: ["br", "gzip"],
+    threshold: 1024,
+  });
+
   app.addHook("onRequest", createAuthHook(authToken));
   app.addHook(
     "onRequest",
@@ -316,6 +344,7 @@ export async function buildApp(opts: BuildAppOptions = {}) {
       authToken,
       sessionOptions,
       gitSyncSnapshotProvider: opts.gitSyncSnapshotProvider,
+      prStatusProvider: opts.prStatusProvider,
     }),
   );
   await app.register((instance: FastifyInstance) => settingsRoutes(instance));
@@ -400,15 +429,19 @@ async function main() {
 
   const scheduler = new AutomationScheduler(dataDir);
 
-  const gitSync = new GitSyncService(dataDir);
+  const prStatus = new PrStatusService(dataDir);
+  const gitSync = new GitSyncService(dataDir, prStatus, hasPrStatusInterest);
   gitSync.onBranchChange((wsId, info) => {
     broadcastToWorkspace(wsId, { type: "branch_info", info });
   });
   gitSync.onDiffStatsChange((wsId, stats) => {
     broadcastToWorkspace(wsId, { type: "diff_stats", stats });
   });
+  gitSync.onPrStatusChange((wsId, status) => {
+    broadcastToWorkspace(wsId, { type: "pr_status", status });
+  });
 
-  const app = await buildApp({ gitSyncSnapshotProvider: gitSync, scheduler });
+  const app = await buildApp({ gitSyncSnapshotProvider: gitSync, prStatusProvider: prStatus, scheduler });
 
   try {
     await gitSync.poll();

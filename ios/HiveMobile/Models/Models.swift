@@ -99,6 +99,7 @@ struct Project: Codable, Identifiable {
     let createdAt: String
     var workspaces: [Workspace]
     var hasFavicon: Bool? = nil
+    var faviconVersion: String? = nil
 }
 
 struct Workspace: Codable, Identifiable, Hashable {
@@ -159,10 +160,6 @@ struct BranchInfo: Codable {
 struct PrStatusResponse: Codable {
     let pr: PullRequestInfo?
     let error: String?
-}
-
-struct BulkPrStatusResponse: Codable {
-    let results: [String: PrStatusResponse]
 }
 
 // MARK: - Session & Chat

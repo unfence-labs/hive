@@ -25,18 +25,34 @@ final class HubStatusMonitor {
     }
 
     /// Workspace currently visible in ChatView (suppresses unread badge).
-    var viewingWorkspaceId: String?
+    var viewingWorkspaceId: String? {
+        didSet {
+            guard viewingWorkspaceId != oldValue else { return }
+            sendCurrentSync()
+        }
+    }
     /// Session currently visible in ChatView (suppresses unread badge for that session).
     var viewingSessionId: String?
+
+    var currentFocusWorkspaces: [String] {
+        guard let viewingWorkspaceId else { return [] }
+        return [viewingWorkspaceId]
+    }
+
+    var currentPrWorkspaces: [String] {
+        var ids = visiblePrWorkspaceIds
+        if let viewingWorkspaceId, viewingWorkspaceId != BRAIN_WORKSPACE_ID {
+            ids.insert(viewingWorkspaceId)
+        }
+        ids.remove(BRAIN_WORKSPACE_ID)
+        return Array(ids)
+    }
 
     let storeCache: ConversationStoreCache
 
     private var hubConnection: HubConnection?
     fileprivate var subscribedWorkspaceIds: Set<String> = []
-    private var bulkPrPollTask: Task<Void, Never>?
-    private var prPollingIds: Set<String> = []
-    private let apiClient = APIClient()
-    private let prPollInterval: Duration = .seconds(15)
+    private var visiblePrWorkspaceIds: Set<String> = []
     private let isoFormatter = ISO8601DateFormatter()
     private let fractionalIsoFormatter: ISO8601DateFormatter = {
         let formatter = ISO8601DateFormatter()
@@ -98,6 +114,10 @@ final class HubStatusMonitor {
 
     func prStatus(for workspaceId: String) -> PrStatusResponse? {
         workspacePrStatus[workspaceId]
+    }
+
+    func isPrStatusLoading(_ workspaceId: String) -> Bool {
+        currentPrWorkspaces.contains(workspaceId) && workspacePrStatus[workspaceId] == nil
     }
 
     func scriptStatus(for workspaceId: String) -> [String: ScriptStatusInfo] {
@@ -169,8 +189,15 @@ final class HubStatusMonitor {
             hubConnection = conn
             conn.connect()
         } else {
-            hubConnection?.sendSyncWorkspaces(Array(subscribedWorkspaceIds))
+            sendCurrentSync()
         }
+    }
+
+    func syncVisiblePrWorkspaces(_ workspaceIds: [String]) {
+        let desired = Set(workspaceIds)
+        guard desired != visiblePrWorkspaceIds else { return }
+        visiblePrWorkspaceIds = desired
+        sendCurrentSync()
     }
 
     /// Disconnect everything.
@@ -178,56 +205,15 @@ final class HubStatusMonitor {
         hubConnection?.cancel()
         hubConnection = nil
         subscribedWorkspaceIds.removeAll()
+        visiblePrWorkspaceIds.removeAll()
         streamingSessions.removeAll()
         unreadSessions.removeAll()
         workspaceDiffStats.removeAll()
         workspaceBranchInfo.removeAll()
         workspaceLastActivityAt.removeAll()
         workspaceScriptStatus.removeAll()
-        bulkPrPollTask?.cancel()
-        bulkPrPollTask = nil
-        prPollingIds.removeAll()
         workspacePrStatus.removeAll()
         completedWorkspaces.removeAll()
-    }
-
-    // MARK: - PR Status Polling (Bulk)
-
-    /// Start/stop PR status polling to match the given workspace IDs.
-    /// Uses a single bulk request instead of per-workspace polling.
-    func syncPrPolling(workspaceIds: [String]) {
-        let desired = Set(workspaceIds)
-
-        prPollingIds = desired
-
-        // Cancel existing poll and restart with updated IDs
-        bulkPrPollTask?.cancel()
-
-        guard !desired.isEmpty else {
-            bulkPrPollTask = nil
-            return
-        }
-
-        bulkPrPollTask = Task { [weak self] in
-            guard let self else { return }
-            while !Task.isCancelled {
-                let ids = Array(self.prPollingIds)
-                guard !ids.isEmpty else { break }
-                do {
-                    let response = try await self.apiClient.fetchBulkPrStatus(workspaceIds: ids)
-                    for (wsId, status) in response.results {
-                        self.workspacePrStatus[wsId] = status
-                    }
-                } catch {
-                    // Silently ignore — cards show stale or "No PR"
-                }
-                try? await Task.sleep(for: self.prPollInterval)
-            }
-        }
-    }
-
-    func syncPrPolling(visibleWorkspaceIds: [String]) {
-        syncPrPolling(workspaceIds: visibleWorkspaceIds)
     }
 
     // MARK: - Called by HubConnection
@@ -265,6 +251,10 @@ final class HubStatusMonitor {
 
     fileprivate func didReceiveDiffStats(_ stats: DiffStatResponse, for workspaceId: String) {
         workspaceDiffStats[workspaceId] = stats
+    }
+
+    fileprivate func didReceivePrStatus(_ status: PrStatusResponse, for workspaceId: String) {
+        workspacePrStatus[workspaceId] = status
     }
 
     fileprivate func didReceiveBranchInfo(_ info: BranchInfo, for workspaceId: String) {
@@ -308,7 +298,7 @@ final class HubStatusMonitor {
             if streaming == true {
                 markActivity(for: workspaceId)
             }
-        case .branchInfo, .diffStats, .scriptStatus, .planModeChanged,
+        case .branchInfo, .diffStats, .prStatus, .scriptStatus, .planModeChanged,
              .streamSnapshot(_, _, _, _, _, _, _):
             break
         default:
@@ -334,17 +324,20 @@ final class HubStatusMonitor {
 
     // MARK: - App lifecycle
 
-    /// Force a full WS reconnect to get fresh bootstrap data for all workspaces.
-    /// Used by pull-to-refresh so the backend re-sends status, live stream snapshots,
-    /// branch_info, diff_stats, and script_status for every subscribed workspace.
     func forceRefresh() {
-        hubConnection?.forceReconnect()
+        hubConnection?.probeLiveness()
+    }
+
+    private func sendCurrentSync(forceBootstrap: Bool = false) {
+        hubConnection?.sendSyncWorkspaces(
+            Array(subscribedWorkspaceIds),
+            focusWorkspaces: currentFocusWorkspaces,
+            prWorkspaces: currentPrWorkspaces,
+            forceBootstrap: forceBootstrap
+        )
     }
 
     /// Called when the app returns to foreground after a non-trivial background period.
-    /// Forces an immediate hub reconnect so the backend bootstrap re-syncs live
-    /// workspace state. The reconnect is non-destructive: streaming state is
-    /// reconciled silently from bootstrap events rather than wiped (issue #259).
     func appDidBecomeActive() {
         // Snapshot workspace IDs that had any streaming session
         streamingBeforeBackground = Set(streamingSessions.keys)
@@ -362,6 +355,7 @@ private final class HubConnection {
     private var receiveTask: Task<Void, Never>?
     private var pingTask: Task<Void, Never>?
     private var reconnectTask: Task<Void, Never>?
+    private var probeTimeoutTask: Task<Void, Never>?
     private var intentionallyClosed = false
     private var backoff: UInt64 = 1
 
@@ -382,6 +376,8 @@ private final class HubConnection {
         receiveTask?.cancel()
         pingTask?.cancel()
         reconnectTask?.cancel()
+        probeTimeoutTask?.cancel()
+        probeTimeoutTask = nil
         wsTask?.cancel(with: .goingAway, reason: nil)
         wsTask = nil
     }
@@ -402,9 +398,21 @@ private final class HubConnection {
     }
 
     /// Send sync_workspaces with the given workspace IDs.
-    func sendSyncWorkspaces(_ workspaceIds: [String]) {
+    /// `forceBootstrap` asks the server to resend full bootstrap for already
+    /// subscribed workspaces over the existing socket (no reconnect).
+    func sendSyncWorkspaces(
+        _ workspaceIds: [String],
+        focusWorkspaces: [String],
+        prWorkspaces: [String],
+        forceBootstrap: Bool = false
+    ) {
         Task {
-            await send(.syncWorkspaces(workspaceIds: workspaceIds))
+            await send(.syncWorkspaces(
+                workspaceIds: workspaceIds,
+                focusWorkspaces: focusWorkspaces,
+                prWorkspaces: prWorkspaces,
+                forceBootstrap: forceBootstrap
+            ))
         }
     }
 
@@ -427,11 +435,18 @@ private final class HubConnection {
             return
         }
 
-        let task = URLSession.shared.webSocketTask(with: url)
+        receiveTask?.cancel()
+        pingTask?.cancel()
+        probeTimeoutTask?.cancel()
+        probeTimeoutTask = nil
+        reconnectTask?.cancel()
+        reconnectTask = nil
+        wsTask?.cancel(with: .goingAway, reason: nil)
+
+        let task = HiveHTTP.session.webSocketTask(with: url)
         task.maximumMessageSize = 10 * 1024 * 1024
         self.wsTask = task
         task.resume()
-        backoff = 1
 
         // Re-wire send closures on all existing stores so they target the fresh socket.
         // We deliberately do NOT wipe streaming state here: the reconnect is
@@ -446,7 +461,11 @@ private final class HubConnection {
 
         // Send sync_workspaces to subscribe to all tracked workspaces
         if let workspaceIds = monitor?.subscribedWorkspaceIds {
-            sendSyncWorkspaces(Array(workspaceIds))
+            sendSyncWorkspaces(
+                Array(workspaceIds),
+                focusWorkspaces: monitor?.currentFocusWorkspaces ?? [],
+                prWorkspaces: monitor?.currentPrWorkspaces ?? []
+            )
         }
     }
 
@@ -459,9 +478,12 @@ private final class HubConnection {
                 guard let task = self.wsTask else { break }
                 do {
                     let message = try await task.receive()
+                    self.backoff = 1
                     self.handleFrame(message)
                 } catch {
-                    if !Task.isCancelled { self.handleDisconnect() }
+                    if !Task.isCancelled, self.wsTask === task {
+                        self.handleDisconnect()
+                    }
                     break
                 }
             }
@@ -500,6 +522,9 @@ private final class HubConnection {
 
         case .diffStats(let stats):
             monitor?.didReceiveDiffStats(stats, for: workspaceId)
+
+        case .prStatus(let status):
+            monitor?.didReceivePrStatus(status, for: workspaceId)
 
         case .branchInfo(let info):
             monitor?.didReceiveBranchInfo(info, for: workspaceId)
@@ -542,11 +567,12 @@ private final class HubConnection {
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(30))
                 guard !Task.isCancelled else { break }
-                self?.wsTask?.sendPing { error in
-                    if error != nil {
-                        Task { @MainActor [weak self] in
-                            self?.handleDisconnect()
-                        }
+                guard let task = self?.wsTask else { break }
+                task.sendPing { error in
+                    guard error != nil else { return }
+                    Task { @MainActor [weak self] in
+                        guard let self, self.wsTask === task else { return }
+                        self.handleDisconnect()
                     }
                 }
             }
@@ -555,32 +581,72 @@ private final class HubConnection {
 
     // MARK: - Reconnect
 
-    /// Force an immediate reconnect, bypassing exponential backoff.
-    /// Used when the app returns from background and the connection is likely dead.
     func forceReconnect() {
         guard !intentionallyClosed else { return }
         receiveTask?.cancel()
         pingTask?.cancel()
         reconnectTask?.cancel()
+        probeTimeoutTask?.cancel()
+        probeTimeoutTask = nil
         wsTask?.cancel(with: .goingAway, reason: nil)
         wsTask = nil
         backoff = 1
         performConnect()
     }
 
+    func probeLiveness() {
+        guard !intentionallyClosed else { return }
+        guard let task = wsTask else {
+            performConnect()
+            return
+        }
+        probeTimeoutTask?.cancel()
+        let timeout = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(3))
+            guard let self, !Task.isCancelled else { return }
+            if self.wsTask === task { self.forceReconnect() }
+        }
+        probeTimeoutTask = timeout
+        task.sendPing { [weak self] error in
+            Task { @MainActor in
+                guard let self, self.wsTask === task else { return }
+                self.probeTimeoutTask?.cancel()
+                self.probeTimeoutTask = nil
+                if error != nil {
+                    self.forceReconnect()
+                } else {
+                    // Socket is alive: ask it to resend bootstrap for already
+                    // subscribed workspaces instead of reconnecting.
+                    if let workspaceIds = self.monitor?.subscribedWorkspaceIds {
+                        self.sendSyncWorkspaces(
+                            Array(workspaceIds),
+                            focusWorkspaces: self.monitor?.currentFocusWorkspaces ?? [],
+                            prWorkspaces: self.monitor?.currentPrWorkspaces ?? [],
+                            forceBootstrap: true
+                        )
+                    }
+                }
+            }
+        }
+    }
+
     private func handleDisconnect() {
         receiveTask?.cancel()
         pingTask?.cancel()
+        probeTimeoutTask?.cancel()
+        probeTimeoutTask = nil
         wsTask?.cancel(with: .goingAway, reason: nil)
         wsTask = nil
 
         guard !intentionallyClosed else { return }
 
+        reconnectTask?.cancel()
         reconnectTask = Task { [weak self] in
             guard let self else { return }
             let delay = self.backoff
-            self.backoff = min(self.backoff * 2, 30)
-            try? await Task.sleep(for: .seconds(delay))
+            self.backoff = min(self.backoff * 2, 60)
+            let jitterMs = UInt64.random(in: 0...500)
+            try? await Task.sleep(for: .seconds(delay) + .milliseconds(jitterMs))
             guard !Task.isCancelled, !self.intentionallyClosed else { return }
             self.performConnect()
         }

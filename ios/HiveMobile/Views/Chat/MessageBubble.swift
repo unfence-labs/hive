@@ -306,9 +306,19 @@ private func computeEditDiffStats(oldString: String, newString: String) -> (adde
     return (added, removed)
 }
 
-private func computeToolStats(_ tool: ToolCall) -> ChatActivityStats? {
+private let toolInputParseCache = NSCache<NSString, NSDictionary>()
+
+private func parsedToolInput(_ tool: ToolCall) -> [String: Any]? {
+    let key = tool.id as NSString
+    if let cached = toolInputParseCache.object(forKey: key) { return cached as? [String: Any] }
     guard let data = tool.input.data(using: .utf8),
-          let input = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+          let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
+    toolInputParseCache.setObject(obj as NSDictionary, forKey: key)
+    return obj
+}
+
+private func computeToolStats(_ tool: ToolCall) -> ChatActivityStats? {
+    guard let input = parsedToolInput(tool) else {
         return nil
     }
 
@@ -357,8 +367,7 @@ private func getToolDisplay(
     isDismissed: Bool = false,
     showExecutingState: Bool = false
 ) -> ToolDisplay {
-    guard let data = tool.input.data(using: .utf8),
-          let input = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+    guard let input = parsedToolInput(tool) else {
         return ToolDisplay(icon: toolIcon(for: tool.name), label: tool.name, detail: String(tool.input.prefix(40)))
     }
 
@@ -731,8 +740,7 @@ private struct DiffContentView: View {
     let tool: ToolCall
 
     private var parsed: (filePath: String?, lines: [DiffLine]) {
-        guard let data = tool.input.data(using: .utf8),
-              let input = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+        guard let input = parsedToolInput(tool) else {
             return (nil, [])
         }
         let filePath = resolveFilePath(input)
@@ -780,8 +788,7 @@ private struct AskUserQuestionContent: View {
     let tool: ToolCall
 
     private var questions: [(text: String, options: [String])] {
-        guard let data = tool.input.data(using: .utf8),
-              let input = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+        guard let input = parsedToolInput(tool),
               let arr = input["questions"] as? [[String: Any]] else {
             return []
         }

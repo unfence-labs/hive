@@ -1,5 +1,4 @@
 import { join } from "node:path";
-import { git } from "../utils/git.js";
 import {
   loadAllProjects,
   loadProject,
@@ -9,10 +8,13 @@ import {
 import { bareRepoPath, workspacesDir, resolveDefaultBranch } from "../utils/paths.js";
 import { refreshDefaultBranchFromOrigin } from "../utils/git-default-branch.js";
 import { computeDiffStat } from "../workspaces/workspace-manager.js";
-import type { BranchInfo, DiffStatResponse, Workspace } from "../types.js";
+import type { BranchInfo, DiffStatResponse, PrStatusResponse, Workspace } from "../types.js";
+import { getBranchName } from "../utils/worktree.js";
+import { PrStatusService } from "./pr-status.js";
 
 type BranchChangeCallback = (wsId: string, info: BranchInfo) => void;
 type DiffStatsChangeCallback = (wsId: string, stats: DiffStatResponse) => void;
+type PrStatusChangeCallback = (wsId: string, status: PrStatusResponse) => void;
 
 const GIT_SYNC_CONCURRENCY = 6;
 const DEFAULT_BRANCH_REFRESH_TTL_MS = 60_000;
@@ -33,15 +35,11 @@ async function withConcurrency<T>(
   await Promise.allSettled([...executing]);
 }
 
-export async function getBranchName(wsPath: string): Promise<string> {
-  const { stdout } = await git(["rev-parse", "--abbrev-ref", "HEAD"], wsPath);
-  return stdout;
-}
-
 export class GitSyncService {
   private interval: ReturnType<typeof setInterval> | null = null;
   private branchCallbacks: BranchChangeCallback[] = [];
   private diffStatsCallbacks: DiffStatsChangeCallback[] = [];
+  private prCallbacks: PrStatusChangeCallback[] = [];
   private branchInfoCache = new Map<string, string>();
   private diffStatsCache = new Map<string, string>();
   private latestBranchInfo = new Map<string, BranchInfo>();
@@ -49,7 +47,11 @@ export class GitSyncService {
   private defaultBranchRefreshCache = new Map<string, { branch: string; at: number }>();
   private syncing = false;
 
-  constructor(private readonly dataDir: string) {}
+  constructor(
+    private readonly dataDir: string,
+    private readonly prStatusService = new PrStatusService(dataDir),
+    private readonly hasPrStatusInterest: (wsId: string) => boolean = () => false,
+  ) {}
 
   onBranchChange(callback: BranchChangeCallback): void {
     this.branchCallbacks.push(callback);
@@ -59,12 +61,20 @@ export class GitSyncService {
     this.diffStatsCallbacks.push(callback);
   }
 
+  onPrStatusChange(callback: PrStatusChangeCallback): void {
+    this.prCallbacks.push(callback);
+  }
+
   getCachedBranchInfo(workspaceId: string): BranchInfo | undefined {
     return this.latestBranchInfo.get(workspaceId);
   }
 
   getCachedDiffStats(workspaceId: string): DiffStatResponse | undefined {
     return this.latestDiffStats.get(workspaceId);
+  }
+
+  getCachedPrStatus(workspaceId: string): PrStatusResponse | undefined {
+    return this.prStatusService.getCachedStatus(workspaceId);
   }
 
   start(intervalMs: number): void {
@@ -102,7 +112,7 @@ export class GitSyncService {
         await withConcurrency(
           project.workspaces,
           GIT_SYNC_CONCURRENCY,
-          (workspace) => this.syncWorkspace(project.id, workspace, bare, defaultBranch),
+          (workspace) => this.syncWorkspace(project.id, workspace, bare, defaultBranch, project.url),
         );
       }
     } finally {
@@ -115,6 +125,7 @@ export class GitSyncService {
     workspace: Workspace,
     bare: string,
     defaultBranch: string,
+    projectUrl?: string,
   ): Promise<void> {
     const wsPath = join(workspacesDir(this.dataDir, projectId), workspace.name);
 
@@ -140,6 +151,7 @@ export class GitSyncService {
         },
         this.dataDir,
       );
+      this.prStatusService.invalidate(workspace.id);
     }
 
     // Build BranchInfo (PR status is fetched on-demand via REST)
@@ -171,6 +183,18 @@ export class GitSyncService {
     } catch {
       // Diff stat computation failed — skip silently
     }
+
+    await this.syncPrStatus(workspace.id, projectUrl, currentBranch);
+  }
+
+  private async syncPrStatus(wsId: string, projectUrl: string | undefined, branch: string): Promise<void> {
+    if (!this.hasPrStatusInterest(wsId)) return;
+    const { status, changed } = await this.prStatusService.refreshStatus(wsId, { projectUrl, branch });
+    if (changed) {
+      for (const cb of this.prCallbacks) {
+        cb(wsId, status);
+      }
+    }
   }
 
   private async refreshDefaultBranch(
@@ -195,11 +219,15 @@ export class GitSyncService {
     this.stop();
     this.branchCallbacks = [];
     this.diffStatsCallbacks = [];
+    this.prCallbacks = [];
     this.branchInfoCache.clear();
     this.diffStatsCache.clear();
     this.latestBranchInfo.clear();
     this.latestDiffStats.clear();
+    this.prStatusService._clearForTests();
     this.defaultBranchRefreshCache.clear();
     this.syncing = false;
   }
 }
+
+export { getBranchName };

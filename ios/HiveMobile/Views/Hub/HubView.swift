@@ -53,10 +53,8 @@ struct HubView: View {
             // Unstructured Task shields refresh from SwiftUI prematurely
             // cancelling the .refreshable task on ScrollView (known iOS 26 regression).
             await Task { @MainActor in
-                // Force WS reconnect so the backend re-sends full bootstrap
-                // (status, live snapshots, branch_info, diff_stats) for all workspaces.
                 store.statusMonitor.forceRefresh()
-                await store.refresh()
+                await store.refresh(force: true)
             }.value
         }
         .task {
@@ -66,6 +64,13 @@ struct HubView: View {
         .onAppear {
             store.statusMonitor.viewingWorkspaceId = nil
             store.statusMonitor.viewingSessionId = nil
+            store.statusMonitor.syncVisiblePrWorkspaces(visiblePrWorkspaceIds)
+        }
+        .onDisappear {
+            store.statusMonitor.syncVisiblePrWorkspaces([])
+        }
+        .task(id: visiblePrWorkspaceIdsKey) {
+            store.statusMonitor.syncVisiblePrWorkspaces(visiblePrWorkspaceIds)
         }
         .overlay {
             if let errorMessage = store.errorMessage {
@@ -148,9 +153,6 @@ struct HubView: View {
                 sectionView(section)
             }
         }
-        .task(id: prPollingWorkspaceIds) {
-            store.statusMonitor.syncPrPolling(workspaceIds: prPollingWorkspaceIds)
-        }
     }
 
     private var baseSections: [HubSection] {
@@ -160,8 +162,18 @@ struct HubView: View {
         )
     }
 
-    private var prPollingWorkspaceIds: [String] {
-        HubPrPollingSelection.allWorkspaceIds(in: baseSections)
+    private var visiblePrWorkspaceIds: [String] {
+        var ids: [String] = []
+        for section in baseSections where isSectionExpanded(section) {
+            for node in section.projects where isProjectExpanded(node.project) {
+                ids.append(contentsOf: node.project.workspaces.map(\.id))
+            }
+        }
+        return ids
+    }
+
+    private var visiblePrWorkspaceIdsKey: String {
+        visiblePrWorkspaceIds.sorted().joined(separator: ",")
     }
 
     private func sectionView(_ section: HubSection) -> some View {
@@ -229,7 +241,8 @@ struct HubView: View {
                             turnCompleted: store.statusMonitor.isCompleted(workspace.id)
                                 || store.statusMonitor.hasUnreadSessions(workspace.id),
                             diffStats: store.statusMonitor.diffStats(for: workspace.id),
-                            prStatus: store.statusMonitor.prStatus(for: workspace.id)
+                            prStatus: store.statusMonitor.prStatus(for: workspace.id),
+                            isPrStatusLoading: store.statusMonitor.isPrStatusLoading(workspace.id)
                         )
                     }
                     .buttonStyle(.plain)

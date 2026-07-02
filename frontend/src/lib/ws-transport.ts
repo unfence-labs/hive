@@ -63,6 +63,7 @@ class WsTransport {
   };
   private subscriptions = new Map<string, WorkspaceSubscription>();
   private subscribedWorkspaceIds = new Set<string>();
+  private prWorkspaceIds = new Set<string>();
   private globalListeners = new Set<GlobalMessageHandler>();
 
   /** Connect to a workspace (subscribes it via the hub). */
@@ -96,6 +97,12 @@ class WsTransport {
     this.sendSyncWorkspaces();
   }
 
+  syncPrWorkspaces(workspaceIds: string[]): void {
+    this.prWorkspaceIds = new Set(workspaceIds);
+    this.ensureHubConnected();
+    this.sendSyncWorkspaces();
+  }
+
   /** Clear cached live status for a workspace (e.g. after session deletion). */
   clearCachedData(workspaceId: string): void {
     const sub = this.subscriptions.get(workspaceId);
@@ -119,6 +126,7 @@ class WsTransport {
     this.teardownHub();
     this.subscriptions.clear();
     this.subscribedWorkspaceIds.clear();
+    this.prWorkspaceIds.clear();
   }
 
   /**
@@ -370,6 +378,7 @@ class WsTransport {
     this.hub.ws.send(JSON.stringify({
       type: "sync_workspaces",
       workspaceIds: [...this.subscribedWorkspaceIds],
+      prWorkspaces: [...this.prWorkspaceIds],
     }));
   }
 

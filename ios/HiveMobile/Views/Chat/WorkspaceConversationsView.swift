@@ -20,7 +20,6 @@ struct WorkspaceConversationsView: View {
             workspace: workspace,
             store: store,
             navigationPath: $navigationPath,
-            pollsPrStatus: true,
             onExtraRefresh: loadScripts
         ) {
             WorkspaceDashboardPanel(

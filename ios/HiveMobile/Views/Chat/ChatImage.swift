@@ -1,3 +1,4 @@
+import ImageIO
 import SwiftUI
 import UIKit
 
@@ -49,7 +50,7 @@ final class ChatImageLoader {
         }
 
         state = .loading
-        guard let decoded = await Self.decode(source: source) else {
+        guard let decoded = await Self.decode(source: source, maxSize: maxSize) else {
             state = .failed
             return
         }
@@ -83,7 +84,7 @@ final class ChatImageLoader {
         }
 
         if loadedImage == nil { state = .loading }
-        guard let decoded = await Self.decode(source: source) else {
+        guard let decoded = await Self.decode(source: source, maxSize: nil) else {
             if loadedImage == nil { state = .failed }
             return
         }
@@ -102,17 +103,43 @@ final class ChatImageLoader {
         ImageCache.shared.image(forKey: cacheKey(source: source, maxSize: maxSize))
     }
 
-    nonisolated private static func decode(source: String) async -> UIImage? {
+    nonisolated private static func decode(source: String, maxSize: CGSize?) async -> UIImage? {
+        let maxPixel = maxSize.map { max($0.width, $0.height) * 3 }
+        let data: Data
         if source.hasPrefix("data:") {
             guard let range = source.range(of: ";base64,") else { return nil }
             let base64 = String(source[range.upperBound...])
-            guard let data = Data(base64Encoded: base64, options: .ignoreUnknownCharacters) else { return nil }
-            return UIImage(data: data)
+            guard let decoded = Data(base64Encoded: base64, options: .ignoreUnknownCharacters) else { return nil }
+            data = decoded
+        } else {
+            var fetchSource = source
+            if let maxPixel {
+                fetchSource += (source.contains("?") ? "&" : "?") + "w=\(Int(maxPixel.rounded()))"
+            }
+            guard let url = ChatImageResolver.apiURL(for: fetchSource) else { return nil }
+            guard let (fetched, _) = try? await HiveHTTP.session.data(from: url) else { return nil }
+            data = fetched
         }
-
-        guard let url = ChatImageResolver.apiURL(for: source) else { return nil }
-        guard let (data, _) = try? await URLSession.shared.data(from: url) else { return nil }
+        if let maxPixel, let downsampled = downsample(data: data, maxPixel: maxPixel) {
+            return downsampled
+        }
         return UIImage(data: data)
+    }
+
+    nonisolated private static func downsample(data: Data, maxPixel: CGFloat) -> UIImage? {
+        guard let source = CGImageSourceCreateWithData(data as CFData, [kCGImageSourceShouldCache: false] as CFDictionary) else {
+            return nil
+        }
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceShouldCacheImmediately: true,
+            kCGImageSourceThumbnailMaxPixelSize: maxPixel,
+        ]
+        guard let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else {
+            return nil
+        }
+        return UIImage(cgImage: cgImage)
     }
 }
 

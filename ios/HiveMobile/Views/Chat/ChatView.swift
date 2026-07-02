@@ -397,14 +397,20 @@ struct ChatView: View {
                 guard store.sessionId == sessionId else { return }
 
                 let requestToken = store.beginHistoryRequest(for: sessionId)
+                let since = store.lastServerMessageId(for: sessionId)
                 do {
                     let msgs = try await api.fetchMessages(
                         workspaceId: workspace.id,
-                        sessionId: sessionId
+                        sessionId: sessionId,
+                        since: since
                     )
                     guard store.sessionId == sessionId else { return }
                     guard store.historyToken(for: sessionId) == requestToken else { return }
-                    store.applyFetchedHistory(msgs, for: sessionId)
+                    if since != nil {
+                        store.applyIncrementalHistory(msgs, for: sessionId)
+                    } else {
+                        store.applyFetchedHistory(msgs, for: sessionId)
+                    }
                 } catch {
                     // Best-effort — streamed messages remain as fallback
                 }
@@ -439,6 +445,10 @@ struct ChatView: View {
         if store.messages.isEmpty, let cached = store.cachedMessages(for: sessionId), !cached.isEmpty {
             store.messages = cached
             isLoading = false
+        }
+        if store.cachedMessages(for: sessionId) != nil, store.isHistoryFresh(sessionId, within: 5) {
+            isLoading = false
+            return
         }
         let requestToken = store.beginHistoryRequest(for: sessionId)
         do {

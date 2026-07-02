@@ -80,9 +80,11 @@ export function parseGitHubRepo(
 
 export async function gh(
   args: string[],
+  opts: { timeoutMs?: number } = {},
 ): Promise<{ stdout: string; stderr: string }> {
   const { stdout, stderr } = await execFile("gh", args, {
     maxBuffer: 10 * 1024 * 1024,
+    ...(opts.timeoutMs ? { timeout: opts.timeoutMs, killSignal: "SIGKILL" as const } : {}),
   });
   return { stdout: stdout.trim(), stderr: stderr.trim() };
 }
@@ -288,7 +290,7 @@ export async function fetchPrForBranch(
       "number,url,state,isDraft,mergeable,mergeStateStatus,statusCheckRollup,reviewDecision",
       "--limit",
       "1",
-    ]);
+    ], { timeoutMs: 8000 });
 
     ghAvailable = true;
     ghUnavailableReason = "";

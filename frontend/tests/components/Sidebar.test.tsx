@@ -6,6 +6,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import Sidebar from "@/components/Sidebar";
 import { WorkspaceLiveDataProvider } from "@/contexts/WorkspaceLiveDataContext";
 import { api } from "@/hooks/useApi";
+import { useWsCacheInvalidation } from "@/hooks/useWsCacheInvalidation";
 import { BRAIN_WORKSPACE_ID } from "@/lib/brain";
 import type { UiPreferencesPayload } from "@/lib/sidebar-preferences";
 import type { BrainState, Project, PullRequestInfo, WsOutgoing } from "@/types";
@@ -78,6 +79,7 @@ vi.mock("@/lib/ws-transport", () => {
       };
     }),
     onReconnect: vi.fn(() => () => {}),
+    syncPrWorkspaces: vi.fn(),
   };
 
   const __wsMock = {
@@ -87,6 +89,7 @@ vi.mock("@/lib/ws-transport", () => {
     reset: () => {
       messageHandlers.clear();
       wsTransport.onMessage.mockClear();
+      wsTransport.syncPrWorkspaces.mockClear();
     },
   };
 
@@ -115,6 +118,11 @@ function SidebarRoute() {
       <div data-testid="location-path">{location.pathname}</div>
     </>
   );
+}
+
+function WsCacheInvalidationProbe({ workspaceIds }: { workspaceIds: string[] }) {
+  useWsCacheInvalidation(workspaceIds);
+  return null;
 }
 
 function renderSidebar(
@@ -174,6 +182,7 @@ function renderSidebar(
 
   return render(
     <QueryClientProvider client={queryClient}>
+      <WsCacheInvalidationProbe workspaceIds={workspaceIds} />
       <WorkspaceLiveDataProvider workspaceIds={workspaceIds}>
         <MemoryRouter initialEntries={[path]}>
           <Routes>
@@ -233,7 +242,6 @@ function mockPostWithBulkFallback(overrides: Record<string, unknown | Error>) {
       if (response instanceof Error) throw response;
       return response;
     }
-    if (url === "/api/workspaces/pr-status/bulk") return { results: {} };
     throw new Error(`Unexpected POST: ${url}`);
   });
 }
@@ -1636,42 +1644,34 @@ describe("Sidebar", () => {
     expect(addRepository).not.toHaveClass("border");
   });
 
-  it("reserves the PR slot but shows no dot while bulk status is in flight and after a no-PR result", async () => {
-    let resolve!: (value: unknown) => void;
-    const pending = new Promise((res) => {
-      resolve = res;
-    });
-
-    mockPostWithBulkFallback({
-      "/api/workspaces/pr-status/bulk": pending,
-    });
+  it("reserves the PR slot but shows no dot before and after a no-PR WS result", async () => {
+    const { __wsMock } = await getWsMock();
 
     renderSidebar("/workspaces/w1", projects);
 
-    // The dense row no longer surfaces a textual "Loading…" state; the row
-    // renders normally with an empty (reserved) PR slot while in flight.
     const wsLink = await screen.findByRole("link", { name: /workspace\/tokyo/i });
     expect(wsLink.querySelector("[role='img'][aria-label^='#']")).toBeNull();
 
-    resolve({ results: {} });
+    act(() => {
+      __wsMock.emit("w1", { type: "pr_status", status: { pr: null } });
+    });
     await waitFor(() => {
-      // No PR resolved -> the reserved slot stays empty (no PR dot).
       expect(wsLink.querySelector("[role='img'][aria-label^='#']")).toBeNull();
     });
   });
 
   it("shows a colour-coded PR dot when a PR exists", async () => {
-    mockPostWithBulkFallback({
-      "/api/workspaces/pr-status/bulk": {
-        results: {
-          w1: { pr: makePr({ number: 7, mergeable: true, mergeableState: "clean" }) },
-        },
-      },
-    });
+    const { __wsMock } = await getWsMock();
 
     renderSidebar("/workspaces/w1", projects);
 
     const wsLink = await screen.findByRole("link", { name: /workspace\/tokyo/i });
+    act(() => {
+      __wsMock.emit("w1", {
+        type: "pr_status",
+        status: { pr: makePr({ number: 7, mergeable: true, mergeableState: "clean" }) },
+      });
+    });
     await waitFor(() => {
       // mergeable + clean -> "Ready"; the dot exposes it via aria-label/title.
       expect(wsLink.querySelector("[role='img'][aria-label='#7 Ready']")).not.toBeNull();
@@ -1679,24 +1679,18 @@ describe("Sidebar", () => {
   });
 
   it("renders no PR dot when backend reports an error for a workspace", async () => {
-    mockPostWithBulkFallback({
-      "/api/workspaces/pr-status/bulk": {
-        results: {
-          w1: { pr: null, error: "gh unavailable" },
-        },
-      },
-    });
+    const { __wsMock } = await getWsMock();
 
     renderSidebar("/workspaces/w1", projects);
 
     // The dense row intentionally does not surface the PR error detail; the
     // reserved PR slot simply stays empty so the column stays aligned.
     const wsLink = await screen.findByRole("link", { name: /workspace\/tokyo/i });
-    await waitFor(() => {
-      expect(api.post).toHaveBeenCalledWith(
-        "/api/workspaces/pr-status/bulk",
-        expect.anything(),
-      );
+    act(() => {
+      __wsMock.emit("w1", {
+        type: "pr_status",
+        status: { pr: null, error: "gh unavailable" },
+      });
     });
     expect(wsLink.querySelector("[role='img'][aria-label^='#']")).toBeNull();
   });

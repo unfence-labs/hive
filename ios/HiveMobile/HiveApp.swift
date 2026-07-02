@@ -83,11 +83,12 @@ struct HiveApp: App {
                 case .background:
                     backgroundedAt = Date()
                 case .active:
-                    if let bg = backgroundedAt, Date().timeIntervalSince(bg) > 2 {
+                    if let bg = backgroundedAt {
+                        let elapsed = Date().timeIntervalSince(bg)
                         projectStore.statusMonitor.appDidBecomeActive()
-                        // Also refresh project/workspace list from REST so newly
-                        // created or archived workspaces appear immediately.
-                        Task { await projectStore.refresh() }
+                        if elapsed > 30 {
+                            Task { await projectStore.refresh(force: true) }
+                        }
                     }
                     backgroundedAt = nil
                 default:
