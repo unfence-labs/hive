@@ -124,32 +124,48 @@ struct ChatView: View {
                 Spacer()
             } else {
                 ScrollViewReader { proxy in
-                    ScrollView {
-                        LazyVStack(spacing: 16) {
-                            ForEach(store.messages) { message in
-                                if !(message.role == .user && message.content == "Question dismissed.") {
-                                    MessageBubble(message: message, pendingToolUseIds: pendingToolUseIds, dismissedToolCallIds: dismissedToolCallIds)
-                                        .id(message.id)
-                                }
+                    List {
+                        ForEach(store.messages) { message in
+                            if !(message.role == .user && message.content == "Question dismissed.") {
+                                MessageBubble(
+                                    message: message,
+                                    pendingToolUseIds: pendingToolUseIds,
+                                    dismissedToolCallIds: dismissedToolCallIds
+                                )
+                                .id(message.id)
+                                .chatTranscriptRow()
                             }
-
-                            if let message = streamingMessage {
-                                MessageBubble(message: message, pendingToolUseIds: pendingToolUseIds, dismissedToolCallIds: dismissedToolCallIds)
-                                    .id(message.id)
-                            }
-
-                            if store.isStreaming {
-                                streamingActivityRow
-                            }
-
-                            Color.clear
-                                .frame(height: 1)
-                                .id(bottomAnchorID)
                         }
-                        .padding()
+
+                        if let message = streamingMessage {
+                            MessageBubble(
+                                message: message,
+                                pendingToolUseIds: pendingToolUseIds,
+                                dismissedToolCallIds: dismissedToolCallIds
+                            )
+                            .id(message.id)
+                            .chatTranscriptRow()
+                        }
+
+                        if store.isStreaming {
+                            streamingActivityRow
+                                .chatTranscriptRow()
+                        }
+
+                        Color.clear
+                            .frame(height: 1)
+                            .id(bottomAnchorID)
+                            .chatTranscriptAnchorRow()
                     }
-                    .defaultScrollAnchor(.bottom)
+                    .listStyle(.plain)
+                    .environment(\.defaultMinListRowHeight, 0)
+                    .scrollContentBackground(.hidden)
+                    .defaultScrollAnchor(.bottom, for: .initialOffset)
+                    .defaultScrollAnchor(.topLeading, for: .alignment)
                     .scrollDismissesKeyboard(.interactively)
+                    .onAppear {
+                        scrollToBottom(proxy, force: true)
+                    }
                     .onScrollGeometryChange(for: Bool.self) { geometry in
                         geometry.contentSize.height - geometry.visibleRect.maxY < Self.scrollBottomTolerance
                     } action: { _, isNearBottom in
@@ -610,7 +626,11 @@ struct ChatView: View {
     private var bottomAnchorID: String { Self.bottomAnchorID }
 
     private func scrollToBottomIfNeeded(_ proxy: ScrollViewProxy) {
-        guard isNearScrollBottom else { return }
+        scrollToBottom(proxy, force: false)
+    }
+
+    private func scrollToBottom(_ proxy: ScrollViewProxy, force: Bool) {
+        guard force || isNearScrollBottom else { return }
         proxy.scrollTo(bottomAnchorID, anchor: .bottom)
     }
 
@@ -670,5 +690,27 @@ private extension ImageAttachment {
             mediaType: draftAttachment.mediaType,
             dataUrl: draftAttachment.dataUrl
         )
+    }
+}
+
+private extension View {
+    func chatTranscriptRow() -> some View {
+        self
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .listRowInsets(EdgeInsets(
+                top: HiveSpacing.sm,
+                leading: HiveSpacing.lg,
+                bottom: HiveSpacing.sm,
+                trailing: HiveSpacing.lg
+            ))
+            .listRowSeparator(.hidden)
+            .listRowBackground(Color.clear)
+    }
+
+    func chatTranscriptAnchorRow() -> some View {
+        self
+            .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: HiveSpacing.sm, trailing: 0))
+            .listRowSeparator(.hidden)
+            .listRowBackground(Color.clear)
     }
 }
