@@ -112,19 +112,10 @@ struct MessageBubble: View {
                             .stroke(hiveAccent.opacity(0.24), lineWidth: 1)
                     )
             case .assistant:
-                if message.id == "streaming" {
-                    Text(message.content)
-                        .font(.system(size: 14))
-                        .foregroundStyle(WhisperColor.text)
-                        .lineSpacing(3)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .textSelection(.enabled)
-                } else {
-                    Markdown(message.content)
-                        .markdownTheme(.whisperChat)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .textSelection(.enabled)
-                }
+                Markdown(message.content)
+                    .markdownTheme(.whisperChat)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .textSelection(.enabled)
             }
         }
     }
