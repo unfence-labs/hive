@@ -238,13 +238,27 @@ struct MessageBubble: View {
         return result
     }
 
-    private func formatTimestamp(_ ts: String) -> String {
+    private static let isoWithFractional: ISO8601DateFormatter = {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        guard let date = formatter.date(from: ts) else { return "" }
-        let display = DateFormatter()
-        display.timeStyle = .short
-        return display.string(from: date)
+        return formatter
+    }()
+
+    private static let iso: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter
+    }()
+
+    private static let timeFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.timeStyle = .short
+        return formatter
+    }()
+
+    private func formatTimestamp(_ ts: String) -> String {
+        guard let date = Self.isoWithFractional.date(from: ts) ?? Self.iso.date(from: ts) else { return "" }
+        return Self.timeFormatter.string(from: date)
     }
 
 }
@@ -306,19 +320,8 @@ private func computeEditDiffStats(oldString: String, newString: String) -> (adde
     return (added, removed)
 }
 
-private let toolInputParseCache = NSCache<NSString, NSDictionary>()
-
-private func parsedToolInput(_ tool: ToolCall) -> [String: Any]? {
-    let key = tool.id as NSString
-    if let cached = toolInputParseCache.object(forKey: key) { return cached as? [String: Any] }
-    guard let data = tool.input.data(using: .utf8),
-          let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
-    toolInputParseCache.setObject(obj as NSDictionary, forKey: key)
-    return obj
-}
-
 private func computeToolStats(_ tool: ToolCall) -> ChatActivityStats? {
-    guard let input = parsedToolInput(tool) else {
+    guard let input = parsedToolInputObject(tool.input) else {
         return nil
     }
 
@@ -367,7 +370,7 @@ private func getToolDisplay(
     isDismissed: Bool = false,
     showExecutingState: Bool = false
 ) -> ToolDisplay {
-    guard let input = parsedToolInput(tool) else {
+    guard let input = parsedToolInputObject(tool.input) else {
         return ToolDisplay(icon: toolIcon(for: tool.name), label: tool.name, detail: String(tool.input.prefix(40)))
     }
 
@@ -740,7 +743,7 @@ private struct DiffContentView: View {
     let tool: ToolCall
 
     private var parsed: (filePath: String?, lines: [DiffLine]) {
-        guard let input = parsedToolInput(tool) else {
+        guard let input = parsedToolInputObject(tool.input) else {
             return (nil, [])
         }
         let filePath = resolveFilePath(input)
@@ -788,7 +791,7 @@ private struct AskUserQuestionContent: View {
     let tool: ToolCall
 
     private var questions: [(text: String, options: [String])] {
-        guard let input = parsedToolInput(tool),
+        guard let input = parsedToolInputObject(tool.input),
               let arr = input["questions"] as? [[String: Any]] else {
             return []
         }

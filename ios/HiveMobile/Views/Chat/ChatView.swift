@@ -13,12 +13,6 @@ struct ChatView: View {
     @State private var fastModeEnabled = false
     @State private var selectedModelId: String = ""
     @State private var draftAttachments: [ImageAttachment] = []
-    @State private var renderedStreamingText = ""
-    @State private var renderedStreamingThinking = ""
-    @State private var pendingStreamingText = ""
-    @State private var pendingStreamingThinking = ""
-    @State private var lastStreamingRenderAt = Date.distantPast
-    @State private var streamingRenderTask: Task<Void, Never>?
     @State private var isNearScrollBottom = true
 
     @Environment(ModelCatalog.self) private var modelCatalog
@@ -90,21 +84,6 @@ struct ChatView: View {
         Set(store.pendingToolInputs.map(\.toolUseId))
     }
 
-    private var dismissedToolCallIds: Set<String> {
-        var ids = Set<String>()
-        let msgs = store.messages
-        for i in 0..<(msgs.count - 1) {
-            let msg = msgs[i]
-            let next = msgs[i + 1]
-            if msg.role == .assistant, next.role == .user, next.content == "Question dismissed." {
-                for tc in msg.toolCalls ?? [] where tc.name == "AskUserQuestion" {
-                    ids.insert(tc.id)
-                }
-            }
-        }
-        return ids
-    }
-
     var body: some View {
         VStack(spacing: 0) {
             if isLoading {
@@ -130,7 +109,7 @@ struct ChatView: View {
                                 MessageBubble(
                                     message: message,
                                     pendingToolUseIds: pendingToolUseIds,
-                                    dismissedToolCallIds: dismissedToolCallIds
+                                    dismissedToolCallIds: store.dismissedToolCallIds
                                 )
                                 .id(message.id)
                                 .chatTranscriptRow()
@@ -141,7 +120,7 @@ struct ChatView: View {
                             MessageBubble(
                                 message: message,
                                 pendingToolUseIds: pendingToolUseIds,
-                                dismissedToolCallIds: dismissedToolCallIds
+                                dismissedToolCallIds: store.dismissedToolCallIds
                             )
                             .id(message.id)
                             .chatTranscriptRow()
@@ -177,10 +156,10 @@ struct ChatView: View {
                     .onChange(of: store.messages.count) {
                         scrollToBottomIfNeeded(proxy)
                     }
-                    .onChange(of: renderedStreamingText) {
+                    .onChange(of: store.currentText) {
                         scrollToBottomIfNeeded(proxy)
                     }
-                    .onChange(of: renderedStreamingThinking) {
+                    .onChange(of: store.currentThinking) {
                         scrollToBottomIfNeeded(proxy)
                     }
                     .onChange(of: store.activeToolCalls.count) {
@@ -266,15 +245,6 @@ struct ChatView: View {
                 planModeEnabled = active
             }
         }
-        .onChange(of: store.currentText) { _, text in
-            scheduleStreamingRender(text: text)
-        }
-        .onChange(of: store.currentThinking) { _, thinking in
-            scheduleStreamingRender(thinking: thinking)
-        }
-        .onChange(of: store.isStreaming) { _, _ in
-            syncStreamingRenderFromStore()
-        }
         .onChange(of: lockedProvider) { _, newProvider in
             guard let newProvider, !selectedModelId.isEmpty else { return }
             let currentProvider = selectedModelId.split(separator: ":").first.map(String.init) ?? ""
@@ -285,7 +255,6 @@ struct ChatView: View {
             }
         }
         .onDisappear {
-            streamingRenderTask?.cancel()
             saveCurrentDraft()
             store.onTurnCompleted = nil
             if projectStore.statusMonitor.viewingWorkspaceId == workspace.id,
@@ -297,12 +266,11 @@ struct ChatView: View {
 
     // MARK: - Streaming Activity
 
-    private static let streamingRenderInterval: TimeInterval = 0.05
     private static let scrollBottomTolerance: CGFloat = 96
 
     private var streamingMessage: ChatMessage? {
         guard store.isStreaming else { return nil }
-        let hasContent = !renderedStreamingText.isEmpty || !renderedStreamingThinking.isEmpty
+        let hasContent = !store.currentText.isEmpty || !store.currentThinking.isEmpty
             || !store.activeToolCalls.isEmpty || !store.activeAgentActivities.isEmpty
         guard hasContent else { return nil }
 
@@ -310,75 +278,15 @@ struct ChatView: View {
             id: "streaming",
             sessionId: store.sessionId ?? "",
             role: .assistant,
-            content: renderedStreamingText,
+            content: store.currentText,
             images: nil,
             toolCalls: store.activeToolCalls.isEmpty ? nil : store.activeToolCalls,
             agentActivities: store.activeAgentActivities.isEmpty ? nil : store.activeAgentActivities,
-            thinkingContent: renderedStreamingThinking.isEmpty ? nil : renderedStreamingThinking,
+            thinkingContent: store.currentThinking.isEmpty ? nil : store.currentThinking,
             timestamp: ConversationStore.timestamp(),
             cancelled: nil,
             durationMs: nil
         )
-    }
-
-    private func scheduleStreamingRender(text: String? = nil, thinking: String? = nil) {
-        if let text {
-            pendingStreamingText = text
-        }
-        if let thinking {
-            pendingStreamingThinking = thinking
-        }
-
-        let elapsed = Date().timeIntervalSince(lastStreamingRenderAt)
-        if elapsed >= Self.streamingRenderInterval {
-            streamingRenderTask?.cancel()
-            streamingRenderTask = nil
-            applyPendingStreamingRender()
-            return
-        }
-
-        guard streamingRenderTask == nil else { return }
-
-        let delay = Self.streamingRenderInterval - elapsed
-        let milliseconds = Int64(max(1, (delay * 1000).rounded(.up)))
-        streamingRenderTask = Task {
-            do {
-                try await Task.sleep(for: .milliseconds(milliseconds))
-            } catch {
-                return
-            }
-
-            await MainActor.run {
-                applyPendingStreamingRender()
-                streamingRenderTask = nil
-            }
-        }
-    }
-
-    private func applyPendingStreamingRender() {
-        lastStreamingRenderAt = Date()
-        renderedStreamingText = pendingStreamingText
-        renderedStreamingThinking = pendingStreamingThinking
-    }
-
-    private func resetStreamingRender() {
-        streamingRenderTask?.cancel()
-        streamingRenderTask = nil
-        pendingStreamingText = ""
-        pendingStreamingThinking = ""
-        renderedStreamingText = ""
-        renderedStreamingThinking = ""
-        lastStreamingRenderAt = .distantPast
-    }
-
-    private func syncStreamingRenderFromStore() {
-        if store.isStreaming {
-            pendingStreamingText = store.currentText
-            pendingStreamingThinking = store.currentThinking
-            applyPendingStreamingRender()
-        } else {
-            resetStreamingRender()
-        }
     }
 
     private var streamingActivityRow: some View {
@@ -442,7 +350,6 @@ struct ChatView: View {
             store.prepareSessionSwitch(selectedSessionId)
             _ = await store.send?(.switchSession(sessionId: selectedSessionId))
         }
-        syncStreamingRenderFromStore()
         restoreDraft(for: selectedSessionId)
 
         if selectedModelId.isEmpty {
@@ -450,7 +357,6 @@ struct ChatView: View {
         }
 
         await loadMessages()
-        syncStreamingRenderFromStore()
     }
 
     private func loadMessages() async {

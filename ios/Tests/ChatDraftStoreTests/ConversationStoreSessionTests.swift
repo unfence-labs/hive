@@ -5,7 +5,7 @@ import Testing
 struct ConversationStoreSessionTests {
     @Test @MainActor
     func prepareSessionSwitchClearsVisibleStateAndInvalidatesHistoryTokens() {
-        let store = ConversationStore()
+        let store = ConversationStore(streamFlushInterval: nil)
         store.handle(.history(messages: [
             ChatMessage(
                 id: "message-1",
@@ -28,6 +28,7 @@ struct ConversationStoreSessionTests {
             lockedProvider: "codex"
         ))
         store.handle(.textDelta(sessionId: "session-1", text: "Streaming in the background"))
+        store.flushStreamingDeltas()
         store.handle(.status(
             status: .busy,
             sessionId: "session-2",
@@ -199,7 +200,7 @@ struct ConversationStoreSessionTests {
 
     @Test @MainActor
     func streamSnapshotReplacesAccumulatedStreamingState() {
-        let store = ConversationStore()
+        let store = ConversationStore(streamFlushInterval: nil)
         store.handle(.status(
             status: .busy,
             sessionId: "session-1",
@@ -209,6 +210,7 @@ struct ConversationStoreSessionTests {
         ))
         store.handle(.textDelta(sessionId: "session-1", text: "Before "))
         store.handle(.thinking(sessionId: "session-1", text: "old thinking"))
+        store.flushStreamingDeltas()
 
         store.handle(.streamSnapshot(
             sessionId: "session-1",
@@ -329,7 +331,7 @@ struct ConversationStoreSessionTests {
 
     @Test @MainActor
     func streamSnapshotReplacesBackgroundAccumulationAfterSwitch() {
-        let store = ConversationStore()
+        let store = ConversationStore(streamFlushInterval: nil)
         store.handle(.status(
             status: .busy, sessionId: "session-A", streaming: true,
             streamingStartedAt: nil, lockedProvider: nil
@@ -340,6 +342,7 @@ struct ConversationStoreSessionTests {
         ))
         store.handle(.textDelta(sessionId: "session-B", text: "partial "))
         store.handle(.textDelta(sessionId: "session-B", text: "delta"))
+        store.flushStreamingDeltas()
         #expect(store.sessionStreams["session-B"]?.currentText == "partial delta")
 
         store.prepareSessionSwitch("session-B")
@@ -368,7 +371,7 @@ struct ConversationStoreSessionTests {
         // Models the non-destructive reconnect (issue #259): the hub no longer wipes
         // sessionStreams on (re)connect, so an in-progress stream must survive a fresh
         // bootstrap and be reconciled in place by the authoritative stream_snapshot.
-        let store = ConversationStore()
+        let store = ConversationStore(streamFlushInterval: nil)
         store.handle(.status(
             status: .busy,
             sessionId: "session-1",
@@ -377,6 +380,7 @@ struct ConversationStoreSessionTests {
             lockedProvider: nil
         ))
         store.handle(.textDelta(sessionId: "session-1", text: "In progress before reconnect"))
+        store.flushStreamingDeltas()
         store.handle(.toolUse(
             sessionId: "session-1",
             id: "tool-1",
@@ -426,7 +430,7 @@ struct ConversationStoreSessionTests {
         // status arrives as idle (not streaming) and history carries the finalized turn.
         // The stale in-progress stream slot must be dropped so it is not rendered as a
         // duplicate bubble alongside the persisted message (issue #259).
-        let store = ConversationStore()
+        let store = ConversationStore(streamFlushInterval: nil)
         store.handle(.status(
             status: .busy,
             sessionId: "session-1",
@@ -435,6 +439,7 @@ struct ConversationStoreSessionTests {
             lockedProvider: nil
         ))
         store.handle(.textDelta(sessionId: "session-1", text: "Half-finished answer"))
+        store.flushStreamingDeltas()
         #expect(store.sessionStreams["session-1"]?.currentText == "Half-finished answer")
 
         // The turn is no longer streaming (e.g. idle status from bootstrap).
@@ -484,7 +489,7 @@ struct ConversationStoreSessionTests {
         // The last finalized assistant turn ends on an unanswered AskUserQuestion. History
         // must rebuild a CLEAN slot carrying only those pending inputs (no stale streaming
         // text/tool calls), so the question prompt survives reconnect.
-        let store = ConversationStore()
+        let store = ConversationStore(streamFlushInterval: nil)
         store.handle(.status(
             status: .busy,
             sessionId: "session-1",
@@ -493,6 +498,7 @@ struct ConversationStoreSessionTests {
             lockedProvider: nil
         ))
         store.handle(.textDelta(sessionId: "session-1", text: "stale streaming text"))
+        store.flushStreamingDeltas()
         store.handle(.status(
             status: .idle,
             sessionId: "session-1",
@@ -531,7 +537,7 @@ struct ConversationStoreSessionTests {
     func historyLeavesActiveStreamingSessionUntouched() {
         // While a session is actively streaming, history (finalized turns) must not
         // disturb the live stream slot — live WS state wins.
-        let store = ConversationStore()
+        let store = ConversationStore(streamFlushInterval: nil)
         store.handle(.status(
             status: .busy,
             sessionId: "session-1",
@@ -540,6 +546,7 @@ struct ConversationStoreSessionTests {
             lockedProvider: nil
         ))
         store.handle(.textDelta(sessionId: "session-1", text: "Live streaming content"))
+        store.flushStreamingDeltas()
 
         store.applyFetchedHistory([
             ChatMessage(
@@ -630,7 +637,7 @@ struct ConversationStoreSessionTests {
     func doneKeepsCacheInSyncForSwitchBack() {
         // A finalized assistant turn (done) must land in the cache so switching
         // away and back shows the finalized turn from cache.
-        let store = ConversationStore()
+        let store = ConversationStore(streamFlushInterval: nil)
         store.setFocusedSessionId("session-A")
         store.applyFetchedHistory([], for: "session-A")
         store.handle(.status(

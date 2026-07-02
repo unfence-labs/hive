@@ -70,6 +70,16 @@ final class ConversationStore {
     /// Provider locked for this session (pushed via WS status events).
     var lockedProvider: String?
 
+    private let streamFlushInterval: TimeInterval?
+    @ObservationIgnored private var pendingTextBySession: [String: String] = [:]
+    @ObservationIgnored private var pendingThinkingBySession: [String: String] = [:]
+    @ObservationIgnored private var flushTask: Task<Void, Never>?
+
+    /// `nil` disables the scheduled auto-flush (tests flush manually).
+    init(streamFlushInterval: TimeInterval? = 0.05) {
+        self.streamFlushInterval = streamFlushInterval
+    }
+
     // MARK: - Computed
 
     /// The active session's stream state (convenience accessor).
@@ -96,8 +106,11 @@ final class ConversationStore {
         deriveGoalState(from: [], activeAgentActivities: [])
     private(set) var backgroundAgents: BackgroundAgentsState =
         deriveBackgroundAgents(from: [], activeToolCalls: [])
+    private(set) var dismissedToolCallIds: Set<String> = []
+    private(set) var derivationRunCount = 0
 
     private func recomputeDerivations() {
+        derivationRunCount += 1
         let toolCalls = activeStream?.activeToolCalls ?? []
         let activities = activeStream?.activeAgentActivities ?? []
         tasksState = deriveTasks(
@@ -107,6 +120,32 @@ final class ConversationStore {
         )
         goalState = deriveGoalState(from: messages, activeAgentActivities: activities)
         backgroundAgents = deriveBackgroundAgents(from: messages, activeToolCalls: toolCalls)
+        dismissedToolCallIds = deriveDismissedToolCallIds(from: messages)
+    }
+
+    // MARK: - Streaming delta buffering
+
+    func flushStreamingDeltas() {
+        flushTask?.cancel()
+        flushTask = nil
+        guard !pendingTextBySession.isEmpty || !pendingThinkingBySession.isEmpty else { return }
+        for (sid, text) in pendingTextBySession {
+            sessionStreams[sid]?.currentText += text
+        }
+        for (sid, text) in pendingThinkingBySession {
+            sessionStreams[sid]?.currentThinking += text
+        }
+        pendingTextBySession = [:]
+        pendingThinkingBySession = [:]
+    }
+
+    private func scheduleStreamFlush() {
+        guard let interval = streamFlushInterval, flushTask == nil else { return }
+        flushTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(interval))
+            guard !Task.isCancelled else { return }
+            self?.flushStreamingDeltas()
+        }
     }
 
     // MARK: - Event handling
@@ -115,11 +154,13 @@ final class ConversationStore {
         switch event {
         case .textDelta(let sid, let text):
             guard sessionStreams[sid] != nil else { return }
-            sessionStreams[sid]?.currentText += text
+            pendingTextBySession[sid, default: ""] += text
+            scheduleStreamFlush()
 
         case .thinking(let sid, let text):
             guard sessionStreams[sid] != nil else { return }
-            sessionStreams[sid]?.currentThinking += text
+            pendingThinkingBySession[sid, default: ""] += text
+            scheduleStreamFlush()
 
         case .toolUse(let sid, let id, let name, let input, let parentToolUseId):
             guard sessionStreams[sid] != nil else { return }
@@ -127,7 +168,9 @@ final class ConversationStore {
                 id: id, name: name, input: input,
                 output: nil, parentToolUseId: parentToolUseId
             ))
-            recomputeDerivations()
+            if sid == sessionId {
+                recomputeDerivations()
+            }
 
         case .toolResult(let sid, let toolUseId, let output):
             guard let stream = sessionStreams[sid],
@@ -137,13 +180,17 @@ final class ConversationStore {
                 id: tc.id, name: tc.name, input: tc.input,
                 output: output, parentToolUseId: tc.parentToolUseId
             )
-            recomputeDerivations()
+            if sid == sessionId {
+                recomputeDerivations()
+            }
 
         case .agentActivity(let sid, let activity):
             upsertAgentActivity(activity, for: sid)
 
         case .streamSnapshot(let sid, let text, let thinking, let toolCalls,
                              let agentActivities, let agentPlanMode, let startedAt):
+            pendingTextBySession.removeValue(forKey: sid)
+            pendingThinkingBySession.removeValue(forKey: sid)
             let stream = sessionStreams[sid] ?? SessionStreamState()
             stream.currentText = text
             stream.currentThinking = thinking
@@ -157,9 +204,12 @@ final class ConversationStore {
             if sessionId == nil {
                 sessionId = sid
             }
-            recomputeDerivations()
+            if sid == sessionId {
+                recomputeDerivations()
+            }
 
         case .toolInputRequired(let sid, let requestId, let toolName, let toolUseId, let input):
+            flushStreamingDeltas()
             if sessionStreams[sid] == nil && hasTerminalAssistantMessage(for: sid) {
                 return
             }
@@ -175,6 +225,7 @@ final class ConversationStore {
 
         case .done(let sid, let durationMs, let inputTokens, let outputTokens,
                    let contextUsedTokens, let contextWindowTokens, _):
+            flushStreamingDeltas()
             finalizeMessage(sessionId: sid, durationMs: durationMs, cancelled: false,
                             inputTokens: inputTokens, outputTokens: outputTokens,
                             contextUsedTokens: contextUsedTokens,
@@ -183,6 +234,7 @@ final class ConversationStore {
             onTurnCompleted?(sid)
 
         case .cancelled(let sid, let errorDetail, _, let durationMs):
+            flushStreamingDeltas()
             finalizeMessage(sessionId: sid, durationMs: durationMs, cancelled: true, errorDetail: errorDetail)
             lastHistoryFetchAt.removeValue(forKey: sid)
             onTurnCompleted?(sid)
@@ -200,6 +252,7 @@ final class ConversationStore {
             ))
 
         case .status(let status, let incomingSessionId, let streaming, let startedAt, let provider):
+            flushStreamingDeltas()
             let newIsStreaming = streaming ?? (status == .idle ? false : nil)
 
             if let sid = incomingSessionId, let newIsStreaming {
@@ -241,26 +294,31 @@ final class ConversationStore {
             if sessionId == nil, let incomingSessionId {
                 sessionId = incomingSessionId
             }
-            recomputeDerivations()
+            if let incomingSessionId, incomingSessionId == sessionId {
+                recomputeDerivations()
+            }
 
         case .userMessage(let msg):
             let sid = msg.sessionId
             let isActive = sessionId == nil || sid == sessionId
             let alreadyExists = messages.contains { $0.id == msg.id }
-            if isActive && !alreadyExists {
-                messages.append(msg)
-                cacheMessages(messages, for: sid)
-            } else if !isActive {
-                lastHistoryFetchAt.removeValue(forKey: sid)
-            }
             sessionId = sessionId ?? sid
             ensureStream(for: sid)
+            pendingTextBySession.removeValue(forKey: sid)
+            pendingThinkingBySession.removeValue(forKey: sid)
             sessionStreams[sid]?.currentText = ""
             sessionStreams[sid]?.currentThinking = ""
             sessionStreams[sid]?.activeToolCalls = []
             sessionStreams[sid]?.activeAgentActivities = []
             sessionStreams[sid]?.pendingToolInputs = []
-            recomputeDerivations()
+            if isActive && !alreadyExists {
+                messages.append(msg)
+                cacheMessages(messages, for: sid)
+            } else if isActive {
+                recomputeDerivations()
+            } else {
+                lastHistoryFetchAt.removeValue(forKey: sid)
+            }
 
         case .history(let msgs, let incomingSessionId):
             // Conversation history is REST-owned unconditionally, so the backend
@@ -316,8 +374,6 @@ final class ConversationStore {
 
         guard sessionId == self.sessionId else { return }
 
-        messages = msgs
-
         // Reconcile any stale in-progress stream slot for a non-streaming session.
         // History only carries finalized turns, so when it arrives for a session
         // that is NOT actively streaming, any leftover stream slot has already been
@@ -325,6 +381,8 @@ final class ConversationStore {
         // backgrounded zombie). Rebuild a CLEAN slot containing only pending tool
         // inputs (an unanswered question/plan), or drop the stale slot entirely.
         // During streaming, live WS state takes precedence, so we leave it untouched.
+        // Runs before the `messages` assignment so its `didSet` derivation pass
+        // sees the reconciled stream state (one recompute, not two).
         let existingStream = sessionStreams[sessionId]
         if existingStream?.isStreaming != true {
             let derived = derivePendingToolInputsFromHistory(msgs)
@@ -335,8 +393,9 @@ final class ConversationStore {
             } else if existingStream != nil {
                 sessionStreams.removeValue(forKey: sessionId)
             }
-            recomputeDerivations()
         }
+
+        messages = msgs
     }
 
     func lastServerMessageId(for sessionId: String?) -> String? {
@@ -451,7 +510,9 @@ final class ConversationStore {
         } else {
             stream.activeAgentActivities.append(activity)
         }
-        recomputeDerivations()
+        if sid == sessionId {
+            recomputeDerivations()
+        }
     }
 
     private func hasTerminalAssistantMessage(for sid: String) -> Bool {
@@ -565,6 +626,20 @@ final class ConversationStore {
                 )
             }
     }
+}
+
+/// Tool-call ids of AskUserQuestion calls whose question was dismissed —
+/// an assistant message immediately followed by a user "Question dismissed.".
+func deriveDismissedToolCallIds(from messages: [ChatMessage]) -> Set<String> {
+    var ids = Set<String>()
+    for (message, next) in zip(messages, messages.dropFirst()) {
+        guard message.role == .assistant, next.role == .user,
+              next.content == "Question dismissed." else { continue }
+        for tool in message.toolCalls ?? [] where tool.name == "AskUserQuestion" {
+            ids.insert(tool.id)
+        }
+    }
+    return ids
 }
 
 // MARK: - Pending Tool Input

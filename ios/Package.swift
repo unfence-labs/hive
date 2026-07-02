@@ -40,7 +40,8 @@ let package = Package(
                 "Stores/HubOrganization.swift",
                 "Stores/SubAgentStatus.swift",
                 "Stores/TaskDerivation.swift",
-                "Stores/TokenFormatting.swift"
+                "Stores/TokenFormatting.swift",
+                "Stores/ToolInputParsing.swift"
             ]
         ),
         .testTarget(

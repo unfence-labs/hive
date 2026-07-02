@@ -96,7 +96,7 @@ private func toolOutputPayload(_ output: String) -> [String: Any]? {
 }
 
 private func jsonObject(from string: String) -> [String: Any]? {
-    jsonValue(from: string) as? [String: Any]
+    parsedToolInputObject(string)
 }
 
 private func jsonValue(from string: String) -> Any? {

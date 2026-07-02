@@ -247,8 +247,44 @@ enum AgentActivity: Codable, Equatable, Identifiable {
     }
 }
 
+private final class CachedActivityToolCalls {
+    let activity: AgentActivity
+    let toolCalls: [ToolCall]
+
+    init(activity: AgentActivity, toolCalls: [ToolCall]) {
+        self.activity = activity
+        self.toolCalls = toolCalls
+    }
+}
+
+private let activityToolCallsCache: NSCache<NSString, CachedActivityToolCalls> = {
+    let cache = NSCache<NSString, CachedActivityToolCalls>()
+    cache.countLimit = 512
+    return cache
+}()
+
 extension AgentActivity {
     var toolCalls: [ToolCall] {
+        switch self {
+        case .planUpdate, .goalUpdate, .imageView, .imageGeneration, .diagnostic, .unknown:
+            return []
+        case .commandExecution, .fileChange:
+            break
+        }
+
+        let key = id as NSString
+        if let cached = activityToolCallsCache.object(forKey: key), cached.activity == self {
+            return cached.toolCalls
+        }
+        let computed = computeToolCalls()
+        activityToolCallsCache.setObject(
+            CachedActivityToolCalls(activity: self, toolCalls: computed),
+            forKey: key
+        )
+        return computed
+    }
+
+    private func computeToolCalls() -> [ToolCall] {
         switch self {
         case .commandExecution(let activity):
             return [toolCall(for: activity)]

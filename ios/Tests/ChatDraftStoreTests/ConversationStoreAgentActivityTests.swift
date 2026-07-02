@@ -88,7 +88,7 @@ struct ConversationStoreAgentActivityTests {
 
     @Test @MainActor
     func ignoresLateLiveFragmentsAfterDone() {
-        let store = ConversationStore()
+        let store = ConversationStore(streamFlushInterval: nil)
         store.handle(.userMessage(message: ChatMessage(
             id: "user-1",
             sessionId: "session-1",
@@ -146,6 +146,7 @@ struct ConversationStoreAgentActivityTests {
             input: "{}"
         ))
         store.handle(.planModeChanged(sessionId: "session-1", active: true))
+        store.flushStreamingDeltas()
 
         #expect(store.isStreaming == false)
         #expect(store.currentText.isEmpty)
