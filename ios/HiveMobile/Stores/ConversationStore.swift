@@ -240,6 +240,7 @@ final class ConversationStore {
             onTurnCompleted?(sid)
 
         case .error(let message, let errorSessionId):
+            flushStreamingDeltas()
             if let errorSessionId, let currentSessionId = sessionId, errorSessionId != currentSessionId {
                 return
             }

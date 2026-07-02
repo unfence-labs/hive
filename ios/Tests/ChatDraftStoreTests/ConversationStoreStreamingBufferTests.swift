@@ -112,6 +112,24 @@ struct ConversationStoreStreamingBufferTests {
         #expect(store.currentThinking == "canonical thinking")
     }
 
+    @Test @MainActor
+    func errorFlushesBufferedDeltasBeforeAppendingErrorMessage() {
+        let store = ConversationStore(streamFlushInterval: nil)
+        store.handle(.status(
+            status: .busy,
+            sessionId: "session-1",
+            streaming: true,
+            streamingStartedAt: nil,
+            lockedProvider: nil
+        ))
+
+        store.handle(.textDelta(sessionId: "session-1", text: "partial tail"))
+        store.handle(.error(message: "boom", sessionId: "session-1"))
+
+        #expect(store.currentText == "partial tail")
+        #expect(store.messages.last?.content == "Error: boom")
+    }
+
     @MainActor
     private func waitUntil(
         _ condition: @MainActor () -> Bool,
