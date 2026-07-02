@@ -107,7 +107,7 @@ final class ConversationStore {
     private(set) var backgroundAgents: BackgroundAgentsState =
         deriveBackgroundAgents(from: [], activeToolCalls: [])
     private(set) var dismissedToolCallIds: Set<String> = []
-    private(set) var derivationRunCount = 0
+    @ObservationIgnored private(set) var derivationRunCount = 0
 
     private func recomputeDerivations() {
         derivationRunCount += 1
