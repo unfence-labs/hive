@@ -64,6 +64,13 @@ struct HubView: View {
         .onAppear {
             store.statusMonitor.viewingWorkspaceId = nil
             store.statusMonitor.viewingSessionId = nil
+            store.statusMonitor.syncVisiblePrWorkspaces(visiblePrWorkspaceIds)
+        }
+        .onDisappear {
+            store.statusMonitor.syncVisiblePrWorkspaces([])
+        }
+        .task(id: visiblePrWorkspaceIdsKey) {
+            store.statusMonitor.syncVisiblePrWorkspaces(visiblePrWorkspaceIds)
         }
         .overlay {
             if let errorMessage = store.errorMessage {
@@ -155,6 +162,20 @@ struct HubView: View {
         )
     }
 
+    private var visiblePrWorkspaceIds: [String] {
+        var ids: [String] = []
+        for section in baseSections where isSectionExpanded(section) {
+            for node in section.projects where isProjectExpanded(node.project) {
+                ids.append(contentsOf: node.project.workspaces.map(\.id))
+            }
+        }
+        return ids
+    }
+
+    private var visiblePrWorkspaceIdsKey: String {
+        visiblePrWorkspaceIds.sorted().joined(separator: ",")
+    }
+
     private func sectionView(_ section: HubSection) -> some View {
         let expanded = isSectionExpanded(section)
 
@@ -220,7 +241,8 @@ struct HubView: View {
                             turnCompleted: store.statusMonitor.isCompleted(workspace.id)
                                 || store.statusMonitor.hasUnreadSessions(workspace.id),
                             diffStats: store.statusMonitor.diffStats(for: workspace.id),
-                            prStatus: store.statusMonitor.prStatus(for: workspace.id)
+                            prStatus: store.statusMonitor.prStatus(for: workspace.id),
+                            isPrStatusLoading: store.statusMonitor.isPrStatusLoading(workspace.id)
                         )
                     }
                     .buttonStyle(.plain)

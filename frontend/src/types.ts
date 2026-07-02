@@ -161,10 +161,6 @@ export interface PrStatusResponse {
   error?: string;
 }
 
-export interface BulkPrStatusResponse {
-  results: Record<string, PrStatusResponse>;
-}
-
 export interface WorkspaceFileTreeNode {
   name: string;
   path: string;

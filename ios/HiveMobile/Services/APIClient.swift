@@ -190,10 +190,6 @@ final class APIClient {
         try await get(path: "/api/models")
     }
 
-    func fetchPrStatus(workspaceId: String) async throws -> PrStatusResponse {
-        try await get(path: "/api/workspaces/\(workspaceId)/pr-status")
-    }
-
     func fetchWorkspaceScripts(workspaceId: String) async throws -> WorkspaceScriptsResponse {
         try await get(path: "/api/workspaces/\(workspaceId)/scripts")
     }

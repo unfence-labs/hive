@@ -210,7 +210,7 @@ Important iOS areas:
 
 - `ios/HiveMobile/HiveApp.swift`: app entry, tabs, navigation stacks.
 - `ios/HiveMobile/Services/APIClient.swift`: REST client.
-- `ios/HiveMobile/Stores/HubStatusMonitor.swift`: single hub WebSocket, workspace subscriptions, PR status polling, unread/streaming state.
+- `ios/HiveMobile/Stores/HubStatusMonitor.swift`: single hub WebSocket, workspace subscriptions, PR status interest, unread/streaming state.
 - `ios/HiveMobile/Stores/ConversationStore.swift`: chat state and WS event handling.
 - `ios/HiveMobile/Views/Brain/` and `ios/HiveMobile/Views/Chat/`: Brain, workspace, conversation, dashboard, task, tool, image, and activity UI.
 
@@ -261,7 +261,7 @@ This is the public backend surface exposed by route modules under `backend/src/a
 |---|---|
 | Health | `GET /health` |
 | Projects | `GET/POST /api/projects`, `GET/DELETE /api/projects/:id`, `POST /api/projects/:id/fetch`, `GET /api/projects/:id/favicon`, `GET/PUT /api/projects/:id/env` |
-| Workspaces | `GET/POST /api/projects/:id/workspaces`, `GET/DELETE /api/workspaces/:wsId`, `GET /api/workspaces/:wsId/files`, `GET /api/workspaces/:wsId/file`, `GET /api/workspaces/:wsId/file/raw`, `GET /api/workspaces/:wsId/file-completions`, `GET /api/workspaces/:wsId/diff`, `GET /api/workspaces/:wsId/diff/stat`, `POST /api/workspaces/:wsId/merge`, `POST /api/workspaces/:wsId/archive`, `GET /api/workspaces/:wsId/pr-status`, `POST /api/workspaces/pr-status/bulk` |
+| Workspaces | `GET/POST /api/projects/:id/workspaces`, `GET/DELETE /api/workspaces/:wsId`, `GET /api/workspaces/:wsId/files`, `GET /api/workspaces/:wsId/file`, `GET /api/workspaces/:wsId/file/raw`, `GET /api/workspaces/:wsId/file-completions`, `GET /api/workspaces/:wsId/diff`, `GET /api/workspaces/:wsId/diff/stat`, `POST /api/workspaces/:wsId/merge`, `POST /api/workspaces/:wsId/archive` |
 | Sessions | `GET/POST/DELETE /api/workspaces/:wsId/session`, `GET /api/workspaces/:wsId/session/messages`, `GET/POST /api/workspaces/:wsId/sessions`, `POST /api/workspaces/:wsId/sessions/:sessionId/convert-to-terminal`, `DELETE /api/workspaces/:wsId/sessions/:sessionId`, `GET /api/workspaces/:wsId/sessions/:sessionId/messages`, `GET /api/workspaces/:wsId/sessions/:sessionId/attachments/:filename` |
 | Brain | `GET/POST/DELETE /api/brain`, `GET /api/brain/files`, `GET/PUT /api/brain/file`, `GET /api/brain/file/raw`, `GET /api/brain/status`, `GET /api/brain/diff`, `POST /api/brain/save` |
 | Models and provider usage | `GET /api/models`, `GET /api/provider-usage` |
@@ -284,7 +284,7 @@ Hub:
 - Clients send hub-level `sync_workspaces` and `ping`; workspace events include `switch_session`, `user_message`, `stop`, and `tool_input_response`.
 - Finalized conversation history is fetched over REST for every client (`GET /api/workspaces/:wsId/sessions/:sessionId/messages`); the hub bootstrap sends only `status` and live stream snapshots and never a WS `history` frame. The `history` frame survives in the protocol as a legacy inbound clients still tolerate, but the backend no longer sends it.
 - Server wraps workspace events as `{ workspaceId, event }`; hub pings receive `{ type: "pong" }`.
-- Current server workspace events include `status`, `user_message`, `text_delta`, `thinking`, `tool_use`, `tool_result`, `agent_activity`, `stream_snapshot`, `tool_input_required`, `tool_input_resolved`, `done`, `cancelled`, `error`, `branch_info`, `diff_stats`, `script_status`, `browser_status`, `plan_mode_changed`, and legacy `history`.
+- Current server workspace events include `status`, `user_message`, `text_delta`, `thinking`, `tool_use`, `tool_result`, `agent_activity`, `stream_snapshot`, `tool_input_required`, `tool_input_resolved`, `done`, `cancelled`, `error`, `branch_info`, `diff_stats`, `pr_status`, `script_status`, `browser_status`, `plan_mode_changed`, and legacy `history`.
 
 Script stream:
 

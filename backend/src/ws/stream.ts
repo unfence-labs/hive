@@ -24,7 +24,11 @@ import { replaceCompletionAliases, type CompletionProvider } from "../utils/comp
 interface GitSyncSnapshotProvider {
   getCachedBranchInfo: (workspaceId: string) => Extract<WsOutgoing, { type: "branch_info" }>["info"] | undefined;
   getCachedDiffStats: (workspaceId: string) => Extract<WsOutgoing, { type: "diff_stats" }>["stats"] | undefined;
-  getCachedPrStatus?: (workspaceId: string) => Extract<WsOutgoing, { type: "pr_status" }>["status"] | undefined;
+}
+
+interface PrStatusProvider {
+  getCachedStatus: (workspaceId: string) => Extract<WsOutgoing, { type: "pr_status" }>["status"] | undefined;
+  getStatus: (workspaceId: string) => Promise<Extract<WsOutgoing, { type: "pr_status" }>["status"]>;
 }
 
 export interface StreamRoutesOptions {
@@ -32,6 +36,7 @@ export interface StreamRoutesOptions {
   sessionOptions?: SessionOptions;
   authToken?: string;
   gitSyncSnapshotProvider?: GitSyncSnapshotProvider;
+  prStatusProvider?: PrStatusProvider;
 }
 
 type ActiveSession = NonNullable<ReturnType<typeof getSession>>;
@@ -44,6 +49,7 @@ interface HubSocket {
   /** WS-level heartbeat flag: set true on `pong`, cleared each ping tick. A missed cycle reaps the socket. */
   isAlive: boolean;
   focusWorkspaces?: Set<string>;
+  prWorkspaces: Set<string>;
 }
 
 const HIGH_FREQUENCY_EVENTS: ReadonlySet<WsOutgoing["type"]> = new Set([
@@ -56,6 +62,7 @@ const HIGH_FREQUENCY_EVENTS: ReadonlySet<WsOutgoing["type"]> = new Set([
 ]);
 
 function hubReceivesEvent(hub: HubSocket, workspaceId: string, msg: WsOutgoing): boolean {
+  if (msg.type === "pr_status") return hub.prWorkspaces.has(workspaceId);
   if (!hub.focusWorkspaces) return true;
   if (!HIGH_FREQUENCY_EVENTS.has(msg.type)) return true;
   return hub.focusWorkspaces.has(workspaceId);
@@ -148,9 +155,13 @@ function tickHubLiveness(hub: HubSocket): void {
   if (hub.ws.readyState === hub.ws.OPEN) hub.ws.ping();
 }
 
-export function hasActiveHubSubscribers(workspaceId: string): boolean {
-  const channel = channels.get(workspaceId);
-  return !!channel && channel.hubSockets.size > 0;
+export function hasPrStatusInterest(workspaceId: string): boolean {
+  for (const hub of hubSockets) {
+    if (hub.subscribedWorkspaces.has(workspaceId) && hub.prWorkspaces.has(workspaceId)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 export function _getChannelsForTests(): Map<string, WorkspaceChannel> {
@@ -173,6 +184,7 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
     sessionOptions,
     authToken,
     gitSyncSnapshotProvider,
+    prStatusProvider,
   } = opts;
 
   const onBrowserStatus = (workspaceId: string, status: Extract<WsOutgoing, { type: "browser_status" }>["status"]) => {
@@ -411,11 +423,6 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
       sendToHub(hub, wsId, { type: "diff_stats", stats: diffStats });
     }
 
-    const prStatus = gitSyncSnapshotProvider?.getCachedPrStatus?.(wsId);
-    if (prStatus) {
-      sendToHub(hub, wsId, { type: "pr_status", status: prStatus });
-    }
-
     const scriptStatus = getScriptStatus(wsId);
     for (const [scriptType, info] of Object.entries(scriptStatus)) {
       if (info.state !== "idle") {
@@ -433,23 +440,42 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
     }
   };
 
+  const sendWorkspacePrStatus = async (hub: HubSocket, wsId: string): Promise<void> => {
+    if (!hub.prWorkspaces.has(wsId) || !prStatusProvider) return;
+    try {
+      const status = await prStatusProvider.getStatus(wsId);
+      sendToHub(hub, wsId, { type: "pr_status", status });
+    } catch (err) {
+      app.log.warn({ err, wsId }, "Failed to refresh PR status for hub client");
+      sendToHub(hub, wsId, {
+        type: "pr_status",
+        status: { pr: null, error: "Failed to fetch PR status" },
+      });
+    }
+  };
+
   // ── sync_workspaces handler ───────────────────────────────────────
 
   const handleSyncWorkspaces = async (
     hub: HubSocket,
     workspaceIds: string[],
     focusWorkspaces?: string[],
+    prWorkspaces?: string[],
     forceBootstrap?: boolean,
   ): Promise<void> => {
     const desired = new Set(workspaceIds);
     const previouslySubscribed = new Set(hub.subscribedWorkspaces);
+    const previousFocusWorkspaces = hub.focusWorkspaces;
+    const previousPrWorkspaces = hub.prWorkspaces;
     hub.focusWorkspaces = focusWorkspaces ? new Set(focusWorkspaces) : undefined;
+    hub.prWorkspaces = new Set(prWorkspaces ?? []);
 
     // A forced refresh resends full bootstrap below, which already covers the
     // streaming snapshot replay -- skip the focus-only replay here to avoid
     // sending the snapshot twice.
     if (hub.focusWorkspaces && !forceBootstrap) {
       for (const wsId of hub.focusWorkspaces) {
+        if (previousFocusWorkspaces?.has(wsId)) continue;
         if (!hub.subscribedWorkspaces.has(wsId)) continue;
         for (const streamingId of getStreamingSessionIds(wsId)) {
           const session = getSessionById(wsId, streamingId);
@@ -499,6 +525,14 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
         if (channel) await sendWorkspaceBootstrap(hub, wsId, channel);
       }
     }
+
+    const prRefreshes = [...hub.prWorkspaces]
+      .filter((wsId) =>
+        desired.has(wsId) &&
+        (forceBootstrap || !previousPrWorkspaces.has(wsId))
+      )
+      .map((wsId) => sendWorkspacePrStatus(hub, wsId));
+    await Promise.all(prRefreshes);
   };
 
   // ── Workspace message handler ─────────────────────────────────────
@@ -678,7 +712,12 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
       }
 
       // Start alive so the socket gets a full cycle before it can be reaped.
-      const hub: HubSocket = { ws: socket, subscribedWorkspaces: new Set(), isAlive: true };
+      const hub: HubSocket = {
+        ws: socket,
+        subscribedWorkspaces: new Set(),
+        isAlive: true,
+        prWorkspaces: new Set(),
+      };
       hubSockets.add(hub);
 
       socket.on("pong", () => { hub.isAlive = true; });
@@ -726,6 +765,7 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
             hub,
             parsed.workspaceIds,
             parsed.focusWorkspaces,
+            parsed.prWorkspaces,
             parsed.forceBootstrap === true,
           );
         } else if ("workspaceId" in parsed && "event" in parsed) {

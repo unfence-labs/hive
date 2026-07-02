@@ -28,7 +28,7 @@ final class HubStatusMonitor {
     var viewingWorkspaceId: String? {
         didSet {
             guard viewingWorkspaceId != oldValue else { return }
-            hubConnection?.sendSyncWorkspaces(Array(subscribedWorkspaceIds), focusWorkspaces: currentFocusWorkspaces)
+            sendCurrentSync()
         }
     }
     /// Session currently visible in ChatView (suppresses unread badge for that session).
@@ -39,10 +39,20 @@ final class HubStatusMonitor {
         return [viewingWorkspaceId]
     }
 
+    var currentPrWorkspaces: [String] {
+        var ids = visiblePrWorkspaceIds
+        if let viewingWorkspaceId, viewingWorkspaceId != BRAIN_WORKSPACE_ID {
+            ids.insert(viewingWorkspaceId)
+        }
+        ids.remove(BRAIN_WORKSPACE_ID)
+        return Array(ids)
+    }
+
     let storeCache: ConversationStoreCache
 
     private var hubConnection: HubConnection?
     fileprivate var subscribedWorkspaceIds: Set<String> = []
+    private var visiblePrWorkspaceIds: Set<String> = []
     private let isoFormatter = ISO8601DateFormatter()
     private let fractionalIsoFormatter: ISO8601DateFormatter = {
         let formatter = ISO8601DateFormatter()
@@ -104,6 +114,10 @@ final class HubStatusMonitor {
 
     func prStatus(for workspaceId: String) -> PrStatusResponse? {
         workspacePrStatus[workspaceId]
+    }
+
+    func isPrStatusLoading(_ workspaceId: String) -> Bool {
+        currentPrWorkspaces.contains(workspaceId) && workspacePrStatus[workspaceId] == nil
     }
 
     func scriptStatus(for workspaceId: String) -> [String: ScriptStatusInfo] {
@@ -175,8 +189,15 @@ final class HubStatusMonitor {
             hubConnection = conn
             conn.connect()
         } else {
-            hubConnection?.sendSyncWorkspaces(Array(subscribedWorkspaceIds), focusWorkspaces: currentFocusWorkspaces)
+            sendCurrentSync()
         }
+    }
+
+    func syncVisiblePrWorkspaces(_ workspaceIds: [String]) {
+        let desired = Set(workspaceIds)
+        guard desired != visiblePrWorkspaceIds else { return }
+        visiblePrWorkspaceIds = desired
+        sendCurrentSync()
     }
 
     /// Disconnect everything.
@@ -184,6 +205,7 @@ final class HubStatusMonitor {
         hubConnection?.cancel()
         hubConnection = nil
         subscribedWorkspaceIds.removeAll()
+        visiblePrWorkspaceIds.removeAll()
         streamingSessions.removeAll()
         unreadSessions.removeAll()
         workspaceDiffStats.removeAll()
@@ -306,6 +328,15 @@ final class HubStatusMonitor {
         hubConnection?.probeLiveness()
     }
 
+    private func sendCurrentSync(forceBootstrap: Bool = false) {
+        hubConnection?.sendSyncWorkspaces(
+            Array(subscribedWorkspaceIds),
+            focusWorkspaces: currentFocusWorkspaces,
+            prWorkspaces: currentPrWorkspaces,
+            forceBootstrap: forceBootstrap
+        )
+    }
+
     /// Called when the app returns to foreground after a non-trivial background period.
     func appDidBecomeActive() {
         // Snapshot workspace IDs that had any streaming session
@@ -369,11 +400,17 @@ private final class HubConnection {
     /// Send sync_workspaces with the given workspace IDs.
     /// `forceBootstrap` asks the server to resend full bootstrap for already
     /// subscribed workspaces over the existing socket (no reconnect).
-    func sendSyncWorkspaces(_ workspaceIds: [String], focusWorkspaces: [String], forceBootstrap: Bool = false) {
+    func sendSyncWorkspaces(
+        _ workspaceIds: [String],
+        focusWorkspaces: [String],
+        prWorkspaces: [String],
+        forceBootstrap: Bool = false
+    ) {
         Task {
             await send(.syncWorkspaces(
                 workspaceIds: workspaceIds,
                 focusWorkspaces: focusWorkspaces,
+                prWorkspaces: prWorkspaces,
                 forceBootstrap: forceBootstrap
             ))
         }
@@ -424,7 +461,11 @@ private final class HubConnection {
 
         // Send sync_workspaces to subscribe to all tracked workspaces
         if let workspaceIds = monitor?.subscribedWorkspaceIds {
-            sendSyncWorkspaces(Array(workspaceIds), focusWorkspaces: monitor?.currentFocusWorkspaces ?? [])
+            sendSyncWorkspaces(
+                Array(workspaceIds),
+                focusWorkspaces: monitor?.currentFocusWorkspaces ?? [],
+                prWorkspaces: monitor?.currentPrWorkspaces ?? []
+            )
         }
     }
 
@@ -580,6 +621,7 @@ private final class HubConnection {
                         self.sendSyncWorkspaces(
                             Array(workspaceIds),
                             focusWorkspaces: self.monitor?.currentFocusWorkspaces ?? [],
+                            prWorkspaces: self.monitor?.currentPrWorkspaces ?? [],
                             forceBootstrap: true
                         )
                     }

@@ -10,16 +10,22 @@ struct HubOutgoing: Decodable {
 
 /// Client -> Server (hub-level).
 enum HubIncoming: Encodable {
-    case syncWorkspaces(workspaceIds: [String], focusWorkspaces: [String], forceBootstrap: Bool = false)
+    case syncWorkspaces(
+        workspaceIds: [String],
+        focusWorkspaces: [String],
+        prWorkspaces: [String],
+        forceBootstrap: Bool = false
+    )
     case workspaceEvent(workspaceId: String, event: WsIncoming)
 
     func encode(to encoder: Encoder) throws {
         switch self {
-        case .syncWorkspaces(let workspaceIds, let focusWorkspaces, let forceBootstrap):
+        case .syncWorkspaces(let workspaceIds, let focusWorkspaces, let prWorkspaces, let forceBootstrap):
             var container = encoder.container(keyedBy: SyncCodingKeys.self)
             try container.encode("sync_workspaces", forKey: .type)
             try container.encode(workspaceIds, forKey: .workspaceIds)
             try container.encode(focusWorkspaces, forKey: .focusWorkspaces)
+            try container.encode(prWorkspaces, forKey: .prWorkspaces)
             // Only encode when true so the routine sync payload stays small.
             if forceBootstrap {
                 try container.encode(forceBootstrap, forKey: .forceBootstrap)
@@ -32,7 +38,7 @@ enum HubIncoming: Encodable {
     }
 
     private enum SyncCodingKeys: String, CodingKey {
-        case type, workspaceIds, focusWorkspaces, forceBootstrap
+        case type, workspaceIds, focusWorkspaces, prWorkspaces, forceBootstrap
     }
 
     private enum EventCodingKeys: String, CodingKey {

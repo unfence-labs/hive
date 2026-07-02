@@ -40,7 +40,8 @@ import { subagentRoutes } from "./api/subagents.js";
 import { uiPreferencesRoutes } from "./api/ui-preferences.js";
 import { AutomationScheduler } from "./services/automation-scheduler.js";
 import { loadConfig } from "./state/config.js";
-import { broadcastToWorkspace, hasActiveHubSubscribers } from "./ws/stream.js";
+import { PrStatusService } from "./services/pr-status.js";
+import { broadcastToWorkspace, hasPrStatusInterest } from "./ws/stream.js";
 import type { StreamRoutesOptions } from "./ws/stream.js";
 import { preflight } from "./utils/preflight.js";
 import { detectAvailableProviders } from "./agents/providers/registry.js";
@@ -63,6 +64,7 @@ function parseBoolean(value: string | undefined, fallback: boolean): boolean {
 
 interface BuildAppOptions {
   gitSyncSnapshotProvider?: StreamRoutesOptions["gitSyncSnapshotProvider"];
+  prStatusProvider?: StreamRoutesOptions["prStatusProvider"];
   scheduler?: AutomationScheduler;
 }
 
@@ -342,6 +344,7 @@ export async function buildApp(opts: BuildAppOptions = {}) {
       authToken,
       sessionOptions,
       gitSyncSnapshotProvider: opts.gitSyncSnapshotProvider,
+      prStatusProvider: opts.prStatusProvider,
     }),
   );
   await app.register((instance: FastifyInstance) => settingsRoutes(instance));
@@ -426,7 +429,8 @@ async function main() {
 
   const scheduler = new AutomationScheduler(dataDir);
 
-  const gitSync = new GitSyncService(dataDir, hasActiveHubSubscribers);
+  const prStatus = new PrStatusService(dataDir);
+  const gitSync = new GitSyncService(dataDir, prStatus, hasPrStatusInterest);
   gitSync.onBranchChange((wsId, info) => {
     broadcastToWorkspace(wsId, { type: "branch_info", info });
   });
@@ -437,7 +441,7 @@ async function main() {
     broadcastToWorkspace(wsId, { type: "pr_status", status });
   });
 
-  const app = await buildApp({ gitSyncSnapshotProvider: gitSync, scheduler });
+  const app = await buildApp({ gitSyncSnapshotProvider: gitSync, prStatusProvider: prStatus, scheduler });
 
   try {
     await gitSync.poll();

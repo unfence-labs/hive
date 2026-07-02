@@ -66,10 +66,6 @@ export interface PrStatusResponse {
   error?: string;
 }
 
-export interface BulkPrStatusResponse {
-  results: Record<string, PrStatusResponse>;
-}
-
 export interface WorkspaceFileTreeNode {
   name: string;
   path: string;
@@ -739,6 +735,7 @@ export type HubIncoming =
       type: "sync_workspaces";
       workspaceIds: string[];
       focusWorkspaces?: string[];
+      prWorkspaces?: string[];
       forceBootstrap?: boolean;
     }
   // Application-level liveness probe. The browser WebSocket API never exposes

@@ -135,6 +135,7 @@ struct HubWorkspaceRow: View {
     let turnCompleted: Bool
     let diffStats: DiffStatResponse?
     let prStatus: PrStatusResponse?
+    let isPrStatusLoading: Bool
 
     private var diffSummary: HubDiffSummary {
         HubDiffSummary(diffStats: diffStats)
@@ -163,7 +164,7 @@ struct HubWorkspaceRow: View {
                 }
 
                 HStack(spacing: HiveSpacing.sm) {
-                    HubPrBadge(prStatus: prStatus)
+                    HubPrBadge(prStatus: prStatus, isLoading: isPrStatusLoading)
                     Spacer(minLength: 0)
 
                     if diffSummary.hasChanges {
@@ -272,6 +273,7 @@ private struct HubDiffBadge: View {
 
 private struct HubPrBadge: View {
     let prStatus: PrStatusResponse?
+    let isLoading: Bool
 
     var body: some View {
         if let pr = prStatus?.pr {
@@ -282,6 +284,9 @@ private struct HubPrBadge: View {
                     .lineLimit(1)
             }
             .foregroundStyle(display.color)
+        } else if isLoading {
+            Text("Loading")
+                .foregroundStyle(WhisperColor.textMuted)
         } else {
             Text("No PR")
                 .foregroundStyle(WhisperColor.textMuted)

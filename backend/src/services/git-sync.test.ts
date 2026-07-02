@@ -9,6 +9,7 @@ import { loadProject } from "../state/state.js";
 import { bareRepoPath, workspacesDir } from "../utils/paths.js";
 import { getBranchName, GitSyncService } from "./git-sync.js";
 import { fetchPrForBranch } from "../utils/github.js";
+import { PrStatusService } from "./pr-status.js";
 import type { BranchInfo, DiffStatResponse, PullRequestInfo } from "../types.js";
 
 vi.mock("../utils/github.js", async (importOriginal) => {
@@ -134,17 +135,18 @@ describe("GitSyncService", () => {
     expect(callbackInfo!.lastSyncedAt).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/);
   });
 
-  it("emits onPrStatusChange only for workspaces with hub subscribers (C17)", async () => {
+  it("emits onPrStatusChange only for workspaces with PR status interest", async () => {
     const ws = await createWorkspace(projectId, dataDir);
-    const subscribed = new Set<string>();
-    const prService = new GitSyncService(dataDir, (id) => subscribed.has(id));
+    const interested = new Set<string>();
+    const prStatus = new PrStatusService(dataDir);
+    const prService = new GitSyncService(dataDir, prStatus, (id) => interested.has(id));
     const events: string[] = [];
     prService.onPrStatusChange((wsId) => events.push(wsId));
 
     await prService.poll();
     expect(events).toEqual([]);
 
-    subscribed.add(ws.id);
+    interested.add(ws.id);
     await prService.poll();
     expect(events).toEqual([ws.id]);
 
@@ -154,7 +156,8 @@ describe("GitSyncService", () => {
   it("clears cached PR status for a workspace when its branch changes", async () => {
     const ws = await createWorkspace(projectId, dataDir);
     const wsPath = join(workspacesDir(dataDir, projectId), ws.name);
-    const prService = new GitSyncService(dataDir, (id) => id === ws.id);
+    const prStatus = new PrStatusService(dataDir);
+    const prService = new GitSyncService(dataDir, prStatus, (id) => id === ws.id);
 
     vi.mocked(fetchPrForBranch).mockResolvedValueOnce({ pr: makePr(42) });
     await prService.poll();
