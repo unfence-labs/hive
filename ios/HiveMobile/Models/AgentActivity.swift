@@ -260,6 +260,7 @@ private final class CachedActivityToolCalls {
 private let activityToolCallsCache: NSCache<NSString, CachedActivityToolCalls> = {
     let cache = NSCache<NSString, CachedActivityToolCalls>()
     cache.countLimit = 512
+    cache.totalCostLimit = 2_000_000
     return cache
 }()
 
@@ -279,7 +280,8 @@ extension AgentActivity {
         let computed = computeToolCalls()
         activityToolCallsCache.setObject(
             CachedActivityToolCalls(activity: self, toolCalls: computed),
-            forKey: key
+            forKey: key,
+            cost: activityToolCallsCacheCost(computed)
         )
         return computed
     }
@@ -322,6 +324,17 @@ extension AgentActivity {
         case .planUpdate, .goalUpdate, .imageView, .imageGeneration, .diagnostic, .unknown:
             return []
         }
+    }
+}
+
+private func activityToolCallsCacheCost(_ toolCalls: [ToolCall]) -> Int {
+    toolCalls.reduce(0) { total, tool in
+        total
+            + tool.id.utf16.count
+            + tool.name.utf16.count
+            + tool.input.utf16.count
+            + (tool.output?.utf16.count ?? 0)
+            + (tool.parentToolUseId?.utf16.count ?? 0)
     }
 }
 
