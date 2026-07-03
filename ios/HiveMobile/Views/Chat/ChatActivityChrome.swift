@@ -112,7 +112,7 @@ struct ChatActivityRowLabel: View {
                 // out any animation inherited from ancestors — so streaming relayout
                 // (label/icons growing to its left) repositions the dot instantly
                 // instead of animating it. Matches the web's `bg-primary animate-pulse`.
-                TimelineView(.animation) { context in
+                TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { context in
                     let t = context.date.timeIntervalSinceReferenceDate
                     let opacity = 0.7 + 0.3 * sin(t * 2 * .pi / 1.6)
                     Circle()

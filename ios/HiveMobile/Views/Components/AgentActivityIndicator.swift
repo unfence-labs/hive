@@ -6,10 +6,8 @@ struct AgentActivityIndicator: View {
     var dotSize: CGFloat = 3
     var spacing: CGFloat = 1.5
 
-    @State private var phase: Double = 0
-
     var body: some View {
-        TimelineView(.animation) { timeline in
+        TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { timeline in
             let t = timeline.date.timeIntervalSinceReferenceDate
             Canvas { context, _ in
                 for row in 0..<3 {
@@ -38,7 +36,6 @@ struct AgentActivityIndicator: View {
                 width: dotSize * 3 + spacing * 2,
                 height: dotSize * 3 + spacing * 2
             )
-            .shadow(color: WhisperColor.activityDot.opacity(0.25), radius: dotSize * 2)
         }
     }
 }

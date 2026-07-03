@@ -324,6 +324,33 @@ enum WsOutgoing: Decodable {
     }
 }
 
+// MARK: - Hub Activity Marking
+
+/// How a hub-level event should update a workspace's last-activity timestamp
+/// (used for hub sorting). Per-token events are ignored so streaming does not
+/// write observable hub state on every fragment.
+enum HubActivityMarking: Equatable {
+    case ignore
+    case markNow
+    case markLatestMessageTimestamp
+    case markIfStreaming
+}
+
+func hubActivityMarking(for event: WsOutgoing) -> HubActivityMarking {
+    switch event {
+    case .textDelta, .thinking,
+         .branchInfo, .diffStats, .prStatus, .scriptStatus, .planModeChanged, .streamSnapshot:
+        return .ignore
+    case .history:
+        return .markLatestMessageTimestamp
+    case .status:
+        return .markIfStreaming
+    case .toolUse, .toolResult, .agentActivity, .toolInputRequired, .toolInputResolved,
+         .done, .error, .cancelled, .userMessage, .unknown:
+        return .markNow
+    }
+}
+
 // MARK: - AnyCodableValue (for decoding unknown JSON)
 
 enum AnyCodableValue: Codable {

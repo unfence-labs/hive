@@ -36,17 +36,12 @@ func parseTaskId(from output: String) -> String? {
 }
 
 private func parseInput(_ tool: ToolCall) -> [String: Any] {
-    guard let data = tool.input.data(using: .utf8),
-          let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-        return [:]
-    }
-    return obj
+    parsedToolInputObject(tool.input) ?? [:]
 }
 
 private func parseTodoList(_ tool: ToolCall) -> [(text: String, completed: Bool)] {
     let source = tool.output ?? tool.input
-    guard let data = source.data(using: .utf8),
-          let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+    guard let obj = parsedToolInputObject(source),
           let items = obj["items"] as? [[String: Any]] else {
         return []
     }

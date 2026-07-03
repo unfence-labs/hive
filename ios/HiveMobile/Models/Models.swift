@@ -219,7 +219,7 @@ struct FileMention: Codable, Equatable {
     let relativePath: String
 }
 
-struct ToolCall: Codable, Identifiable {
+struct ToolCall: Codable, Equatable, Identifiable {
     let id: String
     let name: String
     let input: String
@@ -256,7 +256,7 @@ struct ToolCall: Codable, Identifiable {
     }
 }
 
-struct ChatMessage: Codable, Identifiable {
+struct ChatMessage: Codable, Equatable, Identifiable {
     let id: String
     let sessionId: String
     let role: MessageRole

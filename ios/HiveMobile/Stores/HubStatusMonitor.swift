@@ -288,20 +288,19 @@ final class HubStatusMonitor {
     }
 
     fileprivate func didReceiveActivity(_ event: WsOutgoing, for workspaceId: String) {
-        switch event {
-        case .history(let messages, _):
-            guard let latest = messages.compactMap({ parseTimestamp($0.timestamp) }).max() else {
+        switch hubActivityMarking(for: event) {
+        case .ignore:
+            break
+        case .markNow:
+            markActivity(for: workspaceId)
+        case .markLatestMessageTimestamp:
+            guard case .history(let messages, _) = event,
+                  let latest = messages.compactMap({ parseTimestamp($0.timestamp) }).max() else {
                 return
             }
             markActivity(for: workspaceId, at: latest)
-        case .status(_, _, let streaming, _, _):
-            if streaming == true {
-                markActivity(for: workspaceId)
-            }
-        case .branchInfo, .diffStats, .prStatus, .scriptStatus, .planModeChanged,
-             .streamSnapshot(_, _, _, _, _, _, _):
-            break
-        default:
+        case .markIfStreaming:
+            guard case .status(_, _, let streaming, _, _) = event, streaming == true else { return }
             markActivity(for: workspaceId)
         }
     }

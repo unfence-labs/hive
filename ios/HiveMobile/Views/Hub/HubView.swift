@@ -19,6 +19,9 @@ struct HubView: View {
     )
 
     var body: some View {
+        let sections = baseSections
+        let prIds = visiblePrWorkspaceIds(in: sections)
+
         ZStack {
             WhisperColor.appBackground
                 .ignoresSafeArea()
@@ -35,7 +38,7 @@ struct HubView: View {
                         )
                         .padding(.top, 40)
                     } else {
-                        denseHubContent
+                        denseHubContent(sections: sections)
                     }
                 }
                 .padding(.horizontal, HiveSpacing.lg)
@@ -64,13 +67,13 @@ struct HubView: View {
         .onAppear {
             store.statusMonitor.viewingWorkspaceId = nil
             store.statusMonitor.viewingSessionId = nil
-            store.statusMonitor.syncVisiblePrWorkspaces(visiblePrWorkspaceIds)
+            store.statusMonitor.syncVisiblePrWorkspaces(prIds)
         }
         .onDisappear {
             store.statusMonitor.syncVisiblePrWorkspaces([])
         }
-        .task(id: visiblePrWorkspaceIdsKey) {
-            store.statusMonitor.syncVisiblePrWorkspaces(visiblePrWorkspaceIds)
+        .task(id: prIds) {
+            store.statusMonitor.syncVisiblePrWorkspaces(prIds)
         }
         .overlay {
             if let errorMessage = store.errorMessage {
@@ -147,9 +150,9 @@ struct HubView: View {
 
     // MARK: - Dense Hub
 
-    private var denseHubContent: some View {
+    private func denseHubContent(sections: [HubSection]) -> some View {
         LazyVStack(alignment: .leading, spacing: HiveSpacing.md) {
-            ForEach(baseSections) { section in
+            ForEach(sections) { section in
                 sectionView(section)
             }
         }
@@ -162,18 +165,14 @@ struct HubView: View {
         )
     }
 
-    private var visiblePrWorkspaceIds: [String] {
+    private func visiblePrWorkspaceIds(in sections: [HubSection]) -> [String] {
         var ids: [String] = []
-        for section in baseSections where isSectionExpanded(section) {
+        for section in sections where isSectionExpanded(section) {
             for node in section.projects where isProjectExpanded(node.project) {
                 ids.append(contentsOf: node.project.workspaces.map(\.id))
             }
         }
         return ids
-    }
-
-    private var visiblePrWorkspaceIdsKey: String {
-        visiblePrWorkspaceIds.sorted().joined(separator: ",")
     }
 
     private func sectionView(_ section: HubSection) -> some View {
