@@ -31,6 +31,27 @@ struct ChatDraftStoreTests {
     }
 
     @Test @MainActor
+    func multilineDraftRoundTripsNewlinesExactly() {
+        let workspaceId = "ws-\(UUID().uuidString)"
+        let sessionId = "sess-\(UUID().uuidString)"
+
+        let text = "\nfirst line\nsecond line\n\nfourth line\n"
+
+        ChatDraftStore.shared.save(
+            workspaceId: workspaceId,
+            sessionId: sessionId,
+            draft: .init(
+                text: text,
+                attachments: []
+            )
+        )
+
+        #expect(ChatDraftStore.shared.restore(workspaceId: workspaceId, sessionId: sessionId)?.text == text)
+
+        ChatDraftStore.shared.remove(workspaceId: workspaceId, sessionId: sessionId)
+    }
+
+    @Test @MainActor
     func saveEmptyDraftDoesNotPersist() {
         let workspaceId = "ws-\(UUID().uuidString)"
         let sessionId = "sess-\(UUID().uuidString)"
