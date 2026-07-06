@@ -112,12 +112,21 @@ export function useSidebarProjectFolders(
       }
     }
 
+    // Server data (fetches and PUT echoes) must not clobber local edits made
+    // while the request was in flight; those still need their own flush.
+    const wasHydrated = hydratedRef.current;
+    const lastFlushed = lastFlushedRef.current;
     hydratedRef.current = true;
     setHasInitialHydration(true);
     lastFlushedRef.current = serverState;
     bootstrappedRef.current = true;
     setState((prev) => {
-      return areSidebarPreferencesStatesEqual(prev, serverState) ? prev : serverState;
+      if (areSidebarPreferencesStatesEqual(prev, serverState)) return prev;
+      if (wasHydrated && lastFlushed && !areSidebarPreferencesStatesEqual(prev, lastFlushed)) {
+        // Fresh identity so the flush effect re-runs and pushes the kept edits.
+        return { ...prev };
+      }
+      return serverState;
     });
   }, [preferencesData, projectsReady]);
 

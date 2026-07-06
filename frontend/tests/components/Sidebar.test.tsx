@@ -1115,6 +1115,40 @@ describe("Sidebar", () => {
     });
   });
 
+  it("keeps a folder deletion made while the create flush is in flight", async () => {
+    const user = userEvent.setup();
+    renderSidebar("/projects", projects);
+
+    let resolveCreatePut: (() => void) | null = null;
+    vi.mocked(api.put).mockImplementation((url: string, body?: unknown) => {
+      if (url !== "/api/ui-preferences") throw new Error(`Unexpected PUT: ${url}`);
+      if (resolveCreatePut) return Promise.resolve(body);
+      return new Promise((resolve) => {
+        resolveCreatePut = () => resolve(body);
+      });
+    });
+
+    await screen.findByText(withTextContent("acme/alpha"));
+    await user.click(screen.getByRole("button", { name: "New folder" }));
+    await user.type(screen.getByLabelText("Folder name"), "Temporary");
+    await user.click(screen.getByRole("button", { name: "Create folder" }));
+
+    await screen.findByRole("button", { name: "Temporary" });
+    await waitFor(() => expect(api.put).toHaveBeenCalledTimes(1));
+
+    fireEvent.click(screen.getByRole("button", { name: "Delete folder Temporary" }));
+    await user.click(await screen.findByRole("button", { name: "Delete" }));
+
+    await act(async () => {
+      resolveCreatePut?.();
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByRole("button", { name: "Temporary" })).not.toBeInTheDocument();
+    });
+    await waitFor(() => expect(api.put).toHaveBeenCalledTimes(2));
+  });
+
   it("hides the delete button for non-empty folders", async () => {
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
