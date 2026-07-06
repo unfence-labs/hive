@@ -8,6 +8,7 @@ struct ChatView: View {
 
     @State private var draft = ""
     @State private var isLoading = true
+    @State private var showSkeleton = false
     @State private var planModeEnabled = false
     @State private var thinkingLevel: ThinkingLevel = .high
     @State private var fastModeEnabled = false
@@ -87,7 +88,11 @@ struct ChatView: View {
     var body: some View {
         VStack(spacing: 0) {
             if isLoading {
-                Spacer()
+                if showSkeleton {
+                    ConversationLoadingSkeleton()
+                } else {
+                    Spacer()
+                }
             } else if store.messages.isEmpty && streamingMessage == nil && !store.isStreaming {
                 Spacer()
                 if isBrainWorkspaceId(workspace.id) {
@@ -235,6 +240,16 @@ struct ChatView: View {
             }
         }
         .task { await setup() }
+        .task(id: isLoading) {
+            guard isLoading else {
+                showSkeleton = false
+                return
+            }
+            try? await Task.sleep(for: .milliseconds(300))
+            if !Task.isCancelled {
+                showSkeleton = true
+            }
+        }
         .onChange(of: modelCatalog.isLoaded) {
             if selectedModelId.isEmpty, !modelCatalog.defaultModelId.isEmpty {
                 selectedModelId = initialModelId()
