@@ -6,7 +6,7 @@ struct ConnectionBanner: View {
 
     var body: some View {
         Group {
-            if showDisconnected, monitor.connectionState == .disconnected {
+            if showDisconnected, monitor.connectionState != .connected {
                 Button {
                     monitor.reconnectNow()
                 } label: {
@@ -19,8 +19,8 @@ struct ConnectionBanner: View {
             }
         }
         .animation(.default, value: showDisconnected)
-        .task(id: monitor.connectionState) {
-            guard monitor.connectionState == .disconnected else {
+        .task(id: monitor.connectionState == .connected) {
+            guard monitor.connectionState != .connected else {
                 showDisconnected = false
                 return
             }
