@@ -5,6 +5,7 @@ import Testing
 private final class FakeHubConnection: HubConnectionClient {
     private(set) var connectCount = 0
     private(set) var cancelCount = 0
+    private(set) var forceReconnectCount = 0
     private(set) var probeLivenessCount = 0
     private(set) var syncCalls: [(payload: HubSyncPayload, forceBootstrap: Bool)] = []
     private(set) var sentMessages: [HubIncoming] = []
@@ -15,6 +16,10 @@ private final class FakeHubConnection: HubConnectionClient {
 
     func cancel() {
         cancelCount += 1
+    }
+
+    func forceReconnect() {
+        forceReconnectCount += 1
     }
 
     func send(_ message: HubIncoming) async -> Bool {
@@ -135,5 +140,33 @@ struct HubStatusMonitorTests {
         monitor.forceRefresh()
 
         #expect(connection.probeLivenessCount == 1)
+    }
+
+    @Test
+    func initialConnectionStateIsConnecting() {
+        let (monitor, _, _) = makeMonitor()
+
+        #expect(monitor.connectionState == .connecting)
+    }
+
+    @Test
+    func didChangeConnectionStateUpdatesState() {
+        let (monitor, _, _) = makeMonitor()
+
+        monitor.didChangeConnectionState(.connected)
+        #expect(monitor.connectionState == .connected)
+
+        monitor.didChangeConnectionState(.disconnected)
+        #expect(monitor.connectionState == .disconnected)
+    }
+
+    @Test
+    func reconnectNowDelegatesToForceReconnect() {
+        let (monitor, _, connection) = makeMonitor()
+        monitor.sync(workspaceIds: ["ws-1"])
+
+        monitor.reconnectNow()
+
+        #expect(connection.forceReconnectCount == 1)
     }
 }

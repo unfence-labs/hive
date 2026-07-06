@@ -1,10 +1,13 @@
 import Foundation
 import Observation
 
+enum HubConnectionState { case connecting; case connected; case disconnected }
+
 @MainActor
 protocol HubConnectionClient: AnyObject {
     func connect()
     func cancel()
+    func forceReconnect()
     @discardableResult
     func send(_ message: HubIncoming) async -> Bool
     func sendSync(_ payload: HubSyncPayload, forceBootstrap: Bool)
@@ -39,6 +42,7 @@ final class HubStatusMonitor {
     private(set) var completedWorkspaces: Set<String> = [] {
         didSet { persistCompleted() }
     }
+    private(set) var connectionState: HubConnectionState = .connecting
 
     /// Workspace currently visible in ChatView (suppresses unread badge).
     var viewingWorkspaceId: String? { syncState.viewingWorkspaceId }
@@ -192,6 +196,7 @@ final class HubStatusMonitor {
         if desired.isEmpty {
             hubConnection?.cancel()
             hubConnection = nil
+            connectionState = .disconnected
         } else if hubConnection == nil {
             let conn = makeHubConnection(self)
             hubConnection = conn
@@ -230,6 +235,7 @@ final class HubStatusMonitor {
     func disconnectAll() {
         hubConnection?.cancel()
         hubConnection = nil
+        connectionState = .disconnected
         syncState = HubSubscriptionSync()
         streamingSessions.removeAll()
         unreadSessions.removeAll()
@@ -242,6 +248,15 @@ final class HubStatusMonitor {
     }
 
     // MARK: - Called by HubConnection
+
+    func didChangeConnectionState(_ state: HubConnectionState) {
+        guard connectionState != state else { return }
+        connectionState = state
+    }
+
+    func reconnectNow() {
+        hubConnection?.forceReconnect()
+    }
 
     /// Workspaces that were streaming when the app entered background.
     /// Used to detect streaming→idle transitions after reconnect and mark them as completed.
@@ -467,6 +482,7 @@ private final class HubConnection: HubConnectionClient {
         task.maximumMessageSize = 10 * 1024 * 1024
         self.wsTask = task
         task.resume()
+        monitor?.didChangeConnectionState(.connecting)
 
         // Re-wire send closures on all existing stores so they target the fresh socket.
         // We deliberately do NOT wipe streaming state here: the reconnect is
@@ -495,6 +511,7 @@ private final class HubConnection: HubConnectionClient {
                 do {
                     let message = try await task.receive()
                     self.backoff = 1
+                    self.monitor?.didChangeConnectionState(.connected)
                     await self.pipeline?.submit(message)
                 } catch {
                     if !Task.isCancelled, self.wsTask === task {
@@ -585,6 +602,7 @@ private final class HubConnection: HubConnectionClient {
         wsTask = nil
 
         guard !intentionallyClosed else { return }
+        monitor?.didChangeConnectionState(.disconnected)
 
         reconnectTask?.cancel()
         reconnectTask = Task { [weak self] in
