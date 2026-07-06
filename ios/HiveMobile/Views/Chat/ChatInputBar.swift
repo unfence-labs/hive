@@ -93,6 +93,7 @@ struct ChatInputBar: View {
                         ForEach(group.models) { model in
                             let isLocked = lockedProvider != nil && model.provider != lockedProvider
                             Button {
+                                Haptics.selection()
                                 onModelSelect(model.id)
                             } label: {
                                 HStack {
@@ -220,6 +221,7 @@ struct ChatInputBar: View {
 
             if isBusy {
                 Button {
+                    Haptics.impact(.light)
                     onStop?()
                 } label: {
                     Image(systemName: "stop.circle.fill")
@@ -254,6 +256,7 @@ struct ChatInputBar: View {
     }
 
     private func handleSend() {
+        Haptics.impact(.light)
         let imageAttachments = attachedImages.compactMap(\.attachment)
         attachedImages = []
         onDraftAttachmentsChange([])
@@ -320,7 +323,10 @@ private struct ModeToggle: View {
     var highlightColor: Color = .white
 
     var body: some View {
-        Button { isActive.toggle() } label: {
+        Button {
+            Haptics.selection()
+            isActive.toggle()
+        } label: {
             HStack(spacing: 4) {
                 Image(systemName: systemImage)
                 Text(label)
@@ -349,7 +355,10 @@ private struct LevelCycleButton: View {
     let action: () -> Void
 
     var body: some View {
-        Button { action() } label: {
+        Button {
+            Haptics.selection()
+            action()
+        } label: {
             HStack(spacing: 4) {
                 Image(systemName: systemImage)
                 Text(label)

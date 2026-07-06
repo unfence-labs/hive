@@ -226,6 +226,7 @@ struct ChatView: View {
         .navigationSubtitle(Text(navigationSubtitle))
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.hidden, for: .tabBar)
+        .sensoryFeedback(.success, trigger: store.visibleCompletionCount)
         .sheet(isPresented: Binding(
             get: { !store.pendingToolInputs.isEmpty },
             set: { if !$0 { store.clearPendingToolInputs() } }
@@ -255,6 +256,7 @@ struct ChatView: View {
             }
         }
         .onDisappear {
+            store.isChatVisible = false
             saveCurrentDraft()
             store.onTurnCompleted = nil
             projectStore.statusMonitor.clearViewingSession(workspaceId: workspace.id, sessionId: session.sessionId)
@@ -303,6 +305,7 @@ struct ChatView: View {
     // MARK: - Setup
 
     private func setup() async {
+        store.isChatVisible = true
         projectStore.statusMonitor.setViewingWorkspace(workspace.id, sessionId: session.sessionId)
         projectStore.statusMonitor.clearCompleted(workspace.id)
         projectStore.statusMonitor.clearUnread(workspaceId: workspace.id, sessionId: session.sessionId)
@@ -433,6 +436,15 @@ struct ChatView: View {
                 result: result,
                 sessionId: pending.sessionId
             )) ?? false
+
+            switch result {
+            case .approve:
+                Haptics.notify(.success)
+            case .reject, .dismiss:
+                Haptics.notify(.warning)
+            case .answer:
+                Haptics.notify(sent ? .success : .warning)
+            }
 
             if sent {
                 store.clearPendingToolInputs()
