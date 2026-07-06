@@ -41,6 +41,7 @@ let package = Package(
                 "Stores/HubStatusMonitor.swift",
                 "Stores/HubOrganization.swift",
                 "Stores/HubSubscriptionSync.swift",
+                "Stores/MarkdownStructure.swift",
                 "Stores/SubAgentStatus.swift",
                 "Stores/TaskDerivation.swift",
                 "Stores/TokenFormatting.swift",

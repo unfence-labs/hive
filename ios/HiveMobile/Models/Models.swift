@@ -366,6 +366,10 @@ struct ChatMessage: Codable, Equatable, Identifiable {
     }
 }
 
+extension ChatMessage {
+    var clipboardText: String { content }
+}
+
 // MARK: - Diff
 
 struct DiffFileStat: Codable, Identifiable {
