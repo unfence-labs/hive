@@ -118,6 +118,11 @@ struct MessageBubble: View {
                     Markdown(message.content)
                         .markdownTheme(.whisperChat)
                         .frame(maxWidth: .infinity, alignment: .leading)
+                } else if markdownNeedsRichRenderer(message.content) {
+                    Markdown(message.content)
+                        .markdownTheme(.whisperChat)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .textSelection(.enabled)
                 } else {
                     SelectableMarkdownText(markdown: message.content)
                         .frame(maxWidth: .infinity, alignment: .leading)

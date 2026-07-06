@@ -54,8 +54,8 @@ private func markdownFont(size: CGFloat, weight: UIFont.Weight, italic: Bool, mo
 
 private func paragraphStyle(for block: MarkdownBlockContext) -> NSParagraphStyle {
     let style = NSMutableParagraphStyle()
-    style.lineSpacing = 3
-    style.paragraphSpacing = 8
+    style.lineSpacing = 1
+    style.paragraphSpacing = 6
     if block.headerLevel != nil {
         style.paragraphSpacingBefore = 6
     }
@@ -67,6 +67,13 @@ private func paragraphStyle(for block: MarkdownBlockContext) -> NSParagraphStyle
     if block.isBlockQuote {
         style.firstLineHeadIndent = 12
         style.headIndent = 12
+    }
+    if block.isCodeBlock {
+        style.lineSpacing = 0
+        style.paragraphSpacingBefore = 6
+        style.paragraphSpacing = 6
+        style.firstLineHeadIndent = 6
+        style.headIndent = 6
     }
     return style
 }
@@ -122,43 +129,23 @@ private func blockAttributes(
 }
 
 private func renderMarkdown(_ markdown: String) -> NSAttributedString {
-    let fallbackAttributes: [NSAttributedString.Key: Any] = [
-        .font: UIFont.systemFont(ofSize: 14),
-        .foregroundColor: UIColor(WhisperColor.text)
-    ]
-    guard let parsed = try? AttributedString(
-        markdown: markdown,
-        options: .init(interpretedSyntax: .full, failurePolicy: .returnPartiallyParsedIfPossible)
-    ) else {
-        return NSAttributedString(string: markdown, attributes: fallbackAttributes)
+    guard let segments = markdownRenderSegments(markdown) else {
+        return NSAttributedString(string: markdown, attributes: [
+            .font: UIFont.systemFont(ofSize: 14),
+            .foregroundColor: UIColor(WhisperColor.text)
+        ])
     }
 
     let result = NSMutableAttributedString()
-    var lastBlockIdentity: [Int]?
-    var lastListItemID: Int?
-
-    for run in parsed.runs {
-        let block = markdownBlockContext(run.presentationIntent)
-        var attrs = blockAttributes(inline: run.inlinePresentationIntent, block: block)
-        if let url = run.link {
-            attrs[.link] = url
+    for segment in segments {
+        var attrs = blockAttributes(inline: segment.inline, block: segment.block)
+        switch segment.kind {
+        case .content:
+            if let url = segment.linkURL { attrs[.link] = url }
+        case .separator, .listPrefix:
+            attrs.removeValue(forKey: .backgroundColor)
         }
-
-        if block.identity != lastBlockIdentity {
-            var plainAttrs = attrs
-            plainAttrs.removeValue(forKey: .backgroundColor)
-            plainAttrs.removeValue(forKey: .link)
-            if lastBlockIdentity != nil {
-                result.append(NSAttributedString(string: "\n", attributes: plainAttrs))
-            }
-            if let prefix = block.listPrefix, block.listItemID != lastListItemID {
-                result.append(NSAttributedString(string: prefix, attributes: plainAttrs))
-            }
-            lastListItemID = block.listItemID
-            lastBlockIdentity = block.identity
-        }
-
-        result.append(NSAttributedString(string: String(parsed[run.range].characters), attributes: attrs))
+        result.append(NSAttributedString(string: segment.text, attributes: attrs))
     }
     return result
 }
