@@ -7,6 +7,15 @@ struct HubFramePipelineTests {
         #"{"workspaceId":"ws-1","event":\#(event)}"#
     }
 
+    private func text(from frame: URLSessionWebSocketTask.Message?) -> String? {
+        guard let frame else { return nil }
+        switch frame {
+        case .string(let text): text
+        case .data(let data): String(data: data, encoding: .utf8)
+        @unknown default: nil
+        }
+    }
+
     @Test @MainActor
     func burstMatchesSynchronousApplication() async throws {
         let frames = [
@@ -28,12 +37,11 @@ struct HubFramePipelineTests {
         }
         let decoder = JSONDecoder()
         for frame in frames {
-            pipeline.submit(.string(frame))
+            await pipeline.submit(.string(frame))
             let envelope = try decoder.decode(HubOutgoing.self, from: Data(frame.utf8))
             inlineStore.handle(envelope.event)
         }
-        pipeline.finish()
-        await pipeline.drain()
+        await pipeline.finish()
         pipelineStore.flushStreamingDeltas()
         inlineStore.flushStreamingDeltas()
 
@@ -52,12 +60,11 @@ struct HubFramePipelineTests {
             store.handle(envelope.event)
         }
 
-        pipeline.submit(.string(frame(
+        await pipeline.submit(.string(frame(
             #"{"type":"stream_snapshot","sessionId":"session-1","text":"\#(snapshotText)","thinking":"","toolCalls":[],"agentActivities":[],"agentPlanMode":false}"#
         )))
-        pipeline.submit(.string(frame(#"{"type":"text_delta","sessionId":"session-1","text":"tail"}"#)))
-        pipeline.finish()
-        await pipeline.drain()
+        await pipeline.submit(.string(frame(#"{"type":"text_delta","sessionId":"session-1","text":"tail"}"#)))
+        await pipeline.finish()
         store.flushStreamingDeltas()
 
         #expect(store.currentText == snapshotText + "tail")
@@ -70,11 +77,10 @@ struct HubFramePipelineTests {
             store.handle(envelope.event)
         }
 
-        pipeline.submit(.string(frame(#"{"type":"status","status":"busy","sessionId":"session-1","streaming":true}"#)))
-        pipeline.submit(.string("not json"))
-        pipeline.submit(.string(frame(#"{"type":"text_delta","sessionId":"session-1","text":"after"}"#)))
-        pipeline.finish()
-        await pipeline.drain()
+        await pipeline.submit(.string(frame(#"{"type":"status","status":"busy","sessionId":"session-1","streaming":true}"#)))
+        await pipeline.submit(.string("not json"))
+        await pipeline.submit(.string(frame(#"{"type":"text_delta","sessionId":"session-1","text":"after"}"#)))
+        await pipeline.finish()
         store.flushStreamingDeltas()
 
         #expect(store.currentText == "after")
@@ -86,11 +92,68 @@ struct HubFramePipelineTests {
         var delivered = 0
         let pipeline = HubFramePipeline { _ in delivered += 1 }
 
-        pipeline.submit(.string(frame(#"{"type":"text_delta","sessionId":"session-1","text":"before"}"#)))
-        pipeline.finish()
-        pipeline.submit(.string(frame(#"{"type":"text_delta","sessionId":"session-1","text":"after"}"#)))
-        await pipeline.drain()
+        await pipeline.submit(.string(frame(#"{"type":"text_delta","sessionId":"session-1","text":"before"}"#)))
+        await pipeline.finish()
+        await pipeline.submit(.string(frame(#"{"type":"text_delta","sessionId":"session-1","text":"after"}"#)))
 
         #expect(delivered == 1)
+    }
+
+    @Test
+    func boundedBufferResumesSubmitWhenSpaceIsAvailable() async {
+        let buffer = HubFrameBuffer(capacity: 1)
+        await buffer.enqueue(.string("first"))
+
+        let submitSecond = Task {
+            await buffer.enqueue(.string("second"))
+        }
+        await Task.yield()
+
+        let first = await buffer.next()
+        let accepted = await submitSecond.value
+        let second = await buffer.next()
+
+        #expect(text(from: first) == "first")
+        #expect(accepted == true)
+        #expect(text(from: second) == "second")
+        await buffer.finish()
+    }
+
+    @Test
+    func boundedBufferRejectsSubmitAfterFinish() async {
+        let buffer = HubFrameBuffer(capacity: 1)
+        await buffer.enqueue(.string("first"))
+
+        let submitSecond = Task {
+            await buffer.enqueue(.string("second"))
+        }
+        await Task.yield()
+
+        await buffer.finish()
+
+        let accepted = await submitSecond.value
+        let acceptedAfterFinish = await buffer.enqueue(.string("third"))
+
+        #expect(accepted == false)
+        #expect(acceptedAfterFinish == false)
+    }
+
+    @Test
+    func boundedBufferRejectsSubmitFromCancelledTask() async {
+        let buffer = HubFrameBuffer(capacity: 1)
+        await buffer.enqueue(.string("first"))
+
+        let submitSecond = Task {
+            await buffer.enqueue(.string("second"))
+        }
+        await Task.yield()
+        submitSecond.cancel()
+
+        let first = await buffer.next()
+        let accepted = await submitSecond.value
+
+        #expect(text(from: first) == "first")
+        #expect(accepted == false)
+        await buffer.finish()
     }
 }

@@ -1,6 +1,22 @@
 import Foundation
 import Observation
 
+@MainActor
+protocol HubConnectionClient: AnyObject {
+    func connect()
+    func cancel()
+    @discardableResult
+    func send(_ message: HubIncoming) async -> Bool
+    func sendSync(_ payload: HubSyncPayload, forceBootstrap: Bool)
+    func probeLiveness()
+}
+
+extension HubConnectionClient {
+    func sendSync(_ payload: HubSyncPayload) {
+        sendSync(payload, forceBootstrap: false)
+    }
+}
+
 /// Monitors real-time status for all workspaces via a single multiplexed hub WebSocket.
 ///
 /// A single `HubConnection` fully decodes ALL WS events wrapped in `HubOutgoing` envelopes:
@@ -35,7 +51,8 @@ final class HubStatusMonitor {
 
     let storeCache: ConversationStoreCache
 
-    private var hubConnection: HubConnection?
+    private var hubConnection: HubConnectionClient?
+    private let makeHubConnection: @MainActor (HubStatusMonitor) -> HubConnectionClient
     private var syncState = HubSubscriptionSync()
     private let isoFormatter = ISO8601DateFormatter()
     private let fractionalIsoFormatter: ISO8601DateFormatter = {
@@ -46,8 +63,16 @@ final class HubStatusMonitor {
 
     private static let completedKey = "completedWorkspaces"
 
-    init(storeCache: ConversationStoreCache) {
+    convenience init(storeCache: ConversationStoreCache) {
+        self.init(storeCache: storeCache, makeHubConnection: { HubConnection(monitor: $0) })
+    }
+
+    init(
+        storeCache: ConversationStoreCache,
+        makeHubConnection: @escaping @MainActor (HubStatusMonitor) -> HubConnectionClient
+    ) {
         self.storeCache = storeCache
+        self.makeHubConnection = makeHubConnection
         // Restore persisted completed set (survives app kill)
         let stored = UserDefaults.standard.stringArray(forKey: Self.completedKey) ?? []
         self.completedWorkspaces = Set(stored)
@@ -168,7 +193,7 @@ final class HubStatusMonitor {
             hubConnection?.cancel()
             hubConnection = nil
         } else if hubConnection == nil {
-            let conn = HubConnection(monitor: self)
+            let conn = makeHubConnection(self)
             hubConnection = conn
             conn.connect()
         } else if let (_, payload) = change {
@@ -344,7 +369,7 @@ extension HubStatusMonitor: HubEventSink {}
 // MARK: - Single hub WebSocket connection
 
 @MainActor
-private final class HubConnection {
+private final class HubConnection: HubConnectionClient {
     private weak var monitor: HubStatusMonitor?
 
     private var wsTask: URLSessionWebSocketTask?
@@ -370,8 +395,9 @@ private final class HubConnection {
 
     func cancel() {
         intentionallyClosed = true
-        pipeline?.finish()
-        pipeline = nil
+        let pipeline = pipeline
+        self.pipeline = nil
+        Task { await pipeline?.cancel() }
         receiveTask?.cancel()
         pingTask?.cancel()
         reconnectTask?.cancel()
@@ -469,7 +495,7 @@ private final class HubConnection {
                 do {
                     let message = try await task.receive()
                     self.backoff = 1
-                    self.pipeline?.submit(message)
+                    await self.pipeline?.submit(message)
                 } catch {
                     if !Task.isCancelled, self.wsTask === task {
                         self.handleDisconnect()
