@@ -77,7 +77,9 @@ struct HubView: View {
                 refreshFailedNotice
                     .task {
                         try? await Task.sleep(for: .seconds(3))
-                        store.acknowledgeRefreshFailure()
+                        if !Task.isCancelled {
+                            store.acknowledgeRefreshFailure()
+                        }
                     }
             }
         }

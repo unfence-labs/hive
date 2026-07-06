@@ -65,6 +65,28 @@ struct ProjectStoreFetchStateTests {
     }
 
     @Test
+    func forbiddenFailureClassifiesAuthentication() async {
+        let store = makeStore(fetchProjects: {
+            throw APIError.httpError(statusCode: 403, message: "forbidden")
+        })
+
+        await store.refresh()
+
+        #expect(store.fetchFailure == .authentication)
+    }
+
+    @Test
+    func decodingFailureClassifiesOther() async {
+        let store = makeStore(fetchProjects: {
+            throw APIError.decodingError(URLError(.cannotDecodeContentData))
+        })
+
+        await store.refresh()
+
+        #expect(store.fetchFailure == .other)
+    }
+
+    @Test
     func emptyPlusSuccessSelectsOnboardingNotFailure() async {
         let store = makeStore(fetchProjects: { [] })
 
