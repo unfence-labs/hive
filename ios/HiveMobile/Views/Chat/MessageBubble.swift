@@ -101,7 +101,6 @@ struct MessageBubble: View {
                     .font(.system(size: 14))
                     .foregroundStyle(WhisperColor.text)
                     .lineSpacing(3)
-                    .textSelection(.enabled)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 8)
                     .background(
@@ -112,13 +111,17 @@ struct MessageBubble: View {
                         userBubbleShape
                             .stroke(hiveAccent.opacity(0.24), lineWidth: 1)
                     )
+                    .contentShape(.contextMenuPreview, userBubbleShape)
                     .contextMenu { copyContextMenu }
             case .assistant:
-                Markdown(message.content)
-                    .markdownTheme(.whisperChat)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .textSelection(.enabled)
-                    .contextMenu { copyContextMenu }
+                if message.id == "streaming" {
+                    Markdown(message.content)
+                        .markdownTheme(.whisperChat)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                } else {
+                    SelectableMarkdownText(markdown: message.content)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
             }
         }
     }
