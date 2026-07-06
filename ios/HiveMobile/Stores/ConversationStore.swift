@@ -493,6 +493,39 @@ final class ConversationStore {
         }
     }
 
+    /// Delete one session via the injected `delete` call (REST in the app, a
+    /// stub in tests) and reconcile store state. Returns whether the delete
+    /// succeeded and an error message naming the conversation when it fails.
+    func deleteSession(
+        _ target: SessionMetadata,
+        from sessions: [SessionMetadata],
+        focusedSessionId: String?,
+        delete: (String) async throws -> Void
+    ) async -> (deleted: Bool, errorMessage: String?) {
+        do {
+            try await delete(target.sessionId)
+        } catch is CancellationError {
+            return (false, nil)
+        } catch {
+            return (false, "Failed to delete \"\(target.displayTitle)\": \(error.localizedDescription)")
+        }
+
+        if let focusedSessionId, focusedSessionId == target.sessionId {
+            let fallbackSessionId = sessions.first { $0.sessionId != target.sessionId }?.sessionId
+            if sessionId == nil {
+                setFocusedSessionId(focusedSessionId)
+            }
+            removeSessionState(focusedSessionId, fallbackSessionId: fallbackSessionId)
+            if let fallbackSessionId {
+                _ = await send?(.switchSession(sessionId: fallbackSessionId))
+            }
+        } else {
+            removeSessionState(target.sessionId, fallbackSessionId: nil)
+        }
+
+        return (true, nil)
+    }
+
     // MARK: - Private
 
     /// Ensure a stream slot exists for the given session, defaulting to streaming state.

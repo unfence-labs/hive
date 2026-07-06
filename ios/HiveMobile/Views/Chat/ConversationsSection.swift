@@ -39,6 +39,7 @@ struct ConversationsSection<Header: View>: View {
     @State private var isLoading = true
     @State private var isCreatingSession = false
     @State private var errorMessage: String?
+    @State private var sessionToDelete: SessionMetadata?
     @State private var lastRefreshAt = Date.distantPast
 
     private let api = APIClient()
@@ -92,6 +93,21 @@ struct ConversationsSection<Header: View>: View {
                 Text(errorMessage)
             }
         }
+        .alert(
+            "Delete conversation?",
+            isPresented: Binding(
+                get: { sessionToDelete != nil },
+                set: { if !$0 { sessionToDelete = nil } }
+            ),
+            presenting: sessionToDelete
+        ) { session in
+            Button("Delete", role: .destructive) {
+                deleteSession(session)
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: { session in
+            Text("\"\(session.displayTitle)\" will be permanently deleted.")
+        }
     }
 
     private var conversationsSection: some View {
@@ -136,8 +152,12 @@ struct ConversationsSection<Header: View>: View {
                 .listRowInsets(EdgeInsets(top: 5, leading: HiveSpacing.lg, bottom: 5, trailing: HiveSpacing.lg))
                 .listRowBackground(WhisperColor.appBackground)
                 .listRowSeparator(.hidden)
+                .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                    Button("Delete", role: .destructive) {
+                        sessionToDelete = session
+                    }
+                }
             }
-            .onDelete(perform: deleteSessions)
         }
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
@@ -209,49 +229,23 @@ struct ConversationsSection<Header: View>: View {
         }
     }
 
-    private func deleteSessions(at offsets: IndexSet) {
-        let targets = offsets.compactMap { index -> SessionMetadata? in
-            sessions.indices.contains(index) ? sessions[index] : nil
-        }
+    private func deleteSession(_ session: SessionMetadata) {
         let deletedFocusedSessionId = focusedSessionId
 
         Task {
-            var deletedSessionIds = Set<String>()
-            for session in targets {
-                do {
-                    try await api.deleteSession(workspaceId: workspace.id, sessionId: session.sessionId)
-                    ChatDraftStore.shared.remove(workspaceId: workspace.id, sessionId: session.sessionId)
-                    projectStore.statusMonitor.clearUnread(workspaceId: workspace.id, sessionId: session.sessionId)
-                    deletedSessionIds.insert(session.sessionId)
-                    errorMessage = nil
-                } catch is CancellationError {
-                    // View disappeared.
-                } catch {
-                    errorMessage = error.localizedDescription
-                }
+            let outcome = await store.deleteSession(
+                session,
+                from: sessions,
+                focusedSessionId: deletedFocusedSessionId
+            ) { sessionId in
+                try await api.deleteSession(workspaceId: workspace.id, sessionId: sessionId)
+                ChatDraftStore.shared.remove(workspaceId: workspace.id, sessionId: sessionId)
+                projectStore.statusMonitor.clearUnread(workspaceId: workspace.id, sessionId: sessionId)
             }
-
-            guard !deletedSessionIds.isEmpty else { return }
-
-            sessions.removeAll { deletedSessionIds.contains($0.sessionId) }
-
-            if let focusedSessionId = deletedFocusedSessionId, deletedSessionIds.contains(focusedSessionId) {
-                let fallbackSessionId = sessions.first?.sessionId
-                if store.sessionId == nil {
-                    store.setFocusedSessionId(focusedSessionId)
-                }
-                store.removeSessionState(focusedSessionId, fallbackSessionId: fallbackSessionId)
-                if let fallbackSessionId {
-                    _ = await store.send?(.switchSession(sessionId: fallbackSessionId))
-                }
+            if outcome.deleted {
+                sessions.removeAll { $0.sessionId == session.sessionId }
             }
-
-            for deletedSessionId in deletedSessionIds {
-                if let focusedSessionId = deletedFocusedSessionId, deletedSessionId == focusedSessionId {
-                    continue
-                }
-                store.removeSessionState(deletedSessionId, fallbackSessionId: nil)
-            }
+            errorMessage = outcome.errorMessage
         }
     }
 }

@@ -5,13 +5,7 @@ struct ConversationRow: View {
     let isStreaming: Bool
     let isUnread: Bool
 
-    private var title: String {
-        guard let title = session.title?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !title.isEmpty else {
-            return "Untitled Conversation"
-        }
-        return title
-    }
+    private var title: String { session.displayTitle }
 
     private var messageCountText: String {
         guard session.messageCount > 0 else { return "No messages yet" }

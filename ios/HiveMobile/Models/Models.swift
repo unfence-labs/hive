@@ -181,6 +181,13 @@ struct SessionMetadata: Codable, Hashable, Identifiable {
 
     var id: String { sessionId }
 
+    var displayTitle: String {
+        guard let title = title?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty else {
+            return "Untitled Conversation"
+        }
+        return title
+    }
+
     init(
         sessionId: String,
         providerSessionId: String?,
