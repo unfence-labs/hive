@@ -2,11 +2,11 @@ import SwiftUI
 
 struct ConnectionBanner: View {
     let monitor: HubStatusMonitor
-    @State private var showConnecting = false
+    @State private var showDisconnected = false
 
     var body: some View {
         Group {
-            if monitor.connectionState == .disconnected {
+            if showDisconnected, monitor.connectionState == .disconnected {
                 Button {
                     monitor.reconnectNow()
                 } label: {
@@ -16,22 +16,17 @@ struct ConnectionBanner: View {
                 .accessibilityHint("Reconnects to the server.")
                 .padding(.vertical, 8)
                 .transition(.move(edge: .top).combined(with: .opacity))
-            } else if monitor.connectionState == .connecting, showConnecting {
-                capsule(text: "Connecting…", color: .orange.opacity(0.9))
-                    .padding(.vertical, 8)
-                    .transition(.move(edge: .top).combined(with: .opacity))
             }
         }
-        .animation(.default, value: monitor.connectionState)
-        .animation(.default, value: showConnecting)
+        .animation(.default, value: showDisconnected)
         .task(id: monitor.connectionState) {
-            guard monitor.connectionState == .connecting else {
-                showConnecting = false
+            guard monitor.connectionState == .disconnected else {
+                showDisconnected = false
                 return
             }
-            try? await Task.sleep(for: .milliseconds(600))
+            try? await Task.sleep(for: .seconds(3))
             if !Task.isCancelled {
-                showConnecting = true
+                showDisconnected = true
             }
         }
     }

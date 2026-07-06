@@ -175,6 +175,13 @@ final class HubStatusMonitor {
 
     // MARK: - Sync
 
+    private func ensureConnection() {
+        guard hubConnection == nil, !currentSyncPayload.workspaceIds.isEmpty else { return }
+        let conn = makeHubConnection(self)
+        hubConnection = conn
+        conn.connect()
+    }
+
     /// Sync monitored workspaces — manages hub connection and subscriptions.
     func sync(workspaceIds: [String]) {
         let desired = Set(workspaceIds)
@@ -198,9 +205,7 @@ final class HubStatusMonitor {
             hubConnection = nil
             connectionState = .disconnected
         } else if hubConnection == nil {
-            let conn = makeHubConnection(self)
-            hubConnection = conn
-            conn.connect()
+            ensureConnection()
         } else if let (_, payload) = change {
             hubConnection?.sendSync(payload)
         }
@@ -255,7 +260,11 @@ final class HubStatusMonitor {
     }
 
     func reconnectNow() {
-        hubConnection?.forceReconnect()
+        if let hubConnection {
+            hubConnection.forceReconnect()
+        } else {
+            ensureConnection()
+        }
     }
 
     /// Workspaces that were streaming when the app entered background.

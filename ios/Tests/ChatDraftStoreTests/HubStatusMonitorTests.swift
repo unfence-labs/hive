@@ -169,4 +169,13 @@ struct HubStatusMonitorTests {
 
         #expect(connection.forceReconnectCount == 1)
     }
+
+    @Test
+    func reconnectNowIsSafeNoOpWhenNothingSubscribed() {
+        let (monitor, _, connection) = makeMonitor()
+        monitor.disconnectAll()
+        monitor.reconnectNow()
+        #expect(connection.connectCount == 0)
+        #expect(connection.forceReconnectCount == 0)
+    }
 }
