@@ -60,7 +60,9 @@ struct HiveApp: App {
             }
             .hiveScreenBackground()
             .tint(accent)
-            .overlay(alignment: .top) { ConnectionBanner(monitor: projectStore.statusMonitor) }
+            .safeAreaInset(edge: .top, spacing: 0) {
+                ConnectionBanner(monitor: projectStore.statusMonitor)
+            }
             .environment(projectStore)
             .environment(storeCache)
             .environment(modelCatalog)
