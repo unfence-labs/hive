@@ -175,8 +175,9 @@ struct ChatInputBar: View {
             } label: {
                 Image(systemName: "xmark")
                     .foregroundStyle(WhisperColor.textMuted)
-                    .frame(width: 24, height: 24)
+                    .frame(width: 44, height: 32)
             }
+            .accessibilityLabel("Dismiss")
         }
         .font(.caption)
         .padding(.horizontal, 16)
@@ -247,7 +248,9 @@ struct ChatInputBar: View {
     // MARK: - Logic
 
     private var canSend: Bool {
-        (!draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || attachedImages.contains { $0.attachment != nil }) && !isBusy
+        let hasPending = attachedImages.contains { $0.attachment == nil }
+        let hasContent = !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachedImages.isEmpty
+        return hasContent && !hasPending && !isBusy
     }
 
     private func handleSend() {
