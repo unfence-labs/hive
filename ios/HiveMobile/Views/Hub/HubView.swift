@@ -65,9 +65,7 @@ struct HubView: View {
             await store.refresh()
         }
         .onAppear {
-            store.statusMonitor.viewingWorkspaceId = nil
-            store.statusMonitor.viewingSessionId = nil
-            store.statusMonitor.syncVisiblePrWorkspaces(prIds)
+            store.statusMonitor.returnToHub(visiblePrWorkspaces: prIds)
         }
         .onDisappear {
             store.statusMonitor.syncVisiblePrWorkspaces([])

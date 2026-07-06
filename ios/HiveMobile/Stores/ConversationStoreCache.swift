@@ -1,6 +1,8 @@
 import Foundation
 import Observation
+#if canImport(UIKit)
 import UIKit
+#endif
 
 /// App-level cache for ConversationStore instances, keyed by workspace ID.
 ///
@@ -17,6 +19,7 @@ final class ConversationStoreCache {
     var onStoreCreated: ((String, ConversationStore) -> Void)?
 
     init() {
+        #if canImport(UIKit)
         NotificationCenter.default.addObserver(
             forName: UIApplication.didReceiveMemoryWarningNotification,
             object: nil,
@@ -27,6 +30,7 @@ final class ConversationStoreCache {
                 for store in self.stores.values { store.handleMemoryWarning() }
             }
         }
+        #endif
     }
 
     /// Returns the cached store or creates a new one.
