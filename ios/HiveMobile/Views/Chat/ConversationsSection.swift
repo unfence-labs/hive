@@ -164,8 +164,7 @@ struct ConversationsSection<Header: View>: View {
     }
 
     private func markWorkspaceVisible() {
-        projectStore.statusMonitor.viewingWorkspaceId = workspace.id
-        projectStore.statusMonitor.viewingSessionId = nil
+        projectStore.statusMonitor.setViewingWorkspace(workspace.id, sessionId: nil)
         projectStore.statusMonitor.clearCompleted(workspace.id)
     }
 

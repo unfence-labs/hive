@@ -25,34 +25,18 @@ final class HubStatusMonitor {
     }
 
     /// Workspace currently visible in ChatView (suppresses unread badge).
-    var viewingWorkspaceId: String? {
-        didSet {
-            guard viewingWorkspaceId != oldValue else { return }
-            sendCurrentSync()
-        }
-    }
+    var viewingWorkspaceId: String? { syncState.viewingWorkspaceId }
     /// Session currently visible in ChatView (suppresses unread badge for that session).
-    var viewingSessionId: String?
+    private(set) var viewingSessionId: String?
 
-    var currentFocusWorkspaces: [String] {
-        guard let viewingWorkspaceId else { return [] }
-        return [viewingWorkspaceId]
-    }
+    var currentPrWorkspaces: [String] { Array(syncState.prWorkspaces) }
 
-    var currentPrWorkspaces: [String] {
-        var ids = visiblePrWorkspaceIds
-        if let viewingWorkspaceId, viewingWorkspaceId != BRAIN_WORKSPACE_ID {
-            ids.insert(viewingWorkspaceId)
-        }
-        ids.remove(BRAIN_WORKSPACE_ID)
-        return Array(ids)
-    }
+    fileprivate var currentSyncPayload: HubSyncPayload { syncState.payload }
 
     let storeCache: ConversationStoreCache
 
     private var hubConnection: HubConnection?
-    fileprivate var subscribedWorkspaceIds: Set<String> = []
-    private var visiblePrWorkspaceIds: Set<String> = []
+    private var syncState = HubSubscriptionSync()
     private let isoFormatter = ISO8601DateFormatter()
     private let fractionalIsoFormatter: ISO8601DateFormatter = {
         let formatter = ISO8601DateFormatter()
@@ -165,21 +149,20 @@ final class HubStatusMonitor {
     /// Sync monitored workspaces — manages hub connection and subscriptions.
     func sync(workspaceIds: [String]) {
         let desired = Set(workspaceIds)
-
-        // Clean up removed workspaces
-        for id in subscribedWorkspaceIds.subtracting(desired) {
-            streamingSessions.removeValue(forKey: id)
-            unreadSessions.removeValue(forKey: id)
-            workspaceDiffStats.removeValue(forKey: id)
-            workspaceBranchInfo.removeValue(forKey: id)
-            workspacePrStatus.removeValue(forKey: id)
-            workspaceScriptStatus.removeValue(forKey: id)
-            workspaceLastActivityAt.removeValue(forKey: id)
-            storeCache.evict(id)
-            completedWorkspaces.remove(id)
+        let change = syncState.setSubscriptions(desired)
+        if let (removed, _) = change {
+            for id in removed {
+                streamingSessions.removeValue(forKey: id)
+                unreadSessions.removeValue(forKey: id)
+                workspaceDiffStats.removeValue(forKey: id)
+                workspaceBranchInfo.removeValue(forKey: id)
+                workspacePrStatus.removeValue(forKey: id)
+                workspaceScriptStatus.removeValue(forKey: id)
+                workspaceLastActivityAt.removeValue(forKey: id)
+                storeCache.evict(id)
+                completedWorkspaces.remove(id)
+            }
         }
-
-        subscribedWorkspaceIds = desired
 
         if desired.isEmpty {
             hubConnection?.cancel()
@@ -188,24 +171,41 @@ final class HubStatusMonitor {
             let conn = HubConnection(monitor: self)
             hubConnection = conn
             conn.connect()
-        } else {
-            sendCurrentSync()
+        } else if let (_, payload) = change {
+            hubConnection?.sendSync(payload)
         }
     }
 
     func syncVisiblePrWorkspaces(_ workspaceIds: [String]) {
-        let desired = Set(workspaceIds)
-        guard desired != visiblePrWorkspaceIds else { return }
-        visiblePrWorkspaceIds = desired
-        sendCurrentSync()
+        if let payload = syncState.setVisiblePrWorkspaces(Set(workspaceIds)) {
+            hubConnection?.sendSync(payload)
+        }
+    }
+
+    func setViewingWorkspace(_ id: String?, sessionId: String?) {
+        viewingSessionId = sessionId
+        if let payload = syncState.setViewingWorkspace(id) {
+            hubConnection?.sendSync(payload)
+        }
+    }
+
+    func clearViewingSession(workspaceId: String, sessionId: String) {
+        guard viewingWorkspaceId == workspaceId, viewingSessionId == sessionId else { return }
+        viewingSessionId = nil
+    }
+
+    func returnToHub(visiblePrWorkspaces ids: [String]) {
+        viewingSessionId = nil
+        if let payload = syncState.returnToHub(visiblePrWorkspaces: Set(ids)) {
+            hubConnection?.sendSync(payload)
+        }
     }
 
     /// Disconnect everything.
     func disconnectAll() {
         hubConnection?.cancel()
         hubConnection = nil
-        subscribedWorkspaceIds.removeAll()
-        visiblePrWorkspaceIds.removeAll()
+        syncState = HubSubscriptionSync()
         streamingSessions.removeAll()
         unreadSessions.removeAll()
         workspaceDiffStats.removeAll()
@@ -222,7 +222,7 @@ final class HubStatusMonitor {
     /// Used to detect streaming→idle transitions after reconnect and mark them as completed.
     private var streamingBeforeBackground: Set<String> = []
 
-    fileprivate func didReceiveStreaming(_ streaming: Bool, for workspaceId: String, sessionId: String?) {
+    func didReceiveStreaming(_ streaming: Bool, for workspaceId: String, sessionId: String?) {
         if streaming {
             var sessions = streamingSessions[workspaceId] ?? []
             if let sid = sessionId { sessions.insert(sid) }
@@ -243,32 +243,32 @@ final class HubStatusMonitor {
 
     /// Handle background→foreground streaming transition for a workspace.
     /// Only called from status events (bootstrap), not from done/cancelled.
-    fileprivate func checkBackgroundCompletion(for workspaceId: String) {
+    func checkBackgroundCompletion(for workspaceId: String) {
         if !isStreaming(workspaceId), streamingBeforeBackground.remove(workspaceId) != nil {
             didReceiveDone(for: workspaceId, sessionId: nil, markWorkspaceCompleted: true)
         }
     }
 
-    fileprivate func didReceiveDiffStats(_ stats: DiffStatResponse, for workspaceId: String) {
+    func didReceiveDiffStats(_ stats: DiffStatResponse, for workspaceId: String) {
         workspaceDiffStats[workspaceId] = stats
     }
 
-    fileprivate func didReceivePrStatus(_ status: PrStatusResponse, for workspaceId: String) {
+    func didReceivePrStatus(_ status: PrStatusResponse, for workspaceId: String) {
         workspacePrStatus[workspaceId] = status
     }
 
-    fileprivate func didReceiveBranchInfo(_ info: BranchInfo, for workspaceId: String) {
+    func didReceiveBranchInfo(_ info: BranchInfo, for workspaceId: String) {
         workspaceBranchInfo[workspaceId] = info
     }
 
-    fileprivate func didReceiveScriptStatus(scriptType: String, state: String, exitCode: Int?, for workspaceId: String) {
+    func didReceiveScriptStatus(scriptType: String, state: String, exitCode: Int?, for workspaceId: String) {
         guard let scriptState = ScriptState(rawValue: state) else { return }
         var statuses = workspaceScriptStatus[workspaceId] ?? [:]
         statuses[scriptType] = ScriptStatusInfo(state: scriptState, exitCode: exitCode)
         workspaceScriptStatus[workspaceId] = statuses
     }
 
-    fileprivate func didReceiveDone(for workspaceId: String, sessionId: String?, markWorkspaceCompleted: Bool) {
+    func didReceiveDone(for workspaceId: String, sessionId: String?, markWorkspaceCompleted: Bool) {
         if let sessionId,
            workspaceId == viewingWorkspaceId,
            sessionId == viewingSessionId {
@@ -287,7 +287,7 @@ final class HubStatusMonitor {
         completedWorkspaces.insert(workspaceId)
     }
 
-    fileprivate func didReceiveActivity(_ event: WsOutgoing, for workspaceId: String) {
+    func didReceiveActivity(_ event: WsOutgoing, for workspaceId: String) {
         switch hubActivityMarking(for: event) {
         case .ignore:
             break
@@ -317,23 +317,18 @@ final class HubStatusMonitor {
     }
 
     /// Ensure a ConversationStore exists for a workspace (eager creation on streaming).
-    fileprivate func ensureStoreExists(for workspaceId: String) {
+    func ensureStoreExists(for workspaceId: String) {
         _ = storeCache.getOrCreate(workspaceId)
+    }
+
+    func forward(_ event: WsOutgoing, for workspaceId: String) {
+        storeCache.stores[workspaceId]?.handle(event)
     }
 
     // MARK: - App lifecycle
 
     func forceRefresh() {
         hubConnection?.probeLiveness()
-    }
-
-    private func sendCurrentSync(forceBootstrap: Bool = false) {
-        hubConnection?.sendSyncWorkspaces(
-            Array(subscribedWorkspaceIds),
-            focusWorkspaces: currentFocusWorkspaces,
-            prWorkspaces: currentPrWorkspaces,
-            forceBootstrap: forceBootstrap
-        )
     }
 
     /// Called when the app returns to foreground after a non-trivial background period.
@@ -343,6 +338,8 @@ final class HubStatusMonitor {
         forceRefresh()
     }
 }
+
+extension HubStatusMonitor: HubEventSink {}
 
 // MARK: - Single hub WebSocket connection
 
@@ -357,8 +354,8 @@ private final class HubConnection {
     private var probeTimeoutTask: Task<Void, Never>?
     private var intentionallyClosed = false
     private var backoff: UInt64 = 1
+    private var pipeline: HubFramePipeline?
 
-    private let decoder = JSONDecoder()
     private let encoder = JSONEncoder()
 
     init(monitor: HubStatusMonitor) {
@@ -367,11 +364,14 @@ private final class HubConnection {
 
     func connect() {
         intentionallyClosed = false
+        pipeline = HubFramePipeline { [weak self] envelope in self?.dispatch(envelope) }
         performConnect()
     }
 
     func cancel() {
         intentionallyClosed = true
+        pipeline?.finish()
+        pipeline = nil
         receiveTask?.cancel()
         pingTask?.cancel()
         reconnectTask?.cancel()
@@ -396,20 +396,15 @@ private final class HubConnection {
         }
     }
 
-    /// Send sync_workspaces with the given workspace IDs.
+    /// Send sync_workspaces with the given payload.
     /// `forceBootstrap` asks the server to resend full bootstrap for already
     /// subscribed workspaces over the existing socket (no reconnect).
-    func sendSyncWorkspaces(
-        _ workspaceIds: [String],
-        focusWorkspaces: [String],
-        prWorkspaces: [String],
-        forceBootstrap: Bool = false
-    ) {
+    func sendSync(_ payload: HubSyncPayload, forceBootstrap: Bool = false) {
         Task {
             await send(.syncWorkspaces(
-                workspaceIds: workspaceIds,
-                focusWorkspaces: focusWorkspaces,
-                prWorkspaces: prWorkspaces,
+                workspaceIds: payload.workspaceIds,
+                focusWorkspaces: payload.focusWorkspaces,
+                prWorkspaces: payload.prWorkspaces,
                 forceBootstrap: forceBootstrap
             ))
         }
@@ -459,12 +454,8 @@ private final class HubConnection {
         startPinging()
 
         // Send sync_workspaces to subscribe to all tracked workspaces
-        if let workspaceIds = monitor?.subscribedWorkspaceIds {
-            sendSyncWorkspaces(
-                Array(workspaceIds),
-                focusWorkspaces: monitor?.currentFocusWorkspaces ?? [],
-                prWorkspaces: monitor?.currentPrWorkspaces ?? []
-            )
+        if let monitor {
+            sendSync(monitor.currentSyncPayload)
         }
     }
 
@@ -478,7 +469,7 @@ private final class HubConnection {
                 do {
                     let message = try await task.receive()
                     self.backoff = 1
-                    self.handleFrame(message)
+                    self.pipeline?.submit(message)
                 } catch {
                     if !Task.isCancelled, self.wsTask === task {
                         self.handleDisconnect()
@@ -489,74 +480,9 @@ private final class HubConnection {
         }
     }
 
-    private func handleFrame(_ message: URLSessionWebSocketTask.Message) {
-        let data: Data?
-        switch message {
-        case .string(let text): data = text.data(using: .utf8)
-        case .data(let d): data = d
-        @unknown default: data = nil
-        }
-        guard let data else { return }
-
-        // Decode hub envelope
-        guard let envelope = try? decoder.decode(HubOutgoing.self, from: data) else { return }
-
-        let workspaceId = envelope.workspaceId
-        let event = envelope.event
-        monitor?.didReceiveActivity(event, for: workspaceId)
-
-        // Hub-level processing
-        switch event {
-        case .status(_, let sessionId, let streaming, _, _):
-            let isStreaming = streaming ?? false
-            monitor?.didReceiveStreaming(isStreaming, for: workspaceId, sessionId: sessionId)
-            if isStreaming {
-                monitor?.ensureStoreExists(for: workspaceId)
-            }
-            // Only status events (bootstrap) check background completion,
-            // not done/cancelled — those handle completion directly.
-            if !isStreaming {
-                monitor?.checkBackgroundCompletion(for: workspaceId)
-            }
-
-        case .diffStats(let stats):
-            monitor?.didReceiveDiffStats(stats, for: workspaceId)
-
-        case .prStatus(let status):
-            monitor?.didReceivePrStatus(status, for: workspaceId)
-
-        case .branchInfo(let info):
-            monitor?.didReceiveBranchInfo(info, for: workspaceId)
-
-        case .scriptStatus(let scriptType, let state, let exitCode):
-            monitor?.didReceiveScriptStatus(
-                scriptType: scriptType,
-                state: state,
-                exitCode: exitCode,
-                for: workspaceId
-            )
-
-        case .done(let sessionId, _, _, _, _, _, _):
-            monitor?.didReceiveStreaming(false, for: workspaceId, sessionId: sessionId)
-            monitor?.didReceiveDone(for: workspaceId, sessionId: sessionId, markWorkspaceCompleted: true)
-
-        case .cancelled(let sessionId, _, let userInitiated, _):
-            // Clear streaming for this session but only mark failed background turns as unread.
-            monitor?.didReceiveStreaming(false, for: workspaceId, sessionId: sessionId)
-            if userInitiated != true {
-                monitor?.didReceiveDone(for: workspaceId, sessionId: sessionId, markWorkspaceCompleted: false)
-            }
-
-        case .streamSnapshot(let sessionId, _, _, _, _, _, _):
-            monitor?.didReceiveStreaming(true, for: workspaceId, sessionId: sessionId)
-            monitor?.ensureStoreExists(for: workspaceId)
-
-        default:
-            break
-        }
-
-        // Forward ALL events to the ConversationStore (if one exists).
-        monitor?.storeCache.stores[workspaceId]?.handle(event)
+    private func dispatch(_ envelope: HubOutgoing) {
+        guard !intentionallyClosed, let monitor else { return }
+        HubEventRouter.route(envelope, to: monitor)
     }
 
     // MARK: - Ping keepalive
@@ -616,13 +542,8 @@ private final class HubConnection {
                 } else {
                     // Socket is alive: ask it to resend bootstrap for already
                     // subscribed workspaces instead of reconnecting.
-                    if let workspaceIds = self.monitor?.subscribedWorkspaceIds {
-                        self.sendSyncWorkspaces(
-                            Array(workspaceIds),
-                            focusWorkspaces: self.monitor?.currentFocusWorkspaces ?? [],
-                            prWorkspaces: self.monitor?.currentPrWorkspaces ?? [],
-                            forceBootstrap: true
-                        )
+                    if let monitor = self.monitor {
+                        self.sendSync(monitor.currentSyncPayload, forceBootstrap: true)
                     }
                 }
             }

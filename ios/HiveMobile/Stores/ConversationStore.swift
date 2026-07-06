@@ -231,12 +231,14 @@ final class ConversationStore {
                             contextUsedTokens: contextUsedTokens,
                             contextWindowTokens: contextWindowTokens)
             lastHistoryFetchAt.removeValue(forKey: sid)
+            bumpHistoryToken(for: sid)
             onTurnCompleted?(sid)
 
         case .cancelled(let sid, let errorDetail, _, let durationMs):
             flushStreamingDeltas()
             finalizeMessage(sessionId: sid, durationMs: durationMs, cancelled: true, errorDetail: errorDetail)
             lastHistoryFetchAt.removeValue(forKey: sid)
+            bumpHistoryToken(for: sid)
             onTurnCompleted?(sid)
 
         case .error(let message, let errorSessionId):
@@ -334,6 +336,7 @@ final class ConversationStore {
             if sessionId == nil {
                 sessionId = sid
             }
+            bumpHistoryToken(for: sid)
             applyFetchedHistory(msgs, for: sid)
 
         case .branchInfo(let info):
@@ -405,10 +408,15 @@ final class ConversationStore {
     }
 
     func applyIncrementalHistory(_ tail: [ChatMessage], for sessionId: String) {
-        let base = serverHistory[sessionId] ?? messagesBySession[sessionId] ?? []
-        var seen = Set<String>()
-        let merged = (base + tail).filter { seen.insert($0.id).inserted }
-        applyFetchedHistory(merged, for: sessionId)
+        let base = serverHistory[sessionId] ?? []
+        let baseIds = Set(base.map(\.id))
+        // The backend returns the FULL list when the since-id is unknown; a
+        // genuine tail never shares ids with the base, so overlap means replace.
+        if base.isEmpty || tail.contains(where: { baseIds.contains($0.id) }) {
+            applyFetchedHistory(tail, for: sessionId)
+            return
+        }
+        applyFetchedHistory(base + tail, for: sessionId)
     }
 
     func clearPendingToolInputs() {
@@ -594,6 +602,30 @@ final class ConversationStore {
     func isHistoryFresh(_ sessionId: String?, within seconds: TimeInterval) -> Bool {
         guard let sessionId, let at = lastHistoryFetchAt[sessionId] else { return false }
         return Date().timeIntervalSince(at) < seconds
+    }
+
+    func loadHistoryIfNeeded(
+        for sessionId: String,
+        freshnessWindow: TimeInterval = 5,
+        fetch: (_ since: String?) async throws -> [ChatMessage]
+    ) async {
+        guard self.sessionId == sessionId else { return }
+        if cachedMessages(for: sessionId) != nil, isHistoryFresh(sessionId, within: freshnessWindow) {
+            return
+        }
+        let requestToken = beginHistoryRequest(for: sessionId)
+        let since = lastServerMessageId(for: sessionId)
+        do {
+            let msgs = try await fetch(since)
+            guard self.sessionId == sessionId,
+                  historyToken(for: sessionId) == requestToken else { return }
+            if since != nil {
+                applyIncrementalHistory(msgs, for: sessionId)
+            } else {
+                applyFetchedHistory(msgs, for: sessionId)
+            }
+        } catch {
+        }
     }
 
     func handleMemoryWarning() {
