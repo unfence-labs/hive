@@ -4,6 +4,8 @@ import UIKit
 struct SelectableMarkdownText: UIViewRepresentable {
     let markdown: String
 
+    @Environment(\.colorScheme) private var colorScheme
+
     func makeCoordinator() -> Coordinator { Coordinator() }
 
     final class Coordinator {
@@ -25,6 +27,7 @@ struct SelectableMarkdownText: UIViewRepresentable {
     }
 
     func updateUIView(_ uiView: UITextView, context: Context) {
+        uiView.overrideUserInterfaceStyle = colorScheme == .dark ? .dark : .light
         guard context.coordinator.lastMarkdown != markdown else { return }
         context.coordinator.lastMarkdown = markdown
         uiView.attributedText = renderMarkdown(markdown)
@@ -56,6 +59,7 @@ private func blockContext(_ intent: PresentationIntent?) -> BlockContext {
     var ctx = BlockContext()
     guard let intent else { return ctx }
     ctx.identity = intent.components.map(\.identity)
+    var nearestListIsOrdered: Bool?
     for component in intent.components {
         switch component.kind {
         case .header(let level):
@@ -68,14 +72,16 @@ private func blockContext(_ intent: PresentationIntent?) -> BlockContext {
             ctx.listItemID = component.identity
             ctx.listOrdinal = ordinal
         case .orderedList:
-            ctx.isOrdered = true
+            if nearestListIsOrdered == nil { nearestListIsOrdered = true }
             ctx.indentLevel += 1
         case .unorderedList:
+            if nearestListIsOrdered == nil { nearestListIsOrdered = false }
             ctx.indentLevel += 1
         default:
             break
         }
     }
+    ctx.isOrdered = nearestListIsOrdered ?? false
     return ctx
 }
 
