@@ -106,7 +106,6 @@ struct MessageBubble: View {
                     .background(
                         userBubbleShape.fill(hiveAccent.opacity(0.12))
                     )
-                    .glassEffect(.regular, in: userBubbleShape)
                     .overlay(
                         userBubbleShape
                             .stroke(hiveAccent.opacity(0.24), lineWidth: 1)
