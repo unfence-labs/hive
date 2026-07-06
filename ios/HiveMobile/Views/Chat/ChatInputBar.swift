@@ -23,6 +23,7 @@ struct ChatInputBar: View {
     @AppStorage("hiveAccent") private var accentId = AccentOption.defaultId
     @State private var attachedImages: [AttachedImage] = []
     @State private var selectedItems: [PhotosPickerItem] = []
+    @State private var showAttachmentError = false
 
     private var hiveAccent: Color {
         AccentOption(rawValue: accentId)?.color ?? AccentOption.violet.color
@@ -36,6 +37,10 @@ struct ChatInputBar: View {
             // MARK: - Attachment Chips
             if !attachedImages.isEmpty {
                 attachmentChipTray
+            }
+
+            if showAttachmentError {
+                attachmentErrorBanner
             }
 
             Divider()
@@ -141,11 +146,11 @@ struct ChatInputBar: View {
         ScrollView(.horizontal) {
             HStack(spacing: 8) {
                 ForEach(attachedImages) { item in
-                    AttachmentChip(source: item.attachment.dataUrl) {
+                    AttachmentChip(source: item.attachment?.dataUrl, pending: item.attachment == nil) {
                         withAnimation(.spring(duration: 0.25)) {
                             attachedImages.removeAll { $0.id == item.id }
                         }
-                        onDraftAttachmentsChange(attachedImages.map(\.attachment))
+                        onDraftAttachmentsChange(attachedImages.compactMap(\.attachment))
                     }
                 }
             }
@@ -153,6 +158,29 @@ struct ChatInputBar: View {
             .padding(.vertical, 4)
         }
         .scrollIndicators(.hidden)
+        .transition(.move(edge: .top).combined(with: .opacity))
+    }
+
+    private var attachmentErrorBanner: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(WhisperColor.warning)
+            Text("Image could not be attached.")
+                .foregroundStyle(WhisperColor.textSecondary)
+            Spacer()
+            Button {
+                withAnimation(.spring(duration: 0.25)) {
+                    showAttachmentError = false
+                }
+            } label: {
+                Image(systemName: "xmark")
+                    .foregroundStyle(WhisperColor.textMuted)
+                    .frame(width: 24, height: 24)
+            }
+        }
+        .font(.caption)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 4)
         .transition(.move(edge: .top).combined(with: .opacity))
     }
 
@@ -219,27 +247,38 @@ struct ChatInputBar: View {
     // MARK: - Logic
 
     private var canSend: Bool {
-        (!draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachedImages.isEmpty) && !isBusy
+        (!draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || attachedImages.contains { $0.attachment != nil }) && !isBusy
     }
 
     private func handleSend() {
-        let imageAttachments = attachedImages.map(\.attachment)
+        let imageAttachments = attachedImages.compactMap(\.attachment)
         attachedImages = []
-        selectedItems = []
         onDraftAttachmentsChange([])
         onSend(imageAttachments)
     }
 
     private func loadImages(from items: [PhotosPickerItem]) {
+        guard !items.isEmpty else { return }
+        selectedItems = []
+        showAttachmentError = false
         for item in items {
+            let pending = AttachedImage(attachment: nil)
+            withAnimation(.spring(duration: 0.25)) {
+                attachedImages.append(pending)
+            }
             item.loadTransferable(type: Data.self) { result in
-                if case .success(let data) = result, let data, let uiImage = UIImage(data: data) {
-                    guard let attachment = ImageAttachment.makeFromDraftImage(uiImage) else { return }
-                    DispatchQueue.main.async {
+                DispatchQueue.main.async {
+                    guard let index = attachedImages.firstIndex(where: { $0.id == pending.id }) else { return }
+                    if case .success(let data) = result, let data,
+                       let uiImage = UIImage(data: data),
+                       let attachment = ImageAttachment.makeFromDraftImage(uiImage) {
+                        attachedImages[index].attachment = attachment
+                        onDraftAttachmentsChange(attachedImages.compactMap(\.attachment))
+                    } else {
                         withAnimation(.spring(duration: 0.25)) {
-                            attachedImages.append(AttachedImage(attachment: attachment))
+                            attachedImages.remove(at: index)
+                            showAttachmentError = true
                         }
-                        onDraftAttachmentsChange(attachedImages.map(\.attachment))
                     }
                 }
             }
@@ -248,15 +287,16 @@ struct ChatInputBar: View {
 
     private func restoreAttachedImages(from attachments: [ImageAttachment]) {
         let normalized = attachments.map(\.dataUrl)
-        let current = attachedImages.map(\.attachment.dataUrl)
+        let current = attachedImages.compactMap { $0.attachment?.dataUrl }
         guard normalized != current else { return }
 
-        attachedImages = attachments.compactMap { attachment in
+        let restored: [AttachedImage] = attachments.compactMap { attachment in
             guard attachment.decodedImage != nil else { return nil }
             return AttachedImage(attachment: attachment)
         }
-        if attachedImages.count != attachments.count {
-            onDraftAttachmentsChange(attachedImages.map(\.attachment))
+        attachedImages = restored + attachedImages.filter { $0.attachment == nil }
+        if restored.count != attachments.count {
+            onDraftAttachmentsChange(attachedImages.compactMap(\.attachment))
         }
     }
 }
@@ -265,7 +305,7 @@ struct ChatInputBar: View {
 
 private struct AttachedImage: Identifiable {
     let id = UUID()
-    let attachment: ImageAttachment
+    var attachment: ImageAttachment?
 }
 
 // MARK: - Mode Toggle
@@ -331,13 +371,15 @@ private struct LevelCycleButton: View {
 private struct AttachmentChip: View {
     private static let size = CGSize(width: 52, height: 52)
 
-    let source: String
+    let source: String?
+    let pending: Bool
     let onRemove: () -> Void
 
     var body: some View {
         ZStack(alignment: .topTrailing) {
             ChatImageTile(
                 source: source,
+                pending: pending,
                 size: Self.size,
                 cornerRadius: 8
             )
