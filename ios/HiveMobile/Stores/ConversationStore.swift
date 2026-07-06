@@ -485,38 +485,25 @@ final class ConversationStore {
         }
     }
 
-    /// Delete sessions via the injected `delete` call (REST in the app, a stub in
-    /// tests) and reconcile store state. Returns the remaining session list and an
-    /// error message naming the conversation when a delete fails.
-    func deleteSessions(
-        _ targets: [SessionMetadata],
+    /// Delete one session via the injected `delete` call (REST in the app, a
+    /// stub in tests) and reconcile store state. Returns whether the delete
+    /// succeeded and an error message naming the conversation when it fails.
+    func deleteSession(
+        _ target: SessionMetadata,
         from sessions: [SessionMetadata],
         focusedSessionId: String?,
         delete: (String) async throws -> Void
-    ) async -> (sessions: [SessionMetadata], errorMessage: String?) {
-        var deletedSessionIds = Set<String>()
-        var errorMessage: String?
-        for session in targets {
-            do {
-                try await delete(session.sessionId)
-                deletedSessionIds.insert(session.sessionId)
-                errorMessage = nil
-            } catch is CancellationError {
-                // View disappeared.
-            } catch {
-                errorMessage = "Failed to delete \"\(session.displayTitle)\": \(error.localizedDescription)"
-            }
+    ) async -> (deleted: Bool, errorMessage: String?) {
+        do {
+            try await delete(target.sessionId)
+        } catch is CancellationError {
+            return (false, nil)
+        } catch {
+            return (false, "Failed to delete \"\(target.displayTitle)\": \(error.localizedDescription)")
         }
 
-        guard !deletedSessionIds.isEmpty else {
-            return (sessions, errorMessage)
-        }
-
-        var remaining = sessions
-        remaining.removeAll { deletedSessionIds.contains($0.sessionId) }
-
-        if let focusedSessionId, deletedSessionIds.contains(focusedSessionId) {
-            let fallbackSessionId = remaining.first?.sessionId
+        if let focusedSessionId, focusedSessionId == target.sessionId {
+            let fallbackSessionId = sessions.first { $0.sessionId != target.sessionId }?.sessionId
             if sessionId == nil {
                 setFocusedSessionId(focusedSessionId)
             }
@@ -524,13 +511,11 @@ final class ConversationStore {
             if let fallbackSessionId {
                 _ = await send?(.switchSession(sessionId: fallbackSessionId))
             }
+        } else {
+            removeSessionState(target.sessionId, fallbackSessionId: nil)
         }
 
-        for deletedSessionId in deletedSessionIds where deletedSessionId != focusedSessionId {
-            removeSessionState(deletedSessionId, fallbackSessionId: nil)
-        }
-
-        return (remaining, errorMessage)
+        return (true, nil)
     }
 
     // MARK: - Private

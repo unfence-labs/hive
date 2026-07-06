@@ -234,8 +234,8 @@ struct ConversationsSection<Header: View>: View {
         let deletedFocusedSessionId = focusedSessionId
 
         Task {
-            let outcome = await store.deleteSessions(
-                [session],
+            let outcome = await store.deleteSession(
+                session,
                 from: sessions,
                 focusedSessionId: deletedFocusedSessionId
             ) { sessionId in
@@ -243,7 +243,9 @@ struct ConversationsSection<Header: View>: View {
                 ChatDraftStore.shared.remove(workspaceId: workspace.id, sessionId: sessionId)
                 projectStore.statusMonitor.clearUnread(workspaceId: workspace.id, sessionId: sessionId)
             }
-            sessions = outcome.sessions
+            if outcome.deleted {
+                sessions.removeAll { $0.sessionId == session.sessionId }
+            }
             errorMessage = outcome.errorMessage
         }
     }
