@@ -41,7 +41,7 @@ struct HiveApp: App {
                 }
                 Tab("Hub", systemImage: "square.grid.2x2.fill", value: .hub) {
                     NavigationStack(path: $hubPath) {
-                        HubView()
+                        HubView(openSettings: { selectedTab = .settings })
                             .navigationDestination(for: Workspace.self) { workspace in
                                 WorkspaceConversationsView(
                                     workspace: workspace,
