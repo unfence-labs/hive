@@ -328,14 +328,15 @@ extension AgentActivity {
 }
 
 private func activityToolCallsCacheCost(_ toolCalls: [ToolCall]) -> Int {
-    toolCalls.reduce(0) { total, tool in
-        total
-            + tool.id.utf16.count
-            + tool.name.utf16.count
-            + tool.input.utf16.count
-            + (tool.output?.utf16.count ?? 0)
-            + (tool.parentToolUseId?.utf16.count ?? 0)
+    var total = 0
+    for tool in toolCalls {
+        total += tool.id.utf16.count
+        total += tool.name.utf16.count
+        total += tool.input.utf16.count
+        total += tool.output?.utf16.count ?? 0
+        total += tool.parentToolUseId?.utf16.count ?? 0
     }
+    return total
 }
 
 enum VisibleAgentActivity: Equatable, Identifiable {
@@ -426,16 +427,17 @@ typealias GoalState = AgentActivity.GoalUpdate
 
 private func toolCall(for activity: AgentActivity.CommandExecution) -> ToolCall {
     let classified = classifiedCommandAction(for: activity)
+    let fallbackInput: [String: Any?] = [
+        "command": activity.command ?? "",
+        "cwd": activity.cwd,
+        "status": activity.status,
+        "exitCode": activity.exitCode,
+        "durationMs": activity.durationMs
+    ]
     return ToolCall(
         id: activity.id,
         name: classified?.name ?? "Bash",
-        input: encodeToolInput(classified?.input ?? [
-            "command": activity.command ?? "",
-            "cwd": activity.cwd,
-            "status": activity.status,
-            "exitCode": activity.exitCode,
-            "durationMs": activity.durationMs
-        ]),
+        input: encodeToolInput(classified?.input ?? fallbackInput),
         output: activity.output,
         parentToolUseId: nil
     )

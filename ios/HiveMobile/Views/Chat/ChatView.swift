@@ -257,10 +257,7 @@ struct ChatView: View {
         .onDisappear {
             saveCurrentDraft()
             store.onTurnCompleted = nil
-            if projectStore.statusMonitor.viewingWorkspaceId == workspace.id,
-               projectStore.statusMonitor.viewingSessionId == session.sessionId {
-                projectStore.statusMonitor.viewingSessionId = nil
-            }
+            projectStore.statusMonitor.clearViewingSession(workspaceId: workspace.id, sessionId: session.sessionId)
         }
     }
 
@@ -306,8 +303,7 @@ struct ChatView: View {
     // MARK: - Setup
 
     private func setup() async {
-        projectStore.statusMonitor.viewingWorkspaceId = workspace.id
-        projectStore.statusMonitor.viewingSessionId = session.sessionId
+        projectStore.statusMonitor.setViewingWorkspace(workspace.id, sessionId: session.sessionId)
         projectStore.statusMonitor.clearCompleted(workspace.id)
         projectStore.statusMonitor.clearUnread(workspaceId: workspace.id, sessionId: session.sessionId)
         let selectedSessionId = session.sessionId
@@ -316,27 +312,9 @@ struct ChatView: View {
         // so client-generated UUIDs are replaced with backend-assigned IDs.
         store.onTurnCompleted = { [weak store, api, workspace] sessionId in
             Task { @MainActor [weak store] in
-                guard let store else { return }
-                // Keep A streaming while B is open: only re-sync the visible session.
-                guard store.sessionId == sessionId else { return }
-
-                let requestToken = store.beginHistoryRequest(for: sessionId)
-                let since = store.lastServerMessageId(for: sessionId)
-                do {
-                    let msgs = try await api.fetchMessages(
-                        workspaceId: workspace.id,
-                        sessionId: sessionId,
-                        since: since
-                    )
-                    guard store.sessionId == sessionId else { return }
-                    guard store.historyToken(for: sessionId) == requestToken else { return }
-                    if since != nil {
-                        store.applyIncrementalHistory(msgs, for: sessionId)
-                    } else {
-                        store.applyFetchedHistory(msgs, for: sessionId)
-                    }
-                } catch {
-                    // Best-effort — streamed messages remain as fallback
+                guard let store, store.sessionId == sessionId else { return }
+                await store.loadHistoryIfNeeded(for: sessionId) { since in
+                    try await api.fetchMessages(workspaceId: workspace.id, sessionId: sessionId, since: since)
                 }
             }
         }
@@ -368,36 +346,8 @@ struct ChatView: View {
             store.messages = cached
             isLoading = false
         }
-        if store.cachedMessages(for: sessionId) != nil, store.isHistoryFresh(sessionId, within: 5) {
-            isLoading = false
-            return
-        }
-        let requestToken = store.beginHistoryRequest(for: sessionId)
-        do {
-            let msgs = try await api.fetchMessages(
-                workspaceId: workspace.id,
-                sessionId: sessionId
-            )
-            // If another chat view took focus while this request was in-flight, ignore it.
-            guard store.sessionId == sessionId else {
-                isLoading = false
-                return
-            }
-            // Skip if a newer event (send or session switch) bumped the token
-            // while this REST call was in-flight — their data is more authoritative.
-            guard store.historyToken(for: sessionId) == requestToken else {
-                isLoading = false
-                return
-            }
-            // History contains only finalized turns; streaming content lives
-            // in sessionStreams and is rendered as a separate in-progress bubble.
-            store.applyFetchedHistory(msgs, for: sessionId)
-        } catch is CancellationError {
-            // View disappeared
-        } catch {
-            // REST fetch failed — keep the cached/streamed messages. History is
-            // REST-owned; a WS `history` frame only arrives from an older backend
-            // and reconciles through the same applyFetchedHistory path.
+        await store.loadHistoryIfNeeded(for: sessionId) { since in
+            try await api.fetchMessages(workspaceId: workspace.id, sessionId: sessionId, since: since)
         }
         isLoading = false
     }
