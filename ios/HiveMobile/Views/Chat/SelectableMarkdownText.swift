@@ -39,52 +39,6 @@ struct SelectableMarkdownText: UIViewRepresentable {
     }
 }
 
-private struct BlockContext {
-    var identity: [Int] = []
-    var headerLevel: Int?
-    var isCodeBlock = false
-    var isBlockQuote = false
-    var listItemID: Int?
-    var listOrdinal = 1
-    var isOrdered = false
-    var indentLevel = 0
-
-    var listPrefix: String? {
-        guard listItemID != nil else { return nil }
-        return isOrdered ? "\(listOrdinal). " : "- "
-    }
-}
-
-private func blockContext(_ intent: PresentationIntent?) -> BlockContext {
-    var ctx = BlockContext()
-    guard let intent else { return ctx }
-    ctx.identity = intent.components.map(\.identity)
-    var nearestListIsOrdered: Bool?
-    for component in intent.components {
-        switch component.kind {
-        case .header(let level):
-            ctx.headerLevel = level
-        case .codeBlock:
-            ctx.isCodeBlock = true
-        case .blockQuote:
-            ctx.isBlockQuote = true
-        case .listItem(let ordinal):
-            ctx.listItemID = component.identity
-            ctx.listOrdinal = ordinal
-        case .orderedList:
-            if nearestListIsOrdered == nil { nearestListIsOrdered = true }
-            ctx.indentLevel += 1
-        case .unorderedList:
-            if nearestListIsOrdered == nil { nearestListIsOrdered = false }
-            ctx.indentLevel += 1
-        default:
-            break
-        }
-    }
-    ctx.isOrdered = nearestListIsOrdered ?? false
-    return ctx
-}
-
 private func markdownFont(size: CGFloat, weight: UIFont.Weight, italic: Bool, mono: Bool) -> UIFont {
     var font = mono
         ? UIFont.monospacedSystemFont(ofSize: size, weight: weight)
@@ -98,7 +52,7 @@ private func markdownFont(size: CGFloat, weight: UIFont.Weight, italic: Bool, mo
     return font
 }
 
-private func paragraphStyle(for block: BlockContext) -> NSParagraphStyle {
+private func paragraphStyle(for block: MarkdownBlockContext) -> NSParagraphStyle {
     let style = NSMutableParagraphStyle()
     style.lineSpacing = 3
     style.paragraphSpacing = 8
@@ -121,7 +75,7 @@ private let headingSizes: [CGFloat] = [20, 17, 15, 14, 13, 12]
 
 private func blockAttributes(
     inline: InlinePresentationIntent?,
-    block: BlockContext
+    block: MarkdownBlockContext
 ) -> [NSAttributedString.Key: Any] {
     let inline = inline ?? []
     var size: CGFloat = 14
@@ -184,7 +138,7 @@ private func renderMarkdown(_ markdown: String) -> NSAttributedString {
     var lastListItemID: Int?
 
     for run in parsed.runs {
-        let block = blockContext(run.presentationIntent)
+        let block = markdownBlockContext(run.presentationIntent)
         var attrs = blockAttributes(inline: run.inlinePresentationIntent, block: block)
         if let url = run.link {
             attrs[.link] = url
