@@ -76,10 +76,15 @@ struct HiveApp: App {
             }
             .onAppear {
                 mergePushCompletions()
+                handlePushNavigation()
             }
             .onChange(of: CompletedWorkspacesStore.shared.pending) { _, pending in
                 guard !pending.isEmpty else { return }
                 mergePushCompletions()
+            }
+            .onChange(of: CompletedWorkspacesStore.shared.navigationRequest) { _, request in
+                guard request != nil else { return }
+                handlePushNavigation()
             }
             .onChange(of: scenePhase) { _, newPhase in
                 switch newPhase {
@@ -108,6 +113,27 @@ struct HiveApp: App {
             projectStore.statusMonitor.markCompletedFromPush(wsId)
         }
         store.clearAll()
+    }
+
+    /// Resolve the most recent push tap and navigate to its workspace (and session),
+    /// falling back silently to the Hub tab when the workspace can't be resolved.
+    private func handlePushNavigation() {
+        guard let request = CompletedWorkspacesStore.shared.navigationRequest else { return }
+        CompletedWorkspacesStore.shared.clearNavigationRequest()
+        Task { @MainActor in
+            if let target = await projectStore.resolvePushTarget(
+                workspaceId: request.workspaceId,
+                sessionId: request.sessionId
+            ) {
+                projectStore.pendingSessionNavigation = target.sessionId.map {
+                    PendingSessionNavigation(workspaceId: target.workspace.id, sessionId: $0)
+                }
+                projectStore.pendingNavigation = target.workspace
+            } else {
+                projectStore.pendingSessionNavigation = nil
+                selectedTab = .hub
+            }
+        }
     }
 }
 

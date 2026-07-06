@@ -20,14 +20,28 @@ final class ProjectStore {
     /// Set after workspace creation so HiveApp can navigate to it.
     var pendingNavigation: Workspace?
 
+    /// Set alongside `pendingNavigation` when a push tap targets a specific session.
+    var pendingSessionNavigation: PendingSessionNavigation?
+
     let statusMonitor: HubStatusMonitor
 
-    private let api = APIClient()
+    private let api: APIClient
+    private let fetchProjectsClosure: @MainActor () async throws -> [Project]
+    private let fetchPreferencesClosure: @MainActor () async throws -> UiPreferencesPayload
     private var hasFetchedOnce = false
     private var lastRefreshedAt = Date.distantPast
 
-    init(storeCache: ConversationStoreCache) {
-        self.statusMonitor = HubStatusMonitor(storeCache: storeCache)
+    init(
+        storeCache: ConversationStoreCache,
+        statusMonitor: HubStatusMonitor? = nil,
+        fetchProjects: (@MainActor () async throws -> [Project])? = nil,
+        fetchPreferences: (@MainActor () async throws -> UiPreferencesPayload)? = nil
+    ) {
+        let client = APIClient()
+        self.api = client
+        self.statusMonitor = statusMonitor ?? HubStatusMonitor(storeCache: storeCache)
+        self.fetchProjectsClosure = fetchProjects ?? { try await client.fetchProjects() }
+        self.fetchPreferencesClosure = fetchPreferences ?? { try await client.fetchUiPreferences() }
     }
 
     /// Whether the store has never successfully loaded data yet.
@@ -160,8 +174,8 @@ final class ProjectStore {
         isLoading = true
         errorMessage = nil
         do {
-            async let projectsTask = api.fetchProjects()
-            async let preferencesTask = api.fetchUiPreferences()
+            async let projectsTask = fetchProjectsClosure()
+            async let preferencesTask = fetchPreferencesClosure()
 
             var fresh = try await projectsTask
             let preferences = (try? await preferencesTask) ?? .empty
@@ -190,6 +204,23 @@ final class ProjectStore {
         isLoading = false
     }
 
+    func resolvePushTarget(workspaceId: String, sessionId: String?) async -> PushNavigationTarget? {
+        if let target = Self.findTarget(workspaceId: workspaceId, sessionId: sessionId, in: projects) {
+            return target
+        }
+        await refresh(force: true)
+        return Self.findTarget(workspaceId: workspaceId, sessionId: sessionId, in: projects)
+    }
+
+    static func findTarget(workspaceId: String, sessionId: String?, in projects: [Project]) -> PushNavigationTarget? {
+        for project in projects {
+            if let workspace = project.workspaces.first(where: { $0.id == workspaceId }) {
+                return PushNavigationTarget(workspace: workspace, sessionId: sessionId)
+            }
+        }
+        return nil
+    }
+
     private static func extractRepoName(from url: String) -> String {
         let trimmed = url.hasSuffix("/") ? String(url.dropLast()) : url
         guard let last = trimmed.split(separator: "/").last else { return "repository" }
@@ -197,4 +228,14 @@ final class ProjectStore {
         if name.hasSuffix(".git") { name = String(name.dropLast(4)) }
         return name.isEmpty ? "repository" : name
     }
+}
+
+struct PushNavigationTarget: Equatable {
+    let workspace: Workspace
+    let sessionId: String?
+}
+
+struct PendingSessionNavigation: Equatable {
+    let workspaceId: String
+    let sessionId: String
 }
