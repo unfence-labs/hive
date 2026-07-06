@@ -9,7 +9,7 @@ struct HubFramePipelineTests {
 
     private func text(from frame: URLSessionWebSocketTask.Message?) -> String? {
         guard let frame else { return nil }
-        switch frame {
+        return switch frame {
         case .string(let text): text
         case .data(let data): String(data: data, encoding: .utf8)
         @unknown default: nil
