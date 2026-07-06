@@ -438,12 +438,10 @@ struct ChatView: View {
             )) ?? false
 
             switch result {
-            case .approve:
-                Haptics.notify(.success)
+            case .approve, .answer:
+                Haptics.notify(sent ? .success : .warning)
             case .reject, .dismiss:
                 Haptics.notify(.warning)
-            case .answer:
-                Haptics.notify(sent ? .success : .warning)
             }
 
             if sent {
