@@ -9,10 +9,13 @@ struct ShimmerModifier: ViewModifier {
     func body(content: Content) -> some View {
         content
             .opacity(reduceMotion ? 0.5 : 0.5 + 0.5 * Foundation.sin(phase))
-            .onAppear {
-                guard !reduceMotion else { return }
-                withAnimation(.easeInOut(duration: 1.5).repeatForever(autoreverses: true)) {
-                    phase = .pi
+            .onChange(of: reduceMotion, initial: true) {
+                if reduceMotion {
+                    phase = 0
+                } else {
+                    withAnimation(.easeInOut(duration: 1.5).repeatForever(autoreverses: true)) {
+                        phase = .pi
+                    }
                 }
             }
     }
