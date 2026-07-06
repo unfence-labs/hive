@@ -201,11 +201,7 @@ struct ChatInputBar: View {
             }
 
             TextField("Message", text: $draft, axis: .vertical)
-                .lineLimit(1...5)
-                .submitLabel(.send)
-                .onSubmit {
-                    if canSend { handleSend() }
-                }
+                .lineLimit(1...10)
                 .textFieldStyle(.plain)
                 .frame(maxWidth: .infinity, minHeight: 28, alignment: .leading)
 
