@@ -101,6 +101,7 @@ struct MessageBubble: View {
                     .font(.system(size: 14))
                     .foregroundStyle(WhisperColor.text)
                     .lineSpacing(3)
+                    .textSelection(.enabled)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 8)
                     .background(
@@ -111,12 +112,23 @@ struct MessageBubble: View {
                         userBubbleShape
                             .stroke(hiveAccent.opacity(0.24), lineWidth: 1)
                     )
+                    .contextMenu { copyContextMenu }
             case .assistant:
                 Markdown(message.content)
                     .markdownTheme(.whisperChat)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .textSelection(.enabled)
+                    .contextMenu { copyContextMenu }
             }
+        }
+    }
+
+    @ViewBuilder
+    private var copyContextMenu: some View {
+        Button {
+            UIPasteboard.general.string = message.clipboardText
+        } label: {
+            Label("Copy", systemImage: "doc.on.doc")
         }
     }
 
@@ -174,7 +186,7 @@ struct MessageBubble: View {
                         .font(WhisperFont.mono(10))
                         .foregroundStyle(WhisperColor.textMuted)
                     Button {
-                        UIPasteboard.general.string = message.content
+                        UIPasteboard.general.string = message.clipboardText
                         copied = true
                         Task {
                             try? await Task.sleep(for: .seconds(2))
@@ -186,6 +198,9 @@ struct MessageBubble: View {
                             .foregroundStyle(copied ? WhisperColor.success : WhisperColor.textMuted)
                             .contentTransition(.symbolEffect(.replace))
                             .frame(width: 14, height: 14)
+                            .padding(.horizontal, 15)
+                            .padding(.vertical, 12)
+                            .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                 }
