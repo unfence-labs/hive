@@ -485,6 +485,54 @@ final class ConversationStore {
         }
     }
 
+    /// Delete sessions via the injected `delete` call (REST in the app, a stub in
+    /// tests) and reconcile store state. Returns the remaining session list and an
+    /// error message naming the conversation when a delete fails.
+    func deleteSessions(
+        _ targets: [SessionMetadata],
+        from sessions: [SessionMetadata],
+        focusedSessionId: String?,
+        delete: (String) async throws -> Void
+    ) async -> (sessions: [SessionMetadata], errorMessage: String?) {
+        var deletedSessionIds = Set<String>()
+        var errorMessage: String?
+        for session in targets {
+            do {
+                try await delete(session.sessionId)
+                deletedSessionIds.insert(session.sessionId)
+                errorMessage = nil
+            } catch is CancellationError {
+                // View disappeared.
+            } catch {
+                errorMessage = "Failed to delete \"\(session.displayTitle)\": \(error.localizedDescription)"
+            }
+        }
+
+        guard !deletedSessionIds.isEmpty else {
+            return (sessions, errorMessage)
+        }
+
+        var remaining = sessions
+        remaining.removeAll { deletedSessionIds.contains($0.sessionId) }
+
+        if let focusedSessionId, deletedSessionIds.contains(focusedSessionId) {
+            let fallbackSessionId = remaining.first?.sessionId
+            if sessionId == nil {
+                setFocusedSessionId(focusedSessionId)
+            }
+            removeSessionState(focusedSessionId, fallbackSessionId: fallbackSessionId)
+            if let fallbackSessionId {
+                _ = await send?(.switchSession(sessionId: fallbackSessionId))
+            }
+        }
+
+        for deletedSessionId in deletedSessionIds where deletedSessionId != focusedSessionId {
+            removeSessionState(deletedSessionId, fallbackSessionId: nil)
+        }
+
+        return (remaining, errorMessage)
+    }
+
     // MARK: - Private
 
     /// Ensure a stream slot exists for the given session, defaulting to streaming state.

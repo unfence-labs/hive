@@ -731,4 +731,103 @@ struct ConversationStoreSessionTests {
         #expect(store.pendingToolInputs.isEmpty)
         #expect(store.isStreaming == false)
     }
+
+    private func makeSession(id: String, title: String?) -> SessionMetadata {
+        SessionMetadata(
+            sessionId: id,
+            providerSessionId: nil,
+            claudeSessionId: nil,
+            workspaceId: "ws-1",
+            title: title,
+            createdAt: "2026-01-01T00:00:00.000Z",
+            updatedAt: "2026-01-01T00:00:00.000Z",
+            messageCount: 0,
+            lockedProvider: nil
+        )
+    }
+
+    @Test @MainActor
+    func deleteSessionsSuccessRemovesOnlyTargetedSession() async {
+        let store = ConversationStore()
+        let target = makeSession(id: "session-1", title: "Fix login bug")
+        let other = makeSession(id: "session-2", title: "Ship release")
+
+        let outcome = await store.deleteSessions(
+            [target],
+            from: [target, other],
+            focusedSessionId: nil
+        ) { _ in }
+
+        #expect(outcome.sessions.map(\.sessionId) == ["session-2"])
+        #expect(outcome.errorMessage == nil)
+    }
+
+    @Test @MainActor
+    func deleteSessionsFailureKeepsSessionAndNamesConversation() async {
+        struct DeleteError: LocalizedError {
+            var errorDescription: String? { "Server unreachable" }
+        }
+        let store = ConversationStore()
+        let target = makeSession(id: "session-1", title: "Fix login bug")
+        let other = makeSession(id: "session-2", title: "Ship release")
+
+        let outcome = await store.deleteSessions(
+            [target],
+            from: [target, other],
+            focusedSessionId: nil
+        ) { _ in throw DeleteError() }
+
+        #expect(outcome.sessions.map(\.sessionId) == ["session-1", "session-2"])
+        #expect(outcome.errorMessage?.contains("Fix login bug") == true)
+        #expect(outcome.errorMessage?.contains("Server unreachable") == true)
+    }
+
+    @Test @MainActor
+    func deleteSessionsFailureNamesUntitledConversation() async {
+        struct DeleteError: Error {}
+        let store = ConversationStore()
+        let target = makeSession(id: "session-1", title: "   ")
+
+        let outcome = await store.deleteSessions(
+            [target],
+            from: [target],
+            focusedSessionId: nil
+        ) { _ in throw DeleteError() }
+
+        #expect(outcome.sessions.map(\.sessionId) == ["session-1"])
+        #expect(outcome.errorMessage?.contains("Untitled Conversation") == true)
+    }
+
+    @Test @MainActor
+    func deleteSessionsFocusedSessionFallsBackToNextSession() async {
+        let store = ConversationStore()
+        store.setFocusedSessionId("session-1")
+        store.applyFetchedHistory([
+            ChatMessage(
+                id: "message-1",
+                sessionId: "session-1",
+                role: .user,
+                content: "Hello",
+                images: nil,
+                toolCalls: nil,
+                thinkingContent: nil,
+                timestamp: "2026-01-01T00:00:00.000Z",
+                cancelled: nil,
+                durationMs: nil
+            )
+        ], for: "session-1")
+        let target = makeSession(id: "session-1", title: "Fix login bug")
+        let other = makeSession(id: "session-2", title: "Ship release")
+
+        let outcome = await store.deleteSessions(
+            [target],
+            from: [target, other],
+            focusedSessionId: "session-1"
+        ) { _ in }
+
+        #expect(outcome.sessions.map(\.sessionId) == ["session-2"])
+        #expect(outcome.errorMessage == nil)
+        #expect(store.sessionId == "session-2")
+        #expect(store.cachedMessages(for: "session-1") == nil)
+    }
 }
