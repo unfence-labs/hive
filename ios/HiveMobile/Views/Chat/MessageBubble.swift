@@ -8,6 +8,7 @@ struct MessageBubble: View {
 
     @AppStorage("hiveAccent") private var accentId = AccentOption.defaultId
     @State private var copied = false
+    @State private var bubbleMenuVisible = false
 
     private var hiveAccent: Color {
         AccentOption(rawValue: accentId)?.color ?? AccentOption.violet.color
@@ -110,8 +111,12 @@ struct MessageBubble: View {
                         userBubbleShape
                             .stroke(hiveAccent.opacity(0.24), lineWidth: 1)
                     )
-                    .contentShape(.contextMenuPreview, userBubbleShape)
-                    .contextMenu { copyContextMenu }
+                    .opacity(bubbleMenuVisible ? 0 : 1)
+                    .overlay(
+                        BubbleContextMenu(copyText: message.clipboardText) { visible in
+                            bubbleMenuVisible = visible
+                        }
+                    )
             case .assistant:
                 if message.id == "streaming" {
                     Markdown(message.content)
@@ -127,15 +132,6 @@ struct MessageBubble: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
-        }
-    }
-
-    @ViewBuilder
-    private var copyContextMenu: some View {
-        Button {
-            UIPasteboard.general.string = message.clipboardText
-        } label: {
-            Label("Copy", systemImage: "doc.on.doc")
         }
     }
 
@@ -283,6 +279,114 @@ struct MessageBubble: View {
         return Self.timeFormatter.string(from: date)
     }
 
+}
+
+// MARK: - Bubble Context Menu
+
+/// UIKit-backed context menu for the user bubble. SwiftUI's `.contextMenu`
+/// mis-places its dismiss preview inside List cells (the platter re-centers
+/// horizontally in the row for the dismiss animation), so this owns both
+/// targeted previews and anchors them to the bubble's real position.
+private struct BubbleContextMenu: UIViewRepresentable {
+    let copyText: String
+    let onMenuVisibilityChange: (Bool) -> Void
+
+    func makeUIView(context: Context) -> InteractionView {
+        let view = InteractionView()
+        view.backgroundColor = .clear
+        view.addInteraction(UIContextMenuInteraction(delegate: view))
+        return view
+    }
+
+    func updateUIView(_ uiView: InteractionView, context: Context) {
+        uiView.copyText = copyText
+        uiView.onMenuVisibilityChange = onMenuVisibilityChange
+    }
+
+    final class InteractionView: UIView, UIContextMenuInteractionDelegate {
+        var copyText = ""
+        var onMenuVisibilityChange: (Bool) -> Void = { _ in }
+        private var snapshot: UIImage?
+
+        func contextMenuInteraction(
+            _ interaction: UIContextMenuInteraction,
+            configurationForMenuAtLocation location: CGPoint
+        ) -> UIContextMenuConfiguration? {
+            snapshot = captureSnapshot()
+            let copyText = copyText
+            return UIContextMenuConfiguration(actionProvider: { _ in
+                UIMenu(children: [
+                    UIAction(title: "Copy", image: UIImage(systemName: "doc.on.doc")) { _ in
+                        UIPasteboard.general.string = copyText
+                    }
+                ])
+            })
+        }
+
+        func contextMenuInteraction(
+            _ interaction: UIContextMenuInteraction,
+            previewForHighlightingMenuWithConfiguration configuration: UIContextMenuConfiguration
+        ) -> UITargetedPreview? {
+            targetedPreview()
+        }
+
+        func contextMenuInteraction(
+            _ interaction: UIContextMenuInteraction,
+            previewForDismissingMenuWithConfiguration configuration: UIContextMenuConfiguration
+        ) -> UITargetedPreview? {
+            targetedPreview()
+        }
+
+        func contextMenuInteraction(
+            _ interaction: UIContextMenuInteraction,
+            willDisplayMenuFor configuration: UIContextMenuConfiguration,
+            animator: UIContextMenuInteractionAnimating?
+        ) {
+            onMenuVisibilityChange(true)
+        }
+
+        func contextMenuInteraction(
+            _ interaction: UIContextMenuInteraction,
+            willEndFor configuration: UIContextMenuConfiguration,
+            animator: UIContextMenuInteractionAnimating?
+        ) {
+            if let animator {
+                animator.addCompletion { [onMenuVisibilityChange] in
+                    onMenuVisibilityChange(false)
+                }
+            } else {
+                onMenuVisibilityChange(false)
+            }
+        }
+
+        private func captureSnapshot() -> UIImage? {
+            guard let window, bounds.width > 0, bounds.height > 0 else { return nil }
+            let rectInWindow = convert(bounds, to: window)
+            let renderer = UIGraphicsImageRenderer(size: bounds.size)
+            return renderer.image { context in
+                context.cgContext.translateBy(x: -rectInWindow.minX, y: -rectInWindow.minY)
+                window.drawHierarchy(in: window.bounds, afterScreenUpdates: false)
+            }
+        }
+
+        private func targetedPreview() -> UITargetedPreview? {
+            guard let snapshot else { return nil }
+            let imageView = UIImageView(image: snapshot)
+            imageView.frame = bounds
+            let parameters = UIPreviewParameters()
+            parameters.backgroundColor = .clear
+            parameters.visiblePath = UIBezierPath(
+                cgPath: UnevenRoundedRectangle(
+                    topLeadingRadius: 14,
+                    bottomLeadingRadius: 14,
+                    bottomTrailingRadius: 4,
+                    topTrailingRadius: 14
+                ).path(in: bounds).cgPath
+            )
+            let target = UIPreviewTarget(container: self, center: CGPoint(x: bounds.midX, y: bounds.midY))
+            return UITargetedPreview(view: imageView, parameters: parameters, target: target)
+        }
+    }
 }
 
 // MARK: - Tool Display Helpers
