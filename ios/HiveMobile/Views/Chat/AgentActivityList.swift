@@ -46,7 +46,7 @@ private struct DiagnosticActivityRow: View {
             expanded: AnyView(
                 VStack(alignment: .leading, spacing: 8) {
                     Text(activity.message)
-                        .font(.system(size: 12))
+                        .font(WhisperFont.scaled(12))
                         .foregroundStyle(WhisperColor.textSecondary)
                         .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -89,7 +89,7 @@ private struct UnknownActivityRow: View {
             detail: activity.kind,
             expanded: AnyView(
                 Text(activity.kind)
-                    .font(.system(size: 12))
+                    .font(WhisperFont.scaled(12))
                     .foregroundStyle(WhisperColor.textMuted)
             )
         )

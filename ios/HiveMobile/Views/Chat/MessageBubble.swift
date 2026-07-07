@@ -9,6 +9,9 @@ struct MessageBubble: View {
     @AppStorage("hiveAccent") private var accentId = AccentOption.defaultId
     @State private var copied = false
     @State private var bubbleMenuVisible = false
+    /// Scales the Markdown base font with Dynamic Type; the theme's relative
+    /// (`.em`) sizes grow proportionally from it.
+    @ScaledMetric(relativeTo: .body) private var markdownBaseSize: CGFloat = 14
 
     private var hiveAccent: Color {
         AccentOption(rawValue: accentId)?.color ?? AccentOption.violet.color
@@ -83,7 +86,7 @@ struct MessageBubble: View {
                     Image(systemName: "stop.circle")
                         .font(.system(size: 11))
                     Text("Stopped")
-                        .font(.system(size: 13))
+                        .font(WhisperFont.scaled(13))
                         .italic()
                 }
                 .foregroundStyle(.red.opacity(0.7))
@@ -99,7 +102,7 @@ struct MessageBubble: View {
             switch message.role {
             case .user:
                 Text(highlightedUserContent(message.content, fileMentions: message.fileMentions))
-                    .font(.system(size: 14))
+                    .font(WhisperFont.scaled(14))
                     .foregroundStyle(WhisperColor.text)
                     .lineSpacing(3)
                     .padding(.horizontal, 14)
@@ -120,10 +123,12 @@ struct MessageBubble: View {
             case .assistant:
                 if message.id == "streaming" {
                     Markdown(message.content)
+                        .markdownTextStyle { FontSize(markdownBaseSize) }
                         .markdownTheme(.whisperChat)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 } else if markdownNeedsRichRenderer(message.content) {
                     Markdown(message.content)
+                        .markdownTextStyle { FontSize(markdownBaseSize) }
                         .markdownTheme(.whisperChat)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .textSelection(.enabled)
@@ -936,7 +941,7 @@ private struct AskUserQuestionContent: View {
                 ForEach(Array(questions.enumerated()), id: \.offset) { _, q in
                     VStack(alignment: .leading, spacing: 4) {
                         Text(q.text)
-                            .font(.system(size: 12, weight: .medium))
+                            .font(WhisperFont.scaled(12, weight: .medium))
                             .foregroundStyle(WhisperColor.textSecondary)
                         ForEach(q.options, id: \.self) { option in
                             HStack(spacing: 5) {
@@ -965,11 +970,10 @@ private extension Theme {
         .text {
             BackgroundColor(.clear)
             ForegroundColor(WhisperColor.text)
-            FontSize(14)
         }
         .code {
             FontFamilyVariant(.monospaced)
-            FontSize(12)
+            FontSize(.em(12.0 / 14))
             ForegroundColor(WhisperColor.codeText)
             BackgroundColor(WhisperColor.codeBg)
         }
@@ -993,7 +997,7 @@ private extension Theme {
                 .markdownMargin(top: .em(1.2), bottom: .em(0.4))
                 .markdownTextStyle {
                     FontWeight(.semibold)
-                    FontSize(20)
+                    FontSize(.em(20.0 / 14))
                 }
         }
         .heading2 { configuration in
@@ -1002,7 +1006,7 @@ private extension Theme {
                 .markdownMargin(top: .em(1), bottom: .em(0.3))
                 .markdownTextStyle {
                     FontWeight(.semibold)
-                    FontSize(17)
+                    FontSize(.em(17.0 / 14))
                 }
         }
         .heading3 { configuration in
@@ -1011,7 +1015,7 @@ private extension Theme {
                 .markdownMargin(top: .em(0.8), bottom: .em(0.2))
                 .markdownTextStyle {
                     FontWeight(.semibold)
-                    FontSize(15)
+                    FontSize(.em(15.0 / 14))
                 }
         }
         .heading4 { configuration in
@@ -1019,7 +1023,7 @@ private extension Theme {
                 .markdownMargin(top: .em(0.6), bottom: .em(0.2))
                 .markdownTextStyle {
                     FontWeight(.medium)
-                    FontSize(14)
+                    FontSize(.em(1.0))
                 }
         }
         .heading5 { configuration in
@@ -1027,7 +1031,7 @@ private extension Theme {
                 .markdownMargin(top: .em(0.5), bottom: .em(0.1))
                 .markdownTextStyle {
                     FontWeight(.medium)
-                    FontSize(13)
+                    FontSize(.em(13.0 / 14))
                     ForegroundColor(WhisperColor.textSecondary)
                 }
         }
@@ -1036,7 +1040,7 @@ private extension Theme {
                 .markdownMargin(top: .em(0.5), bottom: .em(0.1))
                 .markdownTextStyle {
                     FontWeight(.medium)
-                    FontSize(12)
+                    FontSize(.em(12.0 / 14))
                     ForegroundColor(WhisperColor.textSecondary)
                 }
         }
@@ -1049,7 +1053,7 @@ private extension Theme {
             .scrollIndicators(.hidden)
             .markdownTextStyle {
                 FontFamilyVariant(.monospaced)
-                FontSize(12)
+                FontSize(.em(12.0 / 14))
                 ForegroundColor(WhisperColor.codeText)
             }
             .padding(12)
