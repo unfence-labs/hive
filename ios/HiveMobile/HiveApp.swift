@@ -11,6 +11,7 @@ struct HiveApp: App {
     @State private var hubPath = NavigationPath()
     @State private var brainPath = NavigationPath()
     @State private var backgroundedAt: Date?
+    @State private var showOnboarding = UserDefaults.standard.object(forKey: "serverHost") == nil
     @AppStorage("hiveAccent") private var accentId = AccentOption.defaultId
     @AppStorage("hiveThemeMode") private var themeModeId = HiveThemeMode.system.rawValue
 
@@ -66,6 +67,13 @@ struct HiveApp: App {
             .environment(projectStore)
             .environment(storeCache)
             .environment(modelCatalog)
+            .overlay {
+                if showOnboarding {
+                    OnboardingView(onDone: { withAnimation { showOnboarding = false } })
+                        .background(WhisperColor.appBackground)
+                        .transition(.opacity)
+                }
+            }
             .preferredColorScheme(themeMode.preferredColorScheme)
             .task { await modelCatalog.loadIfNeeded() }
             .onChange(of: projectStore.pendingNavigation) { _, workspace in
