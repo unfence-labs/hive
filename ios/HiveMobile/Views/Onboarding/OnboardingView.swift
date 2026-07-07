@@ -37,15 +37,12 @@ struct OnboardingView: View {
             .scrollContentBackground(.hidden)
             .hiveScreenBackground()
             .scrollDismissesKeyboard(.interactively)
+            .onTapGesture { focused = nil }
             .safeAreaInset(edge: .bottom) { connectBar }
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Set up later", action: onDone)
                         .foregroundStyle(WhisperColor.textSecondary)
-                }
-                ToolbarItemGroup(placement: .keyboard) {
-                    Spacer()
-                    Button("Done") { focused = nil }
                 }
             }
         }
@@ -155,7 +152,10 @@ struct OnboardingView: View {
         .controlSize(.large)
         .disabled(!canConnect)
         .padding(.horizontal, HiveSpacing.lg)
+        .padding(.top, HiveSpacing.sm)
         .padding(.bottom, HiveSpacing.sm)
+        .frame(maxWidth: .infinity)
+        .background(.bar)
     }
 
     private var connectLabel: String {
