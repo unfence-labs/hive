@@ -628,7 +628,7 @@ private struct WhisperThinkingBlock: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Button {
-                withAnimation(.easeInOut(duration: 0.2)) { isExpanded.toggle() }
+                isExpanded.toggle()
             } label: {
                 ChatActivityRowLabel(icon: "brain", label: "Thinking", detail: isExpanded ? nil : preview)
             }
@@ -642,7 +642,6 @@ private struct WhisperThinkingBlock: View {
                         .lineSpacing(2)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .transition(.opacity)
             }
         }
     }
@@ -682,7 +681,7 @@ private struct WhisperToolCallsBlock: View {
                     isExpanded: groupExpanded,
                     isStreaming: showExecutingState,
                     onToggle: {
-                        withAnimation(.easeInOut(duration: 0.2)) { groupExpanded.toggle() }
+                        groupExpanded.toggle()
                     }
                 )
             }
@@ -698,7 +697,6 @@ private struct WhisperToolCallsBlock: View {
                         showExecutingState: showExecutingState
                     )
                 }
-                .transition(.opacity)
             }
         }
     }
@@ -766,7 +764,7 @@ private struct WhisperToolCallRow: View {
 
         VStack(alignment: .leading, spacing: 0) {
             Button {
-                withAnimation(.easeInOut(duration: 0.2)) { isExpanded.toggle() }
+                isExpanded.toggle()
             } label: {
                 ChatActivityRowLabel(icon: display.icon, label: display.label, detail: display.detail, stats: display.stats, summary: summary, badgeText: display.badgeText, badgeIcon: display.badgeIcon, executing: display.executing)
             }
@@ -814,7 +812,6 @@ private struct WhisperToolCallRow: View {
                         }
                     }
                 }
-                .transition(.opacity)
             }
         }
     }
@@ -867,8 +864,14 @@ private func computeDiffLines(oldString: String, newString: String) -> [DiffLine
 
 private struct DiffContentView: View {
     let tool: ToolCall
+    private let parsed: (filePath: String?, lines: [DiffLine])
 
-    private var parsed: (filePath: String?, lines: [DiffLine]) {
+    init(tool: ToolCall) {
+        self.tool = tool
+        self.parsed = DiffContentView.buildParsed(tool)
+    }
+
+    private static func buildParsed(_ tool: ToolCall) -> (filePath: String?, lines: [DiffLine]) {
         guard let input = parsedToolInputObject(tool.input) else {
             return (nil, [])
         }
@@ -907,7 +910,6 @@ private struct DiffContentView: View {
                 DiffLinesView(lines: result.lines)
             }
         }
-        .transition(.opacity)
     }
 }
 
@@ -950,7 +952,6 @@ private struct AskUserQuestionContent: View {
                 }
             }
         }
-        .transition(.opacity)
     }
 }
 

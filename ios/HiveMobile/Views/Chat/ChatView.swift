@@ -8,6 +8,7 @@ struct ChatView: View {
 
     @State private var draft = ""
     @State private var isLoading = true
+    @State private var showSkeleton = false
     @State private var planModeEnabled = false
     @State private var thinkingLevel: ThinkingLevel = .high
     @State private var fastModeEnabled = false
@@ -87,7 +88,11 @@ struct ChatView: View {
     var body: some View {
         VStack(spacing: 0) {
             if isLoading {
-                Spacer()
+                if showSkeleton {
+                    ConversationLoadingSkeleton()
+                } else {
+                    Spacer()
+                }
             } else if store.messages.isEmpty && streamingMessage == nil && !store.isStreaming {
                 Spacer()
                 if isBrainWorkspaceId(workspace.id) {
@@ -225,7 +230,7 @@ struct ChatView: View {
         .navigationTitle(navigationTitle)
         .navigationSubtitle(Text(navigationSubtitle))
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar(.hidden, for: .tabBar)
+        .sensoryFeedback(.success, trigger: store.visibleCompletionCount)
         .sheet(isPresented: Binding(
             get: { !store.pendingToolInputs.isEmpty },
             set: { if !$0 { store.clearPendingToolInputs() } }
@@ -235,6 +240,17 @@ struct ChatView: View {
             }
         }
         .task { await setup() }
+        .task { await modelCatalog.loadIfNeeded() }
+        .task(id: isLoading) {
+            guard isLoading else {
+                showSkeleton = false
+                return
+            }
+            try? await Task.sleep(for: .milliseconds(300))
+            if !Task.isCancelled {
+                showSkeleton = true
+            }
+        }
         .onChange(of: modelCatalog.isLoaded) {
             if selectedModelId.isEmpty, !modelCatalog.defaultModelId.isEmpty {
                 selectedModelId = initialModelId()
@@ -255,6 +271,7 @@ struct ChatView: View {
             }
         }
         .onDisappear {
+            store.isChatVisible = false
             saveCurrentDraft()
             store.onTurnCompleted = nil
             projectStore.statusMonitor.clearViewingSession(workspaceId: workspace.id, sessionId: session.sessionId)
@@ -303,6 +320,7 @@ struct ChatView: View {
     // MARK: - Setup
 
     private func setup() async {
+        store.isChatVisible = true
         projectStore.statusMonitor.setViewingWorkspace(workspace.id, sessionId: session.sessionId)
         projectStore.statusMonitor.clearCompleted(workspace.id)
         projectStore.statusMonitor.clearUnread(workspaceId: workspace.id, sessionId: session.sessionId)
@@ -433,6 +451,13 @@ struct ChatView: View {
                 result: result,
                 sessionId: pending.sessionId
             )) ?? false
+
+            switch result {
+            case .approve, .answer:
+                Haptics.notify(sent ? .success : .warning)
+            case .reject, .dismiss:
+                Haptics.notify(.warning)
+            }
 
             if sent {
                 store.clearPendingToolInputs()

@@ -604,6 +604,32 @@ struct ConversationStoreSessionTests {
     }
 
     @Test @MainActor
+    func cachedMessagesDrivesLoadingVersusContentState() {
+        let store = ConversationStore()
+        store.setFocusedSessionId("session-1")
+
+        #expect(store.cachedMessages(for: "session-1") == nil)
+
+        store.applyFetchedHistory([
+            ChatMessage(
+                id: "message-1",
+                sessionId: "session-1",
+                role: .user,
+                content: "Hello",
+                images: nil,
+                toolCalls: nil,
+                thinkingContent: nil,
+                timestamp: "2026-01-01T00:00:00.000Z",
+                cancelled: nil,
+                durationMs: nil
+            )
+        ], for: "session-1")
+
+        #expect(store.cachedMessages(for: "session-1")?.count == 1)
+        #expect(store.cachedMessages(for: "session-2") == nil)
+    }
+
+    @Test @MainActor
     func userMessageKeepsCacheInSyncForSwitchBack() {
         // A user message appended over WS must land in the cache so switching
         // away and back shows the turn without a refetch.

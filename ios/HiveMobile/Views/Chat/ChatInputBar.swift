@@ -68,6 +68,13 @@ struct ChatInputBar: View {
         models.first { $0.id == selectedModelId }?.label ?? "Model"
     }
 
+    /// When a session is locked to a provider, only that provider's models are
+    /// selectable, so show just those rather than greying the rest out.
+    private var selectableModelGroups: [ModelProviderGroup] {
+        guard let lockedProvider else { return groupedModels }
+        return groupedModels.filter { $0.provider == lockedProvider }
+    }
+
     private var thinkingLevels: [ThinkingLevel] { capabilities?.thinkingLevels ?? [] }
     private var supportsThinking: Bool { !thinkingLevels.isEmpty }
     private var supportsPlanMode: Bool { capabilities?.planMode ?? true }
@@ -88,27 +95,17 @@ struct ChatInputBar: View {
     private var controlBar: some View {
         HStack(spacing: 8) {
             Menu {
-                ForEach(groupedModels) { group in
-                    Section(group.providerLabel) {
-                        ForEach(group.models) { model in
-                            let isLocked = lockedProvider != nil && model.provider != lockedProvider
-                            Button {
-                                onModelSelect(model.id)
-                            } label: {
-                                HStack {
-                                    Text(model.label)
-                                    if model.isNew == true {
-                                        Text("NEW")
-                                    }
-                                    if model.id == selectedModelId {
-                                        Image(systemName: "checkmark")
-                                    }
-                                }
+                Picker("Model", selection: Binding(get: { selectedModelId }, set: { Haptics.selection(); onModelSelect($0) })) {
+                    ForEach(selectableModelGroups) { group in
+                        Section(group.providerLabel) {
+                            ForEach(group.models) { model in
+                                Text(model.isNew == true ? "\(model.label)  ·  NEW" : model.label)
+                                    .tag(model.id)
                             }
-                            .disabled(isLocked)
                         }
                     }
                 }
+                .pickerStyle(.inline)
             } label: {
                 HStack(spacing: 4) {
                     Image(systemName: "sparkles")
@@ -216,6 +213,7 @@ struct ChatInputBar: View {
 
             if isBusy {
                 Button {
+                    Haptics.impact(.light)
                     onStop?()
                 } label: {
                     Image(systemName: "stop.circle.fill")
@@ -250,6 +248,7 @@ struct ChatInputBar: View {
     }
 
     private func handleSend() {
+        Haptics.impact(.light)
         let imageAttachments = attachedImages.compactMap(\.attachment)
         attachedImages = []
         onDraftAttachmentsChange([])
@@ -271,8 +270,17 @@ struct ChatInputBar: View {
                     if case .success(let data) = result, let data,
                        let uiImage = UIImage(data: data),
                        let attachment = ImageAttachment.makeFromDraftImage(uiImage) {
-                        attachedImages[index].attachment = attachment
-                        onDraftAttachmentsChange(attachedImages.compactMap(\.attachment))
+                        let isDuplicate = attachedImages.contains {
+                            $0.id != pending.id && $0.attachment?.dataUrl == attachment.dataUrl
+                        }
+                        if isDuplicate {
+                            withAnimation(.spring(duration: 0.25)) {
+                                attachedImages.removeAll { $0.id == pending.id }
+                            }
+                        } else {
+                            attachedImages[index].attachment = attachment
+                            onDraftAttachmentsChange(attachedImages.compactMap(\.attachment))
+                        }
                     } else {
                         withAnimation(.spring(duration: 0.25)) {
                             attachedImages.remove(at: index)
@@ -316,7 +324,10 @@ private struct ModeToggle: View {
     var highlightColor: Color = .white
 
     var body: some View {
-        Button { isActive.toggle() } label: {
+        Button {
+            Haptics.selection()
+            isActive.toggle()
+        } label: {
             HStack(spacing: 4) {
                 Image(systemName: systemImage)
                 Text(label)
@@ -345,7 +356,10 @@ private struct LevelCycleButton: View {
     let action: () -> Void
 
     var body: some View {
-        Button { action() } label: {
+        Button {
+            Haptics.selection()
+            action()
+        } label: {
             HStack(spacing: 4) {
                 Image(systemName: systemImage)
                 Text(label)
@@ -387,10 +401,11 @@ private struct AttachmentChip: View {
                 onRemove()
             } label: {
                 Image(systemName: "xmark.circle.fill")
-                    .font(.system(size: 16))
-                    .foregroundStyle(.white)
-                    .background(WhisperColor.imageControlBg, in: Circle())
+                    .font(.system(size: 18))
+                    .symbolRenderingMode(.palette)
+                    .foregroundStyle(.white, .black.opacity(0.55))
             }
+            .accessibilityLabel("Remove image")
             .offset(x: 4, y: -4)
         }
     }

@@ -88,7 +88,17 @@ final class HubStatusMonitor {
     /// Wire (or re-wire) the send closure for a workspace's store via the hub connection.
     fileprivate func wireSendClosure(for workspaceId: String, on store: ConversationStore) {
         store.send = { [weak self] message in
-            await self?.hubConnection?.send(.workspaceEvent(workspaceId: workspaceId, event: message)) ?? false
+            guard let self else { return false }
+            let event = HubIncoming.workspaceEvent(workspaceId: workspaceId, event: message)
+            if await self.hubConnection?.send(event) == true { return true }
+            // The socket was down or absent: (re)connect and retry once so a send
+            // during a brief disconnect isn't silently dropped.
+            self.handleSendFailure()
+            for _ in 0..<20 {
+                if self.connectionState == .connected { break }
+                try? await Task.sleep(for: .milliseconds(100))
+            }
+            return await self.hubConnection?.send(event) == true
         }
     }
 
@@ -175,6 +185,13 @@ final class HubStatusMonitor {
 
     // MARK: - Sync
 
+    private func ensureConnection() {
+        guard hubConnection == nil, !currentSyncPayload.workspaceIds.isEmpty else { return }
+        let conn = makeHubConnection(self)
+        hubConnection = conn
+        conn.connect()
+    }
+
     /// Sync monitored workspaces — manages hub connection and subscriptions.
     func sync(workspaceIds: [String]) {
         let desired = Set(workspaceIds)
@@ -198,9 +215,7 @@ final class HubStatusMonitor {
             hubConnection = nil
             connectionState = .disconnected
         } else if hubConnection == nil {
-            let conn = makeHubConnection(self)
-            hubConnection = conn
-            conn.connect()
+            ensureConnection()
         } else if let (_, payload) = change {
             hubConnection?.sendSync(payload)
         }
@@ -255,7 +270,21 @@ final class HubStatusMonitor {
     }
 
     func reconnectNow() {
-        hubConnection?.forceReconnect()
+        if let hubConnection {
+            hubConnection.forceReconnect()
+        } else {
+            ensureConnection()
+        }
+    }
+
+    /// A workspace send failed: probe the socket so the UI (and disconnect banner)
+    /// reconcile with reality, reconnecting if the connection silently dropped.
+    private func handleSendFailure() {
+        if hubConnection != nil {
+            forceRefresh()
+        } else {
+            ensureConnection()
+        }
     }
 
     /// Workspaces that were streaming when the app entered background.

@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import HiveMobileStoresCore
 
@@ -9,6 +10,7 @@ private final class FakeHubConnection: HubConnectionClient {
     private(set) var probeLivenessCount = 0
     private(set) var syncCalls: [(payload: HubSyncPayload, forceBootstrap: Bool)] = []
     private(set) var sentMessages: [HubIncoming] = []
+    var sendResult = true
 
     func connect() {
         connectCount += 1
@@ -24,7 +26,7 @@ private final class FakeHubConnection: HubConnectionClient {
 
     func send(_ message: HubIncoming) async -> Bool {
         sentMessages.append(message)
-        return true
+        return sendResult
     }
 
     func sendSync(_ payload: HubSyncPayload, forceBootstrap: Bool) {
@@ -168,5 +170,27 @@ struct HubStatusMonitorTests {
         monitor.reconnectNow()
 
         #expect(connection.forceReconnectCount == 1)
+    }
+
+    @Test
+    func reconnectNowIsSafeNoOpWhenNothingSubscribed() {
+        let (monitor, _, connection) = makeMonitor()
+        monitor.disconnectAll()
+        monitor.reconnectNow()
+        #expect(connection.connectCount == 0)
+        #expect(connection.forceReconnectCount == 0)
+    }
+
+    @Test
+    func failedWorkspaceSendProbesLiveness() async {
+        let (monitor, cache, connection) = makeMonitor()
+        connection.sendResult = false
+        monitor.sync(workspaceIds: ["ws-1"])
+        let store = cache.getOrCreate("ws-1")
+
+        let sent = await store.send?(.stop(sessionId: "s1")) ?? true
+
+        #expect(sent == false)
+        #expect(connection.probeLivenessCount == 1)
     }
 }

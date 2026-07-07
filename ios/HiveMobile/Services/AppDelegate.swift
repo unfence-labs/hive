@@ -39,16 +39,17 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         return []
     }
 
-    /// Handle notification tap — mark workspace as completed so the completion dot appears.
+    /// Handle notification tap — mark the workspace completed and request navigation to it.
     func userNotificationCenter(
         _ center: UNUserNotificationCenter,
         didReceive response: UNNotificationResponse
     ) async {
         let userInfo = response.notification.request.content.userInfo
-        if let workspaceId = userInfo["workspaceId"] as? String {
-            await MainActor.run {
-                CompletedWorkspacesStore.shared.insert(workspaceId)
-            }
+        guard let workspaceId = userInfo["workspaceId"] as? String else { return }
+        let sessionId = userInfo["sessionId"] as? String
+        await MainActor.run {
+            CompletedWorkspacesStore.shared.insert(workspaceId)
+            CompletedWorkspacesStore.shared.requestNavigation(workspaceId: workspaceId, sessionId: sessionId)
         }
     }
 
