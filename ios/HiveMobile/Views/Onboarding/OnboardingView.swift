@@ -134,28 +134,34 @@ struct OnboardingView: View {
     }
 
     private var connectBar: some View {
-        Button {
-            Task { await testAndConnect() }
-        } label: {
-            HStack(spacing: HiveSpacing.sm) {
-                if phase == .testing {
-                    ProgressView().controlSize(.small).tint(.white)
-                } else if phase == .success {
-                    Image(systemName: "checkmark.circle.fill")
+        VStack(spacing: 0) {
+            Divider().overlay(WhisperColor.separator)
+            Button {
+                Task { await testAndConnect() }
+            } label: {
+                HStack(spacing: HiveSpacing.sm) {
+                    if phase == .testing {
+                        ProgressView().controlSize(.small).tint(.white)
+                    } else if phase == .success {
+                        Image(systemName: "checkmark.circle.fill")
+                    }
+                    Text(connectLabel)
                 }
-                Text(connectLabel).fontWeight(.semibold)
+                .font(.headline)
+                .foregroundStyle(.white)
+                .frame(maxWidth: .infinity, minHeight: 52)
+                .background(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .fill(accent)
+                )
+                .opacity(canConnect ? 1 : 0.4)
             }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, HiveSpacing.xs)
+            .buttonStyle(.plain)
+            .disabled(!canConnect)
+            .padding(.horizontal, HiveSpacing.lg)
+            .padding(.vertical, HiveSpacing.md)
         }
-        .buttonStyle(.borderedProminent)
-        .controlSize(.large)
-        .disabled(!canConnect)
-        .padding(.horizontal, HiveSpacing.lg)
-        .padding(.top, HiveSpacing.sm)
-        .padding(.bottom, HiveSpacing.sm)
-        .frame(maxWidth: .infinity)
-        .background(.bar)
+        .background(WhisperColor.appBackground)
     }
 
     private var connectLabel: String {
