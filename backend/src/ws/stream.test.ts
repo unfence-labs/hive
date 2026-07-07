@@ -605,6 +605,39 @@ describe("WS /ws/hub", () => {
     await endSession(wsId, dataDir).catch(() => {});
   });
 
+  it("authorizes a user_message that races the subscribe bootstrap on the same socket", async () => {
+    // Regression: a workspace event sent immediately after sync_workspaces, on
+    // the same socket, must not be rejected as "Not subscribed" just because the
+    // async bootstrap has not finished. Subscription intent is recorded before
+    // the bootstrap await, so the racing message is authorized.
+    const ws = (await app.injectWS("/ws/hub")) as WebSocket;
+    const messages: WsOutgoing[] = [];
+    ws.on("message", (data: Buffer) => {
+      const envelope = JSON.parse(data.toString()) as HubOutgoing;
+      if (!("workspaceId" in envelope)) return;
+      if (envelope.workspaceId === wsId) messages.push(envelope.event);
+    });
+
+    // Subscribe and immediately fire a workspace event, back to back, so the
+    // event frame arrives while sendWorkspaceBootstrap is still awaiting.
+    syncWorkspaces(ws, [wsId]);
+    ws.send(hubEvent(wsId, { type: "user_message", content: "race" }));
+
+    await waitForMessage(
+      messages,
+      (msgs) => msgs.some((m) => m.type === "status" && m.streaming === true),
+    );
+
+    expect(
+      messages.some(
+        (m) => m.type === "error" && m.message.includes("Not subscribed"),
+      ),
+    ).toBe(false);
+
+    ws.close();
+    await endSession(wsId, dataDir).catch(() => {});
+  });
+
   it("returns an error when user_message targets a deleted session id", async () => {
     const { session } = await getOrCreateSession(wsId, dataDir, CONV_CMD);
     const deletedSessionId = session.sessionId;
