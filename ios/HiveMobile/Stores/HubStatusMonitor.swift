@@ -44,6 +44,10 @@ final class HubStatusMonitor {
     }
     private(set) var connectionState: HubConnectionState = .connecting
 
+    /// Bumped each time the hub transitions into `.connected`. Lets a retry
+    /// distinguish a genuinely fresh connection from a stale `.connected` read.
+    private(set) var connectionGeneration = 0
+
     /// Workspace currently visible in ChatView (suppresses unread badge).
     var viewingWorkspaceId: String? { syncState.viewingWorkspaceId }
     /// Session currently visible in ChatView (suppresses unread badge for that session).
@@ -90,13 +94,17 @@ final class HubStatusMonitor {
         store.send = { [weak self] message in
             guard let self else { return false }
             let event = HubIncoming.workspaceEvent(workspaceId: workspaceId, event: message)
+            let generationAtSend = self.connectionGeneration
             await self.resubscribeIfNeeded()
             if await self.hubConnection?.send(event) == true { return true }
-            // The socket was down or absent: (re)connect and retry once so a send
-            // during a brief disconnect isn't silently dropped.
+            // The socket was down, absent, or died mid-send: (re)connect and retry
+            // once so a send during a brief disconnect isn't silently dropped. Wait
+            // for a genuinely fresh connection (a newer generation) rather than a
+            // stale `.connected` left over from the socket that just failed.
             self.handleSendFailure()
-            for _ in 0..<20 {
-                if self.connectionState == .connected { break }
+            for _ in 0..<30 {
+                if self.connectionState == .connected,
+                   self.connectionGeneration != generationAtSend { break }
                 try? await Task.sleep(for: .milliseconds(100))
             }
             await self.resubscribeIfNeeded()
@@ -287,6 +295,7 @@ final class HubStatusMonitor {
         if state == .connecting { needsResubscribe = true }
         guard connectionState != state else { return }
         connectionState = state
+        if state == .connected { connectionGeneration += 1 }
     }
 
     func reconnectNow() {

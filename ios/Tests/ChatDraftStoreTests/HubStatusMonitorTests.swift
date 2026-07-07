@@ -213,4 +213,30 @@ struct HubStatusMonitorTests {
         #expect(sent == false)
         #expect(connection.probeLivenessCount == 1)
     }
+
+    @Test
+    func staleConnectedSendWaitsForFreshConnectionThenRetrySucceeds() async {
+        let (monitor, cache, connection) = makeMonitor()
+        monitor.sync(workspaceIds: ["ws-1"])
+        let store = cache.getOrCreate("ws-1")
+
+        // Simulate a live socket (generation 1) whose first send fails because it
+        // died silently — connectionState is still the stale `.connected`.
+        monitor.didChangeConnectionState(.connected)
+        connection.sendResult = false
+
+        let sendTask = Task { await store.send?(.stop(sessionId: "s1")) ?? false }
+
+        // Let the closure reach its wait loop.
+        try? await Task.sleep(for: .milliseconds(150))
+
+        // A fresh reconnect completes (generation 2) and the new socket sends fine.
+        connection.sendResult = true
+        monitor.didChangeConnectionState(.connecting)
+        monitor.didChangeConnectionState(.connected)
+
+        let sent = await sendTask.value
+        #expect(sent == true)
+        #expect(connection.probeLivenessCount == 1)
+    }
 }
