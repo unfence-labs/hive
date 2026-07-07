@@ -8,7 +8,7 @@ struct SettingsView: View {
     @AppStorage("hiveThemeMode") private var themeModeId = HiveThemeMode.system.rawValue
 
     @FocusState private var focusedField: Field?
-    @State private var healthStatus: HealthStatus = .disconnected
+    @State private var healthStatus: ConnectionHealth = .unreachable
     @State private var pollingTask: Task<Void, Never>?
     @State private var debouncedCheckTask: Task<Void, Never>?
     private enum Field: Hashable {
@@ -166,6 +166,8 @@ struct SettingsView: View {
             }
         } header: {
             connectionHeader
+        } footer: {
+            Text("Enter your server's hostname or IP and port, plus the auth token shown when the backend starts.")
         }
         .listRowBackground(WhisperColor.surfaceRaised)
     }
@@ -211,49 +213,48 @@ struct SettingsView: View {
 
     @MainActor
     private func checkHealth() async {
-        let isConnected = await runHealthCheck()
+        let health = await runHealthCheck()
         guard !Task.isCancelled else { return }
-        healthStatus = isConnected ? .connected : .disconnected
+        healthStatus = health
     }
 
-    private func runHealthCheck() async -> Bool {
-        await withTaskGroup(of: Bool.self, returning: Bool.self) { group in
+    private func runHealthCheck() async -> ConnectionHealth {
+        await withTaskGroup(of: ConnectionHealth.self, returning: ConnectionHealth.self) { group in
             group.addTask {
                 do {
-                    return try await APIClient().checkHealth()
+                    return try await APIClient().checkHealth() ? .connected : .unreachable
                 } catch {
-                    return false
+                    return ConnectionHealth.classify(error: error)
                 }
             }
             group.addTask {
                 try? await Task.sleep(for: .seconds(4))
-                return false
+                return .unreachable
             }
 
-            let result = await group.next() ?? false
+            let result = await group.next() ?? .unreachable
             group.cancelAll()
             return result
         }
     }
 }
 
-// MARK: - Health Status
+// MARK: - Health Status Presentation
 
-private enum HealthStatus {
-    case connected
-    case disconnected
-
+private extension ConnectionHealth {
     var color: Color {
         switch self {
         case .connected: WhisperColor.success
-        case .disconnected: .red
+        case .unreachable: .red
+        case .invalidToken: .orange
         }
     }
 
     var label: String {
         switch self {
         case .connected: "Connected"
-        case .disconnected: "Disconnected"
+        case .unreachable: "Disconnected"
+        case .invalidToken: "Invalid token"
         }
     }
 
