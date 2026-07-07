@@ -11,7 +11,8 @@ struct HiveApp: App {
     @State private var hubPath = NavigationPath()
     @State private var brainPath = NavigationPath()
     @State private var backgroundedAt: Date?
-    @State private var showOnboarding = UserDefaults.standard.object(forKey: "serverHost") == nil
+    @State private var showOnboarding = (UserDefaults.standard.string(forKey: "serverHost") ?? "")
+        .trimmingCharacters(in: .whitespaces).isEmpty
     @AppStorage("hiveAccent") private var accentId = AccentOption.defaultId
     @AppStorage("hiveThemeMode") private var themeModeId = HiveThemeMode.system.rawValue
 
