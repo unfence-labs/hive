@@ -24,6 +24,7 @@ struct ChatInputBar: View {
     @State private var attachedImages: [AttachedImage] = []
     @State private var selectedItems: [PhotosPickerItem] = []
     @State private var showAttachmentError = false
+    @State private var showModelMenu = false
 
     private var hiveAccent: Color {
         AccentOption(rawValue: accentId)?.color ?? AccentOption.violet.color
@@ -68,6 +69,7 @@ struct ChatInputBar: View {
         models.first { $0.id == selectedModelId }?.label ?? "Model"
     }
 
+
     /// When a session is locked to a provider, only that provider's models are
     /// selectable, so show just those rather than greying the rest out.
     private var selectableModelGroups: [ModelProviderGroup] {
@@ -94,18 +96,8 @@ struct ChatInputBar: View {
 
     private var controlBar: some View {
         HStack(spacing: 8) {
-            Menu {
-                Picker("Model", selection: Binding(get: { selectedModelId }, set: { Haptics.selection(); onModelSelect($0) })) {
-                    ForEach(selectableModelGroups) { group in
-                        Section(group.providerLabel) {
-                            ForEach(group.models) { model in
-                                Text(model.isNew == true ? "\(model.label)  ·  NEW" : model.label)
-                                    .tag(model.id)
-                            }
-                        }
-                    }
-                }
-                .pickerStyle(.inline)
+            Button {
+                showModelMenu = true
             } label: {
                 HStack(spacing: 4) {
                     Image(systemName: "sparkles")
@@ -115,8 +107,21 @@ struct ChatInputBar: View {
                 }
                 .font(.caption)
                 .foregroundStyle(WhisperColor.textSecondary)
+                .fixedSize()
             }
             .frame(minHeight: 44)
+            .popover(isPresented: $showModelMenu, attachmentAnchor: .rect(.bounds), arrowEdge: .bottom) {
+                ModelMenu(
+                    groups: selectableModelGroups,
+                    selectedModelId: selectedModelId,
+                    accent: hiveAccent
+                ) { id in
+                    Haptics.selection()
+                    onModelSelect(id)
+                    showModelMenu = false
+                }
+                .presentationCompactAdaptation(.popover)
+            }
 
             if supportsThinking {
                 LevelCycleButton(systemImage: "brain", label: effectiveThinkingLevel.label, highlightColor: hiveAccent) {
@@ -316,6 +321,53 @@ private struct AttachedImage: Identifiable {
 }
 
 // MARK: - Mode Toggle
+
+private struct ModelMenu: View {
+    let groups: [ModelProviderGroup]
+    let selectedModelId: String
+    let accent: Color
+    let onSelect: (String) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 1) {
+            ForEach(Array(groups.enumerated()), id: \.element.id) { index, group in
+                if index > 0 {
+                    Divider().padding(.vertical, 5)
+                }
+                Text(group.providerLabel)
+                    .font(.caption2)
+                    .foregroundStyle(WhisperColor.textMuted)
+                    .padding(.horizontal, 14)
+                    .padding(.top, index == 0 ? 12 : 0)
+                    .padding(.bottom, 3)
+                ForEach(group.models) { model in
+                    Button {
+                        onSelect(model.id)
+                    } label: {
+                        HStack(spacing: 8) {
+                            Image(systemName: "checkmark")
+                                .font(.footnote.weight(.semibold))
+                                .foregroundStyle(accent)
+                                .opacity(model.id == selectedModelId ? 1 : 0)
+                                .frame(width: 15)
+                            Text(model.isNew == true ? "\(model.label)  ·  NEW" : model.label)
+                                .foregroundStyle(.primary)
+                            Spacer(minLength: 8)
+                        }
+                        .font(.subheadline)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 9)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+        .padding(.vertical, 5)
+        .frame(width: 234)
+        .fixedSize(horizontal: false, vertical: true)
+    }
+}
 
 private struct ModeToggle: View {
     let systemImage: String
