@@ -225,7 +225,6 @@ struct ChatView: View {
         .navigationTitle(navigationTitle)
         .navigationSubtitle(Text(navigationSubtitle))
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar(.hidden, for: .tabBar)
         .sheet(isPresented: Binding(
             get: { !store.pendingToolInputs.isEmpty },
             set: { if !$0 { store.clearPendingToolInputs() } }
