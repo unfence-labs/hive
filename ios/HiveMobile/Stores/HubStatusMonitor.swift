@@ -178,6 +178,14 @@ final class HubStatusMonitor {
         completedWorkspaces.contains(workspaceId)
     }
 
+    /// Number of workspaces with new activity (a completed turn or an unread
+    /// session), for the Hub tab badge. Clears as workspaces are viewed.
+    var hubBadgeCount: Int {
+        completedWorkspaces
+            .union(unreadSessions.compactMap { $0.value.isEmpty ? nil : $0.key })
+            .count
+    }
+
     func lastActivityDate(for workspaceId: String) -> Date? {
         workspaceLastActivityAt[workspaceId]
     }

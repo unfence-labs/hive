@@ -239,4 +239,22 @@ struct HubStatusMonitorTests {
         #expect(sent == true)
         #expect(connection.probeLivenessCount == 1)
     }
+
+    @Test
+    func hubBadgeCountsWorkspacesWithActivityAndClearsOnView() {
+        let (monitor, _, _) = makeMonitor()
+        monitor.sync(workspaceIds: ["ws-a", "ws-b"])
+        #expect(monitor.hubBadgeCount == 0)
+
+        monitor.didReceiveStreaming(true, for: "ws-a", sessionId: "s1")
+        monitor.didReceiveDone(for: "ws-a", sessionId: "s1", markWorkspaceCompleted: true)
+        monitor.didReceiveStreaming(true, for: "ws-b", sessionId: "s2")
+        monitor.didReceiveDone(for: "ws-b", sessionId: "s2", markWorkspaceCompleted: true)
+        #expect(monitor.hubBadgeCount == 2)
+
+        // Viewing ws-a clears its completed and unread state.
+        monitor.clearCompleted("ws-a")
+        monitor.clearUnread(workspaceId: "ws-a", sessionId: "s1")
+        #expect(monitor.hubBadgeCount == 1)
+    }
 }
