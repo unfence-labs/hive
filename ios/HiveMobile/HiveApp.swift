@@ -69,9 +69,12 @@ struct HiveApp: App {
             .environment(modelCatalog)
             .overlay {
                 if showOnboarding {
-                    OnboardingView(onDone: { withAnimation { showOnboarding = false } })
-                        .background(WhisperColor.appBackground)
-                        .transition(.opacity)
+                    OnboardingView(onDone: {
+                        withAnimation { showOnboarding = false }
+                        Task { await projectStore.refresh(force: true) }
+                    })
+                    .background(WhisperColor.appBackground)
+                    .transition(.opacity)
                 }
             }
             .preferredColorScheme(themeMode.preferredColorScheme)

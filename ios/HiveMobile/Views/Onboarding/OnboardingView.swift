@@ -14,6 +14,7 @@ struct OnboardingView: View {
     @FocusState private var focused: Field?
     @State private var phase: Phase = .idle
     @State private var vpnActive = NetworkEnvironment.isVPNActive()
+    @State private var vpnRefreshSpin = 0.0
 
     private enum Field: Hashable { case host, port, token }
     private enum Phase: Equatable { case idle, testing, success, failed }
@@ -112,9 +113,11 @@ struct OnboardingView: View {
                 }
                 Spacer()
                 Button {
+                    withAnimation(.snappy(duration: 0.5)) { vpnRefreshSpin += 360 }
                     vpnActive = NetworkEnvironment.isVPNActive()
                 } label: {
                     Image(systemName: "arrow.clockwise")
+                        .rotationEffect(.degrees(vpnRefreshSpin))
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(WhisperColor.textSecondary)
