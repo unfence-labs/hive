@@ -769,13 +769,17 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
             socket.send(JSON.stringify({ type: "pong" }));
           }
         } else if ("type" in parsed && parsed.type === "sync_workspaces") {
-          await handleSyncWorkspaces(
-            hub,
-            parsed.workspaceIds,
-            parsed.focusWorkspaces,
-            parsed.prWorkspaces,
-            parsed.forceBootstrap === true,
-          );
+          try {
+            await handleSyncWorkspaces(
+              hub,
+              parsed.workspaceIds,
+              parsed.focusWorkspaces,
+              parsed.prWorkspaces,
+              parsed.forceBootstrap === true,
+            );
+          } catch (err) {
+            app.log.error({ err }, "sync_workspaces handler failed");
+          }
         } else if ("workspaceId" in parsed && "event" in parsed) {
           await handleWorkspaceMessage(hub, parsed.workspaceId, parsed.event);
         }
