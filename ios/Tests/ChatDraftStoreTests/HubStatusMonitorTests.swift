@@ -244,6 +244,9 @@ struct HubStatusMonitorTests {
     func hubBadgeCountsWorkspacesWithActivityAndClearsOnView() {
         let (monitor, _, _) = makeMonitor()
         monitor.sync(workspaceIds: ["ws-a", "ws-b"])
+        // Completed state persists across launches; start from a clean baseline.
+        monitor.clearCompleted("ws-a")
+        monitor.clearCompleted("ws-b")
         #expect(monitor.hubBadgeCount == 0)
 
         monitor.didReceiveStreaming(true, for: "ws-a", sessionId: "s1")
