@@ -286,6 +286,7 @@ final class ConversationStore {
                         sessionStreams[sid] = stream
                     }
                 } else if let stream = sessionStreams[sid] {
+                    let wasStreaming = stream.isStreaming
                     // Session stopped streaming. Clean up if no content.
                     if stream.currentText.isEmpty && stream.currentThinking.isEmpty
                         && stream.activeToolCalls.isEmpty && stream.activeAgentActivities.isEmpty
@@ -295,6 +296,13 @@ final class ConversationStore {
                         stream.isStreaming = false
                         stream.streamingStartedAt = nil
                         sessionStreams[sid] = stream
+                    }
+                    // Turn ended without a `done` (e.g. finished while backgrounded):
+                    // reconcile the finalized message from REST like `done` does.
+                    if wasStreaming {
+                        lastHistoryFetchAt.removeValue(forKey: sid)
+                        bumpHistoryToken(for: sid)
+                        onTurnCompleted?(sid)
                     }
                 }
             }
