@@ -130,12 +130,9 @@ struct HubView: View {
     }
 
     private var loadingState: some View {
-        VStack {
-            ProgressView()
-                .tint(Color.accentColor)
-        }
-        .frame(maxWidth: .infinity, minHeight: 420)
-        .frame(maxHeight: .infinity)
+        ListLoadingSkeleton()
+            .frame(maxWidth: .infinity, minHeight: 420)
+            .frame(maxHeight: .infinity)
     }
 
     @ViewBuilder
