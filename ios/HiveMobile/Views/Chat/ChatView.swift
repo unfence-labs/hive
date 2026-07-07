@@ -334,7 +334,19 @@ struct ChatView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.leading, 2)
             .id("streaming-indicator")
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(streamingAccessibilityLabel(at: timeline.date))
         }
+    }
+
+    /// One natural-language label for the streaming indicator, bucketed to whole
+    /// minutes so VoiceOver announces "Agent working, 2 minutes" instead of
+    /// re-reading a sub-second timer.
+    private func streamingAccessibilityLabel(at date: Date) -> String {
+        guard let startedAt = store.streamingStartedAt else { return "Agent working" }
+        let minutes = Int(max(0, date.timeIntervalSince(startedAt))) / 60
+        guard minutes >= 1 else { return "Agent working" }
+        return "Agent working, \(minutes) minute\(minutes == 1 ? "" : "s")"
     }
 
     // MARK: - Setup
