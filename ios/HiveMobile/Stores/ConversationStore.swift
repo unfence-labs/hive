@@ -13,6 +13,7 @@ final class SessionStreamState {
     var streamingStartedAt: Date?
     var pendingToolInputs: [PendingToolInput] = []
     var agentPlanMode: Bool?
+    var failedSend: FailedSend?
 }
 
 @MainActor
@@ -109,6 +110,9 @@ final class ConversationStore {
     var activeToolCalls: [ToolCall] { activeStream?.activeToolCalls ?? [] }
     var activeAgentActivities: [AgentActivity] { activeStream?.activeAgentActivities ?? [] }
     var pendingToolInputs: [PendingToolInput] { activeStream?.pendingToolInputs ?? [] }
+
+    /// Store-owned failed send for the focused session, if any.
+    var failedSend: FailedSend? { activeStream?.failedSend }
 
     private(set) var tasksState: TasksState =
         deriveTasks(from: [], activeToolCalls: [], activeAgentActivities: [])
@@ -408,10 +412,18 @@ final class ConversationStore {
         // sees the reconciled stream state (one recompute, not two).
         let existingStream = sessionStreams[sessionId]
         if existingStream?.isStreaming != true {
+            // A store-owned failed send is not part of REST history; carry it
+            // across the reconciliation so a refetch never erases the error row.
+            let preservedFailedSend = existingStream?.failedSend
             let derived = derivePendingToolInputsFromHistory(msgs)
             if !derived.isEmpty {
                 let rebuilt = SessionStreamState()
                 rebuilt.pendingToolInputs = derived
+                rebuilt.failedSend = preservedFailedSend
+                sessionStreams[sessionId] = rebuilt
+            } else if preservedFailedSend != nil {
+                let rebuilt = SessionStreamState()
+                rebuilt.failedSend = preservedFailedSend
                 sessionStreams[sessionId] = rebuilt
             } else if existingStream != nil {
                 sessionStreams.removeValue(forKey: sessionId)
@@ -441,6 +453,49 @@ final class ConversationStore {
     func clearPendingToolInputs() {
         guard let sid = sessionId else { return }
         sessionStreams[sid]?.pendingToolInputs = []
+    }
+
+    // MARK: - Failed sends
+
+    /// Record a send that failed to reach the WebSocket as a store-owned error
+    /// state. Replaces any prior failed send for the same session.
+    func recordFailedSend(_ failed: FailedSend) {
+        ensureStream(for: failed.sessionId, streaming: false)
+        sessionStreams[failed.sessionId]?.failedSend = failed
+    }
+
+    /// Dismiss a failed send without retrying.
+    func discardFailedSend(for sessionId: String) {
+        sessionStreams[sessionId]?.failedSend = nil
+    }
+
+    /// Retry a failed send. A message replays through the normal send path and
+    /// clears on success (kept, with reason refreshed, on failure). A tool-input
+    /// answer re-presents its pending question instead of blind-resending.
+    /// Returns `true` when the failed-send state was resolved.
+    @discardableResult
+    func retryFailedSend(for sessionId: String) async -> Bool {
+        guard let failed = sessionStreams[sessionId]?.failedSend else { return false }
+        switch failed.retry {
+        case let .message(content, images, options):
+            let sent = await send?(.userMessage(
+                content: content, images: images, fileMentions: nil,
+                options: options, sessionId: sessionId
+            )) ?? false
+            if sent {
+                sessionStreams[sessionId]?.failedSend = nil
+                bumpHistoryToken(for: sessionId)
+            }
+            return sent
+        case let .toolInput(pending):
+            sessionStreams[sessionId]?.failedSend = nil
+            ensureStream(for: sessionId, streaming: false)
+            if let stream = sessionStreams[sessionId],
+               !stream.pendingToolInputs.contains(where: { $0.requestId == pending.requestId }) {
+                stream.pendingToolInputs.append(pending)
+            }
+            return true
+        }
     }
 
     /// Set plan-mode state for a specific session.
@@ -737,11 +792,26 @@ func deriveDismissedToolCallIds(from messages: [ChatMessage]) -> Set<String> {
 
 // MARK: - Pending Tool Input
 
-struct PendingToolInput: Identifiable {
+struct PendingToolInput: Identifiable, Equatable {
     var id: String { requestId }
     let sessionId: String
     let requestId: String
     let toolName: String
     let toolUseId: String
     let input: String
+}
+
+/// A store-owned failed send. Rendered as a distinct error row (never a fake
+/// assistant message) so it survives history refetches and can be retried.
+struct FailedSend: Identifiable, Equatable {
+    enum Retry: Equatable {
+        case message(content: String, images: [ImageAttachment]?, options: MessageOptions?)
+        case toolInput(PendingToolInput)
+    }
+
+    let id: String
+    let sessionId: String
+    let content: String
+    var reason: String
+    let retry: Retry
 }

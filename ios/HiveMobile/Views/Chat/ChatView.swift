@@ -201,6 +201,13 @@ struct ChatView: View {
                         isStreaming: store.isStreaming
                     )
                 }
+                if let failed = store.failedSend {
+                    FailedSendRow(
+                        failed: failed,
+                        onRetry: { Task { await store.retryFailedSend(for: failed.sessionId) } },
+                        onDiscard: { store.discardFailedSend(for: failed.sessionId) }
+                    )
+                }
                 ChatInputBar(
                     draft: $draft,
                     draftAttachments: draftAttachments,
@@ -377,13 +384,6 @@ struct ChatView: View {
         guard !content.isEmpty || !images.isEmpty else { return }
 
         let targetSessionId = session.sessionId
-        // Snapshot draft so we can restore on failure
-        let savedDraft = draft
-        let savedAttachments = draftAttachments
-        let savedDraftState = ChatDraftStore.Draft(
-            text: savedDraft,
-            attachments: savedAttachments.map(ChatDraftStore.Attachment.init)
-        )
         draft = ""
         draftAttachments = []
 
@@ -422,22 +422,16 @@ struct ChatView: View {
                 // user_message echo that the backend is about to broadcast.
                 store.bumpHistoryToken(for: targetSessionId)
             } else {
-                // Persist draft for the originating session, even if the user switched away.
-                draftStore.save(
-                    workspaceId: workspace.id,
+                store.recordFailedSend(FailedSend(
+                    id: UUID().uuidString,
                     sessionId: targetSessionId,
-                    draft: savedDraftState
-                )
-                // Restore inline only if the user is still on the same session.
-                guard store.sessionId == targetSessionId else { return }
-                draft = savedDraft
-                draftAttachments = savedAttachments
-                store.messages.append(ChatMessage(
-                    id: UUID().uuidString, sessionId: "", role: .assistant,
-                    content: "Message not sent: disconnected from server.",
-                    images: nil, toolCalls: nil, thinkingContent: nil,
-                    timestamp: ConversationStore.timestamp(),
-                    cancelled: nil, durationMs: nil
+                    content: content,
+                    reason: "Disconnected from server",
+                    retry: .message(
+                        content: content,
+                        images: images.isEmpty ? nil : images,
+                        options: options
+                    )
                 ))
             }
         }
@@ -467,13 +461,13 @@ struct ChatView: View {
                     planModeEnabled = false
                     store.setAgentPlanMode(false, for: pending.sessionId)
                 }
-            } else if pending.sessionId == session.sessionId {
-                store.messages.append(ChatMessage(
-                    id: UUID().uuidString, sessionId: "", role: .assistant,
-                    content: "Tool response not sent: disconnected from server.",
-                    images: nil, toolCalls: nil, thinkingContent: nil,
-                    timestamp: ConversationStore.timestamp(),
-                    cancelled: nil, durationMs: nil
+            } else {
+                store.recordFailedSend(FailedSend(
+                    id: UUID().uuidString,
+                    sessionId: pending.sessionId,
+                    content: "Answer to the agent's question",
+                    reason: "Disconnected from server",
+                    retry: .toolInput(pending)
                 ))
             }
         }
@@ -556,6 +550,53 @@ struct ChatView: View {
     .environment(ModelCatalog())
     .environment(ProjectStore(storeCache: ConversationStoreCache()))
     .preferredColorScheme(.dark)
+}
+
+private struct FailedSendRow: View {
+    let failed: FailedSend
+    let onRetry: () -> Void
+    let onDiscard: () -> Void
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(WhisperColor.danger)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(failed.reason)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(WhisperColor.danger)
+                Text(failed.content)
+                    .font(.caption)
+                    .foregroundStyle(WhisperColor.textSecondary)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 8)
+            Button(action: onRetry) {
+                Label("Retry", systemImage: "arrow.clockwise")
+                    .labelStyle(.titleAndIcon)
+                    .font(.caption.weight(.semibold))
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(WhisperColor.danger)
+            Button(action: onDiscard) {
+                Image(systemName: "xmark")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(WhisperColor.textMuted)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Discard failed send")
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(WhisperColor.danger.opacity(0.12))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12)
+                        .stroke(WhisperColor.danger.opacity(0.3), lineWidth: 0.5)
+                )
+        )
+    }
 }
 
 private extension ChatDraftStore.Attachment {
