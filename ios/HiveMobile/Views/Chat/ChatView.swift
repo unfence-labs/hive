@@ -15,6 +15,7 @@ struct ChatView: View {
     @State private var selectedModelId: String = ""
     @State private var draftAttachments: [ImageAttachment] = []
     @State private var isNearScrollBottom = true
+    @State private var showQuestionSheet = false
 
     @Environment(ModelCatalog.self) private var modelCatalog
     @Environment(ProjectStore.self) private var projectStore
@@ -201,6 +202,11 @@ struct ChatView: View {
                         isStreaming: store.isStreaming
                     )
                 }
+                if !store.pendingToolInputs.isEmpty, !showQuestionSheet {
+                    PendingQuestionChip(count: store.pendingToolInputs.count) {
+                        showQuestionSheet = true
+                    }
+                }
                 if let failed = store.failedSend {
                     FailedSendRow(
                         failed: failed,
@@ -238,12 +244,19 @@ struct ChatView: View {
         .navigationSubtitle(Text(navigationSubtitle))
         .navigationBarTitleDisplayMode(.inline)
         .sensoryFeedback(.success, trigger: store.visibleCompletionCount)
-        .sheet(isPresented: Binding(
-            get: { !store.pendingToolInputs.isEmpty },
-            set: { if !$0 { store.clearPendingToolInputs() } }
-        )) {
+        .sheet(isPresented: $showQuestionSheet) {
             ToolInputSheet(pendingInputs: store.pendingToolInputs) { pending, result in
                 respondToTool(pending: pending, result: result)
+            }
+        }
+        .onChange(of: store.pendingToolInputs.map(\.requestId)) { oldIds, newIds in
+            // A newly-arrived question auto-presents the sheet; answering or the
+            // turn ending clears the questions and closes it. Dismissing only
+            // hides the sheet — the questions persist and surface as a chip.
+            if !Set(newIds).subtracting(oldIds).isEmpty {
+                showQuestionSheet = true
+            } else if newIds.isEmpty {
+                showQuestionSheet = false
             }
         }
         .task { await setup() }
@@ -550,6 +563,46 @@ struct ChatView: View {
     .environment(ModelCatalog())
     .environment(ProjectStore(storeCache: ConversationStoreCache()))
     .preferredColorScheme(.dark)
+}
+
+private struct PendingQuestionChip: View {
+    let count: Int
+    let onTap: () -> Void
+
+    @AppStorage("hiveAccent") private var accentId = AccentOption.defaultId
+    private var accent: Color {
+        AccentOption(rawValue: accentId)?.color ?? AccentOption.violet.color
+    }
+
+    private var label: String {
+        count == 1 ? "1 question waiting" : "\(count) questions waiting"
+    }
+
+    var body: some View {
+        Button(action: onTap) {
+            HStack(spacing: 8) {
+                Image(systemName: "questionmark.bubble.fill")
+                Text(label)
+                    .font(.caption.weight(.semibold))
+                Spacer(minLength: 4)
+                Image(systemName: "chevron.up")
+                    .font(.caption2.weight(.semibold))
+            }
+            .foregroundStyle(accent)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .background(
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(accent.opacity(0.12))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12)
+                            .stroke(accent.opacity(0.3), lineWidth: 0.5)
+                    )
+            )
+        }
+        .buttonStyle(.plain)
+        .accessibilityHint("Reopens the agent's question.")
+    }
 }
 
 private struct FailedSendRow: View {

@@ -228,10 +228,14 @@ final class ConversationStore {
                 return
             }
             ensureStream(for: sid, streaming: false)
-            sessionStreams[sid]?.pendingToolInputs.append(PendingToolInput(
-                sessionId: sid, requestId: requestId,
-                toolName: toolName, toolUseId: toolUseId, input: input
-            ))
+            // Idempotent by requestId so a snapshot/replay on reconnect can never
+            // produce a duplicate pending question.
+            if sessionStreams[sid]?.pendingToolInputs.contains(where: { $0.requestId == requestId }) != true {
+                sessionStreams[sid]?.pendingToolInputs.append(PendingToolInput(
+                    sessionId: sid, requestId: requestId,
+                    toolName: toolName, toolUseId: toolUseId, input: input
+                ))
+            }
 
         case .toolInputResolved(let sid):
             // A client (possibly another device) answered or dismissed the question.
@@ -660,8 +664,15 @@ final class ConversationStore {
             || !stream.activeAgentActivities.isEmpty || !stream.currentThinking.isEmpty
 
         // Remove the stream slot before appending the finalized message so the
-        // chat view never shows both at once.
+        // chat view never shows both at once. A store-owned failed send is not
+        // tied to this turn, so it is carried across the finalization.
+        let preservedFailedSend = stream.failedSend
         sessionStreams.removeValue(forKey: sid)
+        if let preservedFailedSend {
+            let slot = SessionStreamState()
+            slot.failedSend = preservedFailedSend
+            sessionStreams[sid] = slot
+        }
 
         if isActive {
             if hasContent {
