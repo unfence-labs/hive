@@ -63,6 +63,16 @@ final class ConversationStore {
     /// Per-session transient streaming state. Keyed by session ID.
     var sessionStreams: [String: SessionStreamState] = [:]
 
+    /// True while a ChatView for the focused session is the visible foreground
+    /// screen. Gates the turn-completion haptic to on-screen completions only;
+    /// set by ChatView on appear/disappear.
+    @ObservationIgnored var isChatVisible = false
+
+    /// Bumps once per agent turn that completes while its chat is the visible
+    /// screen. Background sessions, other tabs, and non-visible screens never
+    /// bump it. ChatView observes this to fire the success haptic.
+    private(set) var visibleCompletionCount = 0
+
     // Branch & diff info (pushed via WS)
     var branchInfo: BranchInfo?
     var diffStats: DiffStatResponse?
@@ -233,6 +243,7 @@ final class ConversationStore {
             lastHistoryFetchAt.removeValue(forKey: sid)
             bumpHistoryToken(for: sid)
             onTurnCompleted?(sid)
+            registerVisibleCompletion(for: sid)
 
         case .cancelled(let sid, let errorDetail, _, let durationMs):
             flushStreamingDeltas()
@@ -275,6 +286,7 @@ final class ConversationStore {
                         sessionStreams[sid] = stream
                     }
                 } else if let stream = sessionStreams[sid] {
+                    let wasStreaming = stream.isStreaming
                     // Session stopped streaming. Clean up if no content.
                     if stream.currentText.isEmpty && stream.currentThinking.isEmpty
                         && stream.activeToolCalls.isEmpty && stream.activeAgentActivities.isEmpty
@@ -284,6 +296,13 @@ final class ConversationStore {
                         stream.isStreaming = false
                         stream.streamingStartedAt = nil
                         sessionStreams[sid] = stream
+                    }
+                    // Turn ended without a `done` (e.g. finished while backgrounded):
+                    // reconcile the finalized message from REST like `done` does.
+                    if wasStreaming {
+                        lastHistoryFetchAt.removeValue(forKey: sid)
+                        bumpHistoryToken(for: sid)
+                        onTurnCompleted?(sid)
                     }
                 }
             }
@@ -527,6 +546,14 @@ final class ConversationStore {
     }
 
     // MARK: - Private
+
+    /// A turn finished for `sid`. Only bump the observable completion counter
+    /// when that session's chat is the visible screen, so haptics never fire for
+    /// background sessions, other tabs, or non-visible screens.
+    private func registerVisibleCompletion(for sid: String) {
+        guard isChatVisible, sid == sessionId else { return }
+        visibleCompletionCount += 1
+    }
 
     /// Ensure a stream slot exists for the given session, defaulting to streaming state.
     private func ensureStream(for sid: String, streaming: Bool = true) {

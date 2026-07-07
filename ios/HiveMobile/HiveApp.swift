@@ -11,6 +11,8 @@ struct HiveApp: App {
     @State private var hubPath = NavigationPath()
     @State private var brainPath = NavigationPath()
     @State private var backgroundedAt: Date?
+    @State private var showOnboarding = (UserDefaults.standard.string(forKey: "serverHost") ?? "")
+        .trimmingCharacters(in: .whitespaces).isEmpty
     @AppStorage("hiveAccent") private var accentId = AccentOption.defaultId
     @AppStorage("hiveThemeMode") private var themeModeId = HiveThemeMode.system.rawValue
 
@@ -38,19 +40,20 @@ struct HiveApp: App {
                             navigationPath: $brainPath
                         )
                     }
+                    .toolbar(brainPath.isEmpty ? .automatic : .hidden, for: .tabBar)
                 }
                 Tab("Hub", systemImage: "square.grid.2x2.fill", value: .hub) {
                     NavigationStack(path: $hubPath) {
-                        HubView()
+                        HubView(openSettings: { selectedTab = .settings })
                             .navigationDestination(for: Workspace.self) { workspace in
                                 WorkspaceConversationsView(
                                     workspace: workspace,
                                     store: storeCache.getOrCreate(workspace.id),
                                     navigationPath: $hubPath
                                 )
-                                .toolbar(.hidden, for: .tabBar)
                             }
                     }
+                    .toolbar(hubPath.isEmpty ? .automatic : .hidden, for: .tabBar)
                 }
                 Tab("Settings", systemImage: "gearshape.fill", value: .settings) {
                     NavigationStack {
@@ -66,6 +69,16 @@ struct HiveApp: App {
             .environment(projectStore)
             .environment(storeCache)
             .environment(modelCatalog)
+            .overlay {
+                if showOnboarding {
+                    OnboardingView(onDone: {
+                        withAnimation { showOnboarding = false }
+                        Task { await projectStore.refresh(force: true) }
+                    })
+                    .background(WhisperColor.appBackground)
+                    .transition(.opacity)
+                }
+            }
             .preferredColorScheme(themeMode.preferredColorScheme)
             .task { await modelCatalog.loadIfNeeded() }
             .onChange(of: projectStore.pendingNavigation) { _, workspace in
@@ -76,10 +89,15 @@ struct HiveApp: App {
             }
             .onAppear {
                 mergePushCompletions()
+                handlePushNavigation()
             }
             .onChange(of: CompletedWorkspacesStore.shared.pending) { _, pending in
                 guard !pending.isEmpty else { return }
                 mergePushCompletions()
+            }
+            .onChange(of: CompletedWorkspacesStore.shared.navigationRequest) { _, request in
+                guard request != nil else { return }
+                handlePushNavigation()
             }
             .onChange(of: scenePhase) { _, newPhase in
                 switch newPhase {
@@ -108,6 +126,27 @@ struct HiveApp: App {
             projectStore.statusMonitor.markCompletedFromPush(wsId)
         }
         store.clearAll()
+    }
+
+    /// Resolve the most recent push tap and navigate to its workspace (and session),
+    /// falling back silently to the Hub tab when the workspace can't be resolved.
+    private func handlePushNavigation() {
+        guard let request = CompletedWorkspacesStore.shared.navigationRequest else { return }
+        CompletedWorkspacesStore.shared.clearNavigationRequest()
+        Task { @MainActor in
+            if let target = await projectStore.resolvePushTarget(
+                workspaceId: request.workspaceId,
+                sessionId: request.sessionId
+            ) {
+                projectStore.pendingSessionNavigation = target.sessionId.map {
+                    PendingSessionNavigation(workspaceId: target.workspace.id, sessionId: $0)
+                }
+                projectStore.pendingNavigation = target.workspace
+            } else {
+                projectStore.pendingSessionNavigation = nil
+                selectedTab = .hub
+            }
+        }
     }
 }
 

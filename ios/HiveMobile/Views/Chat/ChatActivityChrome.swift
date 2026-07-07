@@ -9,6 +9,7 @@ struct ChatActivityStats {
 }
 
 struct ChatActivityRowLabel: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var icon: String? = nil
     let label: String
     var detail: String?
@@ -106,21 +107,27 @@ struct ChatActivityRowLabel: View {
             }
 
             if executing {
-                // Opacity-only pulse, fully decoupled from the animation system so
-                // the dot can NEVER move. The opacity is recomputed every frame by
-                // TimelineView (no animation transaction), and `.transaction` nils
-                // out any animation inherited from ancestors — so streaming relayout
-                // (label/icons growing to its left) repositions the dot instantly
-                // instead of animating it. Matches the web's `bg-primary animate-pulse`.
-                TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { context in
-                    let t = context.date.timeIntervalSinceReferenceDate
-                    let opacity = 0.7 + 0.3 * sin(t * 2 * .pi / 1.6)
+                if reduceMotion {
                     Circle()
                         .fill(Color.accentColor)
                         .frame(width: 5, height: 5)
-                        .opacity(opacity)
+                } else {
+                    // Opacity-only pulse, fully decoupled from the animation system so
+                    // the dot can NEVER move. The opacity is recomputed every frame by
+                    // TimelineView (no animation transaction), and `.transaction` nils
+                    // out any animation inherited from ancestors — so streaming relayout
+                    // (label/icons growing to its left) repositions the dot instantly
+                    // instead of animating it. Matches the web's `bg-primary animate-pulse`.
+                    TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { context in
+                        let t = context.date.timeIntervalSinceReferenceDate
+                        let opacity = 0.7 + 0.3 * sin(t * 2 * .pi / 1.6)
+                        Circle()
+                            .fill(Color.accentColor)
+                            .frame(width: 5, height: 5)
+                            .opacity(opacity)
+                    }
+                    .transaction { $0.animation = nil }
                 }
-                .transaction { $0.animation = nil }
             }
         }
         .padding(.vertical, 3)

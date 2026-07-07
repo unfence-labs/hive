@@ -9,9 +9,19 @@ import Observation
 @MainActor
 @Observable
 final class ProjectStore {
+    /// Why the last project fetch failed, classified so the Hub can show
+    /// accurate copy. `nil` once a fetch succeeds.
+    enum FetchFailure: Equatable {
+        case unreachable
+        case authentication
+        case other
+    }
+
     private(set) var projects: [Project] = []
     private(set) var isLoading = false
     private(set) var errorMessage: String?
+    private(set) var fetchFailure: FetchFailure?
+    private(set) var refreshFailedWithCachedData = false
     private(set) var creatingWorkspaceProjectIds: Set<String> = []
     private(set) var isCreatingProject = false
     private(set) var cloningRepoName: String?
@@ -20,18 +30,36 @@ final class ProjectStore {
     /// Set after workspace creation so HiveApp can navigate to it.
     var pendingNavigation: Workspace?
 
+    /// Set alongside `pendingNavigation` when a push tap targets a specific session.
+    var pendingSessionNavigation: PendingSessionNavigation?
+
     let statusMonitor: HubStatusMonitor
 
-    private let api = APIClient()
+    private let api: APIClient
+    private let fetchProjectsClosure: @MainActor () async throws -> [Project]
+    private let fetchPreferencesClosure: @MainActor () async throws -> UiPreferencesPayload
     private var hasFetchedOnce = false
     private var lastRefreshedAt = Date.distantPast
 
-    init(storeCache: ConversationStoreCache) {
-        self.statusMonitor = HubStatusMonitor(storeCache: storeCache)
+    init(
+        storeCache: ConversationStoreCache,
+        statusMonitor: HubStatusMonitor? = nil,
+        fetchProjects: (@MainActor () async throws -> [Project])? = nil,
+        fetchPreferences: (@MainActor () async throws -> UiPreferencesPayload)? = nil
+    ) {
+        let client = APIClient()
+        self.api = client
+        self.statusMonitor = statusMonitor ?? HubStatusMonitor(storeCache: storeCache)
+        self.fetchProjectsClosure = fetchProjects ?? { try await client.fetchProjects() }
+        self.fetchPreferencesClosure = fetchPreferences ?? { try await client.fetchUiPreferences() }
     }
 
     /// Whether the store has never successfully loaded data yet.
     var isInitialLoad: Bool { !hasFetchedOnce }
+
+    /// Whether a fetch has ever succeeded — gates the No Projects onboarding
+    /// state so it never masquerades as a failed fetch.
+    var hasLoadedSuccessfully: Bool { hasFetchedOnce }
 
     /// Sync the hub monitor with every workspace plus the synthetic Brain id, so
     /// the Brain always stays subscribed (streaming/done events, send wiring) and
@@ -155,13 +183,16 @@ final class ProjectStore {
     }
 
     /// Refresh projects from the API. Shows existing data while loading.
-    func refresh(force: Bool = false) async {
+    /// `userInitiated` marks an explicit pull-to-refresh so a failure over
+    /// cached data can surface a transient notice.
+    func refresh(force: Bool = false, userInitiated: Bool = false) async {
         if !force, hasFetchedOnce, Date().timeIntervalSince(lastRefreshedAt) < 45 { return }
         isLoading = true
         errorMessage = nil
+        refreshFailedWithCachedData = false
         do {
-            async let projectsTask = api.fetchProjects()
-            async let preferencesTask = api.fetchUiPreferences()
+            async let projectsTask = fetchProjectsClosure()
+            async let preferencesTask = fetchPreferencesClosure()
 
             var fresh = try await projectsTask
             let preferences = (try? await preferencesTask) ?? .empty
@@ -178,16 +209,56 @@ final class ProjectStore {
             uiPreferences = preferences
             hasFetchedOnce = true
             lastRefreshedAt = Date()
+            fetchFailure = nil
             syncMonitoredWorkspaces()
         } catch is CancellationError {
             // View disappeared — ignore
         } catch {
-            // Only surface error if we have no cached data to show
-            if projects.isEmpty {
-                errorMessage = error.localizedDescription
+            fetchFailure = Self.classify(error)
+            if !projects.isEmpty, userInitiated {
+                refreshFailedWithCachedData = true
             }
         }
         isLoading = false
+    }
+
+    func resolvePushTarget(workspaceId: String, sessionId: String?) async -> PushNavigationTarget? {
+        if let target = Self.findTarget(workspaceId: workspaceId, sessionId: sessionId, in: projects) {
+            return target
+        }
+        await refresh(force: true)
+        return Self.findTarget(workspaceId: workspaceId, sessionId: sessionId, in: projects)
+    }
+
+    static func findTarget(workspaceId: String, sessionId: String?, in projects: [Project]) -> PushNavigationTarget? {
+        for project in projects {
+            if let workspace = project.workspaces.first(where: { $0.id == workspaceId }) {
+                return PushNavigationTarget(workspace: workspace, sessionId: sessionId)
+            }
+        }
+        return nil
+    }
+
+    /// Dismiss the transient pull-to-refresh failure notice.
+    func acknowledgeRefreshFailure() {
+        refreshFailedWithCachedData = false
+    }
+
+    private static func classify(_ error: Error) -> FetchFailure {
+        if let apiError = error as? APIError {
+            switch apiError {
+            case .httpError(let statusCode, _):
+                return statusCode == 401 || statusCode == 403 ? .authentication : .other
+            case .networkError, .invalidURL:
+                return .unreachable
+            case .decodingError:
+                return .other
+            }
+        }
+        if error is URLError {
+            return .unreachable
+        }
+        return .other
     }
 
     private static func extractRepoName(from url: String) -> String {
@@ -197,4 +268,14 @@ final class ProjectStore {
         if name.hasSuffix(".git") { name = String(name.dropLast(4)) }
         return name.isEmpty ? "repository" : name
     }
+}
+
+struct PushNavigationTarget: Equatable {
+    let workspace: Workspace
+    let sessionId: String?
+}
+
+struct PendingSessionNavigation: Equatable {
+    let workspaceId: String
+    let sessionId: String
 }

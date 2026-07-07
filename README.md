@@ -35,7 +35,7 @@ Hive can run as a local web app, a Tauri desktop app connected to a local or rem
 
 **Apps and integrations**
 - React 19 + Vite frontend with Tauri v2 desktop packaging.
-- Native SwiftUI iOS client with Brain, workspace conversations, session switching, chat, model selection, PR status, scripts, push notifications, task tracker, and Codex activity rendering.
+- Native SwiftUI iOS client with first-run onboarding, Brain, workspace conversations, session switching, chat, model selection, PR status, scripts, push notifications, task tracker, connection status banner with tap-to-reconnect, and Codex activity rendering.
 - GitHub OAuth device flow through `gh`, PR status enrichment, project `.env` management, global instructions, skills, Team agents, subagents, prompt settings, theme/accent settings, Telegram notifications, APNs, Tailscale-friendly connection settings, external terminal opening, and VS Code remote SSH opening from Tauri.
 
 ## Prerequisites

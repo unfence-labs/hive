@@ -13,6 +13,9 @@ final class CompletedWorkspacesStore {
 
     private(set) var pending: Set<String>
 
+    /// Most recent push tap, consumed by HiveApp to navigate to the workspace.
+    private(set) var navigationRequest: PushNavigationRequest?
+
     private let key = "pushCompletedWorkspaces"
 
     private init() {
@@ -25,6 +28,14 @@ final class CompletedWorkspacesStore {
         persist()
     }
 
+    func requestNavigation(workspaceId: String, sessionId: String?) {
+        navigationRequest = PushNavigationRequest(workspaceId: workspaceId, sessionId: sessionId)
+    }
+
+    func clearNavigationRequest() {
+        navigationRequest = nil
+    }
+
     func clearAll() {
         guard !pending.isEmpty else { return }
         pending.removeAll()
@@ -34,4 +45,9 @@ final class CompletedWorkspacesStore {
     private func persist() {
         UserDefaults.standard.set(Array(pending), forKey: key)
     }
+}
+
+struct PushNavigationRequest: Equatable {
+    let workspaceId: String
+    let sessionId: String?
 }
