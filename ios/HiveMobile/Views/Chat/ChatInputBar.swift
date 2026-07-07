@@ -78,6 +78,11 @@ struct ChatInputBar: View {
         return groupedModels.filter { $0.provider == lockedProvider }
     }
 
+    private var lockedProviderLabel: String? {
+        guard lockedProvider != nil else { return nil }
+        return selectableModelGroups.first?.providerLabel
+    }
+
     private var thinkingLevels: [ThinkingLevel] { capabilities?.thinkingLevels ?? [] }
     private var supportsThinking: Bool { !thinkingLevels.isEmpty }
     private var supportsPlanMode: Bool { capabilities?.planMode ?? true }
@@ -115,7 +120,8 @@ struct ChatInputBar: View {
                 ModelMenu(
                     groups: selectableModelGroups,
                     selectedModelId: selectedModelId,
-                    accent: hiveAccent
+                    accent: hiveAccent,
+                    lockedProviderLabel: lockedProviderLabel
                 ) { id in
                     Haptics.selection()
                     onModelSelect(id)
@@ -335,6 +341,7 @@ private struct ModelMenu: View {
     let groups: [ModelProviderGroup]
     let selectedModelId: String
     let accent: Color
+    var lockedProviderLabel: String? = nil
     let onSelect: (String) -> Void
 
     var body: some View {
@@ -370,6 +377,15 @@ private struct ModelMenu: View {
                     }
                     .buttonStyle(.plain)
                 }
+            }
+            if let lockedProviderLabel {
+                Divider().padding(.vertical, 5)
+                Text("This conversation continues with \(lockedProviderLabel).")
+                    .font(.caption2)
+                    .foregroundStyle(WhisperColor.textMuted)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 14)
+                    .padding(.bottom, 8)
             }
         }
         .padding(.vertical, 5)
