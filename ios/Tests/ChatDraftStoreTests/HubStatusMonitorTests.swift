@@ -182,6 +182,26 @@ struct HubStatusMonitorTests {
     }
 
     @Test
+    func firstSendResubscribesBeforeEventThenNot() async {
+        let (monitor, cache, connection) = makeMonitor()
+        monitor.sync(workspaceIds: ["ws-1"])
+        let store = cache.getOrCreate("ws-1")
+
+        _ = await store.send?(.stop(sessionId: "s1"))
+
+        #expect(connection.sentMessages.count == 2)
+        if case .syncWorkspaces = connection.sentMessages.first {} else {
+            Issue.record("first sent message should be the resubscribe sync_workspaces")
+        }
+        if case .workspaceEvent = connection.sentMessages.last {} else {
+            Issue.record("second sent message should be the workspace event")
+        }
+
+        _ = await store.send?(.stop(sessionId: "s2"))
+        #expect(connection.sentMessages.count == 3)
+    }
+
+    @Test
     func failedWorkspaceSendProbesLiveness() async {
         let (monitor, cache, connection) = makeMonitor()
         connection.sendResult = false

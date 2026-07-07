@@ -90,6 +90,7 @@ final class HubStatusMonitor {
         store.send = { [weak self] message in
             guard let self else { return false }
             let event = HubIncoming.workspaceEvent(workspaceId: workspaceId, event: message)
+            await self.resubscribeIfNeeded()
             if await self.hubConnection?.send(event) == true { return true }
             // The socket was down or absent: (re)connect and retry once so a send
             // during a brief disconnect isn't silently dropped.
@@ -98,7 +99,25 @@ final class HubStatusMonitor {
                 if self.connectionState == .connected { break }
                 try? await Task.sleep(for: .milliseconds(100))
             }
+            await self.resubscribeIfNeeded()
             return await self.hubConnection?.send(event) == true
+        }
+    }
+
+    /// After a (re)connect, resend our subscription before the first workspace
+    /// event so the server registers it first (same ordered socket). Prevents a
+    /// "Not subscribed to workspace" rejection when a send races the reconnect.
+    private var needsResubscribe = true
+    private func resubscribeIfNeeded() async {
+        guard needsResubscribe, let hubConnection else { return }
+        let payload = currentSyncPayload
+        if await hubConnection.send(.syncWorkspaces(
+            workspaceIds: payload.workspaceIds,
+            focusWorkspaces: payload.focusWorkspaces,
+            prWorkspaces: payload.prWorkspaces,
+            forceBootstrap: false
+        )) {
+            needsResubscribe = false
         }
     }
 
@@ -265,6 +284,7 @@ final class HubStatusMonitor {
     // MARK: - Called by HubConnection
 
     func didChangeConnectionState(_ state: HubConnectionState) {
+        if state == .connecting { needsResubscribe = true }
         guard connectionState != state else { return }
         connectionState = state
     }
