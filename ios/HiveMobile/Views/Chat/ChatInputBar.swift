@@ -68,6 +68,13 @@ struct ChatInputBar: View {
         models.first { $0.id == selectedModelId }?.label ?? "Model"
     }
 
+    /// When a session is locked to a provider, only that provider's models are
+    /// selectable, so show just those rather than greying the rest out.
+    private var selectableModelGroups: [ModelProviderGroup] {
+        guard let lockedProvider else { return groupedModels }
+        return groupedModels.filter { $0.provider == lockedProvider }
+    }
+
     private var thinkingLevels: [ThinkingLevel] { capabilities?.thinkingLevels ?? [] }
     private var supportsThinking: Bool { !thinkingLevels.isEmpty }
     private var supportsPlanMode: Bool { capabilities?.planMode ?? true }
@@ -88,27 +95,17 @@ struct ChatInputBar: View {
     private var controlBar: some View {
         HStack(spacing: 8) {
             Menu {
-                ForEach(groupedModels) { group in
-                    Section(group.providerLabel) {
-                        ForEach(group.models) { model in
-                            let isLocked = lockedProvider != nil && model.provider != lockedProvider
-                            Button {
-                                onModelSelect(model.id)
-                            } label: {
-                                HStack {
-                                    Text(model.label)
-                                    if model.isNew == true {
-                                        Text("NEW")
-                                    }
-                                    if model.id == selectedModelId {
-                                        Image(systemName: "checkmark")
-                                    }
-                                }
+                Picker("Model", selection: Binding(get: { selectedModelId }, set: { onModelSelect($0) })) {
+                    ForEach(selectableModelGroups) { group in
+                        Section(group.providerLabel) {
+                            ForEach(group.models) { model in
+                                Text(model.isNew == true ? "\(model.label)  ·  NEW" : model.label)
+                                    .tag(model.id)
                             }
-                            .disabled(isLocked)
                         }
                     }
                 }
+                .pickerStyle(.inline)
             } label: {
                 HStack(spacing: 4) {
                     Image(systemName: "sparkles")
