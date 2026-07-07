@@ -271,8 +271,17 @@ struct ChatInputBar: View {
                     if case .success(let data) = result, let data,
                        let uiImage = UIImage(data: data),
                        let attachment = ImageAttachment.makeFromDraftImage(uiImage) {
-                        attachedImages[index].attachment = attachment
-                        onDraftAttachmentsChange(attachedImages.compactMap(\.attachment))
+                        let isDuplicate = attachedImages.contains {
+                            $0.id != pending.id && $0.attachment?.dataUrl == attachment.dataUrl
+                        }
+                        if isDuplicate {
+                            withAnimation(.spring(duration: 0.25)) {
+                                attachedImages.removeAll { $0.id == pending.id }
+                            }
+                        } else {
+                            attachedImages[index].attachment = attachment
+                            onDraftAttachmentsChange(attachedImages.compactMap(\.attachment))
+                        }
                     } else {
                         withAnimation(.spring(duration: 0.25)) {
                             attachedImages.remove(at: index)
@@ -387,10 +396,11 @@ private struct AttachmentChip: View {
                 onRemove()
             } label: {
                 Image(systemName: "xmark.circle.fill")
-                    .font(.system(size: 16))
-                    .foregroundStyle(.white)
-                    .background(WhisperColor.imageControlBg, in: Circle())
+                    .font(.system(size: 18))
+                    .symbolRenderingMode(.palette)
+                    .foregroundStyle(.white, .black.opacity(0.55))
             }
+            .accessibilityLabel("Remove image")
             .offset(x: 4, y: -4)
         }
     }

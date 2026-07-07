@@ -235,6 +235,7 @@ struct ChatView: View {
             }
         }
         .task { await setup() }
+        .task { await modelCatalog.loadIfNeeded() }
         .onChange(of: modelCatalog.isLoaded) {
             if selectedModelId.isEmpty, !modelCatalog.defaultModelId.isEmpty {
                 selectedModelId = initialModelId()
