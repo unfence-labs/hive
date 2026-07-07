@@ -66,12 +66,6 @@ final class HubStatusMonitor {
     }()
 
     private static let completedKey = "completedWorkspaces"
-    private static let everConnectedKey = "hubHasEverConnected"
-
-    /// True once the hub WebSocket has connected at least once (persisted). The
-    /// disconnect banner stays hidden until this flips, so a never-configured first
-    /// launch shows onboarding instead of a false "disconnected" state.
-    private(set) var hasEverConnected = false
 
     convenience init(storeCache: ConversationStoreCache) {
         self.init(storeCache: storeCache, makeHubConnection: { HubConnection(monitor: $0) })
@@ -86,7 +80,6 @@ final class HubStatusMonitor {
         // Restore persisted completed set (survives app kill)
         let stored = UserDefaults.standard.stringArray(forKey: Self.completedKey) ?? []
         self.completedWorkspaces = Set(stored)
-        self.hasEverConnected = UserDefaults.standard.bool(forKey: Self.everConnectedKey)
         storeCache.onStoreCreated = { [weak self] workspaceId, store in
             self?.wireSendClosure(for: workspaceId, on: store)
         }
@@ -96,9 +89,16 @@ final class HubStatusMonitor {
     fileprivate func wireSendClosure(for workspaceId: String, on store: ConversationStore) {
         store.send = { [weak self] message in
             guard let self else { return false }
-            let sent = await self.hubConnection?.send(.workspaceEvent(workspaceId: workspaceId, event: message)) ?? false
-            if !sent { self.handleSendFailure() }
-            return sent
+            let event = HubIncoming.workspaceEvent(workspaceId: workspaceId, event: message)
+            if await self.hubConnection?.send(event) == true { return true }
+            // The socket was down or absent: (re)connect and retry once so a send
+            // during a brief disconnect isn't silently dropped.
+            self.handleSendFailure()
+            for _ in 0..<20 {
+                if self.connectionState == .connected { break }
+                try? await Task.sleep(for: .milliseconds(100))
+            }
+            return await self.hubConnection?.send(event) == true
         }
     }
 
@@ -265,10 +265,6 @@ final class HubStatusMonitor {
     // MARK: - Called by HubConnection
 
     func didChangeConnectionState(_ state: HubConnectionState) {
-        if state == .connected, !hasEverConnected {
-            hasEverConnected = true
-            UserDefaults.standard.set(true, forKey: Self.everConnectedKey)
-        }
         guard connectionState != state else { return }
         connectionState = state
     }

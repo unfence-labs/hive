@@ -182,23 +182,6 @@ struct HubStatusMonitorTests {
     }
 
     @Test
-    func hasEverConnectedFlipsOnFirstConnectAndPersists() {
-        UserDefaults.standard.removeObject(forKey: "hubHasEverConnected")
-        let (monitor, _, _) = makeMonitor()
-        #expect(monitor.hasEverConnected == false)
-
-        monitor.didChangeConnectionState(.connecting)
-        #expect(monitor.hasEverConnected == false)
-
-        monitor.didChangeConnectionState(.connected)
-        #expect(monitor.hasEverConnected == true)
-
-        let fresh = HubStatusMonitor(storeCache: ConversationStoreCache()) { _ in FakeHubConnection() }
-        #expect(fresh.hasEverConnected == true)
-        UserDefaults.standard.removeObject(forKey: "hubHasEverConnected")
-    }
-
-    @Test
     func failedWorkspaceSendProbesLiveness() async {
         let (monitor, cache, connection) = makeMonitor()
         connection.sendResult = false

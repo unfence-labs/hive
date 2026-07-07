@@ -4,9 +4,15 @@ struct ConnectionBanner: View {
     let monitor: HubStatusMonitor
     @State private var showDisconnected = false
 
+    /// Only surface the disconnect banner once a server has been configured, so a
+    /// never-configured first launch (handled by onboarding) stays clean.
+    private var isServerConfigured: Bool {
+        UserDefaults.standard.string(forKey: "serverHost") != nil
+    }
+
     var body: some View {
         Group {
-            if showDisconnected, monitor.hasEverConnected, monitor.connectionState != .connected {
+            if showDisconnected, isServerConfigured, monitor.connectionState != .connected {
                 Button {
                     monitor.reconnectNow()
                 } label: {
