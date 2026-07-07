@@ -6,7 +6,7 @@ struct ConnectionBanner: View {
 
     var body: some View {
         Group {
-            if showDisconnected, monitor.connectionState != .connected {
+            if showDisconnected, monitor.hasEverConnected, monitor.connectionState != .connected {
                 Button {
                     monitor.reconnectNow()
                 } label: {
