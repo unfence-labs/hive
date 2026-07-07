@@ -25,6 +25,7 @@ struct ChatInputBar: View {
     @State private var selectedItems: [PhotosPickerItem] = []
     @State private var showAttachmentError = false
     @State private var showModelMenu = false
+    @State private var showEffortMenu = false
 
     private var hiveAccent: Color {
         AccentOption(rawValue: accentId)?.color ?? AccentOption.violet.color
@@ -125,7 +126,15 @@ struct ChatInputBar: View {
 
             if supportsThinking {
                 LevelCycleButton(systemImage: "brain", label: effectiveThinkingLevel.label, highlightColor: hiveAccent) {
-                    thinkingLevel = effectiveThinkingLevel.next(in: thinkingLevels)
+                    showEffortMenu = true
+                }
+                .popover(isPresented: $showEffortMenu, attachmentAnchor: .rect(.bounds), arrowEdge: .bottom) {
+                    EffortMenu(levels: thinkingLevels, selectedLevel: effectiveThinkingLevel, accent: hiveAccent) { level in
+                        Haptics.selection()
+                        thinkingLevel = level
+                        showEffortMenu = false
+                    }
+                    .presentationCompactAdaptation(.popover)
                 }
             }
             if supportsPlanMode {
@@ -365,6 +374,42 @@ private struct ModelMenu: View {
         }
         .padding(.vertical, 5)
         .frame(width: 234)
+        .fixedSize(horizontal: false, vertical: true)
+    }
+}
+
+private struct EffortMenu: View {
+    let levels: [ThinkingLevel]
+    let selectedLevel: ThinkingLevel
+    let accent: Color
+    let onSelect: (ThinkingLevel) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 1) {
+            ForEach(levels, id: \.self) { level in
+                Button {
+                    onSelect(level)
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "checkmark")
+                            .font(.footnote.weight(.semibold))
+                            .foregroundStyle(accent)
+                            .opacity(level == selectedLevel ? 1 : 0)
+                            .frame(width: 15)
+                        Text(level.label)
+                            .foregroundStyle(.primary)
+                        Spacer(minLength: 8)
+                    }
+                    .font(.subheadline)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 9)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.vertical, 5)
+        .frame(width: 180)
         .fixedSize(horizontal: false, vertical: true)
     }
 }
