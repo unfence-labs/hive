@@ -1,5 +1,14 @@
 import SwiftUI
 
+/// Collapse/expand toggles in the transcript must never animate: an animated
+/// row-height change makes the List re-align its scroll position, which
+/// glitches on tall content. All disclosure toggles go through this.
+func withoutAnimation(_ body: () -> Void) {
+    var transaction = Transaction()
+    transaction.disablesAnimations = true
+    withTransaction(transaction, body)
+}
+
 struct ChatActivityStats {
     enum Kind { case diff, plain }
     let kind: Kind
@@ -197,7 +206,7 @@ struct ActivityDisclosureRow: View {
 
                 Button {
                     guard canExpand else { return }
-                    withAnimation(.easeInOut(duration: 0.2)) { isExpanded.toggle() }
+                    withoutAnimation { isExpanded.toggle() }
                 } label: {
                     ChatActivityRowLabel(
                         icon: icon,

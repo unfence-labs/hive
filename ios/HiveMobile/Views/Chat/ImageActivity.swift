@@ -92,7 +92,7 @@ private struct ImageActivityBodyText: View {
 
     var body: some View {
         Text(text)
-            .font(.system(size: 12))
+            .font(WhisperFont.scaled(12))
             .foregroundStyle(WhisperColor.textSecondary)
             .frame(maxWidth: .infinity, alignment: .leading)
     }

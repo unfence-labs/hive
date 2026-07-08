@@ -53,12 +53,12 @@ struct ConversationRow: View {
         HStack(alignment: .center, spacing: HiveSpacing.md) {
             VStack(alignment: .leading, spacing: HiveSpacing.xs) {
                 Text(title)
-                    .font(.system(size: 16, weight: .semibold))
+                    .font(WhisperFont.scaled(16, weight: .semibold))
                     .foregroundStyle(WhisperColor.text)
                     .lineLimit(1)
 
                 Text(messageCountText)
-                    .font(.system(size: 15))
+                    .font(WhisperFont.scaled(15))
                     .foregroundStyle(WhisperColor.textSecondary)
                     .lineLimit(1)
             }

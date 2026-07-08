@@ -55,6 +55,7 @@ struct HiveApp: App {
                     }
                     .toolbar(hubPath.isEmpty ? .automatic : .hidden, for: .tabBar)
                 }
+                .badge(projectStore.statusMonitor.hubBadgeCount)
                 Tab("Settings", systemImage: "gearshape.fill", value: .settings) {
                     NavigationStack {
                         SettingsView()

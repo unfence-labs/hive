@@ -13,6 +13,7 @@ final class SessionStreamState {
     var streamingStartedAt: Date?
     var pendingToolInputs: [PendingToolInput] = []
     var agentPlanMode: Bool?
+    var failedSend: FailedSend?
 }
 
 @MainActor
@@ -110,6 +111,9 @@ final class ConversationStore {
     var activeAgentActivities: [AgentActivity] { activeStream?.activeAgentActivities ?? [] }
     var pendingToolInputs: [PendingToolInput] { activeStream?.pendingToolInputs ?? [] }
 
+    /// Store-owned failed send for the focused session, if any.
+    var failedSend: FailedSend? { activeStream?.failedSend }
+
     private(set) var tasksState: TasksState =
         deriveTasks(from: [], activeToolCalls: [], activeAgentActivities: [])
     private(set) var goalState: GoalState? =
@@ -135,6 +139,20 @@ final class ConversationStore {
 
     // MARK: - Streaming delta buffering
 
+    /// While a finger is on the transcript, scheduled flushes keep buffering
+    /// instead of applying, so the content under the touch never moves (a
+    /// moving transcript cancels the long-press copy interaction). Event
+    /// handlers still flush explicitly for turn-lifecycle correctness.
+    @ObservationIgnored private var streamingUIHeld = false
+
+    func setStreamingUIHold(_ active: Bool) {
+        guard streamingUIHeld != active else { return }
+        streamingUIHeld = active
+        if !active {
+            flushStreamingDeltas()
+        }
+    }
+
     func flushStreamingDeltas() {
         flushTask?.cancel()
         flushTask = nil
@@ -153,8 +171,13 @@ final class ConversationStore {
         guard let interval = streamFlushInterval, flushTask == nil else { return }
         flushTask = Task { [weak self] in
             try? await Task.sleep(for: .seconds(interval))
-            guard !Task.isCancelled else { return }
-            self?.flushStreamingDeltas()
+            guard !Task.isCancelled, let self else { return }
+            if self.streamingUIHeld {
+                self.flushTask = nil
+                self.scheduleStreamFlush()
+                return
+            }
+            self.flushStreamingDeltas()
         }
     }
 
@@ -224,10 +247,14 @@ final class ConversationStore {
                 return
             }
             ensureStream(for: sid, streaming: false)
-            sessionStreams[sid]?.pendingToolInputs.append(PendingToolInput(
-                sessionId: sid, requestId: requestId,
-                toolName: toolName, toolUseId: toolUseId, input: input
-            ))
+            // Idempotent by requestId so a snapshot/replay on reconnect can never
+            // produce a duplicate pending question.
+            if sessionStreams[sid]?.pendingToolInputs.contains(where: { $0.requestId == requestId }) != true {
+                sessionStreams[sid]?.pendingToolInputs.append(PendingToolInput(
+                    sessionId: sid, requestId: requestId,
+                    toolName: toolName, toolUseId: toolUseId, input: input
+                ))
+            }
 
         case .toolInputResolved(let sid):
             // A client (possibly another device) answered or dismissed the question.
@@ -334,7 +361,11 @@ final class ConversationStore {
             sessionStreams[sid]?.activeAgentActivities = []
             sessionStreams[sid]?.pendingToolInputs = []
             if isActive && !alreadyExists {
-                messages.append(msg)
+                // The echo confirms delivery of an optimistically-appended
+                // message: swap it in place instead of appending a duplicate.
+                if !resolveOptimisticSend(with: msg) {
+                    messages.append(msg)
+                }
                 cacheMessages(messages, for: sid)
             } else if isActive {
                 recomputeDerivations()
@@ -391,6 +422,7 @@ final class ConversationStore {
     /// History contains only finalized turns. Streaming content lives in
     /// `sessionStreams` and is rendered as a separate in-progress bubble.
     func applyFetchedHistory(_ msgs: [ChatMessage], for sessionId: String) {
+        let previouslyKnownIds = Set((serverHistory[sessionId] ?? []).map(\.id))
         serverHistory[sessionId] = msgs
         cacheMessages(msgs, for: sessionId)
         lastHistoryFetchAt[sessionId] = Date()
@@ -408,17 +440,44 @@ final class ConversationStore {
         // sees the reconciled stream state (one recompute, not two).
         let existingStream = sessionStreams[sessionId]
         if existingStream?.isStreaming != true {
+            // A store-owned failed send is not part of REST history; carry it
+            // across the reconciliation so a refetch never erases the error row.
+            let preservedFailedSend = existingStream?.failedSend
             let derived = derivePendingToolInputsFromHistory(msgs)
             if !derived.isEmpty {
                 let rebuilt = SessionStreamState()
                 rebuilt.pendingToolInputs = derived
+                rebuilt.failedSend = preservedFailedSend
+                sessionStreams[sessionId] = rebuilt
+            } else if preservedFailedSend != nil {
+                let rebuilt = SessionStreamState()
+                rebuilt.failedSend = preservedFailedSend
                 sessionStreams[sessionId] = rebuilt
             } else if existingStream != nil {
                 sessionStreams.removeValue(forKey: sessionId)
             }
         }
 
-        messages = msgs
+        // Carry unresolved optimistic sends across the refetch: history that
+        // already contains the content confirms delivery; anything else is
+        // re-appended so a pending/failed message never silently vanishes.
+        var merged = msgs
+        for local in messages where userSendStates[local.id] != nil && local.sessionId == sessionId {
+            if userSendStates[local.id] == .sending,
+               msgs.contains(where: {
+                   $0.role == .user && $0.content == local.content
+                       && !previouslyKnownIds.contains($0.id)
+               }) {
+                userSendStates.removeValue(forKey: local.id)
+                optimisticPayloads.removeValue(forKey: local.id)
+            } else {
+                merged.append(local)
+            }
+        }
+        messages = merged
+        if merged.count != msgs.count {
+            cacheMessages(merged, for: sessionId)
+        }
     }
 
     func lastServerMessageId(for sessionId: String?) -> String? {
@@ -441,6 +500,128 @@ final class ConversationStore {
     func clearPendingToolInputs() {
         guard let sid = sessionId else { return }
         sessionStreams[sid]?.pendingToolInputs = []
+    }
+
+    // MARK: - Failed sends
+
+    /// Record a send that failed to reach the WebSocket as a store-owned error
+    /// state. Replaces any prior failed send for the same session.
+    func recordFailedSend(_ failed: FailedSend) {
+        ensureStream(for: failed.sessionId, streaming: false)
+        sessionStreams[failed.sessionId]?.failedSend = failed
+    }
+
+    /// Dismiss a failed send without retrying.
+    func discardFailedSend(for sessionId: String) {
+        sessionStreams[sessionId]?.failedSend = nil
+    }
+
+    /// Retry a failed tool-input answer: re-present the pending question so the
+    /// user can confirm it before it is resent.
+    @discardableResult
+    func retryFailedSend(for sessionId: String) async -> Bool {
+        guard let failed = sessionStreams[sessionId]?.failedSend else { return false }
+        sessionStreams[sessionId]?.failedSend = nil
+        ensureStream(for: sessionId, streaming: false)
+        if let stream = sessionStreams[sessionId],
+           !stream.pendingToolInputs.contains(where: { $0.requestId == failed.pending.requestId }) {
+            stream.pendingToolInputs.append(failed.pending)
+        }
+        return true
+    }
+
+    // MARK: - Optimistic user sends
+
+    /// Delivery state of a user message the client appended optimistically.
+    /// Absent from the map = confirmed by the server (or plain history).
+    enum UserSendState: Equatable {
+        case sending
+        case failed
+    }
+
+    /// Per-message delivery state, keyed by (local) message ID.
+    private(set) var userSendStates: [String: UserSendState] = [:]
+    @ObservationIgnored private var optimisticPayloads: [String: (images: [ImageAttachment]?, options: MessageOptions?)] = [:]
+
+    /// Delivery state for a message, if it is a locally-appended send.
+    func sendState(for messageId: String) -> UserSendState? {
+        userSendStates[messageId]
+    }
+
+    /// Append the user's message to the transcript immediately (before the
+    /// server echo) so sending feels instant. Returns the local message ID used
+    /// to track delivery.
+    @discardableResult
+    func appendOptimisticUserMessage(
+        content: String,
+        images: [ImageAttachment]?,
+        options: MessageOptions?,
+        sessionId sid: String
+    ) -> String {
+        let localId = "local-\(UUID().uuidString)"
+        let message = ChatMessage(
+            id: localId, sessionId: sid, role: .user, content: content,
+            images: images, toolCalls: nil, thinkingContent: nil,
+            timestamp: Self.timestamp(), cancelled: nil, durationMs: nil
+        )
+        userSendStates[localId] = .sending
+        optimisticPayloads[localId] = (images, options)
+        if sid == sessionId {
+            messages.append(message)
+            cacheMessages(messages, for: sid)
+        }
+        return localId
+    }
+
+    /// Mark a locally-appended send as failed (kept in the transcript with a
+    /// retry affordance — the user's text is never lost).
+    func markSendFailed(_ localId: String) {
+        guard userSendStates[localId] != nil else { return }
+        userSendStates[localId] = .failed
+    }
+
+    /// Resend a failed (or stuck) local message through the normal send path.
+    @discardableResult
+    func retryOptimisticSend(_ localId: String) async -> Bool {
+        guard let message = messages.first(where: { $0.id == localId }),
+              userSendStates[localId] != nil else { return false }
+        let payload = optimisticPayloads[localId]
+        userSendStates[localId] = .sending
+        let sent = await send?(.userMessage(
+            content: message.content, images: payload?.images, fileMentions: nil,
+            options: payload?.options, sessionId: message.sessionId
+        )) ?? false
+        if sent {
+            bumpHistoryToken(for: message.sessionId)
+        } else {
+            userSendStates[localId] = .failed
+        }
+        return sent
+    }
+
+    /// Remove a failed local message the user no longer wants to deliver.
+    func discardOptimisticSend(_ localId: String) {
+        guard userSendStates[localId] != nil else { return }
+        userSendStates.removeValue(forKey: localId)
+        optimisticPayloads.removeValue(forKey: localId)
+        if let idx = messages.firstIndex(where: { $0.id == localId }) {
+            let sid = messages[idx].sessionId
+            messages.remove(at: idx)
+            cacheMessages(messages, for: sid)
+        }
+    }
+
+    private func resolveOptimisticSend(with serverMessage: ChatMessage) -> Bool {
+        guard serverMessage.role == .user,
+              let idx = messages.firstIndex(where: {
+                  userSendStates[$0.id] != nil && $0.role == .user && $0.content == serverMessage.content
+              })
+        else { return false }
+        let localId = messages[idx].id
+        userSendStates.removeValue(forKey: localId)
+        optimisticPayloads.removeValue(forKey: localId)
+        messages[idx] = serverMessage
+        return true
     }
 
     /// Set plan-mode state for a specific session.
@@ -605,8 +786,15 @@ final class ConversationStore {
             || !stream.activeAgentActivities.isEmpty || !stream.currentThinking.isEmpty
 
         // Remove the stream slot before appending the finalized message so the
-        // chat view never shows both at once.
+        // chat view never shows both at once. A store-owned failed send is not
+        // tied to this turn, so it is carried across the finalization.
+        let preservedFailedSend = stream.failedSend
         sessionStreams.removeValue(forKey: sid)
+        if let preservedFailedSend {
+            let slot = SessionStreamState()
+            slot.failedSend = preservedFailedSend
+            sessionStreams[sid] = slot
+        }
 
         if isActive {
             if hasContent {
@@ -737,11 +925,23 @@ func deriveDismissedToolCallIds(from messages: [ChatMessage]) -> Set<String> {
 
 // MARK: - Pending Tool Input
 
-struct PendingToolInput: Identifiable {
+struct PendingToolInput: Identifiable, Equatable {
     var id: String { requestId }
     let sessionId: String
     let requestId: String
     let toolName: String
     let toolUseId: String
     let input: String
+}
+
+/// A store-owned failed tool-input answer. Rendered as a distinct error row
+/// (never a fake assistant message) so it survives history refetches; retrying
+/// re-presents the pending question. Failed chat messages are handled as
+/// optimistic transcript messages instead (see `UserSendState`).
+struct FailedSend: Identifiable, Equatable {
+    let id: String
+    let sessionId: String
+    let content: String
+    var reason: String
+    let pending: PendingToolInput
 }

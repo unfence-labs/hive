@@ -200,3 +200,29 @@ struct ConversationStoreStreamingBufferTests {
         #expect(store.currentText == "first second")
     }
 }
+
+extension ConversationStoreStreamingBufferTests {
+    @Test @MainActor
+    func uiHoldKeepsBufferingUntilReleased() async throws {
+        let store = ConversationStore(streamFlushInterval: 0.01)
+        store.handle(.status(
+            status: .busy,
+            sessionId: "session-1",
+            streaming: true,
+            streamingStartedAt: nil,
+            lockedProvider: nil
+        ))
+
+        store.setStreamingUIHold(true)
+        store.handle(.textDelta(sessionId: "session-1", text: "held"))
+        try await Task.sleep(for: .milliseconds(60))
+        #expect(store.currentText == "")
+
+        store.handle(.textDelta(sessionId: "session-1", text: " too"))
+        store.setStreamingUIHold(false)
+        #expect(store.currentText == "held too")
+
+        store.handle(.textDelta(sessionId: "session-1", text: ", resumed"))
+        try await waitUntil { store.currentText == "held too, resumed" }
+    }
+}

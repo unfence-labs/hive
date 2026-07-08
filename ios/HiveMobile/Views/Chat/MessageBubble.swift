@@ -5,10 +5,16 @@ struct MessageBubble: View {
     let message: ChatMessage
     var pendingToolUseIds: Set<String> = []
     var dismissedToolCallIds: Set<String> = []
+    var sendState: ConversationStore.UserSendState? = nil
+    var onRetrySend: (() -> Void)? = nil
+    var onDiscardSend: (() -> Void)? = nil
 
     @AppStorage("hiveAccent") private var accentId = AccentOption.defaultId
     @State private var copied = false
     @State private var bubbleMenuVisible = false
+    /// Scales the Markdown base font with Dynamic Type; the theme's relative
+    /// (`.em`) sizes grow proportionally from it.
+    @ScaledMetric(relativeTo: .body) private var markdownBaseSize: CGFloat = 14
 
     private var hiveAccent: Color {
         AccentOption(rawValue: accentId)?.color ?? AccentOption.violet.color
@@ -50,10 +56,49 @@ struct MessageBubble: View {
                     AgentActivityList(activities: activities, showExecutingState: message.id == "streaming")
                 }
 
-                messageFooter
+                deliveryStatus
+
+                if sendState == nil {
+                    messageFooter
+                }
             }
 
             if message.role == .assistant { Spacer(minLength: 40) }
+        }
+    }
+
+    // MARK: - Delivery Status
+
+    @ViewBuilder
+    private var deliveryStatus: some View {
+        switch sendState {
+        case .sending:
+            Text("Sending…")
+                .font(.caption2)
+                .foregroundStyle(WhisperColor.textMuted)
+        case .failed:
+            HStack(spacing: 12) {
+                Text("Not delivered")
+                    .foregroundStyle(WhisperColor.danger)
+                if let onRetrySend {
+                    Button(action: onRetrySend) {
+                        Label("Retry", systemImage: "arrow.clockwise")
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(WhisperColor.danger)
+                }
+                if let onDiscardSend {
+                    Button(action: onDiscardSend) {
+                        Image(systemName: "xmark")
+                            .foregroundStyle(WhisperColor.textMuted)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Discard message")
+                }
+            }
+            .font(.caption2.weight(.semibold))
+        case nil:
+            EmptyView()
         }
     }
 
@@ -83,7 +128,7 @@ struct MessageBubble: View {
                     Image(systemName: "stop.circle")
                         .font(.system(size: 11))
                     Text("Stopped")
-                        .font(.system(size: 13))
+                        .font(WhisperFont.scaled(13))
                         .italic()
                 }
                 .foregroundStyle(.red.opacity(0.7))
@@ -99,7 +144,7 @@ struct MessageBubble: View {
             switch message.role {
             case .user:
                 Text(highlightedUserContent(message.content, fileMentions: message.fileMentions))
-                    .font(.system(size: 14))
+                    .font(WhisperFont.scaled(14))
                     .foregroundStyle(WhisperColor.text)
                     .lineSpacing(3)
                     .padding(.horizontal, 14)
@@ -120,10 +165,12 @@ struct MessageBubble: View {
             case .assistant:
                 if message.id == "streaming" {
                     Markdown(message.content)
+                        .markdownTextStyle { FontSize(markdownBaseSize) }
                         .markdownTheme(.whisperChat)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 } else if markdownNeedsRichRenderer(message.content) {
                     Markdown(message.content)
+                        .markdownTextStyle { FontSize(markdownBaseSize) }
                         .markdownTheme(.whisperChat)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .textSelection(.enabled)
@@ -628,7 +675,7 @@ private struct WhisperThinkingBlock: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Button {
-                isExpanded.toggle()
+                withoutAnimation { isExpanded.toggle() }
             } label: {
                 ChatActivityRowLabel(icon: "brain", label: "Thinking", detail: isExpanded ? nil : preview)
             }
@@ -681,7 +728,7 @@ private struct WhisperToolCallsBlock: View {
                     isExpanded: groupExpanded,
                     isStreaming: showExecutingState,
                     onToggle: {
-                        groupExpanded.toggle()
+                        withoutAnimation { groupExpanded.toggle() }
                     }
                 )
             }
@@ -764,7 +811,7 @@ private struct WhisperToolCallRow: View {
 
         VStack(alignment: .leading, spacing: 0) {
             Button {
-                isExpanded.toggle()
+                withoutAnimation { isExpanded.toggle() }
             } label: {
                 ChatActivityRowLabel(icon: display.icon, label: display.label, detail: display.detail, stats: display.stats, summary: summary, badgeText: display.badgeText, badgeIcon: display.badgeIcon, executing: display.executing)
             }
@@ -936,7 +983,7 @@ private struct AskUserQuestionContent: View {
                 ForEach(Array(questions.enumerated()), id: \.offset) { _, q in
                     VStack(alignment: .leading, spacing: 4) {
                         Text(q.text)
-                            .font(.system(size: 12, weight: .medium))
+                            .font(WhisperFont.scaled(12, weight: .medium))
                             .foregroundStyle(WhisperColor.textSecondary)
                         ForEach(q.options, id: \.self) { option in
                             HStack(spacing: 5) {
@@ -965,11 +1012,10 @@ private extension Theme {
         .text {
             BackgroundColor(.clear)
             ForegroundColor(WhisperColor.text)
-            FontSize(14)
         }
         .code {
             FontFamilyVariant(.monospaced)
-            FontSize(12)
+            FontSize(.em(12.0 / 14))
             ForegroundColor(WhisperColor.codeText)
             BackgroundColor(WhisperColor.codeBg)
         }
@@ -993,7 +1039,7 @@ private extension Theme {
                 .markdownMargin(top: .em(1.2), bottom: .em(0.4))
                 .markdownTextStyle {
                     FontWeight(.semibold)
-                    FontSize(20)
+                    FontSize(.em(20.0 / 14))
                 }
         }
         .heading2 { configuration in
@@ -1002,7 +1048,7 @@ private extension Theme {
                 .markdownMargin(top: .em(1), bottom: .em(0.3))
                 .markdownTextStyle {
                     FontWeight(.semibold)
-                    FontSize(17)
+                    FontSize(.em(17.0 / 14))
                 }
         }
         .heading3 { configuration in
@@ -1011,7 +1057,7 @@ private extension Theme {
                 .markdownMargin(top: .em(0.8), bottom: .em(0.2))
                 .markdownTextStyle {
                     FontWeight(.semibold)
-                    FontSize(15)
+                    FontSize(.em(15.0 / 14))
                 }
         }
         .heading4 { configuration in
@@ -1019,7 +1065,7 @@ private extension Theme {
                 .markdownMargin(top: .em(0.6), bottom: .em(0.2))
                 .markdownTextStyle {
                     FontWeight(.medium)
-                    FontSize(14)
+                    FontSize(.em(1.0))
                 }
         }
         .heading5 { configuration in
@@ -1027,7 +1073,7 @@ private extension Theme {
                 .markdownMargin(top: .em(0.5), bottom: .em(0.1))
                 .markdownTextStyle {
                     FontWeight(.medium)
-                    FontSize(13)
+                    FontSize(.em(13.0 / 14))
                     ForegroundColor(WhisperColor.textSecondary)
                 }
         }
@@ -1036,7 +1082,7 @@ private extension Theme {
                 .markdownMargin(top: .em(0.5), bottom: .em(0.1))
                 .markdownTextStyle {
                     FontWeight(.medium)
-                    FontSize(12)
+                    FontSize(.em(12.0 / 14))
                     ForegroundColor(WhisperColor.textSecondary)
                 }
         }
@@ -1049,7 +1095,7 @@ private extension Theme {
             .scrollIndicators(.hidden)
             .markdownTextStyle {
                 FontFamilyVariant(.monospaced)
-                FontSize(12)
+                FontSize(.em(12.0 / 14))
                 ForegroundColor(WhisperColor.codeText)
             }
             .padding(12)

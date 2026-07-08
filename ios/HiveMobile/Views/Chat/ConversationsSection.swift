@@ -166,9 +166,9 @@ struct ConversationsSection<Header: View>: View {
             await refreshContent(force: true)
         }
         .overlay {
-            if isLoading {
-                ProgressView()
-            } else if sessions.isEmpty {
+            if isLoading, sessions.isEmpty {
+                ListLoadingSkeleton()
+            } else if !isLoading, sessions.isEmpty {
                 VStack(spacing: HiveSpacing.sm) {
                     Text(labels.emptyTitle)
                         .font(.headline)

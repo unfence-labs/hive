@@ -239,4 +239,51 @@ struct HubStatusMonitorTests {
         #expect(sent == true)
         #expect(connection.probeLivenessCount == 1)
     }
+
+    @Test
+    func sendFailsImmediatelyWithoutNetwork() async {
+        let (monitor, cache, connection) = makeMonitor()
+        monitor.sync(workspaceIds: ["ws-net"])
+        let store = cache.getOrCreate("ws-net")
+
+        monitor.setNetworkAvailable(false)
+        let sent = await store.send?(.stop(sessionId: "s1")) ?? true
+
+        #expect(sent == false)
+        #expect(connection.sentMessages.isEmpty)
+        #expect(monitor.connectionState == .disconnected)
+    }
+
+    @Test
+    func networkRestoreProbesTheConnection() {
+        let (monitor, _, connection) = makeMonitor()
+        monitor.sync(workspaceIds: ["ws-net"])
+
+        monitor.setNetworkAvailable(false)
+        #expect(monitor.connectionState == .disconnected)
+        monitor.setNetworkAvailable(true)
+
+        #expect(connection.probeLivenessCount == 1)
+    }
+
+    @Test
+    func hubBadgeCountsWorkspacesWithActivityAndClearsOnView() {
+        let (monitor, _, _) = makeMonitor()
+        monitor.sync(workspaceIds: ["ws-a", "ws-b"])
+        // Completed state persists across launches; start from a clean baseline.
+        monitor.clearCompleted("ws-a")
+        monitor.clearCompleted("ws-b")
+        #expect(monitor.hubBadgeCount == 0)
+
+        monitor.didReceiveStreaming(true, for: "ws-a", sessionId: "s1")
+        monitor.didReceiveDone(for: "ws-a", sessionId: "s1", markWorkspaceCompleted: true)
+        monitor.didReceiveStreaming(true, for: "ws-b", sessionId: "s2")
+        monitor.didReceiveDone(for: "ws-b", sessionId: "s2", markWorkspaceCompleted: true)
+        #expect(monitor.hubBadgeCount == 2)
+
+        // Viewing ws-a clears its completed and unread state.
+        monitor.clearCompleted("ws-a")
+        monitor.clearUnread(workspaceId: "ws-a", sessionId: "s1")
+        #expect(monitor.hubBadgeCount == 1)
+    }
 }

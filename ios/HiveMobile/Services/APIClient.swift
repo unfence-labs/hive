@@ -14,6 +14,30 @@ enum APIError: Error, LocalizedError {
         case .networkError(let err): "Network error: \(err.localizedDescription)"
         }
     }
+
+    /// A rejected-credentials failure (wrong or expired token) rather than a
+    /// transport problem.
+    var isAuthFailure: Bool {
+        if case .httpError(let code, _) = self { return code == 401 || code == 403 }
+        return false
+    }
+}
+
+/// Classified outcome of a connection health probe, so a wrong token can be
+/// surfaced distinctly from an unreachable server.
+enum ConnectionHealth: Equatable {
+    case connected
+    case unreachable
+    case invalidToken
+
+    /// Map a failed probe to a health state: a 401/403 means the token is
+    /// invalid; anything else is treated as unreachable.
+    static func classify(error: Error) -> ConnectionHealth {
+        if let apiError = error as? APIError, apiError.isAuthFailure {
+            return .invalidToken
+        }
+        return .unreachable
+    }
 }
 
 final class APIClient {
