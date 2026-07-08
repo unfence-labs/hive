@@ -27,7 +27,12 @@ final class ConversationStore {
 
     /// ISO8601 timestamp for the current moment (shared formatter).
     static func timestamp() -> String {
-        outgoingTimestampFormatter.string(from: Date())
+        timestamp(from: Date())
+    }
+
+    /// ISO8601 timestamp for a specific moment (shared formatter).
+    static func timestamp(from date: Date) -> String {
+        outgoingTimestampFormatter.string(from: date)
     }
 
     // MARK: - Public state

@@ -1,3 +1,4 @@
+import Foundation
 import Observation
 import Testing
 @testable import HiveMobileStoresCore
@@ -149,5 +150,12 @@ extension ConversationStoreDerivationTests {
 
         #expect(store.derivationRunCount > 0)
         #expect(!tasksChanged)
+    }
+
+    @Test @MainActor
+    func timestampFromDateIsDeterministic() {
+        let date = Date(timeIntervalSince1970: 1_700_000_000)
+        #expect(ConversationStore.timestamp(from: date) == ConversationStore.timestamp(from: date))
+        #expect(ConversationStore.timestamp(from: date) == "2023-11-14T22:13:20.000Z")
     }
 }
