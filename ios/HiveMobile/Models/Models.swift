@@ -389,6 +389,11 @@ struct DiffFileStat: Codable, Identifiable {
     var id: String { file }
 }
 
+struct DiffResponse: Codable {
+    let diff: String
+    let omittedFileCount: Int
+}
+
 struct DiffStatResponse: Codable {
     let committed: [DiffFileStat]
     let uncommitted: [DiffFileStat]

@@ -35,7 +35,22 @@ struct WorkspaceConversationsView: View {
                 onScriptAction: { action in
                     guard !isPerformingScriptAction else { return }
                     pendingScriptAction = action
+                },
+                onDiffTap: {
+                    navigationPath.append(WorkspaceDiffDestination(workspace: workspace))
                 }
+            )
+        }
+        .navigationDestination(for: WorkspaceDiffDestination.self) { destination in
+            ChangedFilesView(workspace: destination.workspace, navigationPath: $navigationPath)
+        }
+        .navigationDestination(for: WorkspaceFileDiffDestination.self) { destination in
+            WorkspaceFileDiffView(
+                workspace: destination.workspace,
+                scope: destination.scope,
+                paths: destination.paths,
+                navigationPath: $navigationPath,
+                index: destination.index
             )
         }
         .alert(

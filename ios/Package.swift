@@ -46,7 +46,8 @@ let package = Package(
                 "Stores/SubAgentStatus.swift",
                 "Stores/TaskDerivation.swift",
                 "Stores/TokenFormatting.swift",
-                "Stores/ToolInputParsing.swift"
+                "Stores/ToolInputParsing.swift",
+                "Stores/WorkspaceDiff.swift"
             ]
         ),
         .testTarget(
