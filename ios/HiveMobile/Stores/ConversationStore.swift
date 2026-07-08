@@ -361,7 +361,11 @@ final class ConversationStore {
             sessionStreams[sid]?.activeAgentActivities = []
             sessionStreams[sid]?.pendingToolInputs = []
             if isActive && !alreadyExists {
-                messages.append(msg)
+                // The echo confirms delivery of an optimistically-appended
+                // message: swap it in place instead of appending a duplicate.
+                if !resolveOptimisticSend(with: msg) {
+                    messages.append(msg)
+                }
                 cacheMessages(messages, for: sid)
             } else if isActive {
                 recomputeDerivations()
@@ -453,7 +457,23 @@ final class ConversationStore {
             }
         }
 
-        messages = msgs
+        // Carry unresolved optimistic sends across the refetch: history that
+        // already contains the content confirms delivery; anything else is
+        // re-appended so a pending/failed message never silently vanishes.
+        var merged = msgs
+        for local in messages where userSendStates[local.id] != nil && local.sessionId == sessionId {
+            if userSendStates[local.id] == .sending,
+               msgs.contains(where: { $0.role == .user && $0.content == local.content }) {
+                userSendStates.removeValue(forKey: local.id)
+                optimisticPayloads.removeValue(forKey: local.id)
+            } else {
+                merged.append(local)
+            }
+        }
+        messages = merged
+        if merged.count != msgs.count {
+            cacheMessages(merged, for: sessionId)
+        }
     }
 
     func lastServerMessageId(for sessionId: String?) -> String? {
@@ -492,33 +512,112 @@ final class ConversationStore {
         sessionStreams[sessionId]?.failedSend = nil
     }
 
-    /// Retry a failed send. A message replays through the normal send path and
-    /// clears on success (kept, with reason refreshed, on failure). A tool-input
-    /// answer re-presents its pending question instead of blind-resending.
-    /// Returns `true` when the failed-send state was resolved.
+    /// Retry a failed tool-input answer: re-present the pending question so the
+    /// user can confirm it before it is resent.
     @discardableResult
     func retryFailedSend(for sessionId: String) async -> Bool {
         guard let failed = sessionStreams[sessionId]?.failedSend else { return false }
-        switch failed.retry {
-        case let .message(content, images, options):
-            let sent = await send?(.userMessage(
-                content: content, images: images, fileMentions: nil,
-                options: options, sessionId: sessionId
-            )) ?? false
-            if sent {
-                sessionStreams[sessionId]?.failedSend = nil
-                bumpHistoryToken(for: sessionId)
-            }
-            return sent
-        case let .toolInput(pending):
-            sessionStreams[sessionId]?.failedSend = nil
-            ensureStream(for: sessionId, streaming: false)
-            if let stream = sessionStreams[sessionId],
-               !stream.pendingToolInputs.contains(where: { $0.requestId == pending.requestId }) {
-                stream.pendingToolInputs.append(pending)
-            }
-            return true
+        sessionStreams[sessionId]?.failedSend = nil
+        ensureStream(for: sessionId, streaming: false)
+        if let stream = sessionStreams[sessionId],
+           !stream.pendingToolInputs.contains(where: { $0.requestId == failed.pending.requestId }) {
+            stream.pendingToolInputs.append(failed.pending)
         }
+        return true
+    }
+
+    // MARK: - Optimistic user sends
+
+    /// Delivery state of a user message the client appended optimistically.
+    /// Absent from the map = confirmed by the server (or plain history).
+    enum UserSendState: Equatable {
+        case sending
+        case failed
+    }
+
+    /// Per-message delivery state, keyed by (local) message ID.
+    private(set) var userSendStates: [String: UserSendState] = [:]
+    @ObservationIgnored private var optimisticPayloads: [String: (images: [ImageAttachment]?, options: MessageOptions?)] = [:]
+
+    /// Delivery state for a message, if it is a locally-appended send.
+    func sendState(for messageId: String) -> UserSendState? {
+        userSendStates[messageId]
+    }
+
+    /// Append the user's message to the transcript immediately (before the
+    /// server echo) so sending feels instant. Returns the local message ID used
+    /// to track delivery.
+    @discardableResult
+    func appendOptimisticUserMessage(
+        content: String,
+        images: [ImageAttachment]?,
+        options: MessageOptions?,
+        sessionId sid: String
+    ) -> String {
+        let localId = "local-\(UUID().uuidString)"
+        let message = ChatMessage(
+            id: localId, sessionId: sid, role: .user, content: content,
+            images: images, toolCalls: nil, thinkingContent: nil,
+            timestamp: Self.timestamp(), cancelled: nil, durationMs: nil
+        )
+        userSendStates[localId] = .sending
+        optimisticPayloads[localId] = (images, options)
+        if sid == sessionId {
+            messages.append(message)
+            cacheMessages(messages, for: sid)
+        }
+        return localId
+    }
+
+    /// Mark a locally-appended send as failed (kept in the transcript with a
+    /// retry affordance — the user's text is never lost).
+    func markSendFailed(_ localId: String) {
+        guard userSendStates[localId] != nil else { return }
+        userSendStates[localId] = .failed
+    }
+
+    /// Resend a failed (or stuck) local message through the normal send path.
+    @discardableResult
+    func retryOptimisticSend(_ localId: String) async -> Bool {
+        guard let message = messages.first(where: { $0.id == localId }),
+              userSendStates[localId] != nil else { return false }
+        let payload = optimisticPayloads[localId]
+        userSendStates[localId] = .sending
+        let sent = await send?(.userMessage(
+            content: message.content, images: payload?.images, fileMentions: nil,
+            options: payload?.options, sessionId: message.sessionId
+        )) ?? false
+        if sent {
+            bumpHistoryToken(for: message.sessionId)
+        } else {
+            userSendStates[localId] = .failed
+        }
+        return sent
+    }
+
+    /// Remove a failed local message the user no longer wants to deliver.
+    func discardOptimisticSend(_ localId: String) {
+        guard userSendStates[localId] != nil else { return }
+        userSendStates.removeValue(forKey: localId)
+        optimisticPayloads.removeValue(forKey: localId)
+        if let idx = messages.firstIndex(where: { $0.id == localId }) {
+            let sid = messages[idx].sessionId
+            messages.remove(at: idx)
+            cacheMessages(messages, for: sid)
+        }
+    }
+
+    private func resolveOptimisticSend(with serverMessage: ChatMessage) -> Bool {
+        guard serverMessage.role == .user,
+              let idx = messages.firstIndex(where: {
+                  userSendStates[$0.id] != nil && $0.role == .user && $0.content == serverMessage.content
+              })
+        else { return false }
+        let localId = messages[idx].id
+        userSendStates.removeValue(forKey: localId)
+        optimisticPayloads.removeValue(forKey: localId)
+        messages[idx] = serverMessage
+        return true
     }
 
     /// Set plan-mode state for a specific session.
@@ -831,17 +930,14 @@ struct PendingToolInput: Identifiable, Equatable {
     let input: String
 }
 
-/// A store-owned failed send. Rendered as a distinct error row (never a fake
-/// assistant message) so it survives history refetches and can be retried.
+/// A store-owned failed tool-input answer. Rendered as a distinct error row
+/// (never a fake assistant message) so it survives history refetches; retrying
+/// re-presents the pending question. Failed chat messages are handled as
+/// optimistic transcript messages instead (see `UserSendState`).
 struct FailedSend: Identifiable, Equatable {
-    enum Retry: Equatable {
-        case message(content: String, images: [ImageAttachment]?, options: MessageOptions?)
-        case toolInput(PendingToolInput)
-    }
-
     let id: String
     let sessionId: String
     let content: String
     var reason: String
-    let retry: Retry
+    let pending: PendingToolInput
 }

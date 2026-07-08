@@ -116,7 +116,10 @@ struct ChatView: View {
                                 MessageBubble(
                                     message: message,
                                     pendingToolUseIds: pendingToolUseIds,
-                                    dismissedToolCallIds: store.dismissedToolCallIds
+                                    dismissedToolCallIds: store.dismissedToolCallIds,
+                                    sendState: store.sendState(for: message.id),
+                                    onRetrySend: { Task { await store.retryOptimisticSend(message.id) } },
+                                    onDiscardSend: { store.discardOptimisticSend(message.id) }
                                 )
                                 .id(message.id)
                                 .chatTranscriptRow()
@@ -446,6 +449,15 @@ struct ChatView: View {
             fastMode: (supportsFastMode && fastModeEnabled) ? true : nil
         )
 
+        // Show the message in the transcript immediately; the server echo
+        // confirms delivery, a send failure marks it Not delivered with Retry.
+        let localId = store.appendOptimisticUserMessage(
+            content: content,
+            images: images.isEmpty ? nil : images,
+            options: options,
+            sessionId: targetSessionId
+        )
+
         Task {
             let sent = await store.send?(.userMessage(
                 content: content,
@@ -460,17 +472,7 @@ struct ChatView: View {
                 // user_message echo that the backend is about to broadcast.
                 store.bumpHistoryToken(for: targetSessionId)
             } else {
-                store.recordFailedSend(FailedSend(
-                    id: UUID().uuidString,
-                    sessionId: targetSessionId,
-                    content: content,
-                    reason: "Disconnected from server",
-                    retry: .message(
-                        content: content,
-                        images: images.isEmpty ? nil : images,
-                        options: options
-                    )
-                ))
+                store.markSendFailed(localId)
             }
         }
     }
@@ -505,7 +507,7 @@ struct ChatView: View {
                     sessionId: pending.sessionId,
                     content: "Answer to the agent's question",
                     reason: "Disconnected from server",
-                    retry: .toolInput(pending)
+                    pending: pending
                 ))
             }
         }

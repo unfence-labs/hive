@@ -5,6 +5,9 @@ struct MessageBubble: View {
     let message: ChatMessage
     var pendingToolUseIds: Set<String> = []
     var dismissedToolCallIds: Set<String> = []
+    var sendState: ConversationStore.UserSendState? = nil
+    var onRetrySend: (() -> Void)? = nil
+    var onDiscardSend: (() -> Void)? = nil
 
     @AppStorage("hiveAccent") private var accentId = AccentOption.defaultId
     @State private var copied = false
@@ -53,10 +56,49 @@ struct MessageBubble: View {
                     AgentActivityList(activities: activities, showExecutingState: message.id == "streaming")
                 }
 
-                messageFooter
+                deliveryStatus
+
+                if sendState == nil {
+                    messageFooter
+                }
             }
 
             if message.role == .assistant { Spacer(minLength: 40) }
+        }
+    }
+
+    // MARK: - Delivery Status
+
+    @ViewBuilder
+    private var deliveryStatus: some View {
+        switch sendState {
+        case .sending:
+            Text("Sending…")
+                .font(.caption2)
+                .foregroundStyle(WhisperColor.textMuted)
+        case .failed:
+            HStack(spacing: 12) {
+                Text("Not delivered")
+                    .foregroundStyle(WhisperColor.danger)
+                if let onRetrySend {
+                    Button(action: onRetrySend) {
+                        Label("Retry", systemImage: "arrow.clockwise")
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(WhisperColor.danger)
+                }
+                if let onDiscardSend {
+                    Button(action: onDiscardSend) {
+                        Image(systemName: "xmark")
+                            .foregroundStyle(WhisperColor.textMuted)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Discard message")
+                }
+            }
+            .font(.caption2.weight(.semibold))
+        case nil:
+            EmptyView()
         }
     }
 
