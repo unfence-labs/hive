@@ -422,6 +422,7 @@ final class ConversationStore {
     /// History contains only finalized turns. Streaming content lives in
     /// `sessionStreams` and is rendered as a separate in-progress bubble.
     func applyFetchedHistory(_ msgs: [ChatMessage], for sessionId: String) {
+        let previouslyKnownIds = Set((serverHistory[sessionId] ?? []).map(\.id))
         serverHistory[sessionId] = msgs
         cacheMessages(msgs, for: sessionId)
         lastHistoryFetchAt[sessionId] = Date()
@@ -463,7 +464,10 @@ final class ConversationStore {
         var merged = msgs
         for local in messages where userSendStates[local.id] != nil && local.sessionId == sessionId {
             if userSendStates[local.id] == .sending,
-               msgs.contains(where: { $0.role == .user && $0.content == local.content }) {
+               msgs.contains(where: {
+                   $0.role == .user && $0.content == local.content
+                       && !previouslyKnownIds.contains($0.id)
+               }) {
                 userSendStates.removeValue(forKey: local.id)
                 optimisticPayloads.removeValue(forKey: local.id)
             } else {

@@ -105,6 +105,65 @@ struct ConversationStoreFailedSendTests {
     }
 
     @Test @MainActor
+    func oldIdenticalMessageDoesNotConfirmInFlightSend() {
+        let store = store(session: "s1")
+        store.applyFetchedHistory([
+            ChatMessage(
+                id: "m1", sessionId: "s1", role: .user, content: "ok",
+                images: nil, toolCalls: nil, thinkingContent: nil,
+                timestamp: "2026-07-08T09:00:00.000Z", cancelled: nil, durationMs: nil
+            )
+        ], for: "s1")
+        let localId = store.appendOptimisticUserMessage(
+            content: "ok", images: nil, options: nil, sessionId: "s1"
+        )
+
+        store.applyFetchedHistory([
+            ChatMessage(
+                id: "m1", sessionId: "s1", role: .user, content: "ok",
+                images: nil, toolCalls: nil, thinkingContent: nil,
+                timestamp: "2026-07-08T09:00:00.000Z", cancelled: nil, durationMs: nil
+            )
+        ], for: "s1")
+
+        #expect(store.messages.count == 2)
+        #expect(store.messages.last?.id == localId)
+        #expect(store.sendState(for: localId) == .sending)
+    }
+
+    @Test @MainActor
+    func newIdenticalMessageConfirmsInFlightSend() {
+        let store = store(session: "s1")
+        store.applyFetchedHistory([
+            ChatMessage(
+                id: "m1", sessionId: "s1", role: .user, content: "ok",
+                images: nil, toolCalls: nil, thinkingContent: nil,
+                timestamp: "2026-07-08T09:00:00.000Z", cancelled: nil, durationMs: nil
+            )
+        ], for: "s1")
+        let localId = store.appendOptimisticUserMessage(
+            content: "ok", images: nil, options: nil, sessionId: "s1"
+        )
+
+        store.applyFetchedHistory([
+            ChatMessage(
+                id: "m1", sessionId: "s1", role: .user, content: "ok",
+                images: nil, toolCalls: nil, thinkingContent: nil,
+                timestamp: "2026-07-08T09:00:00.000Z", cancelled: nil, durationMs: nil
+            ),
+            ChatMessage(
+                id: "srv-2", sessionId: "s1", role: .user, content: "ok",
+                images: nil, toolCalls: nil, thinkingContent: nil,
+                timestamp: "2026-07-08T10:00:00.000Z", cancelled: nil, durationMs: nil
+            )
+        ], for: "s1")
+
+        #expect(store.messages.count == 2)
+        #expect(store.messages.map(\.id) == ["m1", "srv-2"])
+        #expect(store.sendState(for: localId) == nil)
+    }
+
+    @Test @MainActor
     func retrySuccessGoesBackToSendingThenEchoResolves() async {
         let store = store(session: "s1")
         store.send = { _ in true }
