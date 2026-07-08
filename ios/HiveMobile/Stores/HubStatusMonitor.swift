@@ -1,4 +1,5 @@
 import Foundation
+import Network
 import Observation
 
 enum HubConnectionState { case connecting; case connected; case disconnected }
@@ -44,6 +45,12 @@ final class HubStatusMonitor {
     }
     private(set) var connectionState: HubConnectionState = .connecting
 
+    /// True while the device reports a usable network path. Airplane mode flips
+    /// this instantly — long before a socket send or the 30s ping would notice —
+    /// so sends fail fast and the disconnect banner shows without delay.
+    private(set) var isNetworkAvailable = true
+    @ObservationIgnored private var pathMonitor: NWPathMonitor?
+
     /// Bumped each time the hub transitions into `.connected`. Lets a retry
     /// distinguish a genuinely fresh connection from a stale `.connected` read.
     private(set) var connectionGeneration = 0
@@ -73,6 +80,35 @@ final class HubStatusMonitor {
 
     convenience init(storeCache: ConversationStoreCache) {
         self.init(storeCache: storeCache, makeHubConnection: { HubConnection(monitor: $0) })
+        startNetworkPathMonitoring()
+    }
+
+    private func startNetworkPathMonitoring() {
+        let monitor = NWPathMonitor()
+        monitor.pathUpdateHandler = { [weak self] path in
+            let available = path.status == .satisfied
+            Task { @MainActor [weak self] in
+                self?.setNetworkAvailable(available)
+            }
+        }
+        monitor.start(queue: DispatchQueue.global(qos: .utility))
+        pathMonitor = monitor
+    }
+
+    func setNetworkAvailable(_ available: Bool) {
+        guard isNetworkAvailable != available else { return }
+        isNetworkAvailable = available
+        if available {
+            // Network is back: probe (or create) the connection right away
+            // instead of waiting for the next ping cycle.
+            if hubConnection != nil {
+                forceRefresh()
+            } else {
+                ensureConnection()
+            }
+        } else {
+            didChangeConnectionState(.disconnected)
+        }
     }
 
     init(
@@ -93,6 +129,10 @@ final class HubStatusMonitor {
     fileprivate func wireSendClosure(for workspaceId: String, on store: ConversationStore) {
         store.send = { [weak self] message in
             guard let self else { return false }
+            // No network path (airplane mode): fail fast so the failed-send
+            // error state appears immediately instead of hanging on a dead
+            // socket send that TCP won't give up on for tens of seconds.
+            guard self.isNetworkAvailable else { return false }
             let event = HubIncoming.workspaceEvent(workspaceId: workspaceId, event: message)
             let generationAtSend = self.connectionGeneration
             await self.resubscribeIfNeeded()
@@ -103,10 +143,12 @@ final class HubStatusMonitor {
             // stale `.connected` left over from the socket that just failed.
             self.handleSendFailure()
             for _ in 0..<30 {
+                if !self.isNetworkAvailable { return false }
                 if self.connectionState == .connected,
                    self.connectionGeneration != generationAtSend { break }
                 try? await Task.sleep(for: .milliseconds(100))
             }
+            guard self.isNetworkAvailable else { return false }
             await self.resubscribeIfNeeded()
             return await self.hubConnection?.send(event) == true
         }
