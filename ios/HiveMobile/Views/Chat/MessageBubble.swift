@@ -633,7 +633,7 @@ private struct WhisperThinkingBlock: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Button {
-                isExpanded.toggle()
+                withoutAnimation { isExpanded.toggle() }
             } label: {
                 ChatActivityRowLabel(icon: "brain", label: "Thinking", detail: isExpanded ? nil : preview)
             }
@@ -686,7 +686,7 @@ private struct WhisperToolCallsBlock: View {
                     isExpanded: groupExpanded,
                     isStreaming: showExecutingState,
                     onToggle: {
-                        groupExpanded.toggle()
+                        withoutAnimation { groupExpanded.toggle() }
                     }
                 )
             }
@@ -769,7 +769,7 @@ private struct WhisperToolCallRow: View {
 
         VStack(alignment: .leading, spacing: 0) {
             Button {
-                isExpanded.toggle()
+                withoutAnimation { isExpanded.toggle() }
             } label: {
                 ChatActivityRowLabel(icon: display.icon, label: display.label, detail: display.detail, stats: display.stats, summary: summary, badgeText: display.badgeText, badgeIcon: display.badgeIcon, executing: display.executing)
             }

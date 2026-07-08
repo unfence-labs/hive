@@ -15,9 +15,7 @@ struct TrackerSection<Rows: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Button {
-                withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-                    isExpanded.toggle()
-                }
+                withoutAnimation { isExpanded.toggle() }
             } label: {
                 collapsedRow
             }
@@ -29,7 +27,6 @@ struct TrackerSection<Rows: View>: View {
                 }
                 .padding(.top, 6)
                 .padding(.bottom, 2)
-                .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
     }
