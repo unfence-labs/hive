@@ -611,16 +611,26 @@ private struct TranscriptTouchProbe: UIViewRepresentable {
     final class ProbeView: UIView, UIGestureRecognizerDelegate {
         var onChange: ((Bool) -> Void)?
         private weak var attachedTo: UIView?
+        private var attachAttemptsRemaining = 0
 
         override func didMoveToWindow() {
             super.didMoveToWindow()
+            attachAttemptsRemaining = 20
             DispatchQueue.main.async { [weak self] in
                 self?.attachIfNeeded()
             }
         }
 
         private func attachIfNeeded() {
-            guard window != nil, attachedTo == nil, let target = findCollectionView() else { return }
+            guard window != nil, attachedTo == nil else { return }
+            guard let target = findCollectionView() else {
+                attachAttemptsRemaining -= 1
+                guard attachAttemptsRemaining > 0 else { return }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+                    self?.attachIfNeeded()
+                }
+                return
+            }
             let press = UILongPressGestureRecognizer(target: self, action: #selector(pressChanged(_:)))
             press.minimumPressDuration = 0
             press.cancelsTouchesInView = false
