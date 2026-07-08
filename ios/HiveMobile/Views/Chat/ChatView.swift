@@ -121,6 +121,7 @@ struct ChatView: View {
                                     onRetrySend: { Task { await store.retryOptimisticSend(message.id) } },
                                     onDiscardSend: { store.discardOptimisticSend(message.id) }
                                 )
+                                .equatable()
                                 .id(message.id)
                                 .chatTranscriptRow()
                             }
@@ -132,6 +133,7 @@ struct ChatView: View {
                                 pendingToolUseIds: pendingToolUseIds,
                                 dismissedToolCallIds: store.dismissedToolCallIds
                             )
+                            .equatable()
                             .id(message.id)
                             .chatTranscriptRow()
                         }

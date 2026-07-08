@@ -1,13 +1,20 @@
 import MarkdownUI
 import SwiftUI
 
-struct MessageBubble: View {
+struct MessageBubble: View, Equatable {
     let message: ChatMessage
     var pendingToolUseIds: Set<String> = []
     var dismissedToolCallIds: Set<String> = []
     var sendState: ConversationStore.UserSendState? = nil
     var onRetrySend: (() -> Void)? = nil
     var onDiscardSend: (() -> Void)? = nil
+
+    static func == (lhs: MessageBubble, rhs: MessageBubble) -> Bool {
+        lhs.message == rhs.message
+            && lhs.pendingToolUseIds == rhs.pendingToolUseIds
+            && lhs.dismissedToolCallIds == rhs.dismissedToolCallIds
+            && lhs.sendState == rhs.sendState
+    }
 
     @AppStorage("hiveAccent") private var accentId = AccentOption.defaultId
     @State private var copied = false
@@ -164,9 +171,7 @@ struct MessageBubble: View {
                     )
             case .assistant:
                 if message.id == "streaming" {
-                    Markdown(message.content)
-                        .markdownTextStyle { FontSize(markdownBaseSize) }
-                        .markdownTheme(.whisperChat)
+                    StreamingMarkdownView(text: message.content, baseSize: markdownBaseSize)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 } else if markdownNeedsRichRenderer(message.content) {
                     Markdown(message.content)
@@ -1006,7 +1011,7 @@ private struct AskUserQuestionContent: View {
 
 private let whisperLinkColor = Color.accentColor
 
-private extension Theme {
+extension Theme {
     static let whisperChat = Theme.gitHub
         // ── Inline text ──
         .text {
