@@ -1,3 +1,5 @@
+import Foundation
+import Observation
 import Testing
 @testable import HiveMobileStoresCore
 
@@ -100,5 +102,60 @@ struct ConversationStoreDerivationTests {
 
         store.applyFetchedHistory(history, for: "session-1")
         #expect(store.dismissedToolCallIds == ["ask-1"])
+    }
+}
+
+extension ConversationStoreDerivationTests {
+    @Test @MainActor
+    func toolEventsDoNotRerunHistoryDerivations() {
+        let store = ConversationStore(streamFlushInterval: nil)
+        store.setFocusedSessionId("s1")
+        store.applyFetchedHistory([
+            ChatMessage(
+                id: "m1", sessionId: "s1", role: .assistant, content: "done",
+                images: nil,
+                toolCalls: [ToolCall(id: "t0", name: "TaskCreate", input: "{\"subject\":\"Old\"}", output: "Task #1 created", parentToolUseId: nil)],
+                thinkingContent: nil,
+                timestamp: "2026-07-08T09:00:00.000Z", cancelled: nil, durationMs: nil
+            )
+        ], for: "s1")
+        store.handle(.status(status: .busy, sessionId: "s1", streaming: true, streamingStartedAt: nil, lockedProvider: nil))
+        let base = store.historyDerivationRunCount
+
+        store.handle(.toolUse(sessionId: "s1", id: "t1", name: "TaskCreate", input: "{\"subject\":\"New\"}", parentToolUseId: nil))
+        store.handle(.toolResult(sessionId: "s1", toolUseId: "t1", output: "Task #2 created"))
+        store.handle(.toolUse(sessionId: "s1", id: "t2", name: "Read", input: "{}", parentToolUseId: nil))
+
+        #expect(store.historyDerivationRunCount == base)
+        #expect(store.tasksState.tasks.map(\.subject) == ["Old", "New"])
+
+        store.applyFetchedHistory([], for: "s1")
+        #expect(store.historyDerivationRunCount == base + 1)
+    }
+
+    @Test @MainActor
+    func unchangedDerivationsDoNotNotifyObservers() async {
+        let store = ConversationStore(streamFlushInterval: nil)
+        store.setFocusedSessionId("s1")
+        store.handle(.status(status: .busy, sessionId: "s1", streaming: true, streamingStartedAt: nil, lockedProvider: nil))
+
+        var tasksChanged = false
+        withObservationTracking {
+            _ = store.tasksState
+        } onChange: {
+            tasksChanged = true
+        }
+
+        store.handle(.toolUse(sessionId: "s1", id: "t1", name: "Read", input: "{}", parentToolUseId: nil))
+
+        #expect(store.derivationRunCount > 0)
+        #expect(!tasksChanged)
+    }
+
+    @Test @MainActor
+    func timestampFromDateIsDeterministic() {
+        let date = Date(timeIntervalSince1970: 1_700_000_000)
+        #expect(ConversationStore.timestamp(from: date) == ConversationStore.timestamp(from: date))
+        #expect(ConversationStore.timestamp(from: date) == "2023-11-14T22:13:20.000Z")
     }
 }

@@ -558,7 +558,7 @@ enum TaskStatus: String {
     case declined
 }
 
-struct TrackedTask: Identifiable {
+struct TrackedTask: Identifiable, Equatable {
     let id: String
     var subject: String
     var description: String?
@@ -567,7 +567,7 @@ struct TrackedTask: Identifiable {
     var isCreating: Bool
 }
 
-struct TaskCounts {
+struct TaskCounts: Equatable {
     let total: Int
     let completed: Int
     let inProgress: Int
@@ -584,7 +584,7 @@ enum TaskTrackerStatus: Equatable {
     case unconfirmed
 }
 
-struct TasksState {
+struct TasksState: Equatable {
     let tasks: [TrackedTask]
     let currentTask: TrackedTask?
     let counts: TaskCounts

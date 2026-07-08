@@ -27,7 +27,12 @@ final class ConversationStore {
 
     /// ISO8601 timestamp for the current moment (shared formatter).
     static func timestamp() -> String {
-        outgoingTimestampFormatter.string(from: Date())
+        timestamp(from: Date())
+    }
+
+    /// ISO8601 timestamp for a specific moment (shared formatter).
+    static func timestamp(from date: Date) -> String {
+        outgoingTimestampFormatter.string(from: date)
     }
 
     // MARK: - Public state
@@ -114,27 +119,41 @@ final class ConversationStore {
     /// Store-owned failed send for the focused session, if any.
     var failedSend: FailedSend? { activeStream?.failedSend }
 
-    private(set) var tasksState: TasksState =
-        deriveTasks(from: [], activeToolCalls: [], activeAgentActivities: [])
-    private(set) var goalState: GoalState? =
-        deriveGoalState(from: [], activeAgentActivities: [])
-    private(set) var backgroundAgents: BackgroundAgentsState =
-        deriveBackgroundAgents(from: [], activeToolCalls: [])
+    private(set) var tasksState: TasksState = .empty
+    private(set) var goalState: GoalState?
+    private(set) var backgroundAgents: BackgroundAgentsState = .empty
     private(set) var dismissedToolCallIds: Set<String> = []
     @ObservationIgnored private(set) var derivationRunCount = 0
+    @ObservationIgnored private(set) var historyDerivationRunCount = 0
+
+    @ObservationIgnored private var tasksHistory = TasksHistorySnapshot.empty
+    @ObservationIgnored private var goalHistory: GoalState?
+    @ObservationIgnored private var agentsHistory = BackgroundAgentsHistorySnapshot.empty
 
     private func recomputeDerivations() {
+        historyDerivationRunCount += 1
+        tasksHistory = deriveTasksHistory(from: messages)
+        goalHistory = deriveGoalHistory(from: messages)
+        agentsHistory = deriveBackgroundAgentsHistory(from: messages)
+        let newDismissed = deriveDismissedToolCallIds(from: messages)
+        if dismissedToolCallIds != newDismissed { dismissedToolCallIds = newDismissed }
+        applyActiveDerivations()
+    }
+
+    private func applyActiveDerivations() {
         derivationRunCount += 1
         let toolCalls = activeStream?.activeToolCalls ?? []
         let activities = activeStream?.activeAgentActivities ?? []
-        tasksState = deriveTasks(
-            from: messages,
+        let newTasks = deriveTasks(
+            history: tasksHistory,
             activeToolCalls: toolCalls,
             activeAgentActivities: activities
         )
-        goalState = deriveGoalState(from: messages, activeAgentActivities: activities)
-        backgroundAgents = deriveBackgroundAgents(from: messages, activeToolCalls: toolCalls)
-        dismissedToolCallIds = deriveDismissedToolCallIds(from: messages)
+        if tasksState != newTasks { tasksState = newTasks }
+        let newGoal = deriveGoalState(history: goalHistory, activeAgentActivities: activities)
+        if goalState != newGoal { goalState = newGoal }
+        let newAgents = deriveBackgroundAgents(history: agentsHistory, activeToolCalls: toolCalls)
+        if backgroundAgents != newAgents { backgroundAgents = newAgents }
     }
 
     // MARK: - Streaming delta buffering
@@ -202,7 +221,7 @@ final class ConversationStore {
                 output: nil, parentToolUseId: parentToolUseId
             ))
             if sid == sessionId {
-                recomputeDerivations()
+                applyActiveDerivations()
             }
 
         case .toolResult(let sid, let toolUseId, let output):
@@ -214,7 +233,7 @@ final class ConversationStore {
                 output: output, parentToolUseId: tc.parentToolUseId
             )
             if sid == sessionId {
-                recomputeDerivations()
+                applyActiveDerivations()
             }
 
         case .agentActivity(let sid, let activity):
@@ -238,7 +257,7 @@ final class ConversationStore {
                 sessionId = sid
             }
             if sid == sessionId {
-                recomputeDerivations()
+                applyActiveDerivations()
             }
 
         case .toolInputRequired(let sid, let requestId, let toolName, let toolUseId, let input):
@@ -344,7 +363,7 @@ final class ConversationStore {
                 sessionId = incomingSessionId
             }
             if let incomingSessionId, incomingSessionId == sessionId {
-                recomputeDerivations()
+                applyActiveDerivations()
             }
 
         case .userMessage(let msg):
@@ -368,7 +387,7 @@ final class ConversationStore {
                 }
                 cacheMessages(messages, for: sid)
             } else if isActive {
-                recomputeDerivations()
+                applyActiveDerivations()
             } else {
                 lastHistoryFetchAt.removeValue(forKey: sid)
             }
@@ -654,7 +673,7 @@ final class ConversationStore {
 
     func setFocusedSessionId(_ value: String?) {
         sessionId = value
-        recomputeDerivations()
+        applyActiveDerivations()
     }
 
     func prepareSessionSwitch(_ newSessionId: String) {
@@ -761,7 +780,7 @@ final class ConversationStore {
             stream.activeAgentActivities.append(activity)
         }
         if sid == sessionId {
-            recomputeDerivations()
+            applyActiveDerivations()
         }
     }
 

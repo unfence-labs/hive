@@ -121,6 +121,7 @@ struct ChatView: View {
                                     onRetrySend: { Task { await store.retryOptimisticSend(message.id) } },
                                     onDiscardSend: { store.discardOptimisticSend(message.id) }
                                 )
+                                .equatable()
                                 .id(message.id)
                                 .chatTranscriptRow()
                             }
@@ -132,6 +133,7 @@ struct ChatView: View {
                                 pendingToolUseIds: pendingToolUseIds,
                                 dismissedToolCallIds: store.dismissedToolCallIds
                             )
+                            .equatable()
                             .id(message.id)
                             .chatTranscriptRow()
                         }
@@ -333,7 +335,7 @@ struct ChatView: View {
             toolCalls: store.activeToolCalls.isEmpty ? nil : store.activeToolCalls,
             agentActivities: store.activeAgentActivities.isEmpty ? nil : store.activeAgentActivities,
             thinkingContent: store.currentThinking.isEmpty ? nil : store.currentThinking,
-            timestamp: ConversationStore.timestamp(),
+            timestamp: store.streamingStartedAt.map(ConversationStore.timestamp(from:)) ?? "",
             cancelled: nil,
             durationMs: nil
         )
