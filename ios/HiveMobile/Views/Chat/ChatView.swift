@@ -15,6 +15,7 @@ struct ChatView: View {
     @State private var selectedModelId: String = ""
     @State private var draftAttachments: [ImageAttachment] = []
     @State private var isNearScrollBottom = true
+    @State private var isTouchingTranscript = false
     @State private var showQuestionSheet = false
 
     @Environment(ModelCatalog.self) private var modelCatalog
@@ -156,6 +157,18 @@ struct ChatView: View {
                     } action: { _, isNearBottom in
                         isNearScrollBottom = isNearBottom
                     }
+                    .background(
+                        // A finger on the transcript pauses auto-scroll AND the
+                        // streaming delta flush: any transcript movement (our
+                        // scrollTo or the List's own bottom-anchoring on content
+                        // growth) cancels the long-press copy interaction while
+                        // streaming. SwiftUI gestures on a List never fire for
+                        // stationary touches, so this observes at the UIKit level.
+                        TranscriptTouchProbe { touching in
+                            isTouchingTranscript = touching
+                            store.setStreamingUIHold(touching)
+                        }
+                    )
                     .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidShowNotification)) { _ in
                         scrollToBottomIfNeeded(proxy)
                     }
@@ -530,7 +543,7 @@ struct ChatView: View {
     }
 
     private func scrollToBottom(_ proxy: ScrollViewProxy, force: Bool) {
-        guard force || isNearScrollBottom else { return }
+        guard force || (isNearScrollBottom && !isTouchingTranscript) else { return }
         proxy.scrollTo(bottomAnchorID, anchor: .bottom)
     }
 
@@ -575,6 +588,79 @@ struct ChatView: View {
     .environment(ModelCatalog())
     .environment(ProjectStore(storeCache: ConversationStoreCache()))
     .preferredColorScheme(.dark)
+}
+
+/// Reports whether a finger is currently down on the transcript List, via a
+/// zero-duration UIKit long-press attached to the List's UICollectionView
+/// (SwiftUI gestures on a List never fire for stationary touches).
+private struct TranscriptTouchProbe: UIViewRepresentable {
+    let onChange: (Bool) -> Void
+
+    func makeUIView(context: Context) -> ProbeView {
+        let view = ProbeView()
+        view.onChange = onChange
+        return view
+    }
+
+    func updateUIView(_ uiView: ProbeView, context: Context) {
+        uiView.onChange = onChange
+    }
+
+    final class ProbeView: UIView, UIGestureRecognizerDelegate {
+        var onChange: ((Bool) -> Void)?
+        private weak var attachedTo: UIView?
+
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            DispatchQueue.main.async { [weak self] in
+                self?.attachIfNeeded()
+            }
+        }
+
+        private func attachIfNeeded() {
+            guard window != nil, attachedTo == nil, let target = findCollectionView() else { return }
+            let press = UILongPressGestureRecognizer(target: self, action: #selector(pressChanged(_:)))
+            press.minimumPressDuration = 0
+            press.cancelsTouchesInView = false
+            press.delegate = self
+            target.addGestureRecognizer(press)
+            attachedTo = target
+        }
+
+        private func findCollectionView() -> UICollectionView? {
+            var ancestor = superview
+            while let current = ancestor {
+                var queue: [UIView] = [current]
+                var visited = 0
+                while !queue.isEmpty, visited < 500 {
+                    let view = queue.removeFirst()
+                    visited += 1
+                    if let collection = view as? UICollectionView { return collection }
+                    queue.append(contentsOf: view.subviews)
+                }
+                ancestor = current.superview
+            }
+            return nil
+        }
+
+        @objc private func pressChanged(_ gesture: UILongPressGestureRecognizer) {
+            switch gesture.state {
+            case .began:
+                onChange?(true)
+            case .ended, .cancelled, .failed:
+                onChange?(false)
+            default:
+                break
+            }
+        }
+
+        func gestureRecognizer(
+            _ gestureRecognizer: UIGestureRecognizer,
+            shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
+        ) -> Bool {
+            true
+        }
+    }
 }
 
 private struct PendingQuestionChip: View {

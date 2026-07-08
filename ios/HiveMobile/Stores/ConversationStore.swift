@@ -139,6 +139,20 @@ final class ConversationStore {
 
     // MARK: - Streaming delta buffering
 
+    /// While a finger is on the transcript, scheduled flushes keep buffering
+    /// instead of applying, so the content under the touch never moves (a
+    /// moving transcript cancels the long-press copy interaction). Event
+    /// handlers still flush explicitly for turn-lifecycle correctness.
+    @ObservationIgnored private var streamingUIHeld = false
+
+    func setStreamingUIHold(_ active: Bool) {
+        guard streamingUIHeld != active else { return }
+        streamingUIHeld = active
+        if !active {
+            flushStreamingDeltas()
+        }
+    }
+
     func flushStreamingDeltas() {
         flushTask?.cancel()
         flushTask = nil
@@ -157,8 +171,13 @@ final class ConversationStore {
         guard let interval = streamFlushInterval, flushTask == nil else { return }
         flushTask = Task { [weak self] in
             try? await Task.sleep(for: .seconds(interval))
-            guard !Task.isCancelled else { return }
-            self?.flushStreamingDeltas()
+            guard !Task.isCancelled, let self else { return }
+            if self.streamingUIHeld {
+                self.flushTask = nil
+                self.scheduleStreamFlush()
+                return
+            }
+            self.flushStreamingDeltas()
         }
     }
 
