@@ -131,11 +131,15 @@ struct HubProjectRow: View {
 
 struct HubWorkspaceRow: View {
     let workspace: Workspace
-    let isStreaming: Bool
-    let turnCompleted: Bool
-    let diffStats: DiffStatResponse?
-    let prStatus: PrStatusResponse?
-    let isPrStatusLoading: Bool
+    let monitor: HubStatusMonitor
+
+    private var isStreaming: Bool { monitor.isStreaming(workspace.id) }
+    private var turnCompleted: Bool {
+        monitor.isCompleted(workspace.id) || monitor.hasUnreadSessions(workspace.id)
+    }
+    private var diffStats: DiffStatResponse? { monitor.diffStats(for: workspace.id) }
+    private var prStatus: PrStatusResponse? { monitor.prStatus(for: workspace.id) }
+    private var isPrStatusLoading: Bool { monitor.isPrStatusLoading(workspace.id) }
 
     private var diffSummary: HubDiffSummary {
         HubDiffSummary(diffStats: diffStats)

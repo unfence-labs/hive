@@ -277,12 +277,7 @@ struct HubView: View {
                     NavigationLink(value: workspace) {
                         HubWorkspaceRow(
                             workspace: workspace,
-                            isStreaming: store.statusMonitor.isStreaming(workspace.id),
-                            turnCompleted: store.statusMonitor.isCompleted(workspace.id)
-                                || store.statusMonitor.hasUnreadSessions(workspace.id),
-                            diffStats: store.statusMonitor.diffStats(for: workspace.id),
-                            prStatus: store.statusMonitor.prStatus(for: workspace.id),
-                            isPrStatusLoading: store.statusMonitor.isPrStatusLoading(workspace.id)
+                            monitor: store.statusMonitor
                         )
                     }
                     .buttonStyle(.plain)

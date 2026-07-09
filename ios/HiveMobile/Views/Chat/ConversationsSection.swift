@@ -138,14 +138,8 @@ struct ConversationsSection<Header: View>: View {
                 } label: {
                     ConversationRow(
                         session: session,
-                        isStreaming: projectStore.statusMonitor.isStreaming(
-                            workspaceId: workspace.id,
-                            sessionId: session.sessionId
-                        ),
-                        isUnread: projectStore.statusMonitor.isUnread(
-                            workspaceId: workspace.id,
-                            sessionId: session.sessionId
-                        )
+                        monitor: projectStore.statusMonitor,
+                        workspaceId: workspace.id
                     )
                 }
                 .buttonStyle(.plain)

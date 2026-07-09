@@ -330,7 +330,7 @@ struct ChatInputBar: View {
         guard normalized != current else { return }
 
         let restored: [AttachedImage] = attachments.compactMap { attachment in
-            guard attachment.decodedImage != nil else { return nil }
+            guard attachment.hasDecodableImagePayload else { return nil }
             return AttachedImage(attachment: attachment)
         }
         attachedImages = restored + attachedImages.filter { $0.attachment == nil }
@@ -560,15 +560,14 @@ private extension ImageAttachment {
         )
     }
 
-    var decodedImage: UIImage? {
+    var hasDecodableImagePayload: Bool {
         let payload: String
         if let commaIndex = dataUrl.firstIndex(of: ",") {
             payload = String(dataUrl[dataUrl.index(after: commaIndex)...])
         } else {
             payload = dataUrl
         }
-        guard let data = Data(base64Encoded: payload) else { return nil }
-        return UIImage(data: data)
+        return Data(base64Encoded: payload) != nil
     }
 }
 

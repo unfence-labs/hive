@@ -109,6 +109,16 @@ final class ComposerAutocompleteTests: XCTestCase {
         XCTAssertTrue(ComposerAutocomplete.matchFiles(files, query: "zzzzzz").isEmpty)
     }
 
+    func testPreparedCandidatesMatchStringOverload() {
+        let corpus = files + ["a/git.ts.bak", "b/mygit.ts"]
+        let candidates = ComposerAutocomplete.prepareFiles(corpus)
+        for query in ["git.ts", "index", "utils", "fzmt", "", "zzzzzz"] {
+            let viaStrings = ComposerAutocomplete.matchFiles(corpus, query: query)
+            let viaCandidates = ComposerAutocomplete.matchFiles(candidates, query: query)
+            XCTAssertEqual(viaStrings, viaCandidates, "ranking diverged for query \"\(query)\"")
+        }
+    }
+
     // MARK: - Disambiguation
 
     func testUniqueBasenameStaysBasename() {

@@ -27,6 +27,7 @@ struct ChatView: View {
     @State private var activeAutocomplete: ComposerAutocomplete.Active?
     @State private var draftFileMentions: [FileMention] = []
     @State private var completionFiles: [String]?
+    @State private var preparedFileCandidates: [ComposerAutocomplete.FileCandidate]?
     @State private var completionItems: [CompletionItem]?
     @State private var completionItemsProvider: String?
 
@@ -348,6 +349,7 @@ struct ChatView: View {
         .onChange(of: store.diffStats) {
             guard completionFiles != nil else { return }
             completionFiles = nil
+            preparedFileCandidates = nil
             if activeAutocomplete?.trigger == .file {
                 loadFileCompletionsIfNeeded()
             }
@@ -600,8 +602,8 @@ struct ChatView: View {
         guard let active = activeAutocomplete else { return [] }
         switch active.trigger {
         case .file:
-            guard let files = completionFiles else { return [] }
-            return ComposerAutocomplete.matchFiles(files, query: active.query).map { .file($0) }
+            guard let candidates = preparedFileCandidates else { return [] }
+            return ComposerAutocomplete.matchFiles(candidates, query: active.query).map { .file($0) }
         case .command, .agent:
             guard let items = completionItems else { return [] }
             let type = active.trigger == .command ? "slash_command" : "agent"
@@ -629,12 +631,18 @@ struct ChatView: View {
     private func loadFileCompletionsIfNeeded() {
         guard completionFiles == nil else { return }
         completionFiles = []
+        preparedFileCandidates = []
         Task {
             guard let files = try? await api.fetchFileCompletions(workspaceId: workspace.id) else {
                 completionFiles = nil
+                preparedFileCandidates = nil
                 return
             }
-            withAnimation(.snappy(duration: 0.22)) { completionFiles = files }
+            let prepared = ComposerAutocomplete.prepareFiles(files)
+            withAnimation(.snappy(duration: 0.22)) {
+                completionFiles = files
+                preparedFileCandidates = prepared
+            }
         }
     }
 
