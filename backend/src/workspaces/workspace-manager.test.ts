@@ -574,6 +574,16 @@ describe("getWorkspaceDiff", () => {
     expect(result.diff).toContain("+no trailing newline");
     expect(result.diff).toContain("@@ -0,0 +1,1 @@");
   });
+
+  it("rejects when git fails instead of serving an empty diff", async () => {
+    const ws = await createWorkspace(projectId, dataDir);
+    const wsPath = join(dataDir, projectId, "workspaces", ws.name);
+
+    await rm(join(wsPath, ".git"), { force: true, recursive: true });
+
+    await expect(getWorkspaceDiff(ws.id, dataDir, "uncommitted")).rejects.toThrow();
+    await expect(getWorkspaceDiff(ws.id, dataDir, "combined")).rejects.toThrow();
+  });
 });
 
 describe("getWorkspaceDiffStat", () => {

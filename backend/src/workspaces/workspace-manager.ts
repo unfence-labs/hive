@@ -248,14 +248,13 @@ export async function getWorkspaceDiff(
   if (scope === "committed") {
     await refreshDefaultBranchFromOrigin(bare, defaultBranch);
     const diff = await git(["-c", "core.quotePath=false", "diff", "--find-renames", `${defaultBranch}...${workspace.branch}`], bare)
-      .then((r) => r.stdout)
-      .catch(() => "");
+      .then((r) => r.stdout);
     return { diff, omittedFileCount: 0 };
   }
 
   if (scope === "uncommitted") {
     const [trackedDiff, untracked] = await Promise.all([
-      git(["-c", "core.quotePath=false", "diff", "HEAD"], wsPath).then((r) => r.stdout).catch(() => ""),
+      git(["-c", "core.quotePath=false", "diff", "HEAD"], wsPath).then((r) => r.stdout),
       getUntrackedDiff(wsPath, maxUntrackedFiles),
     ]);
     return buildDiffResponse(trackedDiff, untracked);
@@ -269,8 +268,8 @@ export async function getWorkspaceDiff(
 
   const [combinedDiff, untracked] = await Promise.all([
     mergeBase
-      ? git(["-c", "core.quotePath=false", "diff", mergeBase], wsPath).then((r) => r.stdout).catch(() => "")
-      : git(["-c", "core.quotePath=false", "diff", "HEAD"], wsPath).then((r) => r.stdout).catch(() => ""),
+      ? git(["-c", "core.quotePath=false", "diff", mergeBase], wsPath).then((r) => r.stdout)
+      : git(["-c", "core.quotePath=false", "diff", "HEAD"], wsPath).then((r) => r.stdout),
     getUntrackedDiff(wsPath, maxUntrackedFiles),
   ]);
 
