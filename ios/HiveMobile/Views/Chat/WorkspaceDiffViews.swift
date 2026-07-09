@@ -19,6 +19,8 @@ struct ChangedFilesView: View {
 
     @Environment(ProjectStore.self) private var projectStore
 
+    private let api = APIClient()
+
     private var files: [DiffFileStat] {
         guard let stats = projectStore.statusMonitor.diffStats(for: workspace.id) else { return [] }
         return scope == "committed" ? stats.committed : stats.uncommitted
@@ -49,7 +51,11 @@ struct ChangedFilesView: View {
         .hiveScreenBackground()
         .navigationTitle(scope == "committed" ? "Branch commits" : "Working tree")
         .navigationBarTitleDisplayMode(.inline)
-        .refreshable { projectStore.statusMonitor.forceRefresh() }
+        .refreshable {
+            if let stats = try? await api.fetchWorkspaceDiffStat(workspaceId: workspace.id) {
+                projectStore.statusMonitor.didReceiveDiffStats(stats, for: workspace.id)
+            }
+        }
         .overlay {
             if !isLoaded {
                 ListLoadingSkeleton()
