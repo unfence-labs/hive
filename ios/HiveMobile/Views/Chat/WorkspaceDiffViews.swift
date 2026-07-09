@@ -135,6 +135,7 @@ struct WorkspaceFileDiffView: View {
     @State var index: Int
     @State private var scrolledPage: Int?
     @State private var filesByPath: [String: WorkspaceFileDiff]?
+    @State private var omittedFileCount = 0
     @State private var loadFailed = false
     @State private var preparingFix = false
     @State private var pendingComments: [DiffComment] = []
@@ -255,6 +256,14 @@ struct WorkspaceFileDiffView: View {
                     }
                     }
                 }
+            } else if omittedFileCount > 0 {
+                ContentUnavailableView(
+                    "Not included in this preview",
+                    systemImage: "doc.badge.ellipsis",
+                    description: Text(omittedFileCount == 1
+                        ? "1 untracked file was omitted from the rendered diff. This file may be one of them."
+                        : "\(omittedFileCount) untracked files were omitted from the rendered diff. This file may be one of them.")
+                )
             } else {
                 ContentUnavailableView("No diff for this file", systemImage: "doc")
             }
@@ -310,6 +319,7 @@ struct WorkspaceFileDiffView: View {
         loadFailed = false
         do {
             let response = try await api.fetchWorkspaceDiff(workspaceId: workspace.id, scope: scope)
+            omittedFileCount = response.omittedFileCount
             filesByPath = Dictionary(
                 splitUnifiedDiff(response.diff).map { ($0.path, $0) },
                 uniquingKeysWith: { first, _ in first }
