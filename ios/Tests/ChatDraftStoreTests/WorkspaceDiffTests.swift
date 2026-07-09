@@ -173,6 +173,41 @@ struct HunkMarkerTests {
     }
 }
 
+struct LineNumberTests {
+    @Test
+    func numbersFollowHunkHeader() {
+        let lines = parseUnifiedDiffLines("@@ -3,2 +7,3 @@\n ctx\n-old\n+new\n+new2")
+        #expect(lines[0].oldLine == 3)
+        #expect(lines[0].newLine == 7)
+        #expect(lines[1].oldLine == 4)
+        #expect(lines[1].newLine == nil)
+        #expect(lines[2].oldLine == nil)
+        #expect(lines[2].newLine == 8)
+        #expect(lines[3].newLine == 9)
+    }
+
+    @Test
+    func secondHunkRestartsNumbers() {
+        let lines = parseUnifiedDiffLines("@@ -1 +1 @@\n-a\n@@ -10,2 +20,2 @@\n ctx")
+        #expect(lines[0].oldLine == 1)
+        #expect(lines[1].oldLine == 10)
+        #expect(lines[1].newLine == 20)
+    }
+
+    @Test
+    func headerlessLinesHaveNoNumbers() {
+        let lines = parseUnifiedDiffLines("+one\n-two\n ctx")
+        #expect(lines.allSatisfy { $0.oldLine == nil && $0.newLine == nil })
+    }
+
+    @Test
+    func singleNumberHeaderParses() {
+        let lines = parseUnifiedDiffLines("@@ -1 +1,2 @@\n ctx")
+        #expect(lines[0].oldLine == 1)
+        #expect(lines[0].newLine == 1)
+    }
+}
+
 struct ContentLineEdgeTests {
     @Test
     func plusPlusAndMinusMinusContentLinesAreKept() {

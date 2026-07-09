@@ -62,6 +62,13 @@ struct SelectableDiffText: UIViewRepresentable {
                 ranges.append((NSRange(location: start, length: result.length - start), line))
                 continue
             }
+            let number = line.newLine ?? line.oldLine
+            let gutter = number.map { String(format: "%4d  ", $0) } ?? "      "
+            result.append(NSAttributedString(string: gutter, attributes: [
+                .font: font,
+                .foregroundColor: UIColor(WhisperColor.textMuted),
+                .backgroundColor: backgroundColor(line.kind),
+            ]))
             let content = "\(line.prefix) \(line.text)\n"
             result.append(NSAttributedString(string: content, attributes: [
                 .font: font,

@@ -73,6 +73,8 @@ struct DiffLine: Identifiable, Equatable {
     let id: Int
     let kind: Kind
     let text: String
+    var oldLine: Int? = nil
+    var newLine: Int? = nil
 
     var prefix: String {
         switch kind {
@@ -100,15 +102,33 @@ func parseDiffStats(_ diff: String) -> (added: Int, removed: Int) {
     return (added, removed)
 }
 
+private func parseHunkHeader(_ line: String) -> (old: Int, new: Int)? {
+    let parts = line.split(separator: " ")
+    guard parts.count >= 3,
+          parts[1].hasPrefix("-"), parts[2].hasPrefix("+"),
+          let old = Int(parts[1].dropFirst().split(separator: ",")[0]),
+          let new = Int(parts[2].dropFirst().split(separator: ",")[0])
+    else { return nil }
+    return (old, new)
+}
+
 func parseUnifiedDiffLines(_ diff: String, includeHunkMarkers: Bool = false) -> [DiffLine] {
     var result: [DiffLine] = []
     var index = 0
     var inHunk = false
+    var oldNext = 0
+    var newNext = 0
+    var numbering = false
     for raw in diff.split(separator: "\n", omittingEmptySubsequences: false) {
         let line = String(raw)
         if line.hasPrefix("diff --git ") { inHunk = false; continue }
         if line.hasPrefix("@@") {
             inHunk = true
+            if let header = parseHunkHeader(line) {
+                oldNext = header.old
+                newNext = header.new
+                numbering = true
+            }
             if includeHunkMarkers, !result.isEmpty {
                 result.append(DiffLine(id: index, kind: .hunk, text: ""))
                 index += 1
@@ -117,14 +137,18 @@ func parseUnifiedDiffLines(_ diff: String, includeHunkMarkers: Bool = false) -> 
         }
         if !inHunk, line.hasPrefix("+++") || line.hasPrefix("---") { continue }
         if line.hasPrefix("+") {
-            result.append(DiffLine(id: index, kind: .added, text: String(line.dropFirst())))
+            result.append(DiffLine(id: index, kind: .added, text: String(line.dropFirst()), newLine: numbering ? newNext : nil))
+            newNext += 1
             index += 1
         } else if line.hasPrefix("-") {
-            result.append(DiffLine(id: index, kind: .removed, text: String(line.dropFirst())))
+            result.append(DiffLine(id: index, kind: .removed, text: String(line.dropFirst()), oldLine: numbering ? oldNext : nil))
+            oldNext += 1
             index += 1
         } else {
             let text = line.hasPrefix(" ") ? String(line.dropFirst()) : line
-            result.append(DiffLine(id: index, kind: .context, text: text))
+            result.append(DiffLine(id: index, kind: .context, text: text, oldLine: numbering ? oldNext : nil, newLine: numbering ? newNext : nil))
+            oldNext += 1
+            newNext += 1
             index += 1
         }
     }
