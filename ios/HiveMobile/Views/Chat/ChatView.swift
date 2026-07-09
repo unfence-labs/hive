@@ -331,6 +331,13 @@ struct ChatView: View {
         .onChange(of: draft) {
             handleDraftChange()
         }
+        .onChange(of: store.diffStats) {
+            guard completionFiles != nil else { return }
+            completionFiles = nil
+            if activeAutocomplete?.trigger == .file {
+                loadFileCompletionsIfNeeded()
+            }
+        }
         .onChange(of: lockedProvider) { _, newProvider in
             guard let newProvider, !selectedModelId.isEmpty else { return }
             let currentProvider = selectedModelId.split(separator: ":").first.map(String.init) ?? ""

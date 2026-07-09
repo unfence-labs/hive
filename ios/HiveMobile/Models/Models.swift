@@ -404,7 +404,7 @@ extension ChatMessage {
 
 // MARK: - Diff
 
-struct DiffFileStat: Codable, Identifiable {
+struct DiffFileStat: Codable, Equatable, Identifiable {
     let file: String
     let additions: Int
     let deletions: Int
@@ -419,7 +419,7 @@ struct DiffResponse: Codable {
     let omittedFileCount: Int
 }
 
-struct DiffStatResponse: Codable {
+struct DiffStatResponse: Codable, Equatable {
     let committed: [DiffFileStat]
     let uncommitted: [DiffFileStat]
 }
