@@ -126,6 +126,7 @@ struct WorkspaceFileDiffView: View {
     @State private var preparingFix = false
     @State private var pendingComments: [DiffComment] = []
     @State private var draftComment: DiffComment?
+    @State private var scrollTarget: UUID?
 
     private let api = APIClient()
     private let draftStore = ChatDraftStore.shared
@@ -161,7 +162,7 @@ struct WorkspaceFileDiffView: View {
         }
         .safeAreaInset(edge: .bottom) {
             if !pendingComments.isEmpty {
-                ReviewSummaryBar(count: pendingComments.count) {
+                ReviewSummaryBar(count: pendingComments.count, onJump: jumpToComment) {
                     sendToChat()
                 }
             }
@@ -182,21 +183,31 @@ struct WorkspaceFileDiffView: View {
                 if file.isBinary {
                     ContentUnavailableView("Binary file changed", systemImage: "doc.zipper")
                 } else {
+                    ScrollViewReader { proxy in
                     ScrollView {
                         VStack(alignment: .leading, spacing: 0) {
                             fileHeader(file)
                             Divider()
-                            LazyVStack(alignment: .leading, spacing: 0) {
-                                ForEach(parseUnifiedDiffLines(file.text)) { line in
-                                    DiffLineRow(line: line)
-                                        .contentShape(Rectangle())
-                                        .onTapGesture {
-                                            draftComment = DiffComment(file: file.path, line: line.text, text: "")
+                            let segments = segmentDiffLines(
+                                parseUnifiedDiffLines(file.text),
+                                comments: pendingComments.filter { $0.file == file.path }
+                            )
+                            VStack(alignment: .leading, spacing: 0) {
+                                ForEach(segments) { segment in
+                                    SelectableDiffText(
+                                        lines: segment.lines,
+                                        onTapLine: { line in
+                                            draftComment = DiffComment(file: file.path, line: line.text, snippet: nil, text: "")
+                                        },
+                                        onCommentSelection: { line, snippet in
+                                            draftComment = DiffComment(file: file.path, line: line.text, snippet: snippet, text: "")
                                         }
-                                    ForEach(pendingComments.filter { $0.file == file.path && $0.line == line.text }) { comment in
+                                    )
+                                    ForEach(segment.comments) { comment in
                                         InlineCommentCard(comment: comment) {
                                             pendingComments.removeAll { $0.id == comment.id }
                                         }
+                                        .id(comment.id)
                                     }
                                 }
                             }
@@ -212,6 +223,11 @@ struct WorkspaceFileDiffView: View {
                         )
                         .padding(.horizontal, HiveSpacing.md)
                         .padding(.vertical, HiveSpacing.sm)
+                    }
+                    .onChange(of: scrollTarget) { _, target in
+                        guard let target, pendingComments.first(where: { $0.id == target })?.file == file.path else { return }
+                        withAnimation { proxy.scrollTo(target, anchor: .center) }
+                    }
                     }
                 }
             } else {
@@ -294,20 +310,30 @@ struct WorkspaceFileDiffView: View {
         }
     }
 
+    @State private var jumpIndex = 0
+
+    private func jumpToComment(_ direction: Int) {
+        guard !pendingComments.isEmpty else { return }
+        jumpIndex = ((jumpIndex + direction) % pendingComments.count + pendingComments.count) % pendingComments.count
+        let comment = pendingComments[jumpIndex]
+        if let page = paths.firstIndex(of: comment.file), page != index {
+            index = page
+        }
+        Task {
+            try? await Task.sleep(for: .milliseconds(350))
+            scrollTarget = nil
+            scrollTarget = comment.id
+        }
+    }
+
     private func compiledReview() -> String {
         var sections: [String] = ["Review comments on the current diff:"]
         for comment in pendingComments {
-            sections.append("`\(comment.file)`\n> \(comment.line.trimmingCharacters(in: .whitespaces))\n\(comment.text)")
+            let quoted = (comment.snippet ?? comment.line).trimmingCharacters(in: .whitespacesAndNewlines)
+            sections.append("`\(comment.file)`\n> \(quoted.replacingOccurrences(of: "\n", with: "\n> "))\n\(comment.text)")
         }
         return sections.joined(separator: "\n\n")
     }
-}
-
-struct DiffComment: Identifiable, Equatable {
-    let id = UUID()
-    let file: String
-    let line: String
-    var text: String
 }
 
 private struct InlineCommentCard: View {
@@ -355,6 +381,7 @@ private struct InlineCommentCard: View {
 
 private struct ReviewSummaryBar: View {
     let count: Int
+    let onJump: (Int) -> Void
     let onSend: () -> Void
 
     var body: some View {
@@ -364,6 +391,20 @@ private struct ReviewSummaryBar: View {
             Text(count == 1 ? "1 comment" : "\(count) comments")
                 .font(WhisperFont.scaled(13, weight: .medium))
                 .foregroundStyle(WhisperColor.text)
+            Button { onJump(-1) } label: {
+                Image(systemName: "chevron.up")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(WhisperColor.textSecondary)
+                    .frame(width: 28, height: 28)
+            }
+            .buttonStyle(.plain)
+            Button { onJump(1) } label: {
+                Image(systemName: "chevron.down")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(WhisperColor.textSecondary)
+                    .frame(width: 28, height: 28)
+            }
+            .buttonStyle(.plain)
             Spacer()
             Button("Send review", action: onSend)
                 .font(WhisperFont.scaled(13, weight: .semibold))
@@ -390,7 +431,7 @@ private struct DiffCommentSheet: View {
     var body: some View {
         NavigationStack {
             VStack(alignment: .leading, spacing: 12) {
-                Text(comment.line.trimmingCharacters(in: .whitespaces))
+                Text((comment.snippet ?? comment.line).trimmingCharacters(in: .whitespacesAndNewlines))
                     .font(WhisperFont.mono(11))
                     .foregroundStyle(WhisperColor.textSecondary)
                     .lineLimit(3)

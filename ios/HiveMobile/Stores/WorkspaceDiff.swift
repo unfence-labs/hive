@@ -61,3 +61,90 @@ func splitUnifiedDiff(_ raw: String) -> [WorkspaceFileDiff] {
     flush()
     return result
 }
+
+struct DiffLine: Identifiable, Equatable {
+    enum Kind {
+        case context
+        case added
+        case removed
+    }
+
+    let id: Int
+    let kind: Kind
+    let text: String
+
+    var prefix: String {
+        switch kind {
+        case .context: " "
+        case .added: "+"
+        case .removed: "-"
+        }
+    }
+}
+
+func parseDiffStats(_ diff: String) -> (added: Int, removed: Int) {
+    var added = 0
+    var removed = 0
+    for line in diff.split(separator: "\n", omittingEmptySubsequences: false) {
+        if line.hasPrefix("+") && !line.hasPrefix("+++") {
+            added += 1
+        } else if line.hasPrefix("-") && !line.hasPrefix("---") {
+            removed += 1
+        }
+    }
+    return (added, removed)
+}
+
+func parseUnifiedDiffLines(_ diff: String) -> [DiffLine] {
+    var result: [DiffLine] = []
+    var index = 0
+    for raw in diff.split(separator: "\n", omittingEmptySubsequences: false) {
+        let line = String(raw)
+        if line.hasPrefix("+++") || line.hasPrefix("---") || line.hasPrefix("@@") { continue }
+        if line.hasPrefix("+") {
+            result.append(DiffLine(id: index, kind: .added, text: String(line.dropFirst())))
+            index += 1
+        } else if line.hasPrefix("-") {
+            result.append(DiffLine(id: index, kind: .removed, text: String(line.dropFirst())))
+            index += 1
+        } else {
+            let text = line.hasPrefix(" ") ? String(line.dropFirst()) : line
+            result.append(DiffLine(id: index, kind: .context, text: text))
+            index += 1
+        }
+    }
+    return result
+}
+
+struct DiffComment: Identifiable, Equatable {
+    let id = UUID()
+    let file: String
+    let line: String
+    var snippet: String?
+    var text: String
+}
+
+struct DiffSegment: Identifiable {
+    let id: Int
+    let lines: [DiffLine]
+    let comments: [DiffComment]
+}
+
+func segmentDiffLines(_ lines: [DiffLine], comments: [DiffComment]) -> [DiffSegment] {
+    var segments: [DiffSegment] = []
+    var current: [DiffLine] = []
+    var remaining = comments
+    for line in lines {
+        current.append(line)
+        let matching = remaining.filter { $0.line == line.text }
+        if !matching.isEmpty {
+            remaining.removeAll { candidate in matching.contains { $0.id == candidate.id } }
+            segments.append(DiffSegment(id: segments.count, lines: current, comments: matching))
+            current = []
+        }
+    }
+    if !current.isEmpty {
+        segments.append(DiffSegment(id: segments.count, lines: current, comments: []))
+    }
+    return segments
+}

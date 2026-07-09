@@ -95,3 +95,44 @@ struct WorkspaceDiffTests {
         #expect(splitUnifiedDiff("not a diff at all").isEmpty)
     }
 }
+
+struct DiffSegmentationTests {
+    private func line(_ id: Int, _ text: String) -> DiffLine {
+        DiffLine(id: id, kind: .added, text: text)
+    }
+
+    @Test
+    func noCommentsYieldsSingleSegment() {
+        let lines = [line(0, "a"), line(1, "b")]
+        let segments = segmentDiffLines(lines, comments: [])
+        #expect(segments.count == 1)
+        #expect(segments[0].lines.map(\.text) == ["a", "b"])
+        #expect(segments[0].comments.isEmpty)
+    }
+
+    @Test
+    func commentSplitsAfterItsLine() {
+        let lines = [line(0, "a"), line(1, "b"), line(2, "c")]
+        let comment = DiffComment(file: "f", line: "b", snippet: nil, text: "note")
+        let segments = segmentDiffLines(lines, comments: [comment])
+        #expect(segments.count == 2)
+        #expect(segments[0].lines.map(\.text) == ["a", "b"])
+        #expect(segments[0].comments == [comment])
+        #expect(segments[1].lines.map(\.text) == ["c"])
+    }
+
+    @Test
+    func duplicateLineTextAttachesCommentOnlyOnce() {
+        let lines = [line(0, "same"), line(1, "same"), line(2, "end")]
+        let comment = DiffComment(file: "f", line: "same", snippet: nil, text: "note")
+        let segments = segmentDiffLines(lines, comments: [comment])
+        let attached = segments.flatMap(\.comments)
+        #expect(attached.count == 1)
+        #expect(segments[0].lines.count == 1)
+    }
+
+    @Test
+    func emptyDiffYieldsNoSegments() {
+        #expect(segmentDiffLines([], comments: []).isEmpty)
+    }
+}
