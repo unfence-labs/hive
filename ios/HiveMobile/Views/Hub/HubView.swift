@@ -18,9 +18,9 @@ struct HubView: View {
     @State private var projectExpansionOverrides: [String: Bool] = HubView.loadExpansionOverrides(
         key: HubView.projectExpansionKey
     )
+    @State private var sections: [HubSection] = []
 
     var body: some View {
-        let sections = baseSections
         let prIds = visiblePrWorkspaceIds(in: sections)
 
         ZStack {
@@ -67,6 +67,8 @@ struct HubView: View {
         .task(id: prIds) {
             store.statusMonitor.syncVisiblePrWorkspaces(prIds)
         }
+        .onChange(of: store.projects, initial: true) { _, _ in sections = baseSections }
+        .onChange(of: store.uiPreferences.sidebar) { _, _ in sections = baseSections }
         .overlay {
             if let errorMessage = store.errorMessage {
                 errorBanner(errorMessage)

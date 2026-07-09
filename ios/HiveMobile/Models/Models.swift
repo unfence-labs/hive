@@ -92,7 +92,7 @@ struct AccountUser: Codable {
 
 // MARK: - Project & Workspace
 
-struct Project: Codable, Identifiable {
+struct Project: Codable, Identifiable, Equatable {
     let id: String
     let name: String
     let url: String?
@@ -119,13 +119,13 @@ struct Workspace: Codable, Identifiable, Hashable {
 
 // MARK: - UI Preferences
 
-struct SidebarProjectFolder: Codable, Identifiable {
+struct SidebarProjectFolder: Codable, Identifiable, Equatable {
     let id: String
     let name: String
     let projectIds: [String]
 }
 
-struct SidebarProjectFoldersState: Codable {
+struct SidebarProjectFoldersState: Codable, Equatable {
     let folders: [SidebarProjectFolder]
     let folderOpenState: [String: Bool]
 
