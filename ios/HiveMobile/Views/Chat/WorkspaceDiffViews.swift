@@ -134,7 +134,7 @@ struct WorkspaceFileDiffView: View {
 
     @State var index: Int
     @State private var scrolledPage: Int?
-    @State private var filesByPath: [String: WorkspaceFileDiff]?
+    @State private var filesByPath: [String: ParsedFileDiff]?
     @State private var omittedFileCount = 0
     @State private var loadFailed = false
     @State private var preparingFix = false
@@ -209,28 +209,28 @@ struct WorkspaceFileDiffView: View {
     @ViewBuilder
     private func filePage(path: String) -> some View {
         if let filesByPath {
-            if let file = filesByPath[path] {
-                if file.isBinary {
+            if let parsed = filesByPath[path] {
+                if parsed.file.isBinary {
                     ContentUnavailableView("Binary file changed", systemImage: "doc.zipper")
                 } else {
                     ScrollViewReader { proxy in
                     ScrollView {
                         VStack(alignment: .leading, spacing: 0) {
-                            fileHeader(file)
+                            fileHeader(parsed)
                             Divider()
                             let segments = segmentDiffLines(
-                                parseUnifiedDiffLines(file.text, includeHunkMarkers: true),
-                                comments: pendingComments.filter { $0.file == file.path }
+                                parsed.lines,
+                                comments: pendingComments.filter { $0.file == parsed.file.path }
                             )
                             VStack(alignment: .leading, spacing: 0) {
                                 ForEach(segments) { segment in
                                     SelectableDiffText(
                                         lines: segment.lines,
                                         onTapLine: { line in
-                                            draftComment = DiffComment(file: file.path, lineID: line.id, line: line.text, snippet: nil, text: "")
+                                            draftComment = DiffComment(file: parsed.file.path, lineID: line.id, line: line.text, snippet: nil, text: "")
                                         },
                                         onCommentSelection: { line, snippet in
-                                            draftComment = DiffComment(file: file.path, lineID: line.id, line: line.text, snippet: snippet, text: "")
+                                            draftComment = DiffComment(file: parsed.file.path, lineID: line.id, line: line.text, snippet: snippet, text: "")
                                         }
                                     )
                                     ForEach(segment.comments) { comment in
@@ -257,10 +257,10 @@ struct WorkspaceFileDiffView: View {
                         .padding(.vertical, HiveSpacing.sm)
                     }
                     .onChange(of: scrollRequest) { _, request in
-                        applyScrollRequest(request, proxy: proxy, filePath: file.path)
+                        applyScrollRequest(request, proxy: proxy, filePath: parsed.file.path)
                     }
                     .onAppear {
-                        applyScrollRequest(scrollRequest, proxy: proxy, filePath: file.path)
+                        applyScrollRequest(scrollRequest, proxy: proxy, filePath: parsed.file.path)
                     }
                     }
                 }
@@ -287,28 +287,27 @@ struct WorkspaceFileDiffView: View {
     }
 
     @ViewBuilder
-    private func fileHeader(_ file: WorkspaceFileDiff) -> some View {
-        let stats = parseDiffStats(file.text)
+    private func fileHeader(_ parsed: ParsedFileDiff) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             HStack(spacing: 8) {
                 Image(systemName: "doc.text")
                     .font(.footnote)
                     .foregroundStyle(WhisperColor.textMuted)
-                Text("\(Text(directoryPrefix(file.path)).foregroundColor(WhisperColor.textMuted))\(Text((file.path as NSString).lastPathComponent).fontWeight(.semibold))")
+                Text("\(Text(directoryPrefix(parsed.file.path)).foregroundColor(WhisperColor.textMuted))\(Text((parsed.file.path as NSString).lastPathComponent).fontWeight(.semibold))")
                     .foregroundStyle(WhisperColor.text)
                     .font(WhisperFont.scaled(13))
                     .lineLimit(1)
                     .truncationMode(.middle)
                 Spacer(minLength: 8)
-                if stats.added > 0 {
-                    Text("+\(stats.added)").foregroundStyle(.green)
+                if parsed.added > 0 {
+                    Text("+\(parsed.added)").foregroundStyle(.green)
                 }
-                if stats.removed > 0 {
-                    Text("-\(stats.removed)").foregroundStyle(.red)
+                if parsed.removed > 0 {
+                    Text("-\(parsed.removed)").foregroundStyle(.red)
                 }
             }
             .font(WhisperFont.mono(11))
-            if let renamedFrom = file.renamedFrom {
+            if let renamedFrom = parsed.file.renamedFrom {
                 Text("Renamed from \(renamedFrom)")
                     .font(WhisperFont.mono(10))
                     .foregroundStyle(WhisperColor.textMuted)
@@ -329,7 +328,15 @@ struct WorkspaceFileDiffView: View {
             let response = try await api.fetchWorkspaceDiff(workspaceId: workspace.id, scope: scope)
             omittedFileCount = response.omittedFileCount
             filesByPath = Dictionary(
-                splitUnifiedDiff(response.diff).map { ($0.path, $0) },
+                splitUnifiedDiff(response.diff).map { file in
+                    let stats = parseDiffStats(file.text)
+                    return (file.path, ParsedFileDiff(
+                        file: file,
+                        lines: parseUnifiedDiffLines(file.text, includeHunkMarkers: true),
+                        added: stats.added,
+                        removed: stats.removed
+                    ))
+                },
                 uniquingKeysWith: { first, _ in first }
             )
         } catch {
@@ -394,6 +401,13 @@ struct WorkspaceFileDiffView: View {
         }
         return sections.joined(separator: "\n\n")
     }
+}
+
+private struct ParsedFileDiff {
+    let file: WorkspaceFileDiff
+    let lines: [DiffLine]
+    let added: Int
+    let removed: Int
 }
 
 private struct CommentScrollRequest: Equatable {
