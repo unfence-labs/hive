@@ -73,11 +73,11 @@ struct ChatActivityRowLabel: View {
                     HStack(spacing: 4) {
                         if stats.added > 0 {
                             Text("+\(stats.added)")
-                                .foregroundStyle(.green)
+                                .foregroundStyle(WhisperColor.diffAdded)
                         }
                         if stats.removed > 0 {
                             Text("-\(stats.removed)")
-                                .foregroundStyle(.red)
+                                .foregroundStyle(WhisperColor.diffRemoved)
                         }
                     }
                     .font(WhisperFont.mono(10))

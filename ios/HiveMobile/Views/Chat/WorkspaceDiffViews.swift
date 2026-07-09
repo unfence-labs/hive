@@ -98,11 +98,11 @@ private struct ChangedFileRow: View {
             Spacer(minLength: 8)
             if file.additions > 0 {
                 Text("+\(file.additions)")
-                    .foregroundStyle(.green)
+                    .foregroundStyle(WhisperColor.diffAdded)
             }
             if file.deletions > 0 {
                 Text("-\(file.deletions)")
-                    .foregroundStyle(.red)
+                    .foregroundStyle(WhisperColor.diffRemoved)
             }
             Image(systemName: "chevron.right")
                 .font(.caption2.weight(.semibold))
@@ -362,10 +362,10 @@ struct WorkspaceFileDiffView: View {
                     .truncationMode(.middle)
                 Spacer(minLength: 8)
                 if parsed.added > 0 {
-                    Text("+\(parsed.added)").foregroundStyle(.green)
+                    Text("+\(parsed.added)").foregroundStyle(WhisperColor.diffAdded)
                 }
                 if parsed.removed > 0 {
-                    Text("-\(parsed.removed)").foregroundStyle(.red)
+                    Text("-\(parsed.removed)").foregroundStyle(WhisperColor.diffRemoved)
                 }
             }
             .font(WhisperFont.mono(11))

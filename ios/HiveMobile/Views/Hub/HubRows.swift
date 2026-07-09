@@ -242,15 +242,9 @@ private struct HubActivityDot: View {
     var body: some View {
         switch state {
         case .streaming:
-            ZStack {
-                Circle()
-                    .fill(Color.accentColor.opacity(0.28))
-                    .frame(width: 11, height: 11)
-                Circle()
-                    .fill(Color.accentColor)
-                    .frame(width: 7, height: 7)
-            }
-            .accessibilityLabel("Agent is working")
+            AgentActivityIndicator(dotSize: 2, spacing: 1)
+                .frame(width: 11, height: 11)
+                .accessibilityLabel("Agent is working")
         case .completed:
             UnreadDot(size: 7, shadowRadius: 4)
                 .accessibilityLabel("Unread activity")
@@ -268,11 +262,11 @@ private struct HubDiffBadge: View {
         HStack(spacing: 5) {
             if additions > 0 {
                 Text("+\(additions)")
-                    .foregroundStyle(WhisperColor.success)
+                    .foregroundStyle(WhisperColor.diffAdded)
             }
             if deletions > 0 {
                 Text("-\(deletions)")
-                    .foregroundStyle(.red)
+                    .foregroundStyle(WhisperColor.diffRemoved)
             }
         }
         .font(.caption2.monospacedDigit().weight(.medium))
