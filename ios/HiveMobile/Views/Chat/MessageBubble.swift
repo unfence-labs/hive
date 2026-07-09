@@ -263,6 +263,7 @@ struct MessageBubble: View, Equatable {
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
+                    .accessibilityLabel(copied ? "Copied" : "Copy message")
                 }
             }
         }

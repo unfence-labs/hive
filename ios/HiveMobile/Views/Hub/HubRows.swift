@@ -181,16 +181,20 @@ struct HubWorkspaceRow: View {
         .padding(.vertical, 6)
         .frame(maxWidth: .infinity, minHeight: 42, alignment: .leading)
         .contentShape(Rectangle())
+        .accessibilityElement(children: .combine)
     }
 
     @ViewBuilder
     private var workspaceStatus: some View {
         if isStreaming {
             AgentActivityIndicator(dotSize: 3, spacing: 1.5)
+                .accessibilityLabel("Streaming")
         } else if turnCompleted {
             UnreadDot()
+                .accessibilityLabel("Unread activity")
         } else {
             StatusDot()
+                .accessibilityHidden(true)
         }
     }
 }

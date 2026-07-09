@@ -539,16 +539,20 @@ private struct ReviewSummaryBar: View {
                 Image(systemName: "chevron.up")
                     .font(.footnote.weight(.semibold))
                     .foregroundStyle(WhisperColor.textSecondary)
-                    .frame(width: 28, height: 28)
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .accessibilityLabel("Previous comment")
             Button { onJump(1) } label: {
                 Image(systemName: "chevron.down")
                     .font(.footnote.weight(.semibold))
                     .foregroundStyle(WhisperColor.textSecondary)
-                    .frame(width: 28, height: 28)
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .accessibilityLabel("Next comment")
             Spacer()
             Button("Send review", action: onSend)
                 .font(WhisperFont.scaled(13, weight: .semibold))
