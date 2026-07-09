@@ -237,8 +237,8 @@ struct WorkspaceFileDiffView: View {
                                         onTapLine: { line in
                                             draftComment = DiffComment(file: parsed.file.path, line: line, snippet: nil)
                                         },
-                                        onCommentSelection: { line, snippet in
-                                            draftComment = DiffComment(file: parsed.file.path, line: line, snippet: snippet)
+                                        onCommentSelection: { start, end, snippet in
+                                            draftComment = DiffComment(file: parsed.file.path, line: start, endLine: end, snippet: snippet)
                                         }
                                     )
                                     ForEach(segment.comments) { comment in

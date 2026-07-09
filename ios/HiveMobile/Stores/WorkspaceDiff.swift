@@ -162,18 +162,23 @@ struct DiffComment: Identifiable, Equatable {
     let line: String
     var lineNumber: Int? = nil
     var side: String = "new code"
+    var endLineID: Int? = nil
+    var endLineNumber: Int? = nil
     var snippet: String?
     var text: String
 }
 
 extension DiffComment {
-    init(file: String, line: DiffLine, snippet: String?) {
+    init(file: String, line: DiffLine, endLine: DiffLine? = nil, snippet: String?) {
+        let end = (endLine?.id == line.id) ? nil : endLine
         self.init(
             file: file,
             lineID: line.id,
             line: line.text,
             lineNumber: line.kind == .removed ? line.oldLine : (line.newLine ?? line.oldLine),
             side: line.kind == .removed ? "old code" : "new code",
+            endLineID: end?.id,
+            endLineNumber: end.map { $0.newLine ?? $0.oldLine } ?? nil,
             snippet: snippet,
             text: ""
         )
@@ -183,7 +188,16 @@ extension DiffComment {
 func compileReview(_ comments: [DiffComment]) -> String {
     var sections: [String] = ["Review comments on the current diff:"]
     for comment in comments {
-        let location = comment.lineNumber.map { " (line \($0), \(comment.side))" } ?? ""
+        let location: String
+        if let n = comment.lineNumber {
+            if let m = comment.endLineNumber, m != n {
+                location = " (lines \(n)-\(m), \(comment.side))"
+            } else {
+                location = " (line \(n), \(comment.side))"
+            }
+        } else {
+            location = ""
+        }
         let quoted = (comment.snippet ?? comment.line).trimmingCharacters(in: .whitespacesAndNewlines)
         sections.append("In `\(comment.file)`\(location):\n> \(quoted.replacingOccurrences(of: "\n", with: "\n> "))\n\(comment.text)")
     }
@@ -202,7 +216,7 @@ func segmentDiffLines(_ lines: [DiffLine], comments: [DiffComment]) -> [DiffSegm
     var remaining = comments
     for line in lines {
         current.append(line)
-        let matching = remaining.filter { $0.lineID == line.id }
+        let matching = remaining.filter { ($0.endLineID ?? $0.lineID) == line.id }
         if !matching.isEmpty {
             remaining.removeAll { candidate in matching.contains { $0.id == candidate.id } }
             segments.append(DiffSegment(id: segments.count, lines: current, comments: matching))

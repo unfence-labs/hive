@@ -207,6 +207,33 @@ struct CompileReviewTests {
     }
 }
 
+struct RangeCommentTests {
+    @Test
+    func rangeCommentAnchorsAfterItsLastLine() {
+        let lines = (0...3).map { DiffLine(id: $0, kind: .added, text: "l\($0)") }
+        let comment = DiffComment(file: "f", lineID: 0, line: "l0", endLineID: 2, snippet: nil, text: "note")
+        let segments = segmentDiffLines(lines, comments: [comment])
+        #expect(segments.count == 2)
+        #expect(segments[0].lines.count == 3)
+    }
+
+    @Test
+    func rangeCommentCompilesAsLinesSpan() {
+        let comment = DiffComment(file: "f", lineID: 0, line: "x", lineNumber: 3, endLineNumber: 5, snippet: nil, text: "note")
+        let output = compileReview([comment])
+        #expect(output.contains("(lines 3-5, new code)"))
+    }
+
+    @Test
+    func sameStartAndEndCollapsesToSingleLine() {
+        let line = DiffLine(id: 1, kind: .added, text: "x", newLine: 7)
+        let comment = DiffComment(file: "f", line: line, endLine: line, snippet: nil)
+        #expect(comment.endLineID == nil)
+        let output = compileReview([comment])
+        #expect(output.contains("(line 7, new code)"))
+    }
+}
+
 struct LineNumberTests {
     @Test
     func numbersFollowHunkHeader() {

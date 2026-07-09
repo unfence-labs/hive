@@ -4,7 +4,7 @@ import UIKit
 struct SelectableDiffText: UIViewRepresentable {
     let lines: [DiffLine]
     let onTapLine: (DiffLine) -> Void
-    let onCommentSelection: (DiffLine, String) -> Void
+    let onCommentSelection: (DiffLine, DiffLine, String) -> Void
 
     func makeUIView(context: Context) -> UITextView {
         let view = UITextView()
@@ -117,14 +117,18 @@ struct SelectableDiffText: UIViewRepresentable {
             editMenuForTextIn range: NSRange,
             suggestedActions: [UIMenuElement]
         ) -> UIMenu? {
+            let touched = lineRanges
+                .filter { NSIntersectionRange($0.0, range).length > 0 }
+                .map(\.1)
+                .filter { $0.kind != .hunk }
             guard range.length > 0,
-                  let line = lineRanges.first(where: { NSIntersectionRange($0.0, range).length > 0 })?.1,
+                  let firstLine = touched.first, let lastLine = touched.last,
                   let textRange = Range(range, in: textView.text)
             else { return UIMenu(children: suggestedActions) }
             let snippet = String(textView.text[textRange])
             let comment = UIAction(title: "Add comment", image: UIImage(systemName: "text.bubble")) { [weak self] _ in
                 textView.selectedTextRange = nil
-                self?.parent.onCommentSelection(line, snippet)
+                self?.parent.onCommentSelection(firstLine, lastLine, snippet)
             }
             return UIMenu(children: [comment] + suggestedActions)
         }
