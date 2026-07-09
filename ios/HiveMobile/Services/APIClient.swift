@@ -206,6 +206,34 @@ final class APIClient {
         try await requestVoid("DELETE", path: "/api/workspaces/\(workspaceId)/sessions/\(sessionId)")
     }
 
+    func fetchFileCompletions(workspaceId: String) async throws -> [String] {
+        let resp: FileCompletionsResponse = try await get(path: "/api/workspaces/\(workspaceId)/file-completions")
+        return resp.files
+    }
+
+    func fetchCompletions(workspaceId: String, provider: String?) async throws -> [CompletionItem] {
+        var path = "/api/workspaces/\(workspaceId)/completions"
+        if let provider, !provider.isEmpty {
+            path += "?provider=\(pathSegment(provider))"
+        }
+        let resp: CompletionsResponse = try await get(path: path)
+        return resp.items
+    }
+
+    // MARK: - Automations
+
+    func fetchAutomations() async throws -> [Automation] {
+        try await get(path: "/api/automations")
+    }
+
+    func fetchAutomationRuns(automationId: String) async throws -> [AutomationRun] {
+        try await get(path: "/api/automations/\(pathSegment(automationId))/runs")
+    }
+
+    func fetchAutomationRunLog(automationId: String, runId: String) async throws -> AutomationRunLog {
+        try await get(path: "/api/automations/\(pathSegment(automationId))/runs/\(pathSegment(runId))/messages")
+    }
+
     func archiveWorkspace(workspaceId: String) async throws {
         try await requestVoid("POST", path: "/api/workspaces/\(workspaceId)/archive")
     }

@@ -560,7 +560,7 @@ final class ConversationStore {
 
     /// Per-message delivery state, keyed by (local) message ID.
     private(set) var userSendStates: [String: UserSendState] = [:]
-    @ObservationIgnored private var optimisticPayloads: [String: (images: [ImageAttachment]?, options: MessageOptions?)] = [:]
+    @ObservationIgnored private var optimisticPayloads: [String: (images: [ImageAttachment]?, fileMentions: [FileMention]?, options: MessageOptions?)] = [:]
 
     /// Delivery state for a message, if it is a locally-appended send.
     func sendState(for messageId: String) -> UserSendState? {
@@ -574,17 +574,18 @@ final class ConversationStore {
     func appendOptimisticUserMessage(
         content: String,
         images: [ImageAttachment]?,
+        fileMentions: [FileMention]? = nil,
         options: MessageOptions?,
         sessionId sid: String
     ) -> String {
         let localId = "local-\(UUID().uuidString)"
         let message = ChatMessage(
             id: localId, sessionId: sid, role: .user, content: content,
-            images: images, toolCalls: nil, thinkingContent: nil,
+            images: images, fileMentions: fileMentions, toolCalls: nil, thinkingContent: nil,
             timestamp: Self.timestamp(), cancelled: nil, durationMs: nil
         )
         userSendStates[localId] = .sending
-        optimisticPayloads[localId] = (images, options)
+        optimisticPayloads[localId] = (images, fileMentions, options)
         if sid == sessionId {
             messages.append(message)
             cacheMessages(messages, for: sid)
@@ -607,7 +608,7 @@ final class ConversationStore {
         let payload = optimisticPayloads[localId]
         userSendStates[localId] = .sending
         let sent = await send?(.userMessage(
-            content: message.content, images: payload?.images, fileMentions: nil,
+            content: message.content, images: payload?.images, fileMentions: payload?.fileMentions,
             options: payload?.options, sessionId: message.sessionId
         )) ?? false
         if sent {

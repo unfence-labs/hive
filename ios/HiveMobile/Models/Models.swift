@@ -226,6 +226,31 @@ struct FileMention: Codable, Equatable {
     let relativePath: String
 }
 
+// MARK: - Composer Completions
+
+/// One `/command` or `@agent` completion scanned by the backend. Mirrors
+/// `CompletionItem` in `backend/src/types.ts`; `source` stays a raw string so
+/// new backend sources decode without breaking.
+struct CompletionItem: Codable, Equatable, Identifiable {
+    let type: String
+    let name: String
+    let label: String
+    let replacementLabel: String?
+    let description: String?
+    let argumentHint: String?
+    let source: String
+
+    var id: String { "\(type)-\(source)-\(name)" }
+}
+
+struct CompletionsResponse: Codable {
+    let items: [CompletionItem]
+}
+
+struct FileCompletionsResponse: Codable {
+    let files: [String]
+}
+
 struct ToolCall: Codable, Equatable, Identifiable {
     let id: String
     let name: String
@@ -499,24 +524,24 @@ enum AutomationRunStatus: String, Codable {
     case failure
 }
 
-struct AutomationTrigger: Codable {
+struct AutomationTrigger: Codable, Hashable {
     let type: String
     let expression: String
 }
 
-struct AutomationAction: Codable {
+struct AutomationAction: Codable, Hashable {
     let type: String
     let agentId: String
     let userPromptId: String?
     let userPromptInline: String?
 }
 
-struct AutomationNotification: Codable {
+struct AutomationNotification: Codable, Hashable {
     let onComplete: Bool
     let onFailure: Bool
 }
 
-struct Automation: Codable, Identifiable {
+struct Automation: Codable, Hashable, Identifiable {
     let id: String
     let name: String
     let enabled: Bool
@@ -532,7 +557,7 @@ struct Automation: Codable, Identifiable {
     let updatedAt: String
 }
 
-struct AutomationRun: Codable, Identifiable {
+struct AutomationRun: Codable, Hashable, Identifiable {
     let id: String
     let automationId: String
     let status: AutomationRunStatus
@@ -542,6 +567,11 @@ struct AutomationRun: Codable, Identifiable {
     let durationMs: Int?
     let summary: String?
     let error: String?
+}
+
+struct AutomationRunLog: Codable {
+    let messages: [ChatMessage]
+    let systemPrompt: String?
 }
 
 struct PromptTemplate: Codable, Identifiable {
