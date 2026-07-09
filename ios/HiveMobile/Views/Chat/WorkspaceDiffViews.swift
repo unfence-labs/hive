@@ -212,6 +212,23 @@ struct WorkspaceFileDiffView: View {
             Text("No agent session is available for this workspace. Check your connection and try again.")
         }
         .task { await loadDiff() }
+        .onAppear {
+            AppDelegate.orientationLock = .allButUpsideDown
+            updateOrientations()
+        }
+        .onDisappear {
+            AppDelegate.orientationLock = .portrait
+            updateOrientations()
+            (UIApplication.shared.connectedScenes.first as? UIWindowScene)?
+                .requestGeometryUpdate(.iOS(interfaceOrientations: .portrait))
+        }
+    }
+
+    private func updateOrientations() {
+        for scene in UIApplication.shared.connectedScenes {
+            (scene as? UIWindowScene)?.keyWindow?.rootViewController?
+                .setNeedsUpdateOfSupportedInterfaceOrientations()
+        }
     }
 
     @ViewBuilder
