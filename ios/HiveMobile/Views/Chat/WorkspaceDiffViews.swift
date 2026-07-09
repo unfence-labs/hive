@@ -138,6 +138,7 @@ struct WorkspaceFileDiffView: View {
     @State private var omittedFileCount = 0
     @State private var loadFailed = false
     @State private var preparingFix = false
+    @State private var sendFailed = false
     @State private var pendingComments: [DiffComment] = []
     @State private var draftComment: DiffComment?
     @State private var scrollTarget: UUID?
@@ -196,6 +197,11 @@ struct WorkspaceFileDiffView: View {
                 pendingComments.append(finished)
                 draftComment = nil
             }
+        }
+        .alert("Couldn't send to chat", isPresented: $sendFailed) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("No agent session is available for this workspace. Check your connection and try again.")
         }
         .task { await loadDiff() }
     }
@@ -334,7 +340,10 @@ struct WorkspaceFileDiffView: View {
         Task {
             defer { preparingFix = false }
             let sessions = (try? await api.fetchSessions(workspaceId: workspace.id)) ?? []
-            guard let target = sessions.first(where: { $0.kind != "terminal" }) else { return }
+            guard let target = sessions.first(where: { $0.kind != "terminal" }) else {
+                sendFailed = true
+                return
+            }
             let text = pendingComments.isEmpty
                 ? "About `\(paths[index])`: "
                 : compiledReview()
