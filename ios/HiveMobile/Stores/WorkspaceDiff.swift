@@ -135,6 +135,7 @@ func parseUnifiedDiffLines(_ diff: String, includeHunkMarkers: Bool = false) -> 
             }
             continue
         }
+        if inHunk, line.hasPrefix("\\") { continue }
         if !inHunk, line.hasPrefix("+++") || line.hasPrefix("---") { continue }
         if line.hasPrefix("+") {
             result.append(DiffLine(id: index, kind: .added, text: String(line.dropFirst()), newLine: numbering ? newNext : nil))

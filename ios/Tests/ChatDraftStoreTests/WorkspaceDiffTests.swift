@@ -267,6 +267,20 @@ struct LineNumberTests {
         #expect(lines[0].oldLine == 1)
         #expect(lines[0].newLine == 1)
     }
+
+    @Test
+    func noNewlineMarkerIsSkippedAndDoesNotShiftNumbers() {
+        let lines = parseUnifiedDiffLines("@@ -1 +1 @@\n-old\n\\ No newline at end of file\n+new\n\\ No newline at end of file")
+        #expect(lines.map(\.kind) == [.removed, .added])
+        #expect(lines[0].oldLine == 1)
+        #expect(lines[1].newLine == 1)
+    }
+
+    @Test
+    func headerlessBackslashLineStaysContext() {
+        let lines = parseUnifiedDiffLines("+one\n\\ literal backslash line")
+        #expect(lines.map(\.kind) == [.added, .context])
+    }
 }
 
 struct ContentLineEdgeTests {
