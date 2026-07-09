@@ -152,10 +152,12 @@ struct WorkspaceFileDiffView: View {
     @State private var pendingComments: [DiffComment] = []
     @State private var draftComment: DiffComment?
     @State private var scrollRequest: CommentScrollRequest?
+    @State private var expandedPaths: Set<String> = []
 
     private let api = APIClient()
     private let draftStore = ChatDraftStore.shared
     private let reviewStore = DiffReviewStore.shared
+    private let maxRenderedLines = 1000
 
     var body: some View {
         ScrollViewReader { pagerProxy in
@@ -264,10 +266,11 @@ struct WorkspaceFileDiffView: View {
                         VStack(alignment: .leading, spacing: 0) {
                             fileHeader(parsed)
                             Divider()
-                            let segments = segmentDiffLines(
-                                parsed.lines,
-                                comments: pendingComments.filter { $0.file == parsed.file.path }
-                            )
+                            let fileComments = pendingComments.filter { $0.file == parsed.file.path }
+                            let isExpanded = expandedPaths.contains(parsed.file.path)
+                                || fileComments.contains { ($0.endLineID ?? $0.lineID) >= maxRenderedLines }
+                            let visibleLines = isExpanded ? parsed.lines : Array(parsed.lines.prefix(maxRenderedLines))
+                            let segments = segmentDiffLines(visibleLines, comments: fileComments)
                             VStack(alignment: .leading, spacing: 0) {
                                 ForEach(segments) { segment in
                                     SelectableDiffText(
@@ -285,6 +288,19 @@ struct WorkspaceFileDiffView: View {
                                         }
                                         .id(comment.id)
                                     }
+                                }
+                                if !isExpanded && parsed.lines.count > maxRenderedLines {
+                                    Button {
+                                        expandedPaths.insert(parsed.file.path)
+                                    } label: {
+                                        Text("Show all \(parsed.lines.count) lines")
+                                            .font(WhisperFont.mono(11))
+                                            .foregroundStyle(WhisperColor.textSecondary)
+                                            .padding(.vertical, 8)
+                                            .frame(maxWidth: .infinity)
+                                            .contentShape(Rectangle())
+                                    }
+                                    .buttonStyle(.plain)
                                 }
                             }
                             .padding(.vertical, 8)
