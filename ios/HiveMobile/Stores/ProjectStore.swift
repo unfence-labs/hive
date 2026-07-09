@@ -111,13 +111,15 @@ final class ProjectStore {
         }
     }
 
-    func createProject(url: String) async {
+    @discardableResult
+    func createProject(url: String) async -> Bool {
         await createProjectWithWorkspace(displayName: Self.extractRepoName(from: url)) {
             try await api.createProject(url: url)
         }
     }
 
-    func createNewProject(name: String, visibility: String?) async {
+    @discardableResult
+    func createNewProject(name: String, visibility: String?) async -> Bool {
         await createProjectWithWorkspace(displayName: name) {
             try await api.createNewProject(name: name, visibility: visibility)
         }
@@ -126,8 +128,8 @@ final class ProjectStore {
     private func createProjectWithWorkspace(
         displayName: String,
         apiCall: () async throws -> Project
-    ) async {
-        guard !isCreatingProject else { return }
+    ) async -> Bool {
+        guard !isCreatingProject else { return false }
 
         isCreatingProject = true
         cloningRepoName = displayName
@@ -158,14 +160,19 @@ final class ProjectStore {
 
             syncMonitoredWorkspaces()
             pendingNavigation = workspace
+            cloningRepoName = nil
+            isCreatingProject = false
+            return true
         } catch is CancellationError {
-            // Ignore
+            cloningRepoName = nil
+            isCreatingProject = false
+            return false
         } catch {
             errorMessage = error.localizedDescription
+            cloningRepoName = nil
+            isCreatingProject = false
+            return false
         }
-
-        cloningRepoName = nil
-        isCreatingProject = false
     }
 
     func archiveWorkspace(id: String) async {

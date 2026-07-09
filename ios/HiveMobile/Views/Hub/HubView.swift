@@ -19,9 +19,11 @@ struct HubView: View {
         key: HubView.projectExpansionKey
     )
     @State private var sections: [HubSection] = []
+    @State private var searchText = ""
 
     var body: some View {
-        let prIds = visiblePrWorkspaceIds(in: sections)
+        let displayedSections = filteredSections(sections)
+        let prIds = visiblePrWorkspaceIds(in: displayedSections)
 
         ZStack {
             WhisperColor.appBackground
@@ -32,7 +34,7 @@ struct HubView: View {
                     if store.projects.isEmpty {
                         emptyState
                     } else {
-                        denseHubContent(sections: sections)
+                        denseHubContent(sections: displayedSections)
                     }
                 }
                 .padding(.horizontal, HiveSpacing.lg)
@@ -41,6 +43,7 @@ struct HubView: View {
             .scrollBounceBehavior(.always)
             .scrollContentBackground(.hidden)
         }
+        .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .automatic))
         .navigationTitle("Hub")
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(WhisperColor.appBackground, for: .navigationBar)
@@ -106,12 +109,8 @@ struct HubView: View {
         .sheet(isPresented: $showAddProject) {
             AddProjectSheet(
                 api: APIClient(),
-                onClone: { url in
-                    Task { await store.createProject(url: url) }
-                },
-                onCreate: { name, visibility in
-                    Task { await store.createNewProject(name: name, visibility: visibility) }
-                }
+                onClone: { url in await store.createProject(url: url) },
+                onCreate: { name, visibility in await store.createNewProject(name: name, visibility: visibility) }
             )
         }
         .alert(
@@ -206,6 +205,26 @@ struct HubView: View {
             projects: store.projects,
             preferences: store.uiPreferences.sidebar
         )
+    }
+
+    private func filteredSections(_ sections: [HubSection]) -> [HubSection] {
+        guard !searchText.isEmpty else { return sections }
+        return sections.compactMap { section in
+            let nodes = section.projects.compactMap { node -> HubProjectNode? in
+                let projectMatches = node.project.name.localizedCaseInsensitiveContains(searchText)
+                let workspaces = node.project.workspaces.filter {
+                    $0.name.localizedCaseInsensitiveContains(searchText)
+                        || $0.branch.localizedCaseInsensitiveContains(searchText)
+                }
+                if projectMatches { return node }
+                guard !workspaces.isEmpty else { return nil }
+                var project = node.project
+                project.workspaces = workspaces
+                return HubProjectNode(project: project)
+            }
+            guard !nodes.isEmpty else { return nil }
+            return HubSection(kind: section.kind, projects: nodes, defaultExpanded: true)
+        }
     }
 
     private func visiblePrWorkspaceIds(in sections: [HubSection]) -> [String] {
@@ -373,11 +392,11 @@ struct HubView: View {
     // MARK: - Expansion State
 
     private func isSectionExpanded(_ section: HubSection) -> Bool {
-        return sectionExpansionOverrides[section.id] ?? section.defaultExpanded
+        return !searchText.isEmpty || (sectionExpansionOverrides[section.id] ?? section.defaultExpanded)
     }
 
     private func isProjectExpanded(_ project: Project) -> Bool {
-        return projectExpansionOverrides[project.id] ?? projectHasLiveAttention(project)
+        return !searchText.isEmpty || (projectExpansionOverrides[project.id] ?? projectHasLiveAttention(project))
     }
 
     private func setSection(_ section: HubSection, expanded: Bool) {

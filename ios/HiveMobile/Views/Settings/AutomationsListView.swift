@@ -7,12 +7,18 @@ struct AutomationsListView: View {
     @State private var selectedAutomation: Automation?
     @State private var isLoading = true
     @State private var errorMessage: String?
+    @State private var searchText = ""
 
     private let api = APIClient()
 
+    private var filteredAutomations: [Automation] {
+        guard !searchText.isEmpty else { return automations }
+        return automations.filter { $0.name.localizedCaseInsensitiveContains(searchText) }
+    }
+
     var body: some View {
         List {
-            ForEach(automations) { automation in
+            ForEach(filteredAutomations) { automation in
                 Button {
                     selectedAutomation = automation
                 } label: {
@@ -26,6 +32,7 @@ struct AutomationsListView: View {
         }
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
+        .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .automatic))
         .hiveScreenBackground()
         .navigationTitle("Automations")
         .navigationBarTitleDisplayMode(.inline)
@@ -37,7 +44,9 @@ struct AutomationsListView: View {
         .refreshable { await load() }
         .task { await load() }
         .overlay {
-            if isLoading, automations.isEmpty {
+            if !searchText.isEmpty, filteredAutomations.isEmpty, !automations.isEmpty {
+                ContentUnavailableView.search(text: searchText)
+            } else if isLoading, automations.isEmpty {
                 ListLoadingSkeleton()
             } else if let errorMessage, automations.isEmpty {
                 ContentUnavailableView {
