@@ -136,3 +136,15 @@ struct DiffSegmentationTests {
         #expect(segmentDiffLines([], comments: []).isEmpty)
     }
 }
+
+struct HunkMarkerTests {
+    @Test
+    func hunkMarkersInsertedBetweenHunksOnly() {
+        let diff = "@@ -1 +1 @@\n ctx\n+one\n@@ -9 +9 @@\n ctx2\n-two"
+        let plain = parseUnifiedDiffLines(diff)
+        #expect(!plain.contains { $0.kind == .hunk })
+        let marked = parseUnifiedDiffLines(diff, includeHunkMarkers: true)
+        let kinds = marked.map(\.kind)
+        #expect(kinds == [.context, .added, .hunk, .context, .removed])
+    }
+}

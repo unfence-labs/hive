@@ -67,6 +67,7 @@ struct DiffLine: Identifiable, Equatable {
         case context
         case added
         case removed
+        case hunk
     }
 
     let id: Int
@@ -75,7 +76,7 @@ struct DiffLine: Identifiable, Equatable {
 
     var prefix: String {
         switch kind {
-        case .context: " "
+        case .context, .hunk: " "
         case .added: "+"
         case .removed: "-"
         }
@@ -95,12 +96,19 @@ func parseDiffStats(_ diff: String) -> (added: Int, removed: Int) {
     return (added, removed)
 }
 
-func parseUnifiedDiffLines(_ diff: String) -> [DiffLine] {
+func parseUnifiedDiffLines(_ diff: String, includeHunkMarkers: Bool = false) -> [DiffLine] {
     var result: [DiffLine] = []
     var index = 0
     for raw in diff.split(separator: "\n", omittingEmptySubsequences: false) {
         let line = String(raw)
-        if line.hasPrefix("+++") || line.hasPrefix("---") || line.hasPrefix("@@") { continue }
+        if line.hasPrefix("@@") {
+            if includeHunkMarkers, !result.isEmpty {
+                result.append(DiffLine(id: index, kind: .hunk, text: ""))
+                index += 1
+            }
+            continue
+        }
+        if line.hasPrefix("+++") || line.hasPrefix("---") { continue }
         if line.hasPrefix("+") {
             result.append(DiffLine(id: index, kind: .added, text: String(line.dropFirst())))
             index += 1

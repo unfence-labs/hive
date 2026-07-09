@@ -47,9 +47,22 @@ struct SelectableDiffText: UIViewRepresentable {
         let font = UIFont.monospacedSystemFont(ofSize: 12, weight: .regular)
         let result = NSMutableAttributedString()
         var ranges: [(NSRange, DiffLine)] = []
+        let hunkStyle = NSMutableParagraphStyle()
+        hunkStyle.alignment = .center
+        hunkStyle.paragraphSpacing = 2
+        hunkStyle.paragraphSpacingBefore = 2
         for line in lines {
-            let content = "\(line.prefix) \(line.text)\n"
             let start = result.length
+            if line.kind == .hunk {
+                result.append(NSAttributedString(string: "\u{22EF}\n", attributes: [
+                    .font: UIFont.monospacedSystemFont(ofSize: 10, weight: .regular),
+                    .foregroundColor: UIColor(WhisperColor.textMuted),
+                    .paragraphStyle: hunkStyle,
+                ]))
+                ranges.append((NSRange(location: start, length: result.length - start), line))
+                continue
+            }
+            let content = "\(line.prefix) \(line.text)\n"
             result.append(NSAttributedString(string: content, attributes: [
                 .font: font,
                 .foregroundColor: textColor(line.kind),
@@ -62,7 +75,7 @@ struct SelectableDiffText: UIViewRepresentable {
 
     private static func textColor(_ kind: DiffLine.Kind) -> UIColor {
         switch kind {
-        case .context: UIColor(WhisperColor.textSecondary)
+        case .context, .hunk: UIColor(WhisperColor.textSecondary)
         case .added: .systemGreen
         case .removed: .systemRed
         }
@@ -70,7 +83,7 @@ struct SelectableDiffText: UIViewRepresentable {
 
     private static func backgroundColor(_ kind: DiffLine.Kind) -> UIColor {
         switch kind {
-        case .context: .clear
+        case .context, .hunk: .clear
         case .added: UIColor.systemGreen.withAlphaComponent(0.12)
         case .removed: UIColor.systemRed.withAlphaComponent(0.12)
         }
@@ -120,7 +133,8 @@ struct SelectableDiffText: UIViewRepresentable {
                 in: textView.textContainer,
                 fractionOfDistanceBetweenInsertionPoints: nil
             )
-            guard let line = lineRanges.first(where: { NSLocationInRange(index, $0.0) })?.1 else { return }
+            guard let line = lineRanges.first(where: { NSLocationInRange(index, $0.0) })?.1,
+                  line.kind != .hunk else { return }
             parent.onTapLine(line)
         }
     }

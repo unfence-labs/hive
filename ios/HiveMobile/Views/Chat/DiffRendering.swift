@@ -46,6 +46,7 @@ struct DiffLinesView: View {
         case .context: WhisperColor.textSecondary
         case .added: .green
         case .removed: .red
+        case .hunk: WhisperColor.textMuted
         }
     }
 
@@ -54,6 +55,7 @@ struct DiffLinesView: View {
         case .context: .clear
         case .added: Color.green.opacity(0.12)
         case .removed: Color.red.opacity(0.12)
+        case .hunk: .clear
         }
     }
 }
@@ -81,6 +83,7 @@ struct DiffLineRow: View {
         case .context: WhisperColor.textSecondary
         case .added: .green
         case .removed: .red
+        case .hunk: WhisperColor.textMuted
         }
     }
 
@@ -89,6 +92,7 @@ struct DiffLineRow: View {
         case .context: .clear
         case .added: Color.green.opacity(0.12)
         case .removed: Color.red.opacity(0.12)
+        case .hunk: .clear
         }
     }
 }

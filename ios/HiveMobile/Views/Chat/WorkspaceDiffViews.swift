@@ -67,17 +67,28 @@ struct ChangedFilesView: View {
 private struct ChangedFileRow: View {
     let file: DiffFileStat
 
+    private var fileName: String { (file.file as NSString).lastPathComponent }
+    private var directory: String { (file.file as NSString).deletingLastPathComponent }
+
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 10) {
             Image(systemName: icon)
-                .font(.footnote)
+                .font(.body)
                 .foregroundStyle(iconColor)
-                .frame(width: 18)
-            Text(file.file)
-                .font(WhisperFont.scaled(14))
-                .foregroundStyle(WhisperColor.text)
-                .lineLimit(1)
-                .truncationMode(.middle)
+                .frame(width: 22)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(fileName)
+                    .font(WhisperFont.scaled(15, weight: .medium))
+                    .foregroundStyle(WhisperColor.text)
+                    .lineLimit(1)
+                if !directory.isEmpty {
+                    Text(directory)
+                        .font(WhisperFont.scaled(12))
+                        .foregroundStyle(WhisperColor.textMuted)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+            }
             Spacer(minLength: 8)
             if file.additions > 0 {
                 Text("+\(file.additions)")
@@ -92,6 +103,7 @@ private struct ChangedFileRow: View {
                 .foregroundStyle(WhisperColor.textMuted)
         }
         .font(WhisperFont.mono(11))
+        .padding(.vertical, 2)
         .contentShape(Rectangle())
     }
 
@@ -134,8 +146,14 @@ struct WorkspaceFileDiffView: View {
     var body: some View {
         TabView(selection: $index) {
             ForEach(Array(paths.enumerated()), id: \.offset) { i, path in
-                filePage(path: path)
-                    .tag(i)
+                Group {
+                    if abs(i - index) <= 1 {
+                        filePage(path: path)
+                    } else {
+                        Color.clear
+                    }
+                }
+                .tag(i)
             }
         }
         .tabViewStyle(.page(indexDisplayMode: .never))
@@ -189,7 +207,7 @@ struct WorkspaceFileDiffView: View {
                             fileHeader(file)
                             Divider()
                             let segments = segmentDiffLines(
-                                parseUnifiedDiffLines(file.text),
+                                parseUnifiedDiffLines(file.text, includeHunkMarkers: true),
                                 comments: pendingComments.filter { $0.file == file.path }
                             )
                             VStack(alignment: .leading, spacing: 0) {
@@ -212,11 +230,13 @@ struct WorkspaceFileDiffView: View {
                                 }
                             }
                             .padding(.vertical, 8)
+                            .background(WhisperColor.codeBlockBg)
                         }
                         .background(
                             RoundedRectangle(cornerRadius: 12, style: .continuous)
                                 .fill(WhisperColor.surfaceRaised)
                         )
+                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                         .overlay(
                             RoundedRectangle(cornerRadius: 12, style: .continuous)
                                 .stroke(WhisperColor.borderSubtle, lineWidth: 1)
@@ -252,9 +272,9 @@ struct WorkspaceFileDiffView: View {
                 Image(systemName: "doc.text")
                     .font(.footnote)
                     .foregroundStyle(WhisperColor.textMuted)
-                Text(file.path)
-                    .font(WhisperFont.scaled(13, weight: .medium))
+                Text("\(Text(directoryPrefix(file.path)).foregroundColor(WhisperColor.textMuted))\(Text((file.path as NSString).lastPathComponent).fontWeight(.semibold))")
                     .foregroundStyle(WhisperColor.text)
+                    .font(WhisperFont.scaled(13))
                     .lineLimit(1)
                     .truncationMode(.middle)
                 Spacer(minLength: 8)
@@ -274,6 +294,11 @@ struct WorkspaceFileDiffView: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
+    }
+
+    private func directoryPrefix(_ path: String) -> String {
+        let dir = (path as NSString).deletingLastPathComponent
+        return dir.isEmpty ? "" : dir + "/"
     }
 
     private func loadDiff() async {
@@ -409,13 +434,9 @@ private struct ReviewSummaryBar: View {
             Button("Send review", action: onSend)
                 .font(WhisperFont.scaled(13, weight: .semibold))
         }
-        .padding(.horizontal, 14)
+        .padding(.horizontal, 16)
         .padding(.vertical, 10)
-        .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(WhisperColor.surfaceRaised)
-                .shadow(color: .black.opacity(0.08), radius: 6, y: 2)
-        )
+        .glassPill()
         .padding(.horizontal, HiveSpacing.md)
         .padding(.bottom, HiveSpacing.sm)
     }
