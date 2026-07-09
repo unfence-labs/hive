@@ -160,8 +160,34 @@ struct DiffComment: Identifiable, Equatable {
     let file: String
     let lineID: Int
     let line: String
+    var lineNumber: Int? = nil
+    var side: String = "new code"
     var snippet: String?
     var text: String
+}
+
+extension DiffComment {
+    init(file: String, line: DiffLine, snippet: String?) {
+        self.init(
+            file: file,
+            lineID: line.id,
+            line: line.text,
+            lineNumber: line.kind == .removed ? line.oldLine : (line.newLine ?? line.oldLine),
+            side: line.kind == .removed ? "old code" : "new code",
+            snippet: snippet,
+            text: ""
+        )
+    }
+}
+
+func compileReview(_ comments: [DiffComment]) -> String {
+    var sections: [String] = ["Review comments on the current diff:"]
+    for comment in comments {
+        let location = comment.lineNumber.map { " (line \($0), \(comment.side))" } ?? ""
+        let quoted = (comment.snippet ?? comment.line).trimmingCharacters(in: .whitespacesAndNewlines)
+        sections.append("In `\(comment.file)`\(location):\n> \(quoted.replacingOccurrences(of: "\n", with: "\n> "))\n\(comment.text)")
+    }
+    return sections.joined(separator: "\n\n")
 }
 
 struct DiffSegment: Identifiable {

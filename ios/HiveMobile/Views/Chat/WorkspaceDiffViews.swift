@@ -233,10 +233,10 @@ struct WorkspaceFileDiffView: View {
                                     SelectableDiffText(
                                         lines: segment.lines,
                                         onTapLine: { line in
-                                            draftComment = DiffComment(file: parsed.file.path, lineID: line.id, line: line.text, snippet: nil, text: "")
+                                            draftComment = DiffComment(file: parsed.file.path, line: line, snippet: nil)
                                         },
                                         onCommentSelection: { line, snippet in
-                                            draftComment = DiffComment(file: parsed.file.path, lineID: line.id, line: line.text, snippet: snippet, text: "")
+                                            draftComment = DiffComment(file: parsed.file.path, line: line, snippet: snippet)
                                         }
                                     )
                                     ForEach(segment.comments) { comment in
@@ -361,7 +361,7 @@ struct WorkspaceFileDiffView: View {
             }
             let text = pendingComments.isEmpty
                 ? "About `\(paths[index])`: "
-                : compiledReview()
+                : compileReview(pendingComments)
             let existing = draftStore.restore(workspaceId: workspace.id, sessionId: target.sessionId)
             let prefix = (existing?.text.isEmpty ?? true) ? "" : existing!.text + "\n"
             draftStore.save(
@@ -397,15 +397,6 @@ struct WorkspaceFileDiffView: View {
             try? await Task.sleep(for: .milliseconds(100))
             withAnimation { proxy.scrollTo(request.commentID, anchor: .center) }
         }
-    }
-
-    private func compiledReview() -> String {
-        var sections: [String] = ["Review comments on the current diff:"]
-        for comment in pendingComments {
-            let quoted = (comment.snippet ?? comment.line).trimmingCharacters(in: .whitespacesAndNewlines)
-            sections.append("`\(comment.file)`\n> \(quoted.replacingOccurrences(of: "\n", with: "\n> "))\n\(comment.text)")
-        }
-        return sections.joined(separator: "\n\n")
     }
 }
 

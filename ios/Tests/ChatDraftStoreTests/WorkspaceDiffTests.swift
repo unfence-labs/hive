@@ -173,6 +173,40 @@ struct HunkMarkerTests {
     }
 }
 
+struct CompileReviewTests {
+    @Test
+    func numberedCommentMatchesWebFraming() {
+        let comment = DiffComment(file: "src/a.ts", lineID: 0, line: "let x = 1", lineNumber: 12, side: "new code", snippet: nil, text: "handle nil")
+        let output = compileReview([comment])
+        #expect(output.contains("In `src/a.ts` (line 12, new code):"))
+        #expect(output.contains("> let x = 1"))
+        #expect(output.contains("handle nil"))
+    }
+
+    @Test
+    func removedLineIsOldCode() {
+        let line = DiffLine(id: 0, kind: .removed, text: "gone", oldLine: 5, newLine: nil)
+        let comment = DiffComment(file: "f", line: line, snippet: nil)
+        let output = compileReview([comment])
+        #expect(output.contains("(line 5, old code)"))
+    }
+
+    @Test
+    func commentWithoutNumberOmitsLocation() {
+        let comment = DiffComment(file: "f", lineID: 0, line: "x", lineNumber: nil, snippet: nil, text: "note")
+        let output = compileReview([comment])
+        #expect(output.contains("In `f`:"))
+        #expect(!output.contains("("))
+    }
+
+    @Test
+    func multilineSnippetIsBlockquoted() {
+        let comment = DiffComment(file: "f", lineID: 0, line: "x", snippet: "a\nb", text: "note")
+        let output = compileReview([comment])
+        #expect(output.contains("> a\n> b"))
+    }
+}
+
 struct LineNumberTests {
     @Test
     func numbersFollowHunkHeader() {
