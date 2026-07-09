@@ -33,6 +33,9 @@ struct HubView: View {
                 VStack(alignment: .leading, spacing: HiveSpacing.md) {
                     if store.projects.isEmpty {
                         emptyState
+                    } else if !searchText.isEmpty, displayedSections.isEmpty {
+                        ContentUnavailableView.search(text: searchText)
+                            .padding(.top, 40)
                     } else {
                         denseHubContent(sections: displayedSections)
                     }
