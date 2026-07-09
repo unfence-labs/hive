@@ -340,11 +340,12 @@ struct ChatView: View {
 
     // MARK: - Find in Conversation
 
-    private var findableMessages: [(id: String, content: String)] {
-        store.messages.compactMap { message -> (id: String, content: String)? in
+    private var findableMessages: [FindableMessage] {
+        store.messages.compactMap { message in
             if message.role == .user && message.content == "Question dismissed." { return nil }
             if message.role == .assistant && message.cancelled == true { return nil }
-            return (id: message.id, content: message.content)
+            return FindableMessage(id: message.id, content: message.content,
+                                   rendersMarkdown: message.role == .assistant)
         }
     }
 
@@ -372,7 +373,7 @@ struct ChatView: View {
         let displayed = store.messages.filter { !($0.role == .user && $0.content == "Question dismissed.") }
         guard let row = displayed.firstIndex(where: { $0.id == match.messageId }) else { return }
 
-        let length = max(1, (displayed[row].content as NSString).length)
+        let length = max(1, findModel.searchableLength(of: match.messageId) ?? 1)
         let ratio = min(0.85, max(0.15, Double(match.range.lowerBound) / Double(length)))
 
         var expectedRows = displayed.count + 1

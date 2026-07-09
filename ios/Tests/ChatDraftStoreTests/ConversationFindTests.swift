@@ -2,8 +2,10 @@ import XCTest
 @testable import HiveMobileStoresCore
 
 final class ConversationFindTests: XCTestCase {
-    private func messages(_ contents: [String]) -> [(id: String, content: String)] {
-        contents.enumerated().map { (id: "m\($0.offset)", content: $0.element) }
+    private func messages(_ contents: [String]) -> [FindableMessage] {
+        contents.enumerated().map {
+            FindableMessage(id: "m\($0.offset)", content: $0.element, rendersMarkdown: false)
+        }
     }
 
     // MARK: - Matching
@@ -118,13 +120,18 @@ final class ConversationFindTests: XCTestCase {
         var model = ConversationFindModel()
         model.update(messages: messages(["a a", "a a"]), query: "a")
         // Fresh query: active is the newest global match = second occurrence in m1.
-        XCTAssertEqual(model.highlight(for: "m1"), MessageFindHighlight(query: "a", activeOrdinal: 1))
-        XCTAssertEqual(model.highlight(for: "m0"), MessageFindHighlight(query: "a", activeOrdinal: nil))
+        XCTAssertEqual(model.highlight(for: "m1"),
+                       MessageFindHighlight(ranges: [0..<1, 2..<3], activeOrdinal: 1))
+        XCTAssertEqual(model.highlight(for: "m0"),
+                       MessageFindHighlight(ranges: [0..<1, 2..<3], activeOrdinal: nil))
         model.previous()
-        XCTAssertEqual(model.highlight(for: "m1"), MessageFindHighlight(query: "a", activeOrdinal: 0))
+        XCTAssertEqual(model.highlight(for: "m1"),
+                       MessageFindHighlight(ranges: [0..<1, 2..<3], activeOrdinal: 0))
         model.previous()
-        XCTAssertEqual(model.highlight(for: "m1"), MessageFindHighlight(query: "a", activeOrdinal: nil))
-        XCTAssertEqual(model.highlight(for: "m0"), MessageFindHighlight(query: "a", activeOrdinal: 1))
+        XCTAssertEqual(model.highlight(for: "m1"),
+                       MessageFindHighlight(ranges: [0..<1, 2..<3], activeOrdinal: nil))
+        XCTAssertEqual(model.highlight(for: "m0"),
+                       MessageFindHighlight(ranges: [0..<1, 2..<3], activeOrdinal: 1))
     }
 
     func testResetClearsEverything() {
@@ -134,5 +141,40 @@ final class ConversationFindTests: XCTestCase {
         XCTAssertEqual(model.query, "")
         XCTAssertEqual(model.matchCount, 0)
         XCTAssertEqual(model.activeIndex, -1)
+        XCTAssertNil(model.highlight(for: "m0"))
+    }
+
+    // MARK: - Rendered-text matching
+
+    private func markdownMessage(_ content: String) -> [FindableMessage] {
+        [FindableMessage(id: "m0", content: content, rendersMarkdown: true)]
+    }
+
+    func testMarkdownMatchesIgnoreLinkURLs() {
+        var model = ConversationFindModel()
+        model.update(messages: markdownMessage("see [docs](https://example.com/query-hit) now"),
+                     query: "query-hit")
+        XCTAssertEqual(model.matchCount, 0)
+    }
+
+    func testMarkdownMatchOffsetsAreInRenderedText() {
+        var model = ConversationFindModel()
+        model.update(messages: markdownMessage("`foo` bar"), query: "foo")
+        XCTAssertEqual(model.matches.map(\.range), [0..<3])
+    }
+
+    func testMarkdownOrdinalsCountRenderedOccurrencesOnly() {
+        var model = ConversationFindModel()
+        model.update(messages: markdownMessage("foo then [foo](https://foo.example) end"),
+                     query: "foo")
+        XCTAssertEqual(model.matchCount, 2)
+        model.previous()
+        XCTAssertEqual(model.highlight(for: "m0")?.activeOrdinal, 0)
+    }
+
+    func testSearchableTextFallsBackToRawContentWhenNotMarkdown() {
+        var model = ConversationFindModel()
+        model.update(messages: messages(["foo then [foo](https://foo.example) end"]), query: "foo")
+        XCTAssertEqual(model.matchCount, 3)
     }
 }

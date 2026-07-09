@@ -155,30 +155,23 @@ struct ConversationFindNavigator: View {
 
 enum FindHighlighting {
     static func apply(to attributed: NSMutableAttributedString, highlight: MessageFindHighlight) {
-        let ranges = ConversationFindModel.matchRanges(in: attributed.string, query: highlight.query)
-        for (ordinal, range) in ranges.enumerated() {
+        for (ordinal, range) in highlight.ranges.enumerated() {
+            guard range.upperBound <= attributed.length else { continue }
             let isActive = ordinal == highlight.activeOrdinal
-            let nsRange = NSRange(location: range.lowerBound, length: range.count)
             attributed.addAttributes([
                 .backgroundColor: UIColor(isActive ? WhisperColor.findMatchActive : WhisperColor.findMatch),
                 .foregroundColor: UIColor(WhisperColor.findMatchForeground)
-            ], range: nsRange)
+            ], range: NSRange(location: range.lowerBound, length: range.count))
         }
     }
 
     static func apply(to attributed: inout AttributedString, highlight: MessageFindHighlight) {
-        var searchStart = attributed.startIndex
-        var ordinal = 0
-        while searchStart < attributed.endIndex,
-              let range = attributed[searchStart...].range(
-                  of: highlight.query,
-                  options: [.caseInsensitive, .diacriticInsensitive]
-              ) {
+        for (ordinal, range) in highlight.ranges.enumerated() {
+            let nsRange = NSRange(location: range.lowerBound, length: range.count)
+            guard let swiftRange = Range(nsRange, in: attributed) else { continue }
             let isActive = ordinal == highlight.activeOrdinal
-            attributed[range].backgroundColor = isActive ? WhisperColor.findMatchActive : WhisperColor.findMatch
-            attributed[range].foregroundColor = WhisperColor.findMatchForeground
-            searchStart = range.upperBound
-            ordinal += 1
+            attributed[swiftRange].backgroundColor = isActive ? WhisperColor.findMatchActive : WhisperColor.findMatch
+            attributed[swiftRange].foregroundColor = WhisperColor.findMatchForeground
         }
     }
 }
