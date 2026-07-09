@@ -548,6 +548,21 @@ describe("getWorkspaceDiff", () => {
     expect(result.diff).toContain("+uncommitted extra");
   });
 
+  it("serves unquoted unicode paths from diff and stat endpoints", async () => {
+    const ws = await createWorkspace(projectId, dataDir);
+    const wsPath = join(dataDir, projectId, "workspaces", ws.name);
+
+    await writeFile(join(wsPath, "café.txt"), "bonjour\n");
+
+    const result = await getWorkspaceDiff(ws.id, dataDir, "uncommitted");
+    expect(result.diff).toContain("+++ b/café.txt");
+    expect(result.diff).not.toContain("\\303");
+
+    const { uncommitted } = await getWorkspaceDiffStat(ws.id, dataDir);
+    const entry = uncommitted.find((s) => s.file === "café.txt");
+    expect(entry).toBeDefined();
+  });
+
   it("handles file without trailing newline in synthetic diff", async () => {
     const ws = await createWorkspace(projectId, dataDir);
     const wsPath = join(dataDir, projectId, "workspaces", ws.name);

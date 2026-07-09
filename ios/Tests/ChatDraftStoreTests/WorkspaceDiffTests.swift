@@ -94,6 +94,21 @@ struct WorkspaceDiffTests {
         #expect(splitUnifiedDiff("").isEmpty)
         #expect(splitUnifiedDiff("not a diff at all").isEmpty)
     }
+
+    @Test
+    func unicodePathIsParsed() {
+        let raw = """
+        diff --git a/src/café.txt b/src/café.txt
+        index 111..222 100644
+        --- a/src/café.txt
+        +++ b/src/café.txt
+        @@ -1 +1 @@
+        -old
+        +new
+        """
+        let files = splitUnifiedDiff(raw)
+        #expect(files[0].path == "src/café.txt")
+    }
 }
 
 struct DiffSegmentationTests {
