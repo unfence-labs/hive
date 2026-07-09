@@ -67,7 +67,7 @@ struct WorkspaceDashboardPanel: View {
     let hasUnread: Bool
     let scriptsLoadFailed: Bool
     let onScriptAction: (ScriptDashboardAction) -> Void
-    var onDiffTap: (() -> Void)? = nil
+    var onDiffTap: ((String) -> Void)? = nil
 
     private var branchName: String {
         branchInfo?.name ?? workspace.branch
@@ -168,17 +168,22 @@ struct WorkspaceDashboardPanel: View {
 
             VStack(spacing: 0) {
                 Button {
-                    onDiffTap?()
+                    onDiffTap?("committed")
                 } label: {
-                    VStack(spacing: 0) {
-                        GitScopeRow(title: "Branch commit", scope: gitSummary.branch)
-                        DashboardRowDivider()
-                        GitScopeRow(title: "Working tree", scope: gitSummary.workingTree)
-                    }
-                    .contentShape(Rectangle())
+                    GitScopeRow(title: "Branch commit", scope: gitSummary.branch)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .disabled(onDiffTap == nil)
+                .disabled(onDiffTap == nil || !gitSummary.branch.hasChanges)
+                DashboardRowDivider()
+                Button {
+                    onDiffTap?("uncommitted")
+                } label: {
+                    GitScopeRow(title: "Working tree", scope: gitSummary.workingTree)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .disabled(onDiffTap == nil || !gitSummary.workingTree.hasChanges)
                 DashboardRowDivider()
                 PullRequestRow(summary: prSummary)
             }

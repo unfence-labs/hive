@@ -36,13 +36,13 @@ struct WorkspaceConversationsView: View {
                     guard !isPerformingScriptAction else { return }
                     pendingScriptAction = action
                 },
-                onDiffTap: {
-                    navigationPath.append(WorkspaceDiffDestination(workspace: workspace))
+                onDiffTap: { scope in
+                    navigationPath.append(WorkspaceDiffDestination(workspace: workspace, scope: scope))
                 }
             )
         }
         .navigationDestination(for: WorkspaceDiffDestination.self) { destination in
-            ChangedFilesView(workspace: destination.workspace, navigationPath: $navigationPath)
+            ChangedFilesView(workspace: destination.workspace, scope: destination.scope, navigationPath: $navigationPath)
         }
         .navigationDestination(for: WorkspaceFileDiffDestination.self) { destination in
             WorkspaceFileDiffView(
