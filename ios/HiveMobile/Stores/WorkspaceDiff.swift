@@ -134,6 +134,7 @@ func parseUnifiedDiffLines(_ diff: String, includeHunkMarkers: Bool = false) -> 
 struct DiffComment: Identifiable, Equatable {
     let id = UUID()
     let file: String
+    let lineID: Int
     let line: String
     var snippet: String?
     var text: String
@@ -151,7 +152,7 @@ func segmentDiffLines(_ lines: [DiffLine], comments: [DiffComment]) -> [DiffSegm
     var remaining = comments
     for line in lines {
         current.append(line)
-        let matching = remaining.filter { $0.line == line.text }
+        let matching = remaining.filter { $0.lineID == line.id }
         if !matching.isEmpty {
             remaining.removeAll { candidate in matching.contains { $0.id == candidate.id } }
             segments.append(DiffSegment(id: segments.count, lines: current, comments: matching))

@@ -227,10 +227,10 @@ struct WorkspaceFileDiffView: View {
                                     SelectableDiffText(
                                         lines: segment.lines,
                                         onTapLine: { line in
-                                            draftComment = DiffComment(file: file.path, line: line.text, snippet: nil, text: "")
+                                            draftComment = DiffComment(file: file.path, lineID: line.id, line: line.text, snippet: nil, text: "")
                                         },
                                         onCommentSelection: { line, snippet in
-                                            draftComment = DiffComment(file: file.path, line: line.text, snippet: snippet, text: "")
+                                            draftComment = DiffComment(file: file.path, lineID: line.id, line: line.text, snippet: snippet, text: "")
                                         }
                                     )
                                     ForEach(segment.comments) { comment in
