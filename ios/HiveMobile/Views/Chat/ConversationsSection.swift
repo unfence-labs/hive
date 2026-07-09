@@ -84,7 +84,7 @@ struct ConversationsSection<Header: View>: View {
             }
         }
         .alert(labels.errorTitle, isPresented: Binding(
-            get: { errorMessage != nil },
+            get: { errorMessage != nil && !sessions.isEmpty },
             set: { if !$0 { errorMessage = nil } }
         )) {
             Button("OK", role: .cancel) {}
@@ -168,6 +168,15 @@ struct ConversationsSection<Header: View>: View {
         .overlay {
             if isLoading, sessions.isEmpty {
                 ListLoadingSkeleton()
+            } else if let errorMessage, sessions.isEmpty {
+                ContentUnavailableView {
+                    Label("Couldn't load conversations", systemImage: "exclamationmark.triangle")
+                } description: {
+                    Text(errorMessage)
+                } actions: {
+                    Button("Retry") { Task { await refreshContent(force: true) } }
+                        .buttonStyle(.borderedProminent)
+                }
             } else if !isLoading, sessions.isEmpty {
                 VStack(spacing: HiveSpacing.sm) {
                     Text(labels.emptyTitle)
@@ -177,6 +186,11 @@ struct ConversationsSection<Header: View>: View {
                         .font(.subheadline)
                         .foregroundStyle(WhisperColor.textSecondary)
                         .multilineTextAlignment(.center)
+                    Button("New conversation") {
+                        createSession()
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(sessions.count >= maxSessions || isCreatingSession)
                 }
                 .padding(.horizontal, HiveSpacing.xl)
             }

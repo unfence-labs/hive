@@ -125,7 +125,7 @@ struct HubView: View {
             }
             Button("Cancel", role: .cancel) {}
         } message: { ws in
-            Text("\"\(ws.name)\" will be archived.")
+            Text("\"\(ws.name)\" will be archived and removed from this list. Archived workspaces can be restored from the desktop app.")
         }
     }
 
@@ -147,11 +147,16 @@ struct HubView: View {
         } else if store.isLoading || !store.hasLoadedSuccessfully {
             loadingState
         } else {
-            ContentUnavailableView(
-                "No Projects",
-                systemImage: "folder",
-                description: Text("Tap + to add your first project, or connect to your Hive server from Settings.")
-            )
+            ContentUnavailableView {
+                Label("No Projects", systemImage: "folder")
+            } description: {
+                Text("Tap + to add your first project, or connect to your Hive server from Settings.")
+            } actions: {
+                Button("Add project") { showAddProject = true }
+                    .buttonStyle(.borderedProminent)
+                Button("Open Settings") { openSettings?() }
+                    .buttonStyle(.bordered)
+            }
             .padding(.top, 40)
         }
     }

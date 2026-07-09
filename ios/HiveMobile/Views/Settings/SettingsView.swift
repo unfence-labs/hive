@@ -38,7 +38,10 @@ struct SettingsView: View {
         .onChange(of: host) { _, _ in scheduleConnectionCheck() }
         .onChange(of: port) { _, _ in scheduleConnectionCheck() }
         .onChange(of: token) { _, _ in scheduleConnectionCheck() }
-        .toolbar(.hidden, for: .navigationBar)
+        .navigationTitle("Settings")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbarBackground(WhisperColor.appBackground, for: .navigationBar)
+        .toolbarBackground(.visible, for: .navigationBar)
         .toolbar {
             ToolbarItemGroup(placement: .keyboard) {
                 Spacer()
