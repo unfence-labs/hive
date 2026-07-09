@@ -40,6 +40,7 @@ final class HubStatusMonitor {
     private(set) var workspacePrStatus: [String: PrStatusResponse] = [:]
     private(set) var workspaceScriptStatus: [String: [String: ScriptStatusInfo]] = [:]
     private(set) var workspaceLastActivityAt: [String: Date] = [:]
+    private var lastViewedSessionByWorkspace: [String: String] = [:]
     private(set) var completedWorkspaces: Set<String> = [] {
         didSet { persistCompleted() }
     }
@@ -200,6 +201,10 @@ final class HubStatusMonitor {
         workspaceDiffStats[workspaceId]
     }
 
+    func lastViewedSession(for workspaceId: String) -> String? {
+        lastViewedSessionByWorkspace[workspaceId]
+    }
+
     func branchInfo(for workspaceId: String) -> BranchInfo? {
         workspaceBranchInfo[workspaceId]
     }
@@ -306,6 +311,9 @@ final class HubStatusMonitor {
 
     func setViewingWorkspace(_ id: String?, sessionId: String?) {
         viewingSessionId = sessionId
+        if let id, let sessionId {
+            lastViewedSessionByWorkspace[id] = sessionId
+        }
         if let payload = syncState.setViewingWorkspace(id) {
             hubConnection?.sendSync(payload)
         }

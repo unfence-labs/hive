@@ -210,6 +210,14 @@ final class APIClient {
         try await requestVoid("POST", path: "/api/workspaces/\(workspaceId)/archive")
     }
 
+    func fetchWorkspaceDiff(workspaceId: String, scope: String) async throws -> DiffResponse {
+        try await get(path: "/api/workspaces/\(pathSegment(workspaceId))/diff?scope=\(scope)")
+    }
+
+    func fetchWorkspaceDiffStat(workspaceId: String) async throws -> DiffStatResponse {
+        try await get(path: "/api/workspaces/\(pathSegment(workspaceId))/diff/stat")
+    }
+
     func fetchModels() async throws -> ModelCatalogResponse {
         try await get(path: "/api/models")
     }

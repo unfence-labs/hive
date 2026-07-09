@@ -145,6 +145,21 @@ struct HubStatusMonitorTests {
     }
 
     @Test
+    func lastViewedSessionSurvivesLeavingTheChat() {
+        let (monitor, _, _) = makeMonitor()
+
+        monitor.setViewingWorkspace("ws1", sessionId: "s1")
+        #expect(monitor.lastViewedSession(for: "ws1") == "s1")
+
+        monitor.clearViewingSession(workspaceId: "ws1", sessionId: "s1")
+        monitor.setViewingWorkspace("ws1", sessionId: nil)
+        #expect(monitor.lastViewedSession(for: "ws1") == "s1")
+
+        monitor.setViewingWorkspace("ws1", sessionId: "s2")
+        #expect(monitor.lastViewedSession(for: "ws1") == "s2")
+    }
+
+    @Test
     func initialConnectionStateIsConnecting() {
         let (monitor, _, _) = makeMonitor()
 

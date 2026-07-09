@@ -47,7 +47,7 @@ export async function getUntrackedDiff(
   repoPath: string,
   maxFiles = DEFAULT_MAX_UNTRACKED_FILES,
 ): Promise<UntrackedDiffResult> {
-  const untrackedResult = await git(["ls-files", "--others", "--exclude-standard"], repoPath)
+  const untrackedResult = await git(["-c", "core.quotePath=false", "ls-files", "--others", "--exclude-standard"], repoPath)
     .then((r) => r.stdout)
     .catch(() => "");
   const untrackedFiles = untrackedResult.split("\n").filter(Boolean);
