@@ -148,3 +148,39 @@ struct HunkMarkerTests {
         #expect(kinds == [.context, .added, .hunk, .context, .removed])
     }
 }
+
+struct ContentLineEdgeTests {
+    @Test
+    func plusPlusAndMinusMinusContentLinesAreKept() {
+        let lines = parseUnifiedDiffLines("@@ -1,2 +1,2 @@\n---count;\n+++count;\n ctx")
+        #expect(lines.map(\.kind) == [.removed, .added, .context])
+        #expect(lines.map(\.text) == ["--count;", "++count;", "ctx"])
+    }
+
+    @Test
+    func fullDiffHeadersAreStillSkipped() {
+        let diff = "diff --git a/f.c b/f.c\nindex 111..222 100644\n--- a/f.c\n+++ b/f.c\n@@ -1,2 +1,2 @@\n---count;\n+++count;"
+        let lines = parseUnifiedDiffLines(diff)
+        #expect(!lines.contains { $0.text == "-- a/f.c" })
+        #expect(!lines.contains { $0.text == "++ b/f.c" })
+        #expect(lines.contains { $0.kind == .removed && $0.text == "--count;" })
+        #expect(lines.contains { $0.kind == .added && $0.text == "++count;" })
+    }
+
+    @Test
+    func diffStatsCountPlusPlusAndMinusMinusLines() {
+        let hunksOnly = parseDiffStats("@@ -1,2 +1,2 @@\n---count;\n+++count;\n ctx")
+        #expect(hunksOnly.added == 1)
+        #expect(hunksOnly.removed == 1)
+        let full = parseDiffStats("diff --git a/f.c b/f.c\nindex 111..222 100644\n--- a/f.c\n+++ b/f.c\n@@ -1,2 +1,2 @@\n---count;\n+++count;")
+        #expect(full.added == 1)
+        #expect(full.removed == 1)
+    }
+
+    @Test
+    func headerlessDiffStatsUnchanged() {
+        let stats = parseDiffStats("+one\n-two\n ctx")
+        #expect(stats.added == 1)
+        #expect(stats.removed == 1)
+    }
+}

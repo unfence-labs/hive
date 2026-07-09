@@ -86,10 +86,14 @@ struct DiffLine: Identifiable, Equatable {
 func parseDiffStats(_ diff: String) -> (added: Int, removed: Int) {
     var added = 0
     var removed = 0
+    var inHunk = false
     for line in diff.split(separator: "\n", omittingEmptySubsequences: false) {
-        if line.hasPrefix("+") && !line.hasPrefix("+++") {
+        if line.hasPrefix("diff --git ") { inHunk = false; continue }
+        if line.hasPrefix("@@") { inHunk = true; continue }
+        if !inHunk, line.hasPrefix("+++") || line.hasPrefix("---") { continue }
+        if line.hasPrefix("+") {
             added += 1
-        } else if line.hasPrefix("-") && !line.hasPrefix("---") {
+        } else if line.hasPrefix("-") {
             removed += 1
         }
     }
@@ -99,16 +103,19 @@ func parseDiffStats(_ diff: String) -> (added: Int, removed: Int) {
 func parseUnifiedDiffLines(_ diff: String, includeHunkMarkers: Bool = false) -> [DiffLine] {
     var result: [DiffLine] = []
     var index = 0
+    var inHunk = false
     for raw in diff.split(separator: "\n", omittingEmptySubsequences: false) {
         let line = String(raw)
+        if line.hasPrefix("diff --git ") { inHunk = false; continue }
         if line.hasPrefix("@@") {
+            inHunk = true
             if includeHunkMarkers, !result.isEmpty {
                 result.append(DiffLine(id: index, kind: .hunk, text: ""))
                 index += 1
             }
             continue
         }
-        if line.hasPrefix("+++") || line.hasPrefix("---") { continue }
+        if !inHunk, line.hasPrefix("+++") || line.hasPrefix("---") { continue }
         if line.hasPrefix("+") {
             result.append(DiffLine(id: index, kind: .added, text: String(line.dropFirst())))
             index += 1
