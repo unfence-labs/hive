@@ -133,6 +133,7 @@ struct WorkspaceFileDiffView: View {
     @Binding var navigationPath: NavigationPath
 
     @State var index: Int
+    @State private var scrolledPage: Int?
     @State private var filesByPath: [String: WorkspaceFileDiff]?
     @State private var loadFailed = false
     @State private var preparingFix = false
@@ -144,19 +145,23 @@ struct WorkspaceFileDiffView: View {
     private let draftStore = ChatDraftStore.shared
 
     var body: some View {
-        TabView(selection: $index) {
-            ForEach(Array(paths.enumerated()), id: \.offset) { i, path in
-                Group {
-                    if abs(i - index) <= 1 {
-                        filePage(path: path)
-                    } else {
-                        Color.clear
-                    }
+        ScrollView(.horizontal) {
+            LazyHStack(spacing: 0) {
+                ForEach(Array(paths.enumerated()), id: \.offset) { i, path in
+                    filePage(path: path)
+                        .containerRelativeFrame(.horizontal)
+                        .id(i)
                 }
-                .tag(i)
             }
+            .scrollTargetLayout()
         }
-        .tabViewStyle(.page(indexDisplayMode: .never))
+        .scrollTargetBehavior(.paging)
+        .scrollPosition(id: $scrolledPage)
+        .scrollIndicators(.hidden)
+        .onAppear { scrolledPage = index }
+        .onChange(of: scrolledPage) { _, page in
+            if let page { index = page }
+        }
         .hiveScreenBackground()
         .navigationTitle((paths[index] as NSString).lastPathComponent)
         .navigationSubtitle(Text("\(index + 1) of \(paths.count)"))
@@ -342,7 +347,7 @@ struct WorkspaceFileDiffView: View {
         jumpIndex = ((jumpIndex + direction) % pendingComments.count + pendingComments.count) % pendingComments.count
         let comment = pendingComments[jumpIndex]
         if let page = paths.firstIndex(of: comment.file), page != index {
-            index = page
+            withAnimation { scrolledPage = page }
         }
         Task {
             try? await Task.sleep(for: .milliseconds(350))
