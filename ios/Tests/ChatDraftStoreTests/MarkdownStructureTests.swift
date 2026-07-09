@@ -91,3 +91,94 @@ struct MarkdownStructureTests {
         #expect(context?.indentLevel == 0)
     }
 }
+
+struct SplitStableMarkdownPrefixTests {
+    @Test
+    func plainParagraphsSplitAtLastBlankLine() {
+        let text = "First paragraph.\n\nSecond paragraph.\n\nTail still streaming"
+        let parts = splitStableMarkdownPrefix(text)
+        #expect(parts.stable == "First paragraph.\n\nSecond paragraph.\n\n")
+        #expect(parts.tail == "Tail still streaming")
+        #expect(parts.stable + parts.tail == text)
+    }
+
+    @Test
+    func noBlankLineMeansEverythingIsTail() {
+        let text = "One long paragraph without any boundary"
+        let parts = splitStableMarkdownPrefix(text)
+        #expect(parts.stable.isEmpty)
+        #expect(parts.tail == text)
+    }
+
+    @Test
+    func neverSplitsInsideAnOpenCodeFence() {
+        let text = "Intro.\n\n```swift\nlet a = 1\n\nlet b = 2\n"
+        let parts = splitStableMarkdownPrefix(text)
+        #expect(parts.stable == "Intro.\n\n")
+        #expect(parts.tail == "```swift\nlet a = 1\n\nlet b = 2\n")
+    }
+
+    @Test
+    func splitsAfterAClosedCodeFence() {
+        let text = "Intro.\n\n```swift\nlet a = 1\n```\n\nTail"
+        let parts = splitStableMarkdownPrefix(text)
+        #expect(parts.stable == "Intro.\n\n```swift\nlet a = 1\n```\n\n")
+        #expect(parts.tail == "Tail")
+    }
+
+    @Test
+    func trailingPartialFenceStaysInTail() {
+        let text = "Done block.\n\nNow code:\n``"
+        let parts = splitStableMarkdownPrefix(text)
+        #expect(parts.stable == "Done block.\n\n")
+        #expect(parts.tail == "Now code:\n``")
+    }
+
+    @Test
+    func emptyAndWhitespaceInputs() {
+        #expect(splitStableMarkdownPrefix("").stable.isEmpty)
+        #expect(splitStableMarkdownPrefix("").tail.isEmpty)
+        let parts = splitStableMarkdownPrefix("\n\n")
+        #expect(parts.stable + parts.tail == "\n\n")
+    }
+
+    @Test
+    func inlineTripleBackticksInProseDoNotFlipFenceState() {
+        let text = "Wrap it in ``` fences.\n\n```swift\nlet a = 1\n\nlet b = 2\n"
+        let parts = splitStableMarkdownPrefix(text)
+        #expect(parts.stable == "Wrap it in ``` fences.\n\n")
+        #expect(parts.tail == "```swift\nlet a = 1\n\nlet b = 2\n")
+    }
+
+    @Test
+    func neverSplitsInsideAnOpenTildeFence() {
+        let text = "Intro.\n\n~~~\nlet a = 1\n\nlet b = 2\n"
+        let parts = splitStableMarkdownPrefix(text)
+        #expect(parts.stable == "Intro.\n\n")
+        #expect(parts.tail == "~~~\nlet a = 1\n\nlet b = 2\n")
+    }
+
+    @Test
+    func splitsAfterAClosedTildeFence() {
+        let text = "Intro.\n\n~~~\ncode\n~~~\n\nTail"
+        let parts = splitStableMarkdownPrefix(text)
+        #expect(parts.stable == "Intro.\n\n~~~\ncode\n~~~\n\n")
+        #expect(parts.tail == "Tail")
+    }
+
+    @Test
+    func indentedFenceLineTogglesFenceState() {
+        let text = "Intro.\n\n  ```\ncode\n\nmore\n"
+        let parts = splitStableMarkdownPrefix(text)
+        #expect(parts.stable == "Intro.\n\n")
+        #expect(parts.tail == "  ```\ncode\n\nmore\n")
+    }
+
+    @Test
+    func whitespaceOnlyLineIsNotABoundary() {
+        let text = "First.\n \nSecond"
+        let parts = splitStableMarkdownPrefix(text)
+        #expect(parts.stable.isEmpty)
+        #expect(parts.tail == text)
+    }
+}

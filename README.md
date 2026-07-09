@@ -72,7 +72,7 @@ Run Hive as a **local web app**, a **Tauri desktop app** (pointed at a local or 
 </tr>
 </table>
 
-**Apps & integrations** — React 19 + Vite web UI with Tauri v2 desktop packaging · native SwiftUI iOS client (Brain, conversations, session switching, model selection, PR status, scripts, push notifications, task tracker) · GitHub OAuth device flow via `gh`, PR status enrichment, `.env` management, global instructions, skills, subagents, Telegram/APNs notifications, Tailscale-friendly remote settings, external terminal & VS Code remote-SSH opening.
+**Apps & integrations** — React 19 + Vite web UI with Tauri v2 desktop packaging · native SwiftUI iOS client (first-run onboarding, Brain, conversations, session switching, model selection, PR status, scripts, push notifications, task tracker, connection status banner with tap-to-reconnect) · GitHub OAuth device flow via `gh`, PR status enrichment, `.env` management, global instructions, skills, subagents, Telegram/APNs notifications, Tailscale-friendly remote settings, external terminal & VS Code remote-SSH opening.
 
 ## Screenshots
 

@@ -1,4 +1,5 @@
 import Foundation
+import Network
 import Observation
 
 enum HubConnectionState { case connecting; case connected; case disconnected }
@@ -39,10 +40,21 @@ final class HubStatusMonitor {
     private(set) var workspacePrStatus: [String: PrStatusResponse] = [:]
     private(set) var workspaceScriptStatus: [String: [String: ScriptStatusInfo]] = [:]
     private(set) var workspaceLastActivityAt: [String: Date] = [:]
+    private var lastViewedSessionByWorkspace: [String: String] = [:]
     private(set) var completedWorkspaces: Set<String> = [] {
         didSet { persistCompleted() }
     }
     private(set) var connectionState: HubConnectionState = .connecting
+
+    /// True while the device reports a usable network path. Airplane mode flips
+    /// this instantly — long before a socket send or the 30s ping would notice —
+    /// so sends fail fast and the disconnect banner shows without delay.
+    private(set) var isNetworkAvailable = true
+    @ObservationIgnored private var pathMonitor: NWPathMonitor?
+
+    /// Bumped each time the hub transitions into `.connected`. Lets a retry
+    /// distinguish a genuinely fresh connection from a stale `.connected` read.
+    private(set) var connectionGeneration = 0
 
     /// Workspace currently visible in ChatView (suppresses unread badge).
     var viewingWorkspaceId: String? { syncState.viewingWorkspaceId }
@@ -69,6 +81,35 @@ final class HubStatusMonitor {
 
     convenience init(storeCache: ConversationStoreCache) {
         self.init(storeCache: storeCache, makeHubConnection: { HubConnection(monitor: $0) })
+        startNetworkPathMonitoring()
+    }
+
+    private func startNetworkPathMonitoring() {
+        let monitor = NWPathMonitor()
+        monitor.pathUpdateHandler = { [weak self] path in
+            let available = path.status == .satisfied
+            Task { @MainActor [weak self] in
+                self?.setNetworkAvailable(available)
+            }
+        }
+        monitor.start(queue: DispatchQueue.global(qos: .utility))
+        pathMonitor = monitor
+    }
+
+    func setNetworkAvailable(_ available: Bool) {
+        guard isNetworkAvailable != available else { return }
+        isNetworkAvailable = available
+        if available {
+            // Network is back: probe (or create) the connection right away
+            // instead of waiting for the next ping cycle.
+            if hubConnection != nil {
+                forceRefresh()
+            } else {
+                ensureConnection()
+            }
+        } else {
+            didChangeConnectionState(.disconnected)
+        }
     }
 
     init(
@@ -88,7 +129,46 @@ final class HubStatusMonitor {
     /// Wire (or re-wire) the send closure for a workspace's store via the hub connection.
     fileprivate func wireSendClosure(for workspaceId: String, on store: ConversationStore) {
         store.send = { [weak self] message in
-            await self?.hubConnection?.send(.workspaceEvent(workspaceId: workspaceId, event: message)) ?? false
+            guard let self else { return false }
+            // No network path (airplane mode): fail fast so the failed-send
+            // error state appears immediately instead of hanging on a dead
+            // socket send that TCP won't give up on for tens of seconds.
+            guard self.isNetworkAvailable else { return false }
+            let event = HubIncoming.workspaceEvent(workspaceId: workspaceId, event: message)
+            let generationAtSend = self.connectionGeneration
+            await self.resubscribeIfNeeded()
+            if await self.hubConnection?.send(event) == true { return true }
+            // The socket was down, absent, or died mid-send: (re)connect and retry
+            // once so a send during a brief disconnect isn't silently dropped. Wait
+            // for a genuinely fresh connection (a newer generation) rather than a
+            // stale `.connected` left over from the socket that just failed.
+            self.handleSendFailure()
+            for _ in 0..<30 {
+                if !self.isNetworkAvailable { return false }
+                if self.connectionState == .connected,
+                   self.connectionGeneration != generationAtSend { break }
+                try? await Task.sleep(for: .milliseconds(100))
+            }
+            guard self.isNetworkAvailable else { return false }
+            await self.resubscribeIfNeeded()
+            return await self.hubConnection?.send(event) == true
+        }
+    }
+
+    /// After a (re)connect, resend our subscription before the first workspace
+    /// event so the server registers it first (same ordered socket). Prevents a
+    /// "Not subscribed to workspace" rejection when a send races the reconnect.
+    private var needsResubscribe = true
+    private func resubscribeIfNeeded() async {
+        guard needsResubscribe, let hubConnection else { return }
+        let payload = currentSyncPayload
+        if await hubConnection.send(.syncWorkspaces(
+            workspaceIds: payload.workspaceIds,
+            focusWorkspaces: payload.focusWorkspaces,
+            prWorkspaces: payload.prWorkspaces,
+            forceBootstrap: false
+        )) {
+            needsResubscribe = false
         }
     }
 
@@ -121,6 +201,10 @@ final class HubStatusMonitor {
         workspaceDiffStats[workspaceId]
     }
 
+    func lastViewedSession(for workspaceId: String) -> String? {
+        lastViewedSessionByWorkspace[workspaceId]
+    }
+
     func branchInfo(for workspaceId: String) -> BranchInfo? {
         workspaceBranchInfo[workspaceId]
     }
@@ -139,6 +223,14 @@ final class HubStatusMonitor {
 
     func isCompleted(_ workspaceId: String) -> Bool {
         completedWorkspaces.contains(workspaceId)
+    }
+
+    /// Number of workspaces with new activity (a completed turn or an unread
+    /// session), for the Hub tab badge. Clears as workspaces are viewed.
+    var hubBadgeCount: Int {
+        completedWorkspaces
+            .union(unreadSessions.compactMap { $0.value.isEmpty ? nil : $0.key })
+            .count
     }
 
     func lastActivityDate(for workspaceId: String) -> Date? {
@@ -175,6 +267,13 @@ final class HubStatusMonitor {
 
     // MARK: - Sync
 
+    private func ensureConnection() {
+        guard hubConnection == nil, !currentSyncPayload.workspaceIds.isEmpty else { return }
+        let conn = makeHubConnection(self)
+        hubConnection = conn
+        conn.connect()
+    }
+
     /// Sync monitored workspaces — manages hub connection and subscriptions.
     func sync(workspaceIds: [String]) {
         let desired = Set(workspaceIds)
@@ -198,9 +297,7 @@ final class HubStatusMonitor {
             hubConnection = nil
             connectionState = .disconnected
         } else if hubConnection == nil {
-            let conn = makeHubConnection(self)
-            hubConnection = conn
-            conn.connect()
+            ensureConnection()
         } else if let (_, payload) = change {
             hubConnection?.sendSync(payload)
         }
@@ -214,6 +311,9 @@ final class HubStatusMonitor {
 
     func setViewingWorkspace(_ id: String?, sessionId: String?) {
         viewingSessionId = sessionId
+        if let id, let sessionId {
+            lastViewedSessionByWorkspace[id] = sessionId
+        }
         if let payload = syncState.setViewingWorkspace(id) {
             hubConnection?.sendSync(payload)
         }
@@ -250,12 +350,28 @@ final class HubStatusMonitor {
     // MARK: - Called by HubConnection
 
     func didChangeConnectionState(_ state: HubConnectionState) {
+        if state == .connecting { needsResubscribe = true }
         guard connectionState != state else { return }
         connectionState = state
+        if state == .connected { connectionGeneration += 1 }
     }
 
     func reconnectNow() {
-        hubConnection?.forceReconnect()
+        if let hubConnection {
+            hubConnection.forceReconnect()
+        } else {
+            ensureConnection()
+        }
+    }
+
+    /// A workspace send failed: probe the socket so the UI (and disconnect banner)
+    /// reconcile with reality, reconnecting if the connection silently dropped.
+    private func handleSendFailure() {
+        if hubConnection != nil {
+            forceRefresh()
+        } else {
+            ensureConnection()
+        }
     }
 
     /// Workspaces that were streaming when the app entered background.

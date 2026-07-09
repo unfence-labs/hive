@@ -166,9 +166,9 @@ struct ConversationsSection<Header: View>: View {
             await refreshContent(force: true)
         }
         .overlay {
-            if isLoading {
-                ProgressView()
-            } else if sessions.isEmpty {
+            if isLoading, sessions.isEmpty {
+                ListLoadingSkeleton()
+            } else if !isLoading, sessions.isEmpty {
                 VStack(spacing: HiveSpacing.sm) {
                     Text(labels.emptyTitle)
                         .font(.headline)
@@ -201,12 +201,22 @@ struct ConversationsSection<Header: View>: View {
             sessions = try await api.fetchSessions(workspaceId: workspace.id)
                 .filter { $0.kind != "terminal" }
             errorMessage = nil
+            navigateToPendingSessionIfNeeded()
         } catch is CancellationError {
             // View disappeared.
         } catch {
             errorMessage = error.localizedDescription
         }
         isLoading = false
+    }
+
+    private func navigateToPendingSessionIfNeeded() {
+        guard let pending = projectStore.pendingSessionNavigation,
+              pending.workspaceId == workspace.id else { return }
+        projectStore.pendingSessionNavigation = nil
+        if let match = sessions.first(where: { $0.sessionId == pending.sessionId }) {
+            navigationPath.append(match)
+        }
     }
 
     private func createSession() {

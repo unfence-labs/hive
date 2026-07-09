@@ -19,7 +19,6 @@ let package = Package(
                 "HiveApp.swift",
                 "HiveMobile.entitlements",
                 "Stores/ModelCatalog.swift",
-                "Stores/ProjectStore.swift",
                 "Theme",
                 "Views"
             ],
@@ -29,6 +28,7 @@ let package = Package(
                 "Models/ConversationSurfaceModels.swift",
                 "Models/Models.swift",
                 "Models/WebSocketTypes.swift",
+                "Services/APIClient.swift",
                 "Services/HiveHTTP.swift",
                 "Stores/BackgroundAgentDerivation.swift",
                 "Stores/ChatDraftStore.swift",
@@ -42,10 +42,12 @@ let package = Package(
                 "Stores/HubOrganization.swift",
                 "Stores/HubSubscriptionSync.swift",
                 "Stores/MarkdownStructure.swift",
+                "Stores/ProjectStore.swift",
                 "Stores/SubAgentStatus.swift",
                 "Stores/TaskDerivation.swift",
                 "Stores/TokenFormatting.swift",
-                "Stores/ToolInputParsing.swift"
+                "Stores/ToolInputParsing.swift",
+                "Stores/WorkspaceDiff.swift"
             ]
         ),
         .testTarget(

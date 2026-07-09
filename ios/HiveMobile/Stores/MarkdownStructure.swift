@@ -145,3 +145,26 @@ func markdownNeedsRichRenderer(_ markdown: String) -> Bool {
     }
     return false
 }
+
+/// Boundary = blank line outside any ``` / ~~~ fenced block, so the stable
+/// prefix never ends inside an open code block.
+func splitStableMarkdownPrefix(_ text: String) -> (stable: String, tail: String) {
+    var insideFence = false
+    var lastSafeBoundary: String.Index?
+    var lineStart = text.startIndex
+
+    while lineStart < text.endIndex {
+        let lineEnd = text[lineStart...].firstIndex(of: "\n") ?? text.endIndex
+        let line = text[lineStart..<lineEnd].trimmingCharacters(in: .whitespaces)
+        if line.hasPrefix("```") || line.hasPrefix("~~~") {
+            insideFence.toggle()
+        } else if lineStart == lineEnd, !insideFence, lineEnd < text.endIndex {
+            lastSafeBoundary = text.index(after: lineEnd)
+        }
+        guard lineEnd < text.endIndex else { break }
+        lineStart = text.index(after: lineEnd)
+    }
+
+    guard let boundary = lastSafeBoundary else { return ("", text) }
+    return (String(text[..<boundary]), String(text[boundary...]))
+}

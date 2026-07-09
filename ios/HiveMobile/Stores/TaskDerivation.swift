@@ -78,6 +78,31 @@ private func hasOpenPlanTask(_ tasks: [TrackedTask], activityId: String) -> Bool
     }
 }
 
+struct TasksHistorySnapshot {
+    fileprivate var tasks: [(key: String, value: TrackedTask)] = []
+    fileprivate var taskIndex: [String: Int] = [:]
+    fileprivate var createIndex = 0
+    fileprivate var planActivities: [(plan: AgentActivity.PlanUpdate, source: PlanActivitySource)] = []
+    fileprivate var hasTaskTools = false
+
+    static let empty = TasksHistorySnapshot()
+}
+
+func deriveTasksHistory(from messages: [ChatMessage]) -> TasksHistorySnapshot {
+    var state = TasksHistorySnapshot()
+    for msg in messages {
+        for tool in msg.toolCalls ?? [] {
+            applyTaskTool(tool, to: &state)
+        }
+        for activity in msg.agentActivities ?? [] {
+            if case .planUpdate(let plan) = activity {
+                state.planActivities.append((plan: plan, source: .history))
+            }
+        }
+    }
+    return state
+}
+
 /// Derive task tracking state from conversation messages and active (streaming) tool calls.
 /// Mirrors the logic in `frontend/src/hooks/useTasks.ts` exactly.
 func deriveTasks(
@@ -85,127 +110,48 @@ func deriveTasks(
     activeToolCalls: [ToolCall],
     activeAgentActivities: [AgentActivity] = []
 ) -> TasksState {
-    // Collect all tool calls in chronological order
-    var allTools: [ToolCall] = []
-    var planActivities: [(plan: AgentActivity.PlanUpdate, source: PlanActivitySource)] = []
-    for msg in messages {
-        if let tools = msg.toolCalls {
-            allTools.append(contentsOf: tools)
-        }
-        if let activities = msg.agentActivities {
-            for activity in activities {
-                if case .planUpdate(let plan) = activity {
-                    planActivities.append((plan: plan, source: .history))
-                }
-            }
-        }
+    deriveTasks(
+        history: deriveTasksHistory(from: messages),
+        activeToolCalls: activeToolCalls,
+        activeAgentActivities: activeAgentActivities
+    )
+}
+
+func deriveTasks(
+    history: TasksHistorySnapshot,
+    activeToolCalls: [ToolCall],
+    activeAgentActivities: [AgentActivity] = []
+) -> TasksState {
+    var state = history
+    for tool in activeToolCalls {
+        applyTaskTool(tool, to: &state)
     }
-    allTools.append(contentsOf: activeToolCalls)
     for activity in activeAgentActivities {
         if case .planUpdate(let plan) = activity {
-            planActivities.append((plan: plan, source: .active))
+            state.planActivities.append((plan: plan, source: .active))
         }
     }
 
     // Quick bail: no task tools at all
-    let hasTaskTools = allTools.contains { taskToolNames.contains($0.name) }
-    guard hasTaskTools || !planActivities.isEmpty else { return .empty }
-
-    // Ordered storage: array of (key, task) pairs + index lookup
-    var tasks: [(key: String, value: TrackedTask)] = []
-    var taskIndex: [String: Int] = [:]
-    var createIndex = 0
-
-    for tool in allTools {
-        if tool.name == "TaskCreate" {
-            createIndex += 1
-            let input = parseInput(tool)
-            let subject = (input["subject"] as? String) ?? "Task \(createIndex)"
-            let description = input["description"] as? String
-            let activeForm = input["activeForm"] as? String
-
-            let id: String
-            var isCreating = false
-
-            if let output = tool.output {
-                let parsed = parseTaskId(from: output)
-                id = parsed ?? "_idx_\(createIndex)"
-            } else {
-                // Still streaming — use tool_use id as temp key
-                id = "_pending_\(tool.id)"
-                isCreating = true
-            }
-
-            let task = TrackedTask(
-                id: id,
-                subject: subject,
-                description: description,
-                activeForm: activeForm,
-                status: .pending,
-                isCreating: isCreating
-            )
-            taskIndex[id] = tasks.count
-            tasks.append((key: id, value: task))
-
-        } else if tool.name == "TaskUpdate" {
-            let input = parseInput(tool)
-            guard let taskId = input["taskId"] as? String,
-                  let idx = taskIndex[taskId] else { continue }
-
-            let statusStr = input["status"] as? String
-            if statusStr == "deleted" {
-                tasks.remove(at: idx)
-                taskIndex.removeValue(forKey: taskId)
-                // Rebuild indices for items after removed position
-                for i in idx..<tasks.count {
-                    taskIndex[tasks[i].key] = i
-                }
-                continue
-            }
-
-            if let s = input["subject"] as? String { tasks[idx].value.subject = s }
-            if let d = input["description"] as? String { tasks[idx].value.description = d }
-            if let a = input["activeForm"] as? String { tasks[idx].value.activeForm = a }
-            if let status = normalizeTaskStatus(statusStr) {
-                tasks[idx].value.status = status
-            }
-        } else if tool.name == "TodoList" {
-            for (index, item) in parseTodoList(tool).enumerated() {
-                let id = "codex-todo-\(index + 1)"
-                let task = TrackedTask(
-                    id: id,
-                    subject: item.text,
-                    status: item.completed ? .completed : .pending,
-                    isCreating: false
-                )
-
-                if let existingIndex = taskIndex[id] {
-                    tasks[existingIndex].value = task
-                } else {
-                    taskIndex[id] = tasks.count
-                    tasks.append((key: id, value: task))
-                }
-            }
-        }
-    }
+    guard state.hasTaskTools || !state.planActivities.isEmpty else { return .empty }
 
     // Codex app-server emits plan updates as agent activities, not tool calls.
     // The latest plan represents the current turn, so older plans should not
     // accumulate in the global task tracker.
-    let latestPlanEntry = planActivities.last
+    let latestPlanEntry = state.planActivities.last
     if let latestPlanEntry {
         for task in planTasks(from: latestPlanEntry.plan) {
             let key = "plan:\(task.id)"
-            if let existingIndex = taskIndex[key] {
-                tasks[existingIndex].value = task
+            if let existingIndex = state.taskIndex[key] {
+                state.tasks[existingIndex].value = task
             } else {
-                taskIndex[key] = tasks.count
-                tasks.append((key: key, value: task))
+                state.taskIndex[key] = state.tasks.count
+                state.tasks.append((key: key, value: task))
             }
         }
     }
 
-    let taskList = tasks.map(\.value)
+    let taskList = state.tasks.map(\.value)
     let currentTask = taskList.first { $0.status == .inProgress }
     let counts = TaskCounts(
         total: taskList.count,
@@ -213,7 +159,7 @@ func deriveTasks(
         inProgress: taskList.filter { $0.status == .inProgress }.count,
         pending: taskList.filter { $0.status == .pending }.count
     )
-    let trackerSource: TaskTrackerSource? = latestPlanEntry != nil ? .codexPlan : (hasTaskTools ? .taskTools : nil)
+    let trackerSource: TaskTrackerSource? = latestPlanEntry != nil ? .codexPlan : (state.hasTaskTools ? .taskTools : nil)
     // A persisted Codex plan with open steps is only the last reported snapshot,
     // not proof that the finished turn still has work remaining.
     let hasUnconfirmedOpenPlanTasks: Bool
@@ -231,4 +177,80 @@ func deriveTasks(
         trackerSource: trackerSource,
         trackerStatus: trackerStatus
     )
+}
+
+private func applyTaskTool(_ tool: ToolCall, to state: inout TasksHistorySnapshot) {
+    guard taskToolNames.contains(tool.name) else { return }
+    state.hasTaskTools = true
+
+    if tool.name == "TaskCreate" {
+        state.createIndex += 1
+        let input = parseInput(tool)
+        let subject = (input["subject"] as? String) ?? "Task \(state.createIndex)"
+        let description = input["description"] as? String
+        let activeForm = input["activeForm"] as? String
+
+        let id: String
+        var isCreating = false
+
+        if let output = tool.output {
+            let parsed = parseTaskId(from: output)
+            id = parsed ?? "_idx_\(state.createIndex)"
+        } else {
+            // Still streaming — use tool_use id as temp key
+            id = "_pending_\(tool.id)"
+            isCreating = true
+        }
+
+        let task = TrackedTask(
+            id: id,
+            subject: subject,
+            description: description,
+            activeForm: activeForm,
+            status: .pending,
+            isCreating: isCreating
+        )
+        state.taskIndex[id] = state.tasks.count
+        state.tasks.append((key: id, value: task))
+
+    } else if tool.name == "TaskUpdate" {
+        let input = parseInput(tool)
+        guard let taskId = input["taskId"] as? String,
+              let idx = state.taskIndex[taskId] else { return }
+
+        let statusStr = input["status"] as? String
+        if statusStr == "deleted" {
+            state.tasks.remove(at: idx)
+            state.taskIndex.removeValue(forKey: taskId)
+            // Rebuild indices for items after removed position
+            for i in idx..<state.tasks.count {
+                state.taskIndex[state.tasks[i].key] = i
+            }
+            return
+        }
+
+        if let s = input["subject"] as? String { state.tasks[idx].value.subject = s }
+        if let d = input["description"] as? String { state.tasks[idx].value.description = d }
+        if let a = input["activeForm"] as? String { state.tasks[idx].value.activeForm = a }
+        if let status = normalizeTaskStatus(statusStr) {
+            state.tasks[idx].value.status = status
+        }
+    } else if tool.name == "TodoList" {
+        for (index, item) in parseTodoList(tool).enumerated() {
+            let id = "codex-todo-\(index + 1)"
+            let task = TrackedTask(
+                id: id,
+                subject: item.text,
+                status: item.completed ? .completed : .pending,
+                isCreating: false
+            )
+
+            if let existingIndex = state.taskIndex[id] {
+                state.tasks[existingIndex].value = task
+            } else {
+                state.taskIndex[id] = state.tasks.count
+                state.tasks.append((key: id, value: task))
+            }
+        }
+    }
 }

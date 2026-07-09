@@ -4,25 +4,48 @@ import Foundation
 //
 // Pure function port of `frontend/src/hooks/useBackgroundAgents.ts`.
 
+struct BackgroundAgentsHistorySnapshot {
+    fileprivate var toolsById: [String: ToolCall] = [:]
+    fileprivate var order: [String] = []
+
+    static let empty = BackgroundAgentsHistorySnapshot()
+
+    fileprivate mutating func upsert(_ tool: ToolCall) {
+        if toolsById[tool.id] == nil { order.append(tool.id) }
+        toolsById[tool.id] = tool
+    }
+}
+
+/// History pass: de-duplicate the finalized messages' tools by id,
+/// preserving first-seen order (mirrors the JS Map).
+func deriveBackgroundAgentsHistory(from messages: [ChatMessage]) -> BackgroundAgentsHistorySnapshot {
+    var state = BackgroundAgentsHistorySnapshot()
+    for message in messages {
+        for tool in message.toolCalls ?? [] { state.upsert(tool) }
+    }
+    return state
+}
+
 /// Derive background sub-agents (Task/Agent tools with `run_in_background`)
 /// and their running state from history + active (streaming) tool calls.
 func deriveBackgroundAgents(
     from messages: [ChatMessage],
     activeToolCalls: [ToolCall]
 ) -> BackgroundAgentsState {
-    // De-duplicate tools by id, preserving first-seen order (mirrors the JS Map).
-    var toolsById: [String: ToolCall] = [:]
-    var order: [String] = []
-    func upsert(_ tool: ToolCall) {
-        if toolsById[tool.id] == nil { order.append(tool.id) }
-        toolsById[tool.id] = tool
-    }
-    for message in messages {
-        for tool in message.toolCalls ?? [] { upsert(tool) }
-    }
-    for tool in activeToolCalls { upsert(tool) }
+    deriveBackgroundAgents(
+        history: deriveBackgroundAgentsHistory(from: messages),
+        activeToolCalls: activeToolCalls
+    )
+}
 
-    let allTools = order.compactMap { toolsById[$0] }
+func deriveBackgroundAgents(
+    history: BackgroundAgentsHistorySnapshot,
+    activeToolCalls: [ToolCall]
+) -> BackgroundAgentsState {
+    var state = history
+    for tool in activeToolCalls { state.upsert(tool) }
+
+    let allTools = state.order.compactMap { state.toolsById[$0] }
     let childrenMap = buildChildrenMap(allTools)
     let activeToolIds = Set(activeToolCalls.map(\.id))
 

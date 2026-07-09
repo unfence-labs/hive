@@ -15,15 +15,18 @@ final class ModelCatalog {
     private(set) var models: [ModelCatalogEntry] = []
     private(set) var defaultModelId: String = ""
     private(set) var isLoaded = false
+    private var isLoading = false
 
     private let api = APIClient()
 
     func loadIfNeeded() async {
-        guard !isLoaded else { return }
+        guard !isLoaded, !isLoading else { return }
         await load()
     }
 
     func load() async {
+        isLoading = true
+        defer { isLoading = false }
         do {
             let response = try await api.fetchModels()
             models = response.models

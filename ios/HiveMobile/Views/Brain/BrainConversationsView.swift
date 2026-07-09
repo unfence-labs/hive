@@ -110,7 +110,7 @@ struct BrainConversationsView: View {
     }
 
     private var loadingPlaceholder: some View {
-        ProgressView()
+        ListLoadingSkeleton()
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .hiveScreenBackground()
             .navigationTitle("Brain")

@@ -119,7 +119,32 @@ enum WhisperColor {
 // MARK: - Whisper Font Helpers
 
 enum WhisperFont {
+    /// Monospaced font that scales with Dynamic Type. The base point size is
+    /// mapped to the nearest semantic text style so every call site grows and
+    /// shrinks with the system setting while keeping the monospaced design.
     static func mono(_ size: CGFloat, weight: Font.Weight = .regular) -> Font {
-        .system(size: size, weight: weight, design: .monospaced)
+        .system(textStyle(for: size), design: .monospaced).weight(weight)
+    }
+
+    /// Dynamic-Type-scaling font matching a fixed point size to the nearest
+    /// semantic text style (default design). Lets fixed-size call sites scale
+    /// with a near-identical default-size appearance.
+    static func scaled(_ size: CGFloat, weight: Font.Weight = .regular) -> Font {
+        .system(textStyle(for: size), design: .default).weight(weight)
+    }
+
+    static func textStyle(for size: CGFloat) -> Font.TextStyle {
+        switch size {
+        case ..<12: return .caption2       // 9–11
+        case ..<13: return .caption        // 12
+        case ..<14: return .footnote       // 13
+        case ..<15.5: return .subheadline  // 14–15
+        case ..<16.5: return .callout      // 16
+        case ..<19: return .body           // 17–18
+        case ..<21: return .title3         // 20
+        case ..<25: return .title2         // 22
+        case ..<31: return .title          // 28
+        default: return .largeTitle        // 34+
+        }
     }
 }

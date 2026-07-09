@@ -498,21 +498,29 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
       }
     }
 
-    // Subscribe to new workspaces and bootstrap.
-    // The hub socket is added to the channel AFTER bootstrap completes so that
-    // live events broadcast during the async bootstrap don't reach this client
-    // before the streaming snapshot is replayed (which would cause duplicate
-    // content). Node.js single-threading guarantees no events fire between
-    // sendWorkspaceBootstrap returning and hubSockets.add.
+    // Subscribe to new workspaces and bootstrap. Subscription intent is recorded
+    // synchronously (the channel is created now and hub.subscribedWorkspaces is
+    // updated below, both before the first bootstrap `await`) so that a workspace
+    // message racing the async bootstrap on this same socket is authorized rather
+    // than rejected as "Not subscribed".
+    //
+    // The hub socket is added to channel.hubSockets only AFTER each bootstrap
+    // completes so that live events broadcast during the async bootstrap don't
+    // reach this client before its streaming snapshot is replayed (which would
+    // cause duplicate content).
+    const newlySubscribed: Array<[string, WorkspaceChannel]> = [];
     for (const wsId of desired) {
       if (!hub.subscribedWorkspaces.has(wsId)) {
-        const channel = getOrCreateChannel(wsId);
-        await sendWorkspaceBootstrap(hub, wsId, channel);
-        channel.hubSockets.add(hub);
+        newlySubscribed.push([wsId, getOrCreateChannel(wsId)]);
       }
     }
 
     hub.subscribedWorkspaces = desired;
+
+    for (const [wsId, channel] of newlySubscribed) {
+      await sendWorkspaceBootstrap(hub, wsId, channel);
+      channel.hubSockets.add(hub);
+    }
 
     // Resend full bootstrap for workspaces the client was already subscribed
     // to (e.g. iOS foreground refresh over a healthy socket). Newly subscribed
@@ -539,7 +547,7 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
 
   const handleWorkspaceMessage = async (hub: HubSocket, wsId: string, incoming: WsIncoming): Promise<void> => {
     const channel = channels.get(wsId);
-    if (!channel || !channel.hubSockets.has(hub)) {
+    if (!channel || !hub.subscribedWorkspaces.has(wsId)) {
       sendToHub(hub, wsId, { type: "error", message: `Not subscribed to workspace ${wsId}` });
       return;
     }
@@ -761,13 +769,17 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
             socket.send(JSON.stringify({ type: "pong" }));
           }
         } else if ("type" in parsed && parsed.type === "sync_workspaces") {
-          await handleSyncWorkspaces(
-            hub,
-            parsed.workspaceIds,
-            parsed.focusWorkspaces,
-            parsed.prWorkspaces,
-            parsed.forceBootstrap === true,
-          );
+          try {
+            await handleSyncWorkspaces(
+              hub,
+              parsed.workspaceIds,
+              parsed.focusWorkspaces,
+              parsed.prWorkspaces,
+              parsed.forceBootstrap === true,
+            );
+          } catch (err) {
+            app.log.error({ err }, "sync_workspaces handler failed");
+          }
         } else if ("workspaceId" in parsed && "event" in parsed) {
           await handleWorkspaceMessage(hub, parsed.workspaceId, parsed.event);
         }

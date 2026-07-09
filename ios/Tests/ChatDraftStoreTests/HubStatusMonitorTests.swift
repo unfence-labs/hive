@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import HiveMobileStoresCore
 
@@ -9,6 +10,7 @@ private final class FakeHubConnection: HubConnectionClient {
     private(set) var probeLivenessCount = 0
     private(set) var syncCalls: [(payload: HubSyncPayload, forceBootstrap: Bool)] = []
     private(set) var sentMessages: [HubIncoming] = []
+    var sendResult = true
 
     func connect() {
         connectCount += 1
@@ -24,7 +26,7 @@ private final class FakeHubConnection: HubConnectionClient {
 
     func send(_ message: HubIncoming) async -> Bool {
         sentMessages.append(message)
-        return true
+        return sendResult
     }
 
     func sendSync(_ payload: HubSyncPayload, forceBootstrap: Bool) {
@@ -143,6 +145,21 @@ struct HubStatusMonitorTests {
     }
 
     @Test
+    func lastViewedSessionSurvivesLeavingTheChat() {
+        let (monitor, _, _) = makeMonitor()
+
+        monitor.setViewingWorkspace("ws1", sessionId: "s1")
+        #expect(monitor.lastViewedSession(for: "ws1") == "s1")
+
+        monitor.clearViewingSession(workspaceId: "ws1", sessionId: "s1")
+        monitor.setViewingWorkspace("ws1", sessionId: nil)
+        #expect(monitor.lastViewedSession(for: "ws1") == "s1")
+
+        monitor.setViewingWorkspace("ws1", sessionId: "s2")
+        #expect(monitor.lastViewedSession(for: "ws1") == "s2")
+    }
+
+    @Test
     func initialConnectionStateIsConnecting() {
         let (monitor, _, _) = makeMonitor()
 
@@ -168,5 +185,120 @@ struct HubStatusMonitorTests {
         monitor.reconnectNow()
 
         #expect(connection.forceReconnectCount == 1)
+    }
+
+    @Test
+    func reconnectNowIsSafeNoOpWhenNothingSubscribed() {
+        let (monitor, _, connection) = makeMonitor()
+        monitor.disconnectAll()
+        monitor.reconnectNow()
+        #expect(connection.connectCount == 0)
+        #expect(connection.forceReconnectCount == 0)
+    }
+
+    @Test
+    func firstSendResubscribesBeforeEventThenNot() async {
+        let (monitor, cache, connection) = makeMonitor()
+        monitor.sync(workspaceIds: ["ws-1"])
+        let store = cache.getOrCreate("ws-1")
+
+        _ = await store.send?(.stop(sessionId: "s1"))
+
+        #expect(connection.sentMessages.count == 2)
+        if case .syncWorkspaces = connection.sentMessages.first {} else {
+            Issue.record("first sent message should be the resubscribe sync_workspaces")
+        }
+        if case .workspaceEvent = connection.sentMessages.last {} else {
+            Issue.record("second sent message should be the workspace event")
+        }
+
+        _ = await store.send?(.stop(sessionId: "s2"))
+        #expect(connection.sentMessages.count == 3)
+    }
+
+    @Test
+    func failedWorkspaceSendProbesLiveness() async {
+        let (monitor, cache, connection) = makeMonitor()
+        connection.sendResult = false
+        monitor.sync(workspaceIds: ["ws-1"])
+        let store = cache.getOrCreate("ws-1")
+
+        let sent = await store.send?(.stop(sessionId: "s1")) ?? true
+
+        #expect(sent == false)
+        #expect(connection.probeLivenessCount == 1)
+    }
+
+    @Test
+    func staleConnectedSendWaitsForFreshConnectionThenRetrySucceeds() async {
+        let (monitor, cache, connection) = makeMonitor()
+        monitor.sync(workspaceIds: ["ws-1"])
+        let store = cache.getOrCreate("ws-1")
+
+        // Simulate a live socket (generation 1) whose first send fails because it
+        // died silently — connectionState is still the stale `.connected`.
+        monitor.didChangeConnectionState(.connected)
+        connection.sendResult = false
+
+        let sendTask = Task { await store.send?(.stop(sessionId: "s1")) ?? false }
+
+        // Let the closure reach its wait loop.
+        try? await Task.sleep(for: .milliseconds(150))
+
+        // A fresh reconnect completes (generation 2) and the new socket sends fine.
+        connection.sendResult = true
+        monitor.didChangeConnectionState(.connecting)
+        monitor.didChangeConnectionState(.connected)
+
+        let sent = await sendTask.value
+        #expect(sent == true)
+        #expect(connection.probeLivenessCount == 1)
+    }
+
+    @Test
+    func sendFailsImmediatelyWithoutNetwork() async {
+        let (monitor, cache, connection) = makeMonitor()
+        monitor.sync(workspaceIds: ["ws-net"])
+        let store = cache.getOrCreate("ws-net")
+
+        monitor.setNetworkAvailable(false)
+        let sent = await store.send?(.stop(sessionId: "s1")) ?? true
+
+        #expect(sent == false)
+        #expect(connection.sentMessages.isEmpty)
+        #expect(monitor.connectionState == .disconnected)
+    }
+
+    @Test
+    func networkRestoreProbesTheConnection() {
+        let (monitor, _, connection) = makeMonitor()
+        monitor.sync(workspaceIds: ["ws-net"])
+
+        monitor.setNetworkAvailable(false)
+        #expect(monitor.connectionState == .disconnected)
+        monitor.setNetworkAvailable(true)
+
+        #expect(connection.probeLivenessCount == 1)
+    }
+
+    @Test
+    func hubBadgeCountsWorkspacesWithActivityAndClearsOnView() {
+        let (monitor, _, _) = makeMonitor()
+        monitor.sync(workspaceIds: ["ws-a", "ws-b"])
+        // Completed state persists across launches; start from a clean baseline.
+        monitor.clearCompleted("ws-a")
+        monitor.clearCompleted("ws-b")
+        #expect(monitor.hubBadgeCount == 0)
+
+        monitor.didReceiveStreaming(true, for: "ws-a", sessionId: "s1")
+        monitor.didReceiveDone(for: "ws-a", sessionId: "s1", markWorkspaceCompleted: true)
+        monitor.didReceiveStreaming(true, for: "ws-b", sessionId: "s2")
+        monitor.didReceiveDone(for: "ws-b", sessionId: "s2", markWorkspaceCompleted: true)
+        #expect(monitor.hubBadgeCount == 2)
+
+        // Viewing ws-a clears its completed and unread state.
+        monitor.clearCompleted("ws-a")
+        monitor.clearUnread(workspaceId: "ws-a", sessionId: "s1")
+        #expect(monitor.hubBadgeCount == 1)
     }
 }

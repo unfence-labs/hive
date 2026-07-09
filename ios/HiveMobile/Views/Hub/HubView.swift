@@ -9,6 +9,7 @@ private enum HubLayout {
 
 struct HubView: View {
     @Environment(ProjectStore.self) private var store
+    var openSettings: (() -> Void)?
     @State private var showAddProject = false
     @State private var workspaceToArchive: Workspace?
     @State private var sectionExpansionOverrides: [String: Bool] = HubView.loadExpansionOverrides(
@@ -28,15 +29,8 @@ struct HubView: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: HiveSpacing.md) {
-                    if store.isLoading && store.projects.isEmpty {
-                        loadingState
-                    } else if store.projects.isEmpty && !store.isLoading {
-                        ContentUnavailableView(
-                            "No Projects",
-                            systemImage: "folder",
-                            description: Text("Tap + to add your first project, or connect to your Hive server from Settings.")
-                        )
-                        .padding(.top, 40)
+                    if store.projects.isEmpty {
+                        emptyState
                     } else {
                         denseHubContent(sections: sections)
                     }
@@ -57,7 +51,7 @@ struct HubView: View {
             // cancelling the .refreshable task on ScrollView (known iOS 26 regression).
             await Task { @MainActor in
                 store.statusMonitor.forceRefresh()
-                await store.refresh(force: true)
+                await store.refresh(force: true, userInitiated: true)
             }.value
         }
         .task {
@@ -78,6 +72,18 @@ struct HubView: View {
                 errorBanner(errorMessage)
             }
         }
+        .overlay(alignment: .top) {
+            if store.refreshFailedWithCachedData {
+                refreshFailedNotice
+                    .task {
+                        try? await Task.sleep(for: .seconds(3))
+                        if !Task.isCancelled {
+                            store.acknowledgeRefreshFailure()
+                        }
+                    }
+            }
+        }
+        .animation(.default, value: store.refreshFailedWithCachedData)
         .safeAreaInset(edge: .top, spacing: 0) {
             if let repoName = store.cloningRepoName {
                 HStack(spacing: HiveSpacing.sm) {
@@ -124,12 +130,44 @@ struct HubView: View {
     }
 
     private var loadingState: some View {
-        VStack {
-            ProgressView()
-                .tint(Color.accentColor)
+        ListLoadingSkeleton()
+            .frame(maxWidth: .infinity, minHeight: 420)
+            .frame(maxHeight: .infinity)
+    }
+
+    @ViewBuilder
+    private var emptyState: some View {
+        if let failure = store.fetchFailure {
+            HubUnreachableState(
+                failure: failure,
+                isRetrying: store.isLoading,
+                onRetry: { Task { await store.refresh(force: true) } },
+                onOpenSettings: { openSettings?() }
+            )
+        } else if store.isLoading || !store.hasLoadedSuccessfully {
+            loadingState
+        } else {
+            ContentUnavailableView(
+                "No Projects",
+                systemImage: "folder",
+                description: Text("Tap + to add your first project, or connect to your Hive server from Settings.")
+            )
+            .padding(.top, 40)
         }
-        .frame(maxWidth: .infinity, minHeight: 420)
-        .frame(maxHeight: .infinity)
+    }
+
+    private var refreshFailedNotice: some View {
+        HStack(spacing: HiveSpacing.sm) {
+            Image(systemName: "exclamationmark.triangle")
+            Text("Couldn't refresh. Showing cached data.")
+                .font(.footnote)
+        }
+        .foregroundStyle(WhisperColor.textSecondary)
+        .padding(.horizontal, HiveSpacing.lg)
+        .padding(.vertical, HiveSpacing.sm)
+        .glassPill()
+        .padding(.top, HiveSpacing.sm)
+        .transition(.move(edge: .top).combined(with: .opacity))
     }
 
     @ToolbarContentBuilder
@@ -385,6 +423,79 @@ struct HubView: View {
         }
         .transition(.move(edge: .bottom))
         .animation(.default, value: store.errorMessage)
+    }
+}
+
+private struct HubUnreachableState: View {
+    let failure: ProjectStore.FetchFailure
+    let isRetrying: Bool
+    let onRetry: () -> Void
+    let onOpenSettings: () -> Void
+
+    var body: some View {
+        VStack(spacing: HiveSpacing.md) {
+            Image(systemName: icon)
+                .font(.system(size: 44))
+                .foregroundStyle(WhisperColor.textMuted)
+            Text(title)
+                .font(.title3.weight(.semibold))
+                .foregroundStyle(WhisperColor.text)
+                .multilineTextAlignment(.center)
+            Text(message)
+                .font(.subheadline)
+                .foregroundStyle(WhisperColor.textSecondary)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+            VStack(spacing: HiveSpacing.sm) {
+                Button(action: onRetry) {
+                    HStack(spacing: HiveSpacing.sm) {
+                        if isRetrying {
+                            ProgressView()
+                                .controlSize(.small)
+                        }
+                        Text(isRetrying ? "Retrying..." : "Retry")
+                    }
+                    .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(isRetrying)
+
+                Button("Open Settings", action: onOpenSettings)
+                    .buttonStyle(.bordered)
+                    .disabled(isRetrying)
+            }
+            .padding(.top, HiveSpacing.sm)
+        }
+        .padding(HiveSpacing.xl)
+        .frame(maxWidth: .infinity)
+        .padding(.top, 40)
+    }
+
+    private var icon: String {
+        switch failure {
+        case .unreachable: "wifi.slash"
+        case .authentication: "lock.trianglebadge.exclamationmark"
+        case .other: "exclamationmark.triangle"
+        }
+    }
+
+    private var title: String {
+        switch failure {
+        case .unreachable: "Can't reach your Hive server"
+        case .authentication: "Can't sign in to your Hive server"
+        case .other: "Something went wrong"
+        }
+    }
+
+    private var message: String {
+        switch failure {
+        case .unreachable:
+            "Hive couldn't connect to your server. Check that it's running and reachable, then try again."
+        case .authentication:
+            "Your Hive server rejected the current credentials. Open Settings to check your server address and token."
+        case .other:
+            "Your Hive server returned an unexpected error. Try again in a moment."
+        }
     }
 }
 

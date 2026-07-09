@@ -3,14 +3,19 @@ import SwiftUI
 // MARK: - Shimmer (loading skeletons)
 
 struct ShimmerModifier: ViewModifier {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var phase: CGFloat = 0
 
     func body(content: Content) -> some View {
         content
-            .opacity(0.5 + 0.5 * Foundation.sin(phase))
-            .onAppear {
-                withAnimation(.easeInOut(duration: 1.5).repeatForever(autoreverses: true)) {
-                    phase = .pi
+            .opacity(reduceMotion ? 0.5 : 0.5 + 0.5 * Foundation.sin(phase))
+            .onChange(of: reduceMotion, initial: true) {
+                if reduceMotion {
+                    phase = 0
+                } else {
+                    withAnimation(.easeInOut(duration: 1.5).repeatForever(autoreverses: true)) {
+                        phase = .pi
+                    }
                 }
             }
     }
@@ -20,13 +25,16 @@ struct ShimmerModifier: ViewModifier {
 
 struct PulseModifier: ViewModifier {
     let isActive: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var isPulsing = false
 
     func body(content: Content) -> some View {
         content
-            .scaleEffect(isActive && isPulsing ? 1.02 : 1.0)
+            .scaleEffect(!reduceMotion && isActive && isPulsing ? 1.02 : 1.0)
             .animation(
-                isActive ? .easeInOut(duration: 2).repeatForever(autoreverses: true) : .default,
+                reduceMotion
+                    ? nil
+                    : (isActive ? .easeInOut(duration: 2).repeatForever(autoreverses: true) : .default),
                 value: isPulsing
             )
             .onChange(of: isActive) { _, active in

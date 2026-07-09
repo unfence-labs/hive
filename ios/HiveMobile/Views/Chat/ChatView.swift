@@ -8,12 +8,15 @@ struct ChatView: View {
 
     @State private var draft = ""
     @State private var isLoading = true
+    @State private var showSkeleton = false
     @State private var planModeEnabled = false
     @State private var thinkingLevel: ThinkingLevel = .high
     @State private var fastModeEnabled = false
     @State private var selectedModelId: String = ""
     @State private var draftAttachments: [ImageAttachment] = []
     @State private var isNearScrollBottom = true
+    @State private var isTouchingTranscript = false
+    @State private var showQuestionSheet = false
 
     @Environment(ModelCatalog.self) private var modelCatalog
     @Environment(ProjectStore.self) private var projectStore
@@ -87,7 +90,11 @@ struct ChatView: View {
     var body: some View {
         VStack(spacing: 0) {
             if isLoading {
-                Spacer()
+                if showSkeleton {
+                    ConversationLoadingSkeleton()
+                } else {
+                    Spacer()
+                }
             } else if store.messages.isEmpty && streamingMessage == nil && !store.isStreaming {
                 Spacer()
                 if isBrainWorkspaceId(workspace.id) {
@@ -109,8 +116,12 @@ struct ChatView: View {
                                 MessageBubble(
                                     message: message,
                                     pendingToolUseIds: pendingToolUseIds,
-                                    dismissedToolCallIds: store.dismissedToolCallIds
+                                    dismissedToolCallIds: store.dismissedToolCallIds,
+                                    sendState: store.sendState(for: message.id),
+                                    onRetrySend: { Task { await store.retryOptimisticSend(message.id) } },
+                                    onDiscardSend: { store.discardOptimisticSend(message.id) }
                                 )
+                                .equatable()
                                 .id(message.id)
                                 .chatTranscriptRow()
                             }
@@ -122,6 +133,7 @@ struct ChatView: View {
                                 pendingToolUseIds: pendingToolUseIds,
                                 dismissedToolCallIds: store.dismissedToolCallIds
                             )
+                            .equatable()
                             .id(message.id)
                             .chatTranscriptRow()
                         }
@@ -150,6 +162,18 @@ struct ChatView: View {
                     } action: { _, isNearBottom in
                         isNearScrollBottom = isNearBottom
                     }
+                    .background(
+                        // A finger on the transcript pauses auto-scroll AND the
+                        // streaming delta flush: any transcript movement (our
+                        // scrollTo or the List's own bottom-anchoring on content
+                        // growth) cancels the long-press copy interaction while
+                        // streaming. SwiftUI gestures on a List never fire for
+                        // stationary touches, so this observes at the UIKit level.
+                        TranscriptTouchProbe { touching in
+                            isTouchingTranscript = touching
+                            store.setStreamingUIHold(touching)
+                        }
+                    )
                     .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidShowNotification)) { _ in
                         scrollToBottomIfNeeded(proxy)
                     }
@@ -196,6 +220,18 @@ struct ChatView: View {
                         isStreaming: store.isStreaming
                     )
                 }
+                if !store.pendingToolInputs.isEmpty, !showQuestionSheet {
+                    PendingQuestionChip(count: store.pendingToolInputs.count) {
+                        showQuestionSheet = true
+                    }
+                }
+                if let failed = store.failedSend {
+                    FailedSendRow(
+                        failed: failed,
+                        onRetry: { Task { await store.retryFailedSend(for: failed.sessionId) } },
+                        onDiscard: { store.discardFailedSend(for: failed.sessionId) }
+                    )
+                }
                 ChatInputBar(
                     draft: $draft,
                     draftAttachments: draftAttachments,
@@ -225,16 +261,34 @@ struct ChatView: View {
         .navigationTitle(navigationTitle)
         .navigationSubtitle(Text(navigationSubtitle))
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar(.hidden, for: .tabBar)
-        .sheet(isPresented: Binding(
-            get: { !store.pendingToolInputs.isEmpty },
-            set: { if !$0 { store.clearPendingToolInputs() } }
-        )) {
+        .sensoryFeedback(.success, trigger: store.visibleCompletionCount)
+        .sheet(isPresented: $showQuestionSheet) {
             ToolInputSheet(pendingInputs: store.pendingToolInputs) { pending, result in
                 respondToTool(pending: pending, result: result)
             }
         }
+        .onChange(of: store.pendingToolInputs.map(\.requestId)) { oldIds, newIds in
+            // A newly-arrived question auto-presents the sheet; answering or the
+            // turn ending clears the questions and closes it. Dismissing only
+            // hides the sheet — the questions persist and surface as a chip.
+            if !Set(newIds).subtracting(oldIds).isEmpty {
+                showQuestionSheet = true
+            } else if newIds.isEmpty {
+                showQuestionSheet = false
+            }
+        }
         .task { await setup() }
+        .task { await modelCatalog.loadIfNeeded() }
+        .task(id: isLoading) {
+            guard isLoading else {
+                showSkeleton = false
+                return
+            }
+            try? await Task.sleep(for: .milliseconds(300))
+            if !Task.isCancelled {
+                showSkeleton = true
+            }
+        }
         .onChange(of: modelCatalog.isLoaded) {
             if selectedModelId.isEmpty, !modelCatalog.defaultModelId.isEmpty {
                 selectedModelId = initialModelId()
@@ -255,6 +309,7 @@ struct ChatView: View {
             }
         }
         .onDisappear {
+            store.isChatVisible = false
             saveCurrentDraft()
             store.onTurnCompleted = nil
             projectStore.statusMonitor.clearViewingSession(workspaceId: workspace.id, sessionId: session.sessionId)
@@ -280,7 +335,7 @@ struct ChatView: View {
             toolCalls: store.activeToolCalls.isEmpty ? nil : store.activeToolCalls,
             agentActivities: store.activeAgentActivities.isEmpty ? nil : store.activeAgentActivities,
             thinkingContent: store.currentThinking.isEmpty ? nil : store.currentThinking,
-            timestamp: ConversationStore.timestamp(),
+            timestamp: store.streamingStartedAt.map(ConversationStore.timestamp(from:)) ?? "",
             cancelled: nil,
             durationMs: nil
         )
@@ -297,12 +352,25 @@ struct ChatView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.leading, 2)
             .id("streaming-indicator")
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(streamingAccessibilityLabel(at: timeline.date))
         }
+    }
+
+    /// One natural-language label for the streaming indicator, bucketed to whole
+    /// minutes so VoiceOver announces "Agent working, 2 minutes" instead of
+    /// re-reading a sub-second timer.
+    private func streamingAccessibilityLabel(at date: Date) -> String {
+        guard let startedAt = store.streamingStartedAt else { return "Agent working" }
+        let minutes = Int(max(0, date.timeIntervalSince(startedAt))) / 60
+        guard minutes >= 1 else { return "Agent working" }
+        return "Agent working, \(minutes) minute\(minutes == 1 ? "" : "s")"
     }
 
     // MARK: - Setup
 
     private func setup() async {
+        store.isChatVisible = true
         projectStore.statusMonitor.setViewingWorkspace(workspace.id, sessionId: session.sessionId)
         projectStore.statusMonitor.clearCompleted(workspace.id)
         projectStore.statusMonitor.clearUnread(workspaceId: workspace.id, sessionId: session.sessionId)
@@ -359,13 +427,6 @@ struct ChatView: View {
         guard !content.isEmpty || !images.isEmpty else { return }
 
         let targetSessionId = session.sessionId
-        // Snapshot draft so we can restore on failure
-        let savedDraft = draft
-        let savedAttachments = draftAttachments
-        let savedDraftState = ChatDraftStore.Draft(
-            text: savedDraft,
-            attachments: savedAttachments.map(ChatDraftStore.Attachment.init)
-        )
         draft = ""
         draftAttachments = []
 
@@ -390,6 +451,15 @@ struct ChatView: View {
             fastMode: (supportsFastMode && fastModeEnabled) ? true : nil
         )
 
+        // Show the message in the transcript immediately; the server echo
+        // confirms delivery, a send failure marks it Not delivered with Retry.
+        let localId = store.appendOptimisticUserMessage(
+            content: content,
+            images: images.isEmpty ? nil : images,
+            options: options,
+            sessionId: targetSessionId
+        )
+
         Task {
             let sent = await store.send?(.userMessage(
                 content: content,
@@ -404,23 +474,7 @@ struct ChatView: View {
                 // user_message echo that the backend is about to broadcast.
                 store.bumpHistoryToken(for: targetSessionId)
             } else {
-                // Persist draft for the originating session, even if the user switched away.
-                draftStore.save(
-                    workspaceId: workspace.id,
-                    sessionId: targetSessionId,
-                    draft: savedDraftState
-                )
-                // Restore inline only if the user is still on the same session.
-                guard store.sessionId == targetSessionId else { return }
-                draft = savedDraft
-                draftAttachments = savedAttachments
-                store.messages.append(ChatMessage(
-                    id: UUID().uuidString, sessionId: "", role: .assistant,
-                    content: "Message not sent: disconnected from server.",
-                    images: nil, toolCalls: nil, thinkingContent: nil,
-                    timestamp: ConversationStore.timestamp(),
-                    cancelled: nil, durationMs: nil
-                ))
+                store.markSendFailed(localId)
             }
         }
     }
@@ -434,6 +488,13 @@ struct ChatView: View {
                 sessionId: pending.sessionId
             )) ?? false
 
+            switch result {
+            case .approve, .answer:
+                Haptics.notify(sent ? .success : .warning)
+            case .reject, .dismiss:
+                Haptics.notify(.warning)
+            }
+
             if sent {
                 store.clearPendingToolInputs()
                 store.bumpHistoryToken(for: pending.sessionId)
@@ -442,13 +503,13 @@ struct ChatView: View {
                     planModeEnabled = false
                     store.setAgentPlanMode(false, for: pending.sessionId)
                 }
-            } else if pending.sessionId == session.sessionId {
-                store.messages.append(ChatMessage(
-                    id: UUID().uuidString, sessionId: "", role: .assistant,
-                    content: "Tool response not sent: disconnected from server.",
-                    images: nil, toolCalls: nil, thinkingContent: nil,
-                    timestamp: ConversationStore.timestamp(),
-                    cancelled: nil, durationMs: nil
+            } else {
+                store.recordFailedSend(FailedSend(
+                    id: UUID().uuidString,
+                    sessionId: pending.sessionId,
+                    content: "Answer to the agent's question",
+                    reason: "Disconnected from server",
+                    pending: pending
                 ))
             }
         }
@@ -486,7 +547,7 @@ struct ChatView: View {
     }
 
     private func scrollToBottom(_ proxy: ScrollViewProxy, force: Bool) {
-        guard force || isNearScrollBottom else { return }
+        guard force || (isNearScrollBottom && !isTouchingTranscript) else { return }
         proxy.scrollTo(bottomAnchorID, anchor: .bottom)
     }
 
@@ -531,6 +592,176 @@ struct ChatView: View {
     .environment(ModelCatalog())
     .environment(ProjectStore(storeCache: ConversationStoreCache()))
     .preferredColorScheme(.dark)
+}
+
+/// Reports whether a finger is currently down on the transcript List, via a
+/// zero-duration UIKit long-press attached to the List's UICollectionView
+/// (SwiftUI gestures on a List never fire for stationary touches).
+private struct TranscriptTouchProbe: UIViewRepresentable {
+    let onChange: (Bool) -> Void
+
+    func makeUIView(context: Context) -> ProbeView {
+        let view = ProbeView()
+        view.onChange = onChange
+        return view
+    }
+
+    func updateUIView(_ uiView: ProbeView, context: Context) {
+        uiView.onChange = onChange
+    }
+
+    final class ProbeView: UIView, UIGestureRecognizerDelegate {
+        var onChange: ((Bool) -> Void)?
+        private weak var attachedTo: UIView?
+        private var attachAttemptsRemaining = 0
+
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            attachAttemptsRemaining = 20
+            DispatchQueue.main.async { [weak self] in
+                self?.attachIfNeeded()
+            }
+        }
+
+        private func attachIfNeeded() {
+            guard window != nil, attachedTo == nil else { return }
+            guard let target = findCollectionView() else {
+                attachAttemptsRemaining -= 1
+                guard attachAttemptsRemaining > 0 else { return }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+                    self?.attachIfNeeded()
+                }
+                return
+            }
+            let press = UILongPressGestureRecognizer(target: self, action: #selector(pressChanged(_:)))
+            press.minimumPressDuration = 0
+            press.cancelsTouchesInView = false
+            press.delegate = self
+            target.addGestureRecognizer(press)
+            attachedTo = target
+        }
+
+        private func findCollectionView() -> UICollectionView? {
+            var ancestor = superview
+            while let current = ancestor {
+                var queue: [UIView] = [current]
+                var visited = 0
+                while !queue.isEmpty, visited < 500 {
+                    let view = queue.removeFirst()
+                    visited += 1
+                    if let collection = view as? UICollectionView { return collection }
+                    queue.append(contentsOf: view.subviews)
+                }
+                ancestor = current.superview
+            }
+            return nil
+        }
+
+        @objc private func pressChanged(_ gesture: UILongPressGestureRecognizer) {
+            switch gesture.state {
+            case .began:
+                onChange?(true)
+            case .ended, .cancelled, .failed:
+                onChange?(false)
+            default:
+                break
+            }
+        }
+
+        func gestureRecognizer(
+            _ gestureRecognizer: UIGestureRecognizer,
+            shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
+        ) -> Bool {
+            true
+        }
+    }
+}
+
+private struct PendingQuestionChip: View {
+    let count: Int
+    let onTap: () -> Void
+
+    @AppStorage("hiveAccent") private var accentId = AccentOption.defaultId
+    private var accent: Color {
+        AccentOption(rawValue: accentId)?.color ?? AccentOption.violet.color
+    }
+
+    private var label: String {
+        count == 1 ? "1 question waiting" : "\(count) questions waiting"
+    }
+
+    var body: some View {
+        Button(action: onTap) {
+            HStack(spacing: 8) {
+                Image(systemName: "questionmark.bubble.fill")
+                Text(label)
+                    .font(.caption.weight(.semibold))
+                Spacer(minLength: 4)
+                Image(systemName: "chevron.up")
+                    .font(.caption2.weight(.semibold))
+            }
+            .foregroundStyle(accent)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .background(
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(accent.opacity(0.12))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12)
+                            .stroke(accent.opacity(0.3), lineWidth: 0.5)
+                    )
+            )
+        }
+        .buttonStyle(.plain)
+        .accessibilityHint("Reopens the agent's question.")
+    }
+}
+
+private struct FailedSendRow: View {
+    let failed: FailedSend
+    let onRetry: () -> Void
+    let onDiscard: () -> Void
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(WhisperColor.danger)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(failed.reason)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(WhisperColor.danger)
+                Text(failed.content)
+                    .font(.caption)
+                    .foregroundStyle(WhisperColor.textSecondary)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 8)
+            Button(action: onRetry) {
+                Label("Retry", systemImage: "arrow.clockwise")
+                    .labelStyle(.titleAndIcon)
+                    .font(.caption.weight(.semibold))
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(WhisperColor.danger)
+            Button(action: onDiscard) {
+                Image(systemName: "xmark")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(WhisperColor.textMuted)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Discard failed send")
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(WhisperColor.danger.opacity(0.12))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12)
+                        .stroke(WhisperColor.danger.opacity(0.3), lineWidth: 0.5)
+                )
+        )
+    }
 }
 
 private extension ChatDraftStore.Attachment {

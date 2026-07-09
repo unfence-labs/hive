@@ -247,15 +247,14 @@ export async function getWorkspaceDiff(
   // working tree changes, or a combined review against the default branch.
   if (scope === "committed") {
     await refreshDefaultBranchFromOrigin(bare, defaultBranch);
-    const diff = await git(["diff", "--find-renames", `${defaultBranch}...${workspace.branch}`], bare)
-      .then((r) => r.stdout)
-      .catch(() => "");
+    const diff = await git(["-c", "core.quotePath=false", "diff", "--find-renames", `${defaultBranch}...${workspace.branch}`], bare)
+      .then((r) => r.stdout);
     return { diff, omittedFileCount: 0 };
   }
 
   if (scope === "uncommitted") {
     const [trackedDiff, untracked] = await Promise.all([
-      git(["diff", "HEAD"], wsPath).then((r) => r.stdout).catch(() => ""),
+      git(["-c", "core.quotePath=false", "diff", "HEAD"], wsPath).then((r) => r.stdout),
       getUntrackedDiff(wsPath, maxUntrackedFiles),
     ]);
     return buildDiffResponse(trackedDiff, untracked);
@@ -269,8 +268,8 @@ export async function getWorkspaceDiff(
 
   const [combinedDiff, untracked] = await Promise.all([
     mergeBase
-      ? git(["diff", mergeBase], wsPath).then((r) => r.stdout).catch(() => "")
-      : git(["diff", "HEAD"], wsPath).then((r) => r.stdout).catch(() => ""),
+      ? git(["-c", "core.quotePath=false", "diff", mergeBase], wsPath).then((r) => r.stdout)
+      : git(["-c", "core.quotePath=false", "diff", "HEAD"], wsPath).then((r) => r.stdout),
     getUntrackedDiff(wsPath, maxUntrackedFiles),
   ]);
 
@@ -363,16 +362,16 @@ export async function computeDiffStat(
 
   // Committed changes (branch vs default)
   const [committedNumstat, committedNameStatus] = await Promise.all([
-    git(["diff", "--numstat", "--find-renames", range], bare).catch(() => ({ stdout: "" })),
-    git(["diff", "--name-status", "--find-renames", range], bare).catch(() => ({ stdout: "" })),
+    git(["-c", "core.quotePath=false", "diff", "--numstat", "--find-renames", range], bare).catch(() => ({ stdout: "" })),
+    git(["-c", "core.quotePath=false", "diff", "--name-status", "--find-renames", range], bare).catch(() => ({ stdout: "" })),
   ]);
   const committed = parseDiffStat(committedNumstat.stdout, committedNameStatus.stdout);
 
   // Uncommitted changes (staged + unstaged in worktree)
   const [uncommittedNumstat, uncommittedNameStatus, untrackedResult] = await Promise.all([
-    git(["diff", "--numstat", "HEAD"], wsPath).catch(() => ({ stdout: "" })),
-    git(["diff", "--name-status", "HEAD"], wsPath).catch(() => ({ stdout: "" })),
-    git(["ls-files", "--others", "--exclude-standard"], wsPath).catch(() => ({ stdout: "" })),
+    git(["-c", "core.quotePath=false", "diff", "--numstat", "HEAD"], wsPath).catch(() => ({ stdout: "" })),
+    git(["-c", "core.quotePath=false", "diff", "--name-status", "HEAD"], wsPath).catch(() => ({ stdout: "" })),
+    git(["-c", "core.quotePath=false", "ls-files", "--others", "--exclude-standard"], wsPath).catch(() => ({ stdout: "" })),
   ]);
   const uncommitted = parseDiffStat(uncommittedNumstat.stdout, uncommittedNameStatus.stdout);
 
