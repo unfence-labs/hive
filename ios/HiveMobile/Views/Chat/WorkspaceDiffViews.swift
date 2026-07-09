@@ -141,7 +141,7 @@ struct WorkspaceFileDiffView: View {
     @State private var sendFailed = false
     @State private var pendingComments: [DiffComment] = []
     @State private var draftComment: DiffComment?
-    @State private var scrollTarget: UUID?
+    @State private var scrollRequest: CommentScrollRequest?
 
     private let api = APIClient()
     private let draftStore = ChatDraftStore.shared
@@ -256,9 +256,11 @@ struct WorkspaceFileDiffView: View {
                         .padding(.horizontal, HiveSpacing.md)
                         .padding(.vertical, HiveSpacing.sm)
                     }
-                    .onChange(of: scrollTarget) { _, target in
-                        guard let target, pendingComments.first(where: { $0.id == target })?.file == file.path else { return }
-                        withAnimation { proxy.scrollTo(target, anchor: .center) }
+                    .onChange(of: scrollRequest) { _, request in
+                        applyScrollRequest(request, proxy: proxy, filePath: file.path)
+                    }
+                    .onAppear {
+                        applyScrollRequest(scrollRequest, proxy: proxy, filePath: file.path)
                     }
                     }
                 }
@@ -368,10 +370,19 @@ struct WorkspaceFileDiffView: View {
         if let page = paths.firstIndex(of: comment.file), page != index {
             withAnimation { scrolledPage = page }
         }
-        Task {
-            try? await Task.sleep(for: .milliseconds(350))
-            scrollTarget = nil
-            scrollTarget = comment.id
+        scrollRequest = CommentScrollRequest(
+            commentID: comment.id,
+            file: comment.file,
+            generation: (scrollRequest?.generation ?? 0) + 1
+        )
+    }
+
+    private func applyScrollRequest(_ request: CommentScrollRequest?, proxy: ScrollViewProxy, filePath: String) {
+        guard let request, request.file == filePath else { return }
+        scrollRequest = nil
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(100))
+            withAnimation { proxy.scrollTo(request.commentID, anchor: .center) }
         }
     }
 
@@ -383,6 +394,12 @@ struct WorkspaceFileDiffView: View {
         }
         return sections.joined(separator: "\n\n")
     }
+}
+
+private struct CommentScrollRequest: Equatable {
+    let commentID: UUID
+    let file: String
+    let generation: Int
 }
 
 private struct InlineCommentCard: View {
