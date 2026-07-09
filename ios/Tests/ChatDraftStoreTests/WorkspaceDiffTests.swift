@@ -318,3 +318,43 @@ struct ContentLineEdgeTests {
         #expect(stats.removed == 1)
     }
 }
+
+struct DiffReviewStoreTests {
+    @Test
+    func savedCommentsRestoreByWorkspaceAndScope() {
+        let store = DiffReviewStore()
+        let comment = DiffComment(file: "f", lineID: 0, line: "x", snippet: nil, text: "note")
+        store.save(workspaceId: "ws1", scope: "committed", comments: [comment])
+        #expect(store.restore(workspaceId: "ws1", scope: "committed") == [comment])
+        #expect(store.restore(workspaceId: "ws1", scope: "uncommitted").isEmpty)
+        #expect(store.restore(workspaceId: "ws2", scope: "committed").isEmpty)
+    }
+
+    @Test
+    func savingEmptyClears() {
+        let store = DiffReviewStore()
+        let comment = DiffComment(file: "f", lineID: 0, line: "x", snippet: nil, text: "note")
+        store.save(workspaceId: "ws1", scope: "committed", comments: [comment])
+        store.save(workspaceId: "ws1", scope: "committed", comments: [])
+        #expect(store.restore(workspaceId: "ws1", scope: "committed").isEmpty)
+    }
+
+    @Test
+    func anchorValidationDropsMovedAndMissingLines() {
+        let lines = [DiffLine(id: 0, kind: .added, text: "kept")]
+        let valid = DiffComment(file: "f", lineID: 0, line: "kept", snippet: nil, text: "a")
+        let movedText = DiffComment(file: "f", lineID: 0, line: "gone", snippet: nil, text: "b")
+        let missingFile = DiffComment(file: "other", lineID: 0, line: "kept", snippet: nil, text: "c")
+        let result = anchoredComments([valid, movedText, missingFile], linesByFile: ["f": lines])
+        #expect(result == [valid])
+    }
+
+    @Test
+    func anchorValidationChecksEndLine() {
+        let lines = [DiffLine(id: 0, kind: .added, text: "a"), DiffLine(id: 1, kind: .added, text: "b")]
+        let inRange = DiffComment(file: "f", lineID: 0, line: "a", endLineID: 1, snippet: nil, text: "x")
+        let outOfRange = DiffComment(file: "f", lineID: 0, line: "a", endLineID: 9, snippet: nil, text: "y")
+        let result = anchoredComments([inRange, outOfRange], linesByFile: ["f": lines])
+        #expect(result == [inRange])
+    }
+}

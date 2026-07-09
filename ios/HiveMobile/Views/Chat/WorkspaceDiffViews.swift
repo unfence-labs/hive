@@ -155,6 +155,7 @@ struct WorkspaceFileDiffView: View {
 
     private let api = APIClient()
     private let draftStore = ChatDraftStore.shared
+    private let reviewStore = DiffReviewStore.shared
 
     var body: some View {
         ScrollViewReader { pagerProxy in
@@ -229,6 +230,9 @@ struct WorkspaceFileDiffView: View {
             Text("No agent session is available for this workspace. Check your connection and try again.")
         }
         .task { await loadDiff() }
+        .onChange(of: pendingComments) { _, comments in
+            reviewStore.save(workspaceId: workspace.id, scope: scope, comments: comments)
+        }
         .onAppear {
             AppDelegate.orientationLock = .allButUpsideDown
             updateOrientations()
@@ -381,6 +385,10 @@ struct WorkspaceFileDiffView: View {
                 },
                 uniquingKeysWith: { first, _ in first }
             )
+            let restored = reviewStore.restore(workspaceId: workspace.id, scope: scope)
+            if !restored.isEmpty, let filesByPath {
+                pendingComments = anchoredComments(restored, linesByFile: filesByPath.mapValues(\.lines))
+            }
         } catch {
             loadFailed = true
         }
@@ -407,6 +415,7 @@ struct WorkspaceFileDiffView: View {
                 sessionId: target.sessionId,
                 draft: .init(text: prefix + text, attachments: existing?.attachments ?? [])
             )
+            reviewStore.save(workspaceId: workspace.id, scope: scope, comments: [])
             navigationPath.removeLast(2)
             navigationPath.append(target)
         }

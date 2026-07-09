@@ -229,3 +229,34 @@ func segmentDiffLines(_ lines: [DiffLine], comments: [DiffComment]) -> [DiffSegm
     }
     return segments
 }
+
+final class DiffReviewStore {
+    static let shared = DiffReviewStore()
+
+    private var store: [String: [String: [DiffComment]]] = [:]
+
+    init() {}
+
+    func save(workspaceId: String, scope: String, comments: [DiffComment]) {
+        if comments.isEmpty {
+            store[workspaceId]?[scope] = nil
+            if store[workspaceId]?.isEmpty == true { store[workspaceId] = nil }
+        } else {
+            store[workspaceId, default: [:]][scope] = comments
+        }
+    }
+
+    func restore(workspaceId: String, scope: String) -> [DiffComment] {
+        store[workspaceId]?[scope] ?? []
+    }
+}
+
+func anchoredComments(_ comments: [DiffComment], linesByFile: [String: [DiffLine]]) -> [DiffComment] {
+    comments.filter { comment in
+        guard let lines = linesByFile[comment.file],
+              lines.contains(where: { $0.id == comment.lineID && $0.text == comment.line })
+        else { return false }
+        guard let endID = comment.endLineID else { return true }
+        return lines.contains(where: { $0.id == endID })
+    }
+}
