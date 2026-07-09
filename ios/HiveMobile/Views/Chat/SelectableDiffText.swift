@@ -51,6 +51,10 @@ struct SelectableDiffText: UIViewRepresentable {
         hunkStyle.alignment = .center
         hunkStyle.paragraphSpacing = 2
         hunkStyle.paragraphSpacingBefore = 2
+        let indent = ceil(("0000  \u{2212} " as NSString).size(withAttributes: [.font: font]).width)
+        let lineStyle = NSMutableParagraphStyle()
+        lineStyle.firstLineHeadIndent = 0
+        lineStyle.headIndent = indent
         for line in lines {
             let start = result.length
             if line.kind == .hunk {
@@ -68,12 +72,14 @@ struct SelectableDiffText: UIViewRepresentable {
                 .font: font,
                 .foregroundColor: UIColor(WhisperColor.textMuted),
                 .backgroundColor: backgroundColor(line.kind),
+                .paragraphStyle: lineStyle,
             ]))
             let content = "\(line.prefix) \(line.text)\n"
             result.append(NSAttributedString(string: content, attributes: [
                 .font: font,
                 .foregroundColor: textColor(line.kind),
                 .backgroundColor: backgroundColor(line.kind),
+                .paragraphStyle: lineStyle,
             ]))
             ranges.append((NSRange(location: start, length: result.length - start), line))
         }
