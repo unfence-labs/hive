@@ -6,6 +6,7 @@ struct MessageBubble: View, Equatable {
     var pendingToolUseIds: Set<String> = []
     var dismissedToolCallIds: Set<String> = []
     var sendState: ConversationStore.UserSendState? = nil
+    var findHighlight: MessageFindHighlight? = nil
     var onRetrySend: (() -> Void)? = nil
     var onDiscardSend: (() -> Void)? = nil
 
@@ -14,6 +15,7 @@ struct MessageBubble: View, Equatable {
             && lhs.pendingToolUseIds == rhs.pendingToolUseIds
             && lhs.dismissedToolCallIds == rhs.dismissedToolCallIds
             && lhs.sendState == rhs.sendState
+            && lhs.findHighlight == rhs.findHighlight
     }
 
     @AppStorage("hiveAccent") private var accentId = AccentOption.defaultId
@@ -173,14 +175,17 @@ struct MessageBubble: View, Equatable {
                 if message.id == "streaming" {
                     StreamingMarkdownView(text: message.content, baseSize: markdownBaseSize)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                } else if markdownNeedsRichRenderer(message.content) {
+                } else if findHighlight == nil, markdownNeedsRichRenderer(message.content) {
+                    // MarkdownUI cannot paint arbitrary ranges; while this
+                    // message has find matches it falls back to the selectable
+                    // renderer so highlights stay visible.
                     Markdown(message.content)
                         .markdownTextStyle { FontSize(markdownBaseSize) }
                         .markdownTheme(.whisperChat)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .textSelection(.enabled)
                 } else {
-                    SelectableMarkdownText(markdown: message.content)
+                    SelectableMarkdownText(markdown: message.content, findHighlight: findHighlight)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
@@ -303,6 +308,10 @@ struct MessageBubble: View, Equatable {
                 result[range].foregroundColor = fgColor
                 atCursor = range.upperBound
             }
+        }
+
+        if let findHighlight {
+            FindHighlighting.apply(to: &result, highlight: findHighlight)
         }
 
         return result

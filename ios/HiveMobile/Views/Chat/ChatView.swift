@@ -17,6 +17,11 @@ struct ChatView: View {
     @State private var isNearScrollBottom = true
     @State private var isTouchingTranscript = false
     @State private var showQuestionSheet = false
+    @State private var findOpen = false
+    @State private var findQuery = ""
+    @State private var findModel = ConversationFindModel()
+    @State private var transcriptScroller = TranscriptScroller()
+    @FocusState private var findFieldFocused: Bool
 
     @Environment(ModelCatalog.self) private var modelCatalog
     @Environment(ProjectStore.self) private var projectStore
@@ -118,6 +123,7 @@ struct ChatView: View {
                                     pendingToolUseIds: pendingToolUseIds,
                                     dismissedToolCallIds: store.dismissedToolCallIds,
                                     sendState: store.sendState(for: message.id),
+                                    findHighlight: findOpen ? findModel.highlight(for: message.id) : nil,
                                     onRetrySend: { Task { await store.retryOptimisticSend(message.id) } },
                                     onDiscardSend: { store.discardOptimisticSend(message.id) }
                                 )
@@ -172,6 +178,9 @@ struct ChatView: View {
                         TranscriptTouchProbe { touching in
                             isTouchingTranscript = touching
                             store.setStreamingUIHold(touching)
+                            if touching { transcriptScroller.cancelScroll() }
+                        } onCollectionView: { collectionView in
+                            transcriptScroller.collectionView = collectionView
                         }
                     )
                     .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidShowNotification)) { _ in
@@ -197,70 +206,71 @@ struct ChatView: View {
                             scrollToBottomIfNeeded(proxy)
                         }
                     }
+                    .onChange(of: findModel.activeMatch) { _, match in
+                        guard findOpen, let match else { return }
+                        scrollToFindMatch(match, proxy: proxy)
+                    }
                 }
             }
 
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .hiveScreenBackground()
-        .safeAreaInset(edge: .bottom, spacing: 0) {
-            VStack(spacing: HiveSpacing.sm) {
-                let tasksState = store.tasksState
-                let goal = store.goalState
-                let agents = store.backgroundAgents
-                if goal != nil || !tasksState.tasks.isEmpty || !agents.agents.isEmpty {
-                    TaskTrackerView(
-                        goal: goal,
-                        tasks: tasksState.tasks,
-                        currentTask: tasksState.currentTask,
-                        counts: tasksState.counts,
-                        trackerStatus: tasksState.trackerStatus,
-                        backgroundAgents: agents.agents,
-                        backgroundRunningCount: agents.runningCount,
-                        isStreaming: store.isStreaming
-                    )
-                }
-                if !store.pendingToolInputs.isEmpty, !showQuestionSheet {
-                    PendingQuestionChip(count: store.pendingToolInputs.count) {
-                        showQuestionSheet = true
-                    }
-                }
-                if let failed = store.failedSend {
-                    FailedSendRow(
-                        failed: failed,
-                        onRetry: { Task { await store.retryFailedSend(for: failed.sessionId) } },
-                        onDiscard: { store.discardFailedSend(for: failed.sessionId) }
-                    )
-                }
-                ChatInputBar(
-                    draft: $draft,
-                    draftAttachments: draftAttachments,
-                    isBusy: store.isBusy,
-                    planModeEnabled: $planModeEnabled,
-                    thinkingLevel: $thinkingLevel,
-                    fastModeEnabled: $fastModeEnabled,
-                    models: modelCatalog.models,
-                    groupedModels: modelCatalog.groupedByProvider,
-                    selectedModelId: selectedModelId,
-                    defaultModelId: modelCatalog.defaultModelId,
-                    lockedProvider: lockedProvider,
-                    capabilities: selectedCapabilities,
-                    onModelSelect: { selectedModelId = $0 },
-                    contextUsage: contextUsage,
-                    onDraftAttachmentsChange: { draftAttachments = $0 },
-                    onSend: sendMessage,
-                    onStop: { Task { _ = await store.send?(.stop(sessionId: session.sessionId)) } }
+        .overlay(alignment: .bottomTrailing) {
+            if findOpen {
+                ConversationFindNavigator(
+                    enabled: findModel.matchCount > 0,
+                    onPrevious: { findModel.previous() },
+                    onNext: { findModel.next() }
                 )
-                .padding(.horizontal, 12)
+                .padding(.trailing, HiveSpacing.lg)
+                .padding(.bottom, HiveSpacing.lg)
+                .transition(.scale(scale: 0.85, anchor: .bottomTrailing).combined(with: .opacity))
             }
-            .padding(.top, HiveSpacing.sm)
-            .padding(.bottom, HiveSpacing.sm)
+        }
+        .overlay(alignment: .bottomLeading) {
+            if findOpen, !findQuery.isEmpty {
+                ConversationFindCounter(
+                    matchCount: findModel.matchCount,
+                    displayIndex: findModel.displayIndex,
+                    noResults: findModel.query == findQuery && findModel.matchCount == 0
+                )
+                .padding(.leading, HiveSpacing.lg)
+                .padding(.bottom, HiveSpacing.lg)
+                .transition(.scale(scale: 0.85, anchor: .bottomLeading).combined(with: .opacity))
+            }
+        }
+        .safeAreaInset(edge: .top, spacing: 0) {
+            if findOpen {
+                ConversationFindBar(
+                    query: $findQuery,
+                    focused: $findFieldFocused,
+                    onSubmit: { findModel.update(messages: findableMessages, query: findQuery) },
+                    onClose: closeFind
+                )
+                .transition(.move(edge: .top).combined(with: .opacity))
+            }
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if !findOpen {
+                composerStack
+            }
         }
         .toolbarBackground(WhisperColor.appBackground, for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
         .navigationTitle(navigationTitle)
         .navigationSubtitle(Text(navigationSubtitle))
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button(action: openFind) {
+                    Image(systemName: "magnifyingglass")
+                }
+                .accessibilityLabel("Search in conversation")
+                .disabled(isLoading || store.messages.isEmpty)
+            }
+        }
+        .toolbar(findOpen ? .hidden : .automatic, for: .navigationBar)
         .sensoryFeedback(.success, trigger: store.visibleCompletionCount)
         .sheet(isPresented: $showQuestionSheet) {
             ToolInputSheet(pendingInputs: store.pendingToolInputs) { pending, result in
@@ -279,6 +289,18 @@ struct ChatView: View {
         }
         .task { await setup() }
         .task { await modelCatalog.loadIfNeeded() }
+        .task(id: findQuery) {
+            guard findOpen else { return }
+            try? await Task.sleep(for: .milliseconds(200))
+            if !Task.isCancelled {
+                findModel.update(messages: findableMessages, query: findQuery)
+            }
+        }
+        .onChange(of: store.messages) {
+            if findOpen, !findModel.query.isEmpty {
+                findModel.update(messages: findableMessages, query: findModel.query)
+            }
+        }
         .task(id: isLoading) {
             guard isLoading else {
                 showSkeleton = false
@@ -314,6 +336,112 @@ struct ChatView: View {
             store.onTurnCompleted = nil
             projectStore.statusMonitor.clearViewingSession(workspaceId: workspace.id, sessionId: session.sessionId)
         }
+    }
+
+    // MARK: - Find in Conversation
+
+    private var findableMessages: [FindableMessage] {
+        store.messages.compactMap { message in
+            if message.role == .user && message.content == "Question dismissed." { return nil }
+            if message.role == .assistant && message.cancelled == true { return nil }
+            return FindableMessage(id: message.id, content: message.content,
+                                   rendersMarkdown: message.role == .assistant)
+        }
+    }
+
+    private func openFind() {
+        withAnimation(.snappy(duration: 0.25)) { findOpen = true }
+        Task {
+            try? await Task.sleep(for: .milliseconds(50))
+            findFieldFocused = true
+        }
+    }
+
+    private func closeFind() {
+        findFieldFocused = false
+        findQuery = ""
+        findModel.reset()
+        withAnimation(.snappy(duration: 0.25)) { findOpen = false }
+    }
+
+    /// Anchor the match's message proportionally to where the match sits in it,
+    /// so a hit deep inside a long message still lands on screen. Prefers the
+    /// UIKit scroller (smooth, distance-scaled animation on the List's backing
+    /// collection view); SwiftUI's animated `scrollTo` stutters on rows whose
+    /// heights are still estimated.
+    private func scrollToFindMatch(_ match: ConversationFindMatch, proxy: ScrollViewProxy) {
+        let displayed = store.messages.filter { !($0.role == .user && $0.content == "Question dismissed.") }
+        guard let row = displayed.firstIndex(where: { $0.id == match.messageId }) else { return }
+
+        let length = max(1, findModel.searchableLength(of: match.messageId) ?? 1)
+        let ratio = min(0.85, max(0.15, Double(match.range.lowerBound) / Double(length)))
+
+        var expectedRows = displayed.count + 1
+        if streamingMessage != nil { expectedRows += 1 }
+        if store.isStreaming { expectedRows += 1 }
+
+        if transcriptScroller.scrollToItem(row, expectedItemCount: expectedRows, anchorRatio: ratio) {
+            return
+        }
+        withAnimation(.easeInOut(duration: 0.25)) {
+            proxy.scrollTo(match.messageId, anchor: UnitPoint(x: 0.5, y: ratio))
+        }
+    }
+
+    // MARK: - Composer
+
+    private var composerStack: some View {
+        VStack(spacing: HiveSpacing.sm) {
+            let tasksState = store.tasksState
+            let goal = store.goalState
+            let agents = store.backgroundAgents
+            if goal != nil || !tasksState.tasks.isEmpty || !agents.agents.isEmpty {
+                TaskTrackerView(
+                    goal: goal,
+                    tasks: tasksState.tasks,
+                    currentTask: tasksState.currentTask,
+                    counts: tasksState.counts,
+                    trackerStatus: tasksState.trackerStatus,
+                    backgroundAgents: agents.agents,
+                    backgroundRunningCount: agents.runningCount,
+                    isStreaming: store.isStreaming
+                )
+            }
+            if !store.pendingToolInputs.isEmpty, !showQuestionSheet {
+                PendingQuestionChip(count: store.pendingToolInputs.count) {
+                    showQuestionSheet = true
+                }
+            }
+            if let failed = store.failedSend {
+                FailedSendRow(
+                    failed: failed,
+                    onRetry: { Task { await store.retryFailedSend(for: failed.sessionId) } },
+                    onDiscard: { store.discardFailedSend(for: failed.sessionId) }
+                )
+            }
+            ChatInputBar(
+                draft: $draft,
+                draftAttachments: draftAttachments,
+                isBusy: store.isBusy,
+                planModeEnabled: $planModeEnabled,
+                thinkingLevel: $thinkingLevel,
+                fastModeEnabled: $fastModeEnabled,
+                models: modelCatalog.models,
+                groupedModels: modelCatalog.groupedByProvider,
+                selectedModelId: selectedModelId,
+                defaultModelId: modelCatalog.defaultModelId,
+                lockedProvider: lockedProvider,
+                capabilities: selectedCapabilities,
+                onModelSelect: { selectedModelId = $0 },
+                contextUsage: contextUsage,
+                onDraftAttachmentsChange: { draftAttachments = $0 },
+                onSend: sendMessage,
+                onStop: { Task { _ = await store.send?(.stop(sessionId: session.sessionId)) } }
+            )
+            .padding(.horizontal, 12)
+        }
+        .padding(.top, HiveSpacing.sm)
+        .padding(.bottom, HiveSpacing.sm)
     }
 
     // MARK: - Streaming Activity
@@ -547,7 +675,7 @@ struct ChatView: View {
     }
 
     private func scrollToBottom(_ proxy: ScrollViewProxy, force: Bool) {
-        guard force || (isNearScrollBottom && !isTouchingTranscript) else { return }
+        guard force || (isNearScrollBottom && !isTouchingTranscript && !findOpen) else { return }
         proxy.scrollTo(bottomAnchorID, anchor: .bottom)
     }
 
@@ -597,21 +725,107 @@ struct ChatView: View {
 /// Reports whether a finger is currently down on the transcript List, via a
 /// zero-duration UIKit long-press attached to the List's UICollectionView
 /// (SwiftUI gestures on a List never fire for stationary touches).
+/// Smooth find-navigation scrolling on the List's backing UICollectionView.
+/// Estimated row heights can drift while the animation runs, so a completion
+/// pass re-measures and settles with a short follow-up animation.
+@MainActor
+final class TranscriptScroller {
+    weak var collectionView: UICollectionView?
+    private var animator: UIViewPropertyAnimator?
+
+    func cancelScroll() {
+        animator?.stopAnimation(true)
+        animator = nil
+    }
+
+    func scrollToItem(_ flatIndex: Int, expectedItemCount: Int, anchorRatio: Double) -> Bool {
+        guard let cv = collectionView,
+              totalItems(in: cv) == expectedItemCount,
+              let indexPath = indexPath(forFlatIndex: flatIndex, in: cv),
+              let target = targetOffset(in: cv, indexPath: indexPath, anchorRatio: anchorRatio)
+        else { return false }
+        cancelScroll()
+        animate(cv, to: target, indexPath: indexPath, anchorRatio: anchorRatio, allowCorrection: true)
+        return true
+    }
+
+    private func totalItems(in cv: UICollectionView) -> Int {
+        (0..<cv.numberOfSections).reduce(0) { $0 + cv.numberOfItems(inSection: $1) }
+    }
+
+    private func indexPath(forFlatIndex flatIndex: Int, in cv: UICollectionView) -> IndexPath? {
+        var remaining = flatIndex
+        for section in 0..<cv.numberOfSections {
+            let count = cv.numberOfItems(inSection: section)
+            if remaining < count { return IndexPath(item: remaining, section: section) }
+            remaining -= count
+        }
+        return nil
+    }
+
+    private func targetOffset(in cv: UICollectionView, indexPath: IndexPath, anchorRatio: Double) -> CGFloat? {
+        guard let attrs = cv.layoutAttributesForItem(at: indexPath) else { return nil }
+        let insets = cv.adjustedContentInset
+        let visibleHeight = cv.bounds.height - insets.top - insets.bottom
+        guard visibleHeight > 0 else { return nil }
+        let anchorInContent = attrs.frame.minY + attrs.frame.height * CGFloat(anchorRatio)
+        let raw = anchorInContent - insets.top - visibleHeight * CGFloat(anchorRatio)
+        let minY = -insets.top
+        let maxY = max(minY, cv.contentSize.height + insets.bottom - cv.bounds.height)
+        return min(max(raw, minY), maxY)
+    }
+
+    private func animate(
+        _ cv: UICollectionView,
+        to target: CGFloat,
+        indexPath: IndexPath,
+        anchorRatio: Double,
+        allowCorrection: Bool
+    ) {
+        let distance = abs(target - cv.contentOffset.y)
+        guard distance > 1 else { return }
+        let duration = min(0.55, 0.3 + Double(distance) / 6000)
+        let animator = UIViewPropertyAnimator(
+            duration: duration,
+            controlPoint1: CGPoint(x: 0.3, y: 0),
+            controlPoint2: CGPoint(x: 0.2, y: 1)
+        )
+        animator.addAnimations {
+            cv.contentOffset = CGPoint(x: cv.contentOffset.x, y: target)
+        }
+        animator.addCompletion { [weak self, weak cv] position in
+            guard position == .end, allowCorrection, let self, let cv else { return }
+            MainActor.assumeIsolated {
+                if let corrected = self.targetOffset(in: cv, indexPath: indexPath, anchorRatio: anchorRatio),
+                   abs(corrected - cv.contentOffset.y) > 24 {
+                    self.animate(cv, to: corrected, indexPath: indexPath, anchorRatio: anchorRatio, allowCorrection: false)
+                }
+            }
+        }
+        self.animator = animator
+        animator.startAnimation()
+    }
+}
+
 private struct TranscriptTouchProbe: UIViewRepresentable {
     let onChange: (Bool) -> Void
+    var onCollectionView: ((UICollectionView) -> Void)? = nil
 
     func makeUIView(context: Context) -> ProbeView {
         let view = ProbeView()
         view.onChange = onChange
+        view.onCollectionView = onCollectionView
         return view
     }
 
     func updateUIView(_ uiView: ProbeView, context: Context) {
         uiView.onChange = onChange
+        uiView.onCollectionView = onCollectionView
     }
 
     final class ProbeView: UIView, UIGestureRecognizerDelegate {
         var onChange: ((Bool) -> Void)?
+        var onCollectionView: ((UICollectionView) -> Void)?
         private weak var attachedTo: UIView?
         private var attachAttemptsRemaining = 0
 
@@ -639,6 +853,7 @@ private struct TranscriptTouchProbe: UIViewRepresentable {
             press.delegate = self
             target.addGestureRecognizer(press)
             attachedTo = target
+            onCollectionView?(target)
         }
 
         private func findCollectionView() -> UICollectionView? {
