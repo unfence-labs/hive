@@ -32,6 +32,7 @@ let package = Package(
                 "Services/HiveHTTP.swift",
                 "Stores/BackgroundAgentDerivation.swift",
                 "Stores/ChatDraftStore.swift",
+                "Stores/ConversationFind.swift",
                 "Stores/ConversationStoreCache.swift",
                 "Stores/ConversationStore.swift",
                 "Stores/GoalDerivation.swift",

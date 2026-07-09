@@ -3,6 +3,7 @@ import UIKit
 
 struct SelectableMarkdownText: UIViewRepresentable {
     let markdown: String
+    var findHighlight: MessageFindHighlight? = nil
 
     @Environment(\.colorScheme) private var colorScheme
 
@@ -10,6 +11,8 @@ struct SelectableMarkdownText: UIViewRepresentable {
 
     final class Coordinator {
         var lastMarkdown: String?
+        var lastFindHighlight: MessageFindHighlight?
+        var baseRendered: NSAttributedString?
     }
 
     func makeUIView(context: Context) -> UITextView {
@@ -28,9 +31,23 @@ struct SelectableMarkdownText: UIViewRepresentable {
 
     func updateUIView(_ uiView: UITextView, context: Context) {
         uiView.overrideUserInterfaceStyle = colorScheme == .dark ? .dark : .light
-        guard context.coordinator.lastMarkdown != markdown else { return }
-        context.coordinator.lastMarkdown = markdown
-        uiView.attributedText = renderMarkdown(markdown)
+        let coordinator = context.coordinator
+        guard coordinator.lastMarkdown != markdown || coordinator.lastFindHighlight != findHighlight else {
+            return
+        }
+        if coordinator.lastMarkdown != markdown || coordinator.baseRendered == nil {
+            coordinator.baseRendered = renderMarkdown(markdown)
+            coordinator.lastMarkdown = markdown
+        }
+        coordinator.lastFindHighlight = findHighlight
+        guard let base = coordinator.baseRendered else { return }
+        if let findHighlight {
+            let highlighted = NSMutableAttributedString(attributedString: base)
+            FindHighlighting.apply(to: highlighted, highlight: findHighlight)
+            uiView.attributedText = highlighted
+        } else {
+            uiView.attributedText = base
+        }
     }
 
     func sizeThatFits(_ proposal: ProposedViewSize, uiView: UITextView, context: Context) -> CGSize? {

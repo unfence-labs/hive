@@ -108,6 +108,9 @@ enum WhisperColor {
     static let successMuted  = dynamic(light: rgb(22, 163, 74, alpha: 0.12), dark: rgb(34, 197, 94, alpha: 0.12))
     static let successBorder = dynamic(light: rgb(22, 163, 74, alpha: 0.30), dark: rgb(34, 197, 94, alpha: 0.28))
     static let danger        = dynamic(light: rgb(220, 38, 38), dark: rgb(248, 113, 113))
+    static let findMatch     = dynamic(light: rgb(253, 224, 71, alpha: 0.55), dark: rgb(255, 224, 102))
+    static let findMatchActive = dynamic(light: rgb(251, 146, 60, alpha: 0.85), dark: rgb(255, 152, 56))
+    static let findMatchForeground = dynamic(light: rgb(24, 24, 27), dark: rgb(24, 24, 27))
 
     private static func dynamic(light: UIColor, dark: UIColor) -> Color {
         Color(UIColor { traits in
