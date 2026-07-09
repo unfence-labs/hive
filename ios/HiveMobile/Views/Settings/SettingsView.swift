@@ -27,6 +27,9 @@ struct SettingsView: View {
             connectionSection
         }
         .scrollContentBackground(.hidden)
+        .navigationDestination(isPresented: $showAutomations) {
+            AutomationsListView()
+        }
         .hiveScreenBackground()
         .scrollDismissesKeyboard(.interactively)
         .simultaneousGesture(TapGesture().onEnded { focusedField = nil })
@@ -174,9 +177,6 @@ struct SettingsView: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .navigationDestination(isPresented: $showAutomations) {
-                AutomationsListView()
-            }
         }
         .listRowBackground(WhisperColor.surfaceRaised)
     }
