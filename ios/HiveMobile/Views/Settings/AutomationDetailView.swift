@@ -22,13 +22,26 @@ struct AutomationDetailView: View {
 
             Section {
                 if !isLoading, runs.isEmpty {
-                    Text(errorMessage ?? "No runs yet.")
-                        .font(.subheadline)
-                        .foregroundStyle(WhisperColor.textSecondary)
-                        .frame(maxWidth: .infinity, alignment: .center)
-                        .padding(.vertical, HiveSpacing.xl)
+                    if let errorMessage {
+                        ContentUnavailableView {
+                            Label("Couldn't load runs", systemImage: "exclamationmark.triangle")
+                        } description: {
+                            Text(errorMessage)
+                        } actions: {
+                            Button("Retry") { Task { await load() } }
+                                .buttonStyle(.borderedProminent)
+                        }
                         .listRowBackground(WhisperColor.appBackground)
                         .listRowSeparator(.hidden)
+                    } else {
+                        Text("No runs yet.")
+                            .font(.subheadline)
+                            .foregroundStyle(WhisperColor.textSecondary)
+                            .frame(maxWidth: .infinity, alignment: .center)
+                            .padding(.vertical, HiveSpacing.xl)
+                            .listRowBackground(WhisperColor.appBackground)
+                            .listRowSeparator(.hidden)
+                    }
                 } else {
                     ForEach(runs) { run in
                         Button {

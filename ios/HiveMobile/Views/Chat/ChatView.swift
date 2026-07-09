@@ -627,7 +627,7 @@ struct ChatView: View {
     private func loadCompletionItemsIfNeeded() {
         let provider = completionProvider
         guard completionItems == nil || completionItemsProvider != provider else { return }
-        completionItems = completionItems ?? []
+        completionItems = []
         completionItemsProvider = provider
         Task {
             guard let items = try? await api.fetchCompletions(workspaceId: workspace.id, provider: provider) else {

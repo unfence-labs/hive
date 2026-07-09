@@ -96,6 +96,22 @@ struct AutomationRunLogView: View {
                             .stroke(WhisperColor.danger.opacity(0.25), lineWidth: 0.5)
                     )
             }
+
+            if let systemPrompt = log?.systemPrompt, !systemPrompt.isEmpty {
+                DisclosureGroup {
+                    Text(systemPrompt)
+                        .font(WhisperFont.mono(12))
+                        .foregroundStyle(WhisperColor.textSecondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.top, HiveSpacing.xs)
+                        .textSelection(.enabled)
+                } label: {
+                    Text("System prompt")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(WhisperColor.textMuted)
+                }
+                .tint(WhisperColor.textMuted)
+            }
         }
         .padding(HiveSpacing.md)
         .frame(maxWidth: .infinity, alignment: .leading)
