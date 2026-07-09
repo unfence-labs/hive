@@ -23,6 +23,13 @@ struct ChatView: View {
     @State private var transcriptScroller = TranscriptScroller()
     @FocusState private var findFieldFocused: Bool
 
+    // Composer autocomplete (#file, /command, @agent)
+    @State private var activeAutocomplete: ComposerAutocomplete.Active?
+    @State private var draftFileMentions: [FileMention] = []
+    @State private var completionFiles: [String]?
+    @State private var completionItems: [CompletionItem]?
+    @State private var completionItemsProvider: String?
+
     @Environment(ModelCatalog.self) private var modelCatalog
     @Environment(ProjectStore.self) private var projectStore
 
@@ -321,6 +328,16 @@ struct ChatView: View {
                 planModeEnabled = active
             }
         }
+        .onChange(of: draft) {
+            handleDraftChange()
+        }
+        .onChange(of: store.diffStats) {
+            guard completionFiles != nil else { return }
+            completionFiles = nil
+            if activeAutocomplete?.trigger == .file {
+                loadFileCompletionsIfNeeded()
+            }
+        }
         .onChange(of: lockedProvider) { _, newProvider in
             guard let newProvider, !selectedModelId.isEmpty else { return }
             let currentProvider = selectedModelId.split(separator: ":").first.map(String.init) ?? ""
@@ -418,6 +435,11 @@ struct ChatView: View {
                     onRetry: { Task { await store.retryFailedSend(for: failed.sessionId) } },
                     onDiscard: { store.discardFailedSend(for: failed.sessionId) }
                 )
+            }
+            if !suggestions.isEmpty {
+                ComposerSuggestionPanel(suggestions: suggestions, onSelect: acceptSuggestion)
+                    .padding(.horizontal, 12)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
             }
             ChatInputBar(
                 draft: $draft,
@@ -548,6 +570,92 @@ struct ChatView: View {
         isLoading = false
     }
 
+    // MARK: - Composer Autocomplete
+
+    private var supportsCompletions: Bool {
+        selectedCapabilities?.completions ?? true
+    }
+
+    /// Provider whose `/` commands apply: the locked provider when the session
+    /// is pinned, else the selected model's provider. Mirrors the web.
+    private var completionProvider: String? {
+        lockedProvider ?? (selectedModelId.isEmpty ? nil : selectedModelId.split(separator: ":").first.map(String.init))
+    }
+
+    private var suggestions: [ComposerSuggestion] {
+        guard let active = activeAutocomplete else { return [] }
+        switch active.trigger {
+        case .file:
+            guard let files = completionFiles else { return [] }
+            return ComposerAutocomplete.matchFiles(files, query: active.query).map { .file($0) }
+        case .command, .agent:
+            guard let items = completionItems else { return [] }
+            let type = active.trigger == .command ? "slash_command" : "agent"
+            return ComposerAutocomplete.filterItems(items, type: type, query: active.query).map { .item($0) }
+        }
+    }
+
+    private func handleDraftChange() {
+        draftFileMentions = ComposerAutocomplete.pruneMentions(draftFileMentions, text: draft)
+
+        let active = ComposerAutocomplete.detect(in: draft, supportsCompletions: supportsCompletions)
+        withAnimation(.snappy(duration: 0.22)) {
+            activeAutocomplete = active
+        }
+        guard let active else { return }
+
+        switch active.trigger {
+        case .file:
+            loadFileCompletionsIfNeeded()
+        case .command, .agent:
+            loadCompletionItemsIfNeeded()
+        }
+    }
+
+    private func loadFileCompletionsIfNeeded() {
+        guard completionFiles == nil else { return }
+        completionFiles = []
+        Task {
+            guard let files = try? await api.fetchFileCompletions(workspaceId: workspace.id) else {
+                completionFiles = nil
+                return
+            }
+            withAnimation(.snappy(duration: 0.22)) { completionFiles = files }
+        }
+    }
+
+    private func loadCompletionItemsIfNeeded() {
+        let provider = completionProvider
+        guard completionItems == nil || completionItemsProvider != provider else { return }
+        completionItems = []
+        completionItemsProvider = provider
+        Task {
+            guard let items = try? await api.fetchCompletions(workspaceId: workspace.id, provider: provider) else {
+                if completionItemsProvider == provider { completionItems = nil }
+                return
+            }
+            guard completionItemsProvider == provider else { return }
+            withAnimation(.snappy(duration: 0.22)) { completionItems = items }
+        }
+    }
+
+    private func acceptSuggestion(_ suggestion: ComposerSuggestion) {
+        guard let active = activeAutocomplete else { return }
+
+        switch suggestion {
+        case .file(let match):
+            let displayName = ComposerAutocomplete.disambiguate(match.path, in: completionFiles ?? [])
+            draft = ComposerAutocomplete.inserting("#\(displayName)", into: draft, active: active)
+            draftFileMentions.removeAll { $0.relativePath == match.path }
+            draftFileMentions.append(FileMention(displayName: displayName, relativePath: match.path))
+        case .item(let item):
+            draft = ComposerAutocomplete.inserting(item.label, into: draft, active: active)
+        }
+        withAnimation(.snappy(duration: 0.22)) {
+            activeAutocomplete = nil
+        }
+    }
+
     // MARK: - Send
 
     private func sendMessage(images: [ImageAttachment]) {
@@ -555,8 +663,11 @@ struct ChatView: View {
         guard !content.isEmpty || !images.isEmpty else { return }
 
         let targetSessionId = session.sessionId
+        let mentions = ComposerAutocomplete.pruneMentions(draftFileMentions, text: content)
+        let fileMentions = mentions.isEmpty ? nil : mentions
         draft = ""
         draftAttachments = []
+        draftFileMentions = []
 
         let caps = selectedCapabilities
         let levels = caps?.thinkingLevels ?? []
@@ -584,6 +695,7 @@ struct ChatView: View {
         let localId = store.appendOptimisticUserMessage(
             content: content,
             images: images.isEmpty ? nil : images,
+            fileMentions: fileMentions,
             options: options,
             sessionId: targetSessionId
         )
@@ -592,7 +704,7 @@ struct ChatView: View {
             let sent = await store.send?(.userMessage(
                 content: content,
                 images: images.isEmpty ? nil : images,
-                fileMentions: nil,
+                fileMentions: fileMentions,
                 options: options,
                 sessionId: targetSessionId
             )) ?? false

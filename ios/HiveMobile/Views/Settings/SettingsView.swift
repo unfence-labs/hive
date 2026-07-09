@@ -8,6 +8,7 @@ struct SettingsView: View {
     @AppStorage("hiveThemeMode") private var themeModeId = HiveThemeMode.system.rawValue
 
     @FocusState private var focusedField: Field?
+    @State private var showAutomations = false
     @State private var healthStatus: ConnectionHealth = .unreachable
     @State private var pollingTask: Task<Void, Never>?
     @State private var debouncedCheckTask: Task<Void, Never>?
@@ -22,12 +23,16 @@ struct SettingsView: View {
     var body: some View {
         Form {
             appearanceSection
+            automationsSection
             connectionSection
         }
         .scrollContentBackground(.hidden)
+        .navigationDestination(isPresented: $showAutomations) {
+            AutomationsListView()
+        }
         .hiveScreenBackground()
         .scrollDismissesKeyboard(.interactively)
-        .onTapGesture { focusedField = nil }
+        .simultaneousGesture(TapGesture().onEnded { focusedField = nil })
         .onAppear { startConnectionPolling() }
         .onDisappear { stopConnectionPolling() }
         .onChange(of: host) { _, _ in scheduleConnectionCheck() }
@@ -137,6 +142,41 @@ struct SettingsView: View {
                 }
             }
             .padding(.vertical, HiveSpacing.xs)
+        }
+        .listRowBackground(WhisperColor.surfaceRaised)
+    }
+
+    // MARK: - Automations
+
+    private var automationsSection: some View {
+        Section {
+            Button {
+                showAutomations = true
+            } label: {
+                HStack(spacing: HiveSpacing.md) {
+                    Image(systemName: "clock.arrow.2.circlepath")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(selectedAccent)
+                        .frame(width: 28, height: 28)
+                        .background(
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .fill(selectedAccent.opacity(0.12))
+                        )
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text("Automations")
+                            .foregroundStyle(WhisperColor.text)
+                        Text("Scheduled runs and their logs")
+                            .font(.caption)
+                            .foregroundStyle(WhisperColor.textMuted)
+                    }
+                    Spacer(minLength: HiveSpacing.sm)
+                    Image(systemName: "chevron.right")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(WhisperColor.textMuted)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
         }
         .listRowBackground(WhisperColor.surfaceRaised)
     }
