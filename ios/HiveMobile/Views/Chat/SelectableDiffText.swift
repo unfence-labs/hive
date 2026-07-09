@@ -68,7 +68,7 @@ struct SelectableDiffText: UIViewRepresentable {
                 .foregroundColor: textColor(line.kind),
                 .backgroundColor: backgroundColor(line.kind),
             ]))
-            ranges.append((NSRange(location: start, length: content.count), line))
+            ranges.append((NSRange(location: start, length: result.length - start), line))
         }
         return (result, ranges)
     }
