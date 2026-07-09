@@ -138,6 +138,8 @@ struct WorkspaceFileDiffView: View {
     let paths: [String]
     @Binding var navigationPath: NavigationPath
 
+    @Environment(ProjectStore.self) private var projectStore
+
     @State var index: Int
     @State private var scrolledPage: Int?
     @State private var filesByPath: [String: ParsedFileDiff]?
@@ -355,7 +357,9 @@ struct WorkspaceFileDiffView: View {
         Task {
             defer { preparingFix = false }
             let sessions = (try? await api.fetchSessions(workspaceId: workspace.id)) ?? []
-            guard let target = sessions.first(where: { $0.kind != "terminal" }) else {
+            let candidates = sessions.filter { $0.kind != "terminal" }
+            let lastViewed = projectStore.statusMonitor.lastViewedSession(for: workspace.id)
+            guard let target = candidates.first(where: { $0.sessionId == lastViewed }) ?? candidates.first else {
                 sendFailed = true
                 return
             }
