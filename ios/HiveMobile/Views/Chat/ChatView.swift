@@ -109,7 +109,21 @@ struct ChatView: View {
                 }
             } else if store.messages.isEmpty && streamingMessage == nil && !store.isStreaming {
                 Spacer()
-                if isBrainWorkspaceId(workspace.id) {
+                if store.historyLoadFailed(for: session.sessionId) {
+                    VStack(spacing: 12) {
+                        Text("Couldn't load this conversation")
+                            .font(WhisperFont.scaled(14))
+                            .foregroundStyle(WhisperColor.textSecondary)
+                        Button {
+                            Task { await loadMessages() }
+                        } label: {
+                            Label("Retry", systemImage: "arrow.clockwise")
+                                .font(WhisperFont.scaled(13).weight(.semibold))
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(WhisperColor.danger)
+                    }
+                } else if isBrainWorkspaceId(workspace.id) {
                     BrainSessionEmptyState()
                 } else {
                     SessionEmptyState(

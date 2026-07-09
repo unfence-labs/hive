@@ -123,6 +123,7 @@ final class ConversationStore {
     private(set) var goalState: GoalState?
     private(set) var backgroundAgents: BackgroundAgentsState = .empty
     private(set) var dismissedToolCallIds: Set<String> = []
+    private(set) var historyLoadFailedSessionIds: Set<String> = []
     @ObservationIgnored private(set) var derivationRunCount = 0
     @ObservationIgnored private(set) var historyDerivationRunCount = 0
 
@@ -693,6 +694,7 @@ final class ConversationStore {
     func removeSessionState(_ removedSessionId: String, fallbackSessionId: String?) {
         sessionStreams.removeValue(forKey: removedSessionId)
         historyTokenBySession.removeValue(forKey: removedSessionId)
+        historyLoadFailedSessionIds.remove(removedSessionId)
         messagesBySession.removeValue(forKey: removedSessionId)
         serverHistory.removeValue(forKey: removedSessionId)
         lastHistoryFetchAt.removeValue(forKey: removedSessionId)
@@ -887,13 +889,22 @@ final class ConversationStore {
             let msgs = try await fetch(since)
             guard self.sessionId == sessionId,
                   historyToken(for: sessionId) == requestToken else { return }
+            historyLoadFailedSessionIds.remove(sessionId)
             if since != nil {
                 applyIncrementalHistory(msgs, for: sessionId)
             } else {
                 applyFetchedHistory(msgs, for: sessionId)
             }
+        } catch is CancellationError {
         } catch {
+            guard historyToken(for: sessionId) == requestToken else { return }
+            historyLoadFailedSessionIds.insert(sessionId)
         }
+    }
+
+    func historyLoadFailed(for sessionId: String?) -> Bool {
+        guard let sessionId else { return false }
+        return historyLoadFailedSessionIds.contains(sessionId)
     }
 
     func handleMemoryWarning() {
