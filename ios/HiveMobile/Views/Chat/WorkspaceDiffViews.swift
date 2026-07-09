@@ -141,7 +141,9 @@ struct WorkspaceFileDiffView: View {
     @Environment(ProjectStore.self) private var projectStore
 
     @State var index: Int
-    @State private var scrolledPage: Int?
+    @State private var scrolledPage: PageID?
+    @State private var pagerWidth: CGFloat = 0
+    @State private var resnapTask: Task<Void, Never>?
     @State private var filesByPath: [String: ParsedFileDiff]?
     @State private var omittedFileCount = 0
     @State private var loadFailed = false
@@ -155,22 +157,37 @@ struct WorkspaceFileDiffView: View {
     private let draftStore = ChatDraftStore.shared
 
     var body: some View {
-        ScrollView(.horizontal) {
-            LazyHStack(spacing: 0) {
-                ForEach(Array(paths.enumerated()), id: \.offset) { i, path in
-                    filePage(path: path)
-                        .containerRelativeFrame(.horizontal)
-                        .id(i)
+        ScrollViewReader { pagerProxy in
+            ScrollView(.horizontal) {
+                LazyHStack(spacing: 60) {
+                    ForEach(Array(paths.enumerated()), id: \.offset) { i, path in
+                        filePage(path: path)
+                            .containerRelativeFrame(.horizontal)
+                            .id(PageID(index: i))
+                    }
+                }
+                .scrollTargetLayout()
+            }
+            .scrollTargetBehavior(.viewAligned)
+            .scrollPosition(id: $scrolledPage, anchor: .leading)
+            .onGeometryChange(for: CGFloat.self) { proxy in
+                proxy.size.width
+            } action: { width in
+                if pagerWidth == 0 { pagerWidth = width; return }
+                guard width != pagerWidth else { return }
+                resnapTask?.cancel()
+                resnapTask = Task { @MainActor in
+                    try? await Task.sleep(for: .milliseconds(200))
+                    guard !Task.isCancelled else { return }
+                    pagerWidth = width
+                    pagerProxy.scrollTo(PageID(index: index), anchor: .leading)
                 }
             }
-            .scrollTargetLayout()
-        }
-        .scrollTargetBehavior(.paging)
-        .scrollPosition(id: $scrolledPage)
-        .scrollIndicators(.hidden)
-        .onAppear { scrolledPage = index }
-        .onChange(of: scrolledPage) { _, page in
-            if let page { index = page }
+            .scrollIndicators(.hidden)
+            .onAppear { scrolledPage = PageID(index: index) }
+            .onChange(of: scrolledPage) { _, page in
+                if let page { index = page.index }
+            }
         }
         .hiveScreenBackground()
         .navigationTitle((paths[index] as NSString).lastPathComponent)
@@ -402,7 +419,7 @@ struct WorkspaceFileDiffView: View {
         jumpIndex = ((jumpIndex + direction) % pendingComments.count + pendingComments.count) % pendingComments.count
         let comment = pendingComments[jumpIndex]
         if let page = paths.firstIndex(of: comment.file), page != index {
-            withAnimation { scrolledPage = page }
+            withAnimation { scrolledPage = PageID(index: page) }
         }
         scrollRequest = CommentScrollRequest(
             commentID: comment.id,
@@ -419,6 +436,10 @@ struct WorkspaceFileDiffView: View {
             withAnimation { proxy.scrollTo(request.commentID, anchor: .center) }
         }
     }
+}
+
+private struct PageID: Hashable {
+    let index: Int
 }
 
 private struct ParsedFileDiff {
