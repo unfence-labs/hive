@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { wsTransport } from "@/lib/ws-transport";
 import { invalidateSessionMessages } from "@/hooks/useSessionMessages";
+import { prStatusKey } from "@/hooks/usePrStatus";
 
 /**
  * Subscribe to WS messages for the given workspace IDs and invalidate
@@ -14,6 +15,20 @@ import { invalidateSessionMessages } from "@/hooks/useSessionMessages";
  */
 export function useWsCacheInvalidation(workspaceIds: string[]): void {
   const queryClient = useQueryClient();
+
+  // pr_status is cached via the global listener, not the per-workspace
+  // handlers below: those only cover workspaces already loaded from the
+  // projects list, and an event arriving before that load would be consumed
+  // by another handler (e.g. the conversation's) and never buffered.
+  useEffect(
+    () =>
+      wsTransport.onGlobalMessage((wsId, msg) => {
+        if (msg.type === "pr_status") {
+          queryClient.setQueryData(prStatusKey(wsId), msg.status);
+        }
+      }),
+    [queryClient],
+  );
 
   useEffect(() => {
     const unsubscribers = workspaceIds.map((wsId) =>
@@ -33,10 +48,6 @@ export function useWsCacheInvalidation(workspaceIds: string[]): void {
             void queryClient.invalidateQueries({ queryKey: ["files", wsId] });
             void queryClient.invalidateQueries({ queryKey: ["diff-stat", wsId] });
             void queryClient.invalidateQueries({ queryKey: ["file-completions", wsId] });
-            break;
-
-          case "pr_status":
-            queryClient.setQueryData(["pr-status", wsId], msg.status);
             break;
 
           case "status":

@@ -50,6 +50,11 @@ interface HubSocket {
   isAlive: boolean;
   focusWorkspaces?: Set<string>;
   prWorkspaces: Set<string>;
+  /**
+   * Latest workspaceIds requested via sync_workspaces, recorded synchronously
+   * at receipt so a workspace message racing a queued sync is authorized.
+   */
+  requestedWorkspaces?: Set<string>;
 }
 
 const HIGH_FREQUENCY_EVENTS: ReadonlySet<WsOutgoing["type"]> = new Set([
@@ -498,11 +503,11 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
       }
     }
 
-    // Subscribe to new workspaces and bootstrap. Subscription intent is recorded
-    // synchronously (the channel is created now and hub.subscribedWorkspaces is
-    // updated below, both before the first bootstrap `await`) so that a workspace
-    // message racing the async bootstrap on this same socket is authorized rather
-    // than rejected as "Not subscribed".
+    // Subscribe to new workspaces and bootstrap. Syncs are serialized per
+    // socket and subscription intent is already recorded at message receipt
+    // (hub.requestedWorkspaces plus channel creation), so a workspace message
+    // racing a queued sync or an async bootstrap is authorized rather than
+    // rejected as "Not subscribed".
     //
     // The hub socket is added to channel.hubSockets only AFTER each bootstrap
     // completes so that live events broadcast during the async bootstrap don't
@@ -519,7 +524,9 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
 
     for (const [wsId, channel] of newlySubscribed) {
       await sendWorkspaceBootstrap(hub, wsId, channel);
-      channel.hubSockets.add(hub);
+      // The socket may close while a bootstrap awaits; adding it then would
+      // resurrect membership the close handler already cleaned up.
+      if (hub.ws.readyState === hub.ws.OPEN) channel.hubSockets.add(hub);
     }
 
     // Resend full bootstrap for workspaces the client was already subscribed
@@ -534,20 +541,34 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
       }
     }
 
+    // A PR status was actually delivered only when the workspace was both
+    // subscribed AND PR-flagged on a previous sync. Clients can flag
+    // prWorkspaces before the full subscription list arrives (sidebar effects
+    // run before the app-level workspace sync), so PR interest recorded while
+    // the workspace was outside `workspaceIds` sent nothing — treat those as
+    // new and send the initial status now.
+    //
+    // The refreshes can hit the network (gh takes up to 8s), so let them
+    // finish in the background instead of holding the per-socket sync queue.
+    // sendToHub re-checks PR interest at send time, which suppresses the send
+    // if a later sync drops the workspace; sendWorkspacePrStatus never rejects.
     const prRefreshes = [...hub.prWorkspaces]
       .filter((wsId) =>
         desired.has(wsId) &&
-        (forceBootstrap || !previousPrWorkspaces.has(wsId))
+        (forceBootstrap ||
+          !(previouslySubscribed.has(wsId) && previousPrWorkspaces.has(wsId)))
       )
       .map((wsId) => sendWorkspacePrStatus(hub, wsId));
-    await Promise.all(prRefreshes);
+    void Promise.all(prRefreshes);
   };
 
   // ── Workspace message handler ─────────────────────────────────────
 
   const handleWorkspaceMessage = async (hub: HubSocket, wsId: string, incoming: WsIncoming): Promise<void> => {
     const channel = channels.get(wsId);
-    if (!channel || !hub.subscribedWorkspaces.has(wsId)) {
+    const subscriptionKnown =
+      hub.subscribedWorkspaces.has(wsId) || hub.requestedWorkspaces?.has(wsId) === true;
+    if (!channel || !subscriptionKnown) {
       sendToHub(hub, wsId, { type: "error", message: `Not subscribed to workspace ${wsId}` });
       return;
     }
@@ -733,12 +754,23 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
       const pingTimer = setInterval(() => tickHubLiveness(hub), PING_INTERVAL_MS);
       hubPingTimers.set(hub, pingTimer);
 
+      // WebSocket message callbacks can overlap while an async workspace
+      // bootstrap is in flight. Serialize syncs so their final state follows
+      // the order sent by the client.
+      let syncQueue: Promise<void> | null = null;
+      let closed = false;
+
       socket.on("close", () => {
+        closed = true;
         const timer = hubPingTimers.get(hub);
         if (timer) { clearInterval(timer); hubPingTimers.delete(hub); }
 
-        // Unsubscribe from all workspace channels
-        for (const wsId of hub.subscribedWorkspaces) {
+        // Unsubscribe from all workspace channels, including channels created
+        // at sync receipt whose queued sync never got to run.
+        for (const wsId of new Set([
+          ...hub.subscribedWorkspaces,
+          ...(hub.requestedWorkspaces ?? []),
+        ])) {
           const channel = channels.get(wsId);
           if (channel) {
             channel.hubSockets.delete(hub);
@@ -769,17 +801,26 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
             socket.send(JSON.stringify({ type: "pong" }));
           }
         } else if ("type" in parsed && parsed.type === "sync_workspaces") {
-          try {
+          // Record subscription intent synchronously — requested set plus
+          // channel creation — so a workspace message sent right behind this
+          // frame is authorized even while the sync waits in the queue.
+          const workspaceIds = parsed.workspaceIds ?? [];
+          hub.requestedWorkspaces = new Set(workspaceIds);
+          for (const wsId of workspaceIds) getOrCreateChannel(wsId);
+          const runSync = async () => {
+            if (closed) return;
             await handleSyncWorkspaces(
               hub,
-              parsed.workspaceIds,
+              workspaceIds,
               parsed.focusWorkspaces,
               parsed.prWorkspaces,
               parsed.forceBootstrap === true,
             );
-          } catch (err) {
-            app.log.error({ err }, "sync_workspaces handler failed");
-          }
+          };
+          syncQueue = (syncQueue ? syncQueue.then(runSync) : runSync())
+            .catch((err) => {
+              app.log.error({ err }, "sync_workspaces handler failed");
+            });
         } else if ("workspaceId" in parsed && "event" in parsed) {
           await handleWorkspaceMessage(hub, parsed.workspaceId, parsed.event);
         }
