@@ -26,11 +26,47 @@ private struct AgentActivityRow: View {
             ImageViewActivityRow(activity: image)
         case .imageGeneration(let image):
             ImageGenerationActivityRow(activity: image, showExecutingState: showExecutingState)
+        case .subagentActivity(let subagent):
+            SubagentActivityRow(activity: subagent)
+        case .contextCompaction(let compaction):
+            ContextCompactionActivityRow(activity: compaction, showExecutingState: showExecutingState)
         case .diagnostic(let diagnostic):
             DiagnosticActivityRow(activity: diagnostic)
         case .unknown(let unknown):
             UnknownActivityRow(activity: unknown)
         }
+    }
+}
+
+private struct SubagentActivityRow: View {
+    let activity: AgentActivity.SubagentActivity
+
+    var body: some View {
+        ActivityDisclosureRow(
+            icon: activity.iconName,
+            title: activity.displayTitle,
+            detail: activity.agentPath
+        )
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(activity.displayTitle), Agent path: \(activity.agentPath)")
+    }
+}
+
+private struct ContextCompactionActivityRow: View {
+    let activity: AgentActivity.ContextCompaction
+    var showExecutingState = false
+
+    private var title: String { activity.displayTitle(showExecutingState: showExecutingState) }
+
+    var body: some View {
+        ActivityDisclosureRow(
+            icon: "rectangle.compress.vertical",
+            title: title,
+            executing: activity.isPending(showExecutingState: showExecutingState)
+        )
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(title)
+        .accessibilityHint("Older messages were summarized to free up context.")
     }
 }
 

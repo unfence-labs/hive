@@ -28,6 +28,12 @@ enum AgentActivitySeverity: String, Codable, Equatable {
     case error
 }
 
+enum AgentActivitySubagentActivityKind: String, Codable, Equatable, CaseIterable {
+    case started
+    case interacted
+    case interrupted
+}
+
 enum AgentActivity: Codable, Equatable, Identifiable {
     case commandExecution(CommandExecution)
     case fileChange(FileChange)
@@ -35,6 +41,8 @@ enum AgentActivity: Codable, Equatable, Identifiable {
     case goalUpdate(GoalUpdate)
     case imageView(ImageView)
     case imageGeneration(ImageGeneration)
+    case subagentActivity(SubagentActivity)
+    case contextCompaction(ContextCompaction)
     case diagnostic(Diagnostic)
     case unknown(Unknown)
 
@@ -111,6 +119,45 @@ enum AgentActivity: Codable, Equatable, Identifiable {
         let imageUrl: String?
     }
 
+    struct SubagentActivity: Codable, Equatable, Identifiable {
+        let id: String
+        let activityKind: AgentActivitySubagentActivityKind
+        let agentThreadId: String
+        let agentPath: String
+
+        var displayTitle: String {
+            switch activityKind {
+            case .started: "Started sub-agent"
+            case .interacted: "Interacted with sub-agent"
+            case .interrupted: "Interrupted sub-agent"
+            }
+        }
+
+        var iconName: String {
+            switch activityKind {
+            case .started: "arrow.triangle.branch"
+            case .interacted: "bubble.left"
+            case .interrupted: "xmark.circle"
+            }
+        }
+    }
+
+    struct ContextCompaction: Codable, Equatable, Identifiable {
+        let id: String
+        let status: String?
+
+        /// A compaction is pending while a turn is live (`showExecutingState`)
+        /// and the record has not reached its terminal status, so stale
+        /// in-progress records never animate after a turn ends.
+        func isPending(showExecutingState: Bool) -> Bool {
+            showExecutingState && status != "completed"
+        }
+
+        func displayTitle(showExecutingState: Bool) -> String {
+            isPending(showExecutingState: showExecutingState) ? "Compacting context…" : "Context compacted"
+        }
+    }
+
     struct Diagnostic: Codable, Equatable, Identifiable {
         let id: String
         let severity: AgentActivitySeverity
@@ -134,6 +181,8 @@ enum AgentActivity: Codable, Equatable, Identifiable {
         case .goalUpdate(let activity): activity.id
         case .imageView(let activity): activity.id
         case .imageGeneration(let activity): activity.id
+        case .subagentActivity(let activity): activity.id
+        case .contextCompaction(let activity): activity.id
         case .diagnostic(let activity): activity.id
         case .unknown(let activity): activity.id
         }
@@ -147,6 +196,8 @@ enum AgentActivity: Codable, Equatable, Identifiable {
         case .goalUpdate: "goal_update"
         case .imageView: "image_view"
         case .imageGeneration: "image_generation"
+        case .subagentActivity: "subagent_activity"
+        case .contextCompaction: "context_compaction"
         case .diagnostic: "diagnostic"
         case .unknown(let activity): activity.kind
         }
@@ -159,6 +210,7 @@ enum AgentActivity: Codable, Equatable, Identifiable {
         case steps
         case active, threadId, objective, tokenBudget, tokensUsed, timeUsedSeconds, createdAt, updatedAt
         case path, relativePath, imageUrl, outsideWorkspace, revisedPrompt, result, savedPath
+        case activityKind, agentThreadId, agentPath
         case severity, title, message, source, method, details
     }
 
@@ -166,25 +218,38 @@ enum AgentActivity: Codable, Equatable, Identifiable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let kind = try container.decode(String.self, forKey: .kind)
 
-        switch kind {
-        case "command_execution":
-            self = .commandExecution(try CommandExecution(from: decoder))
-        case "file_change":
-            self = .fileChange(try FileChange(from: decoder))
-        case "plan_update":
-            self = .planUpdate(try PlanUpdate(from: decoder))
-        case "goal_update":
-            self = .goalUpdate(try GoalUpdate(from: decoder))
-        case "image_view":
-            self = .imageView(try ImageView(from: decoder))
-        case "image_generation":
-            self = .imageGeneration(try ImageGeneration(from: decoder))
-        case "diagnostic":
-            self = .diagnostic(try Diagnostic(from: decoder))
-        default:
-            let id = (try? container.decode(String.self, forKey: .id)) ?? "unknown-\(kind)"
-            self = .unknown(Unknown(id: id, kind: kind))
+        do {
+            switch kind {
+            case "command_execution":
+                self = .commandExecution(try CommandExecution(from: decoder))
+            case "file_change":
+                self = .fileChange(try FileChange(from: decoder))
+            case "plan_update":
+                self = .planUpdate(try PlanUpdate(from: decoder))
+            case "goal_update":
+                self = .goalUpdate(try GoalUpdate(from: decoder))
+            case "image_view":
+                self = .imageView(try ImageView(from: decoder))
+            case "image_generation":
+                self = .imageGeneration(try ImageGeneration(from: decoder))
+            case "subagent_activity":
+                self = .subagentActivity(try SubagentActivity(from: decoder))
+            case "context_compaction":
+                self = .contextCompaction(try ContextCompaction(from: decoder))
+            case "diagnostic":
+                self = .diagnostic(try Diagnostic(from: decoder))
+            default:
+                self = try Self.decodeUnknown(from: decoder, kind: kind)
+            }
+        } catch {
+            self = try Self.decodeUnknown(from: decoder, kind: kind)
         }
+    }
+
+    private static func decodeUnknown(from decoder: Decoder, kind: String) throws -> AgentActivity {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let id = (try? container.decode(String.self, forKey: .id)) ?? "unknown-\(kind)"
+        return .unknown(Unknown(id: id, kind: kind))
     }
 
     func encode(to encoder: Encoder) throws {
@@ -233,6 +298,14 @@ enum AgentActivity: Codable, Equatable, Identifiable {
             try container.encodeIfPresent(activity.savedPath, forKey: .savedPath)
             try container.encodeIfPresent(activity.relativePath, forKey: .relativePath)
             try container.encodeIfPresent(activity.imageUrl, forKey: .imageUrl)
+        case .subagentActivity(let activity):
+            try container.encode(activity.id, forKey: .id)
+            try container.encode(activity.activityKind, forKey: .activityKind)
+            try container.encode(activity.agentThreadId, forKey: .agentThreadId)
+            try container.encode(activity.agentPath, forKey: .agentPath)
+        case .contextCompaction(let activity):
+            try container.encode(activity.id, forKey: .id)
+            try container.encodeIfPresent(activity.status, forKey: .status)
         case .diagnostic(let activity):
             try container.encode(activity.id, forKey: .id)
             try container.encode(activity.severity, forKey: .severity)
@@ -267,7 +340,7 @@ private let activityToolCallsCache: NSCache<NSString, CachedActivityToolCalls> =
 extension AgentActivity {
     var toolCalls: [ToolCall] {
         switch self {
-        case .planUpdate, .goalUpdate, .imageView, .imageGeneration, .diagnostic, .unknown:
+        case .planUpdate, .goalUpdate, .imageView, .imageGeneration, .subagentActivity, .contextCompaction, .diagnostic, .unknown:
             return []
         case .commandExecution, .fileChange:
             break
@@ -321,7 +394,7 @@ extension AgentActivity {
                     parentToolUseId: nil
                 )
             }
-        case .planUpdate, .goalUpdate, .imageView, .imageGeneration, .diagnostic, .unknown:
+        case .planUpdate, .goalUpdate, .imageView, .imageGeneration, .subagentActivity, .contextCompaction, .diagnostic, .unknown:
             return []
         }
     }
@@ -342,6 +415,8 @@ private func activityToolCallsCacheCost(_ toolCalls: [ToolCall]) -> Int {
 enum VisibleAgentActivity: Equatable, Identifiable {
     case imageView(AgentActivity.ImageView)
     case imageGeneration(AgentActivity.ImageGeneration)
+    case subagentActivity(AgentActivity.SubagentActivity)
+    case contextCompaction(AgentActivity.ContextCompaction)
     case diagnostic(AgentActivity.Diagnostic)
     case unknown(AgentActivity.Unknown)
 
@@ -352,6 +427,10 @@ enum VisibleAgentActivity: Equatable, Identifiable {
             self = .imageView(image)
         case .imageGeneration(let image):
             self = .imageGeneration(image)
+        case .subagentActivity(let subagent):
+            self = .subagentActivity(subagent)
+        case .contextCompaction(let compaction):
+            self = .contextCompaction(compaction)
         case .diagnostic(let diagnostic):
             self = .diagnostic(diagnostic)
         case .unknown(let unknown):
@@ -367,6 +446,8 @@ enum VisibleAgentActivity: Equatable, Identifiable {
         switch self {
         case .imageView(let activity): activity.id
         case .imageGeneration(let activity): activity.id
+        case .subagentActivity(let activity): activity.id
+        case .contextCompaction(let activity): activity.id
         case .diagnostic(let activity): activity.id
         case .unknown(let activity): activity.id
         }

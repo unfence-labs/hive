@@ -6,6 +6,8 @@ import { ToolExpandedContent } from "@/components/ChatToolUse";
 
 interface ActivityShellProps {
   title: string;
+  /** Native tooltip shown when hovering the row. */
+  tooltip?: string;
   icon?: ReactNode;
   detail?: ReactNode;
   trailingIcon?: ReactNode;
@@ -28,6 +30,7 @@ interface ActivityShellProps {
  */
 export function ActivityShell({
   title,
+  tooltip,
   icon,
   detail,
   trailingIcon,
@@ -52,6 +55,7 @@ export function ActivityShell({
           )}
           onClick={() => canOpen && setOpen(!open)}
           aria-expanded={canOpen ? open : undefined}
+          title={tooltip}
         >
           {icon ? <span className="shrink-0">{icon}</span> : canOpen && (
             <ChevronRightIcon className={cn("size-3.5 shrink-0 transition-transform", open && "rotate-90")} />

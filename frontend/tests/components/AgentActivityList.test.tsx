@@ -14,6 +14,59 @@ function tool(overrides: Partial<ToolCall>): ToolCall {
 }
 
 describe("AgentActivityList", () => {
+  it.each([
+    ["started", "Started sub-agent"],
+    ["interacted", "Interacted with sub-agent"],
+    ["interrupted", "Interrupted sub-agent"],
+  ] as const)("renders %s sub-agent activity with an accessible path chip", (activityKind, title) => {
+    const agentPath = "/workspace/agents/research/very/long/sub-agent/thread/path";
+
+    render(
+      <AgentActivityList
+        activities={[{
+          id: `subagent-${activityKind}`,
+          kind: "subagent_activity",
+          activityKind,
+          agentThreadId: "thread-1",
+          agentPath,
+        }]}
+      />,
+    );
+
+    const row = screen.getByRole("button", { name: new RegExp(title) });
+    expect(row).toBeInTheDocument();
+    expect(row).not.toHaveAttribute("aria-expanded");
+    expect(screen.getByTitle(agentPath)).toHaveAttribute("aria-label", `Agent path: ${agentPath}`);
+    expect(screen.queryByText("Unsupported App Server event")).not.toBeInTheDocument();
+  });
+
+  it("renders an in-progress context compaction while the turn is live", () => {
+    render(
+      <AgentActivityList
+        activities={[{ id: "compaction-1", kind: "context_compaction", status: "inProgress" }]}
+        showExecutingState
+      />,
+    );
+
+    const row = screen.getByRole("button", { name: /Compacting context…/ });
+    expect(row).not.toHaveAttribute("aria-expanded");
+    expect(row).toHaveAttribute("title", "Older messages were summarized to free up context");
+  });
+
+  it.each([
+    ["a completed compaction in a live turn", "completed", true],
+    ["a stale in-progress compaction after the turn ended", "inProgress", false],
+  ] as const)("renders %s as compacted", (_label, status, showExecutingState) => {
+    render(
+      <AgentActivityList
+        activities={[{ id: "compaction-1", kind: "context_compaction", status }]}
+        showExecutingState={showExecutingState}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: /Context compacted/ })).toBeInTheDocument();
+  });
+
   it("renders command activity with streaming output", async () => {
     const user = userEvent.setup();
     const activities: AgentActivity[] = [{

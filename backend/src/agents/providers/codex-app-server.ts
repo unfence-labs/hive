@@ -2,6 +2,7 @@ import { EventEmitter } from "node:events";
 import { isAbsolute, relative, resolve } from "node:path";
 import {
   commandExecutionActivityToToolCall,
+  isAgentActivitySubagentActivityKind,
   normalizeAgentActivityCommandActions,
   type AgentActivityCommandAction,
 } from "@hive/shared/agent-activity";
@@ -145,6 +146,18 @@ type ThreadItem =
       revisedPrompt?: string | null;
       result?: string;
       savedPath?: string | null;
+    }
+  | {
+      type: "subAgentActivity";
+      id: string;
+      kind?: unknown;
+      agentThreadId?: unknown;
+      agentPath?: unknown;
+    }
+  | {
+      type: "contextCompaction";
+      id: string;
+      status?: string;
     }
   | { type: string; id?: string; [key: string]: unknown };
 
@@ -613,6 +626,10 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
       case "thread/settings/updated":
       case "serverRequest/resolved":
         break;
+      case "thread/compacted":
+        // The contextCompaction item already renders the compaction row; the
+        // thread-level notification would only duplicate it.
+        break;
       case "mcpServer/startupStatus/updated":
         if (isNotificationStatus(data, "failed", "cancelled")) {
           this.emitProtocolDiagnostic(method, data, "Codex MCP startup status", "warning");
@@ -962,6 +979,75 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
         });
         break;
       }
+      case "subAgentActivity": {
+        const activityItem = item as Extract<ThreadItem, { type: "subAgentActivity" }>;
+        // Multi-agent v2 spawns emit no collabAgentToolCall and v2 wait items
+        // carry no receiver ids; this item is the only signal mapping the
+        // child thread to its spawn call. Register even foreign-thread
+        // activities so grandchild threads are owned too.
+        if (activityItem.kind === "started" && typeof activityItem.agentThreadId === "string") {
+          this.collabParentByThreadId.set(activityItem.agentThreadId, activityItem.id);
+        }
+        if (parentToolUseId) break;
+        if (
+          !isAgentActivitySubagentActivityKind(activityItem.kind)
+          || typeof activityItem.agentThreadId !== "string"
+          || typeof activityItem.agentPath !== "string"
+        ) {
+          this.emitDiagnostic({
+            id: diagnosticId("codex-item", `subAgentActivity-${String(activityItem.kind)}`),
+            severity: "info",
+            title: "Unsupported App Server item",
+            message: `Hive does not render sub-agent activity kind "${String(activityItem.kind)}" yet.`,
+            method: "item/subAgentActivity",
+            details: formatDiagnosticDetails(item),
+            dedupeKey: `item:subAgentActivity:${String(activityItem.kind)}`,
+          });
+          break;
+        }
+        if (activityItem.kind === "started") {
+          // v2 spawn: render the same Agent card as a v1 spawnAgent call so
+          // child tools nest under it. Spawn completes at thread creation
+          // (same rationale as the v1 comment on spawnAgent), so emit the
+          // result immediately.
+          this.emitToolUse(activityItem.id, "Agent", JSON.stringify({
+            subagent_type: "agent",
+            description: activityItem.agentPath,
+            run_in_background: true,
+            tool: "spawnAgent",
+            receiver_thread_ids: [activityItem.agentThreadId],
+            agent_path: activityItem.agentPath,
+          }));
+          this.emitToolResult(activityItem.id, JSON.stringify([{
+            type: "text",
+            text: formatUnknown({
+              tool: "spawnAgent",
+              status: "completed",
+              receiverThreadIds: [activityItem.agentThreadId],
+            }),
+          }]));
+          break;
+        }
+        this.emit("agent_event", {
+          type: "subagent_activity_updated",
+          id: activityItem.id,
+          activityKind: activityItem.kind,
+          agentThreadId: activityItem.agentThreadId,
+          agentPath: activityItem.agentPath,
+        });
+        break;
+      }
+      case "contextCompaction": {
+        // A sub-agent compacting its own context is internal to its execution.
+        if (parentToolUseId) break;
+        const compactionItem = item as Extract<ThreadItem, { type: "contextCompaction" }>;
+        this.emit("agent_event", {
+          type: "context_compaction_updated",
+          id: compactionItem.id,
+          status: compactionItem.status ?? (phase === "completed" ? "completed" : "inProgress"),
+        });
+        break;
+      }
       case "userMessage":
       case "hookPrompt":
         break;
@@ -1011,7 +1097,12 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
   }
 
   private queueCollabAgentReplay(item: CollabToolCallItem): void {
-    const threadIds = collabAgentReceiverThreadIds(item);
+    let threadIds = collabAgentReceiverThreadIds(item);
+    if (threadIds.length === 0 && (item.tool === "wait" || item.tool === "closeAgent")) {
+      // Multi-agent v2 wait items never carry receiver ids; replay every
+      // thread learned from subAgentActivity registrations instead.
+      threadIds = [...this.collabParentByThreadId.keys()];
+    }
     if (threadIds.length === 0) return;
     // Catch-up items nest under the spawning Agent card when known; the
     // triggering wait/closeAgent card is only a fallback for threads whose

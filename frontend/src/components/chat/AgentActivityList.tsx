@@ -1,5 +1,5 @@
 import { memo } from "react";
-import { AlertTriangleIcon, XCircleIcon } from "lucide-react";
+import { AlertTriangleIcon, BotIcon, CirclePauseIcon, FoldVerticalIcon, MessageCircleIcon, XCircleIcon } from "lucide-react";
 import { commandExecutionActivityToToolCall } from "@hive/shared/agent-activity";
 import type { AgentActivity, QuestionAnswer, ToolCall } from "@/types";
 import ChatToolUse from "@/components/ChatToolUse";
@@ -8,6 +8,8 @@ import { ActivityShell, ActivityDetailChip } from "@/components/chat/ActivityShe
 import { ImageViewActivity, ImageGenerationActivity } from "@/components/chat/ImageActivity";
 import type { PlanStatus } from "@/components/chat/PlanProposal";
 
+type SubagentActivity = Extract<AgentActivity, { kind: "subagent_activity" }>;
+type ContextCompactionActivity = Extract<AgentActivity, { kind: "context_compaction" }>;
 type InlineAgentActivity = Exclude<AgentActivity, { kind: "plan_update" } | { kind: "goal_update" }>;
 
 interface AgentActivityListProps {
@@ -97,6 +99,8 @@ function activityToToolCalls(activity: InlineAgentActivity): ToolCall[] {
     case "image_view":
     case "image_generation":
     case "diagnostic":
+    case "subagent_activity":
+    case "context_compaction":
       return [];
   }
 }
@@ -130,8 +134,78 @@ const AgentActivityItem = memo(function AgentActivityItem({
       return <ImageGenerationActivity activity={activity} showExecutingState={showExecutingState} />;
     case "diagnostic":
       return <DiagnosticActivity activity={activity} />;
+    case "subagent_activity":
+      return <SubagentActivityItem activity={activity} />;
+    case "context_compaction":
+      return <ContextCompactionActivityItem activity={activity} showExecutingState={showExecutingState} />;
   }
 });
+
+function ContextCompactionActivityItem({
+  activity,
+  showExecutingState,
+}: {
+  activity: ContextCompactionActivity;
+  showExecutingState?: boolean;
+}) {
+  // Only animate while the turn is live so a stale in-progress record
+  // (e.g. a turn that died mid-compaction) never shimmers forever.
+  const compacting = Boolean(showExecutingState) && activity.status !== "completed";
+
+  return (
+    <ActivityShell
+      title={compacting ? "Compacting context…" : "Context compacted"}
+      tooltip="Older messages were summarized to free up context"
+      icon={<FoldVerticalIcon className="size-3.5" aria-label="Context compaction" />}
+      executing={compacting}
+    />
+  );
+}
+
+function SubagentActivityItem({ activity }: { activity: SubagentActivity }) {
+  return (
+    <ActivityShell
+      title={subagentActivityTitle(activity.activityKind)}
+      icon={subagentActivityIcon(activity.activityKind)}
+      detail={<AgentPathChip path={activity.agentPath} />}
+    />
+  );
+}
+
+function AgentPathChip({ path }: { path: string }) {
+  return (
+    <span
+      className="min-w-0 max-w-[min(28rem,60vw)] truncate"
+      title={path}
+      aria-label={`Agent path: ${path}`}
+    >
+      <ActivityDetailChip text={path} />
+    </span>
+  );
+}
+
+function subagentActivityTitle(activityKind: SubagentActivity["activityKind"]): string {
+  switch (activityKind) {
+    case "started":
+      return "Started sub-agent";
+    case "interacted":
+      return "Interacted with sub-agent";
+    case "interrupted":
+      return "Interrupted sub-agent";
+  }
+}
+
+function subagentActivityIcon(activityKind: SubagentActivity["activityKind"]) {
+  if (activityKind === "interrupted") {
+    return <CirclePauseIcon className="size-3.5 text-muted-foreground" aria-label="Sub-agent interrupted" />;
+  }
+
+  if (activityKind === "interacted") {
+    return <MessageCircleIcon className="size-3.5" aria-label="Sub-agent interaction" />;
+  }
+
+  return <BotIcon className="size-3.5" aria-label="Sub-agent started" />;
+}
 
 function DiagnosticActivity({ activity }: { activity: Extract<AgentActivity, { kind: "diagnostic" }> }) {
   const detail = activity.method ? <ActivityDetailChip text={activity.method} /> : undefined;

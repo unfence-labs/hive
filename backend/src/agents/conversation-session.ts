@@ -177,6 +177,10 @@ function cloneAgentActivity(activity: AgentActivity): AgentActivity {
       return { ...activity };
     case "image_generation":
       return { ...activity };
+    case "subagent_activity":
+      return { ...activity };
+    case "context_compaction":
+      return { ...activity };
     case "diagnostic":
       return { ...activity };
   }
@@ -1095,6 +1099,12 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
       case "goal_updated":
         this.handleGoalUpdateEvent(event);
         break;
+      case "subagent_activity_updated":
+        this.handleSubagentActivityEvent(event);
+        break;
+      case "context_compaction_updated":
+        this.handleContextCompactionEvent(event);
+        break;
       case "diagnostic":
         this.handleDiagnosticEvent(event);
         break;
@@ -1412,6 +1422,28 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
       timeUsedSeconds: event.timeUsedSeconds,
       createdAt: event.createdAt,
       updatedAt: event.updatedAt,
+    });
+  }
+
+  private handleSubagentActivityEvent(
+    event: Extract<NormalizedAgentEvent, { type: "subagent_activity_updated" }>,
+  ): void {
+    this.upsertAgentActivity({
+      id: event.id,
+      kind: "subagent_activity",
+      activityKind: event.activityKind,
+      agentThreadId: event.agentThreadId,
+      agentPath: event.agentPath,
+    });
+  }
+
+  private handleContextCompactionEvent(
+    event: Extract<NormalizedAgentEvent, { type: "context_compaction_updated" }>,
+  ): void {
+    this.upsertAgentActivity({
+      id: event.id,
+      kind: "context_compaction",
+      status: event.status,
     });
   }
 
