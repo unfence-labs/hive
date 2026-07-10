@@ -8,8 +8,8 @@ enum AddProjectMode: String, CaseIterable {
 struct AddProjectSheet: View {
     @Environment(\.dismiss) private var dismiss
     let api: APIClient
-    let onClone: (String) async -> Bool
-    let onCreate: (_ name: String, _ visibility: String?) async -> Bool
+    let onClone: (String) async -> String?
+    let onCreate: (_ name: String, _ visibility: String?) async -> String?
 
     @State private var mode: AddProjectMode = .clone
 
@@ -98,6 +98,7 @@ struct AddProjectSheet: View {
         }
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
+        .interactiveDismissDisabled(isSubmitting)
         .onChange(of: mode) { _, newMode in
             if newMode == .create && accountStatus == nil {
                 checkAccountStatus()
@@ -189,19 +190,19 @@ struct AddProjectSheet: View {
         isSubmitting = true
         submitError = nil
         Task {
-            let ok: Bool
+            let error: String?
             switch mode {
             case .clone:
-                ok = await onClone(url.trimmingCharacters(in: .whitespacesAndNewlines))
+                error = await onClone(url.trimmingCharacters(in: .whitespacesAndNewlines))
             case .create:
                 let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-                ok = await onCreate(trimmed, ghConnected ? visibility : nil)
+                error = await onCreate(trimmed, ghConnected ? visibility : nil)
             }
             isSubmitting = false
-            if ok {
-                dismiss()
+            if let error {
+                submitError = error
             } else {
-                submitError = "Couldn't add the project. Check the URL and your connection, then try again."
+                dismiss()
             }
         }
     }
@@ -231,7 +232,7 @@ struct AddProjectSheet: View {
 #Preview {
     Text("Hub")
         .sheet(isPresented: .constant(true)) {
-            AddProjectSheet(api: APIClient(), onClone: { _ in true }, onCreate: { _, _ in true })
+            AddProjectSheet(api: APIClient(), onClone: { _ in nil }, onCreate: { _, _ in nil })
         }
         .preferredColorScheme(.dark)
 }

@@ -111,15 +111,13 @@ final class ProjectStore {
         }
     }
 
-    @discardableResult
-    func createProject(url: String) async -> Bool {
+    func createProject(url: String) async -> String? {
         await createProjectWithWorkspace(displayName: Self.extractRepoName(from: url)) {
             try await api.createProject(url: url)
         }
     }
 
-    @discardableResult
-    func createNewProject(name: String, visibility: String?) async -> Bool {
+    func createNewProject(name: String, visibility: String?) async -> String? {
         await createProjectWithWorkspace(displayName: name) {
             try await api.createNewProject(name: name, visibility: visibility)
         }
@@ -128,8 +126,8 @@ final class ProjectStore {
     private func createProjectWithWorkspace(
         displayName: String,
         apiCall: () async throws -> Project
-    ) async -> Bool {
-        guard !isCreatingProject else { return false }
+    ) async -> String? {
+        guard !isCreatingProject else { return "A project is already being created." }
 
         isCreatingProject = true
         cloningRepoName = displayName
@@ -162,16 +160,15 @@ final class ProjectStore {
             pendingNavigation = workspace
             cloningRepoName = nil
             isCreatingProject = false
-            return true
+            return nil
         } catch is CancellationError {
             cloningRepoName = nil
             isCreatingProject = false
-            return false
+            return nil
         } catch {
-            errorMessage = error.localizedDescription
             cloningRepoName = nil
             isCreatingProject = false
-            return false
+            return error.localizedDescription
         }
     }
 
