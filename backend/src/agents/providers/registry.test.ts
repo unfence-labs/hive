@@ -105,7 +105,7 @@ describe("getProvider", () => {
 
 describe("model helpers", () => {
   it("detects known model IDs without requiring provider availability", () => {
-    expect(isKnownModelId("claude:sonnet-4-6")).toBe(true);
+    expect(isKnownModelId("claude:sonnet-5")).toBe(true);
     expect(isKnownModelId("codex:gpt-5.5")).toBe(true);
     expect(isKnownModelId("claude:missing")).toBe(false);
   });
@@ -113,15 +113,16 @@ describe("model helpers", () => {
   it("recognizes retired model IDs through aliases", () => {
     expect(isKnownModelId("codex:gpt-5.3-codex")).toBe(true);
     expect(isKnownModelId("claude:opus-4-7")).toBe(true);
+    expect(isKnownModelId("claude:sonnet-4-6")).toBe(true);
   });
 
   it("returns high as the default thinking level when supported", () => {
-    expect(getDefaultThinkingLevelForModel("claude:sonnet-4-6")).toBe("high");
+    expect(getDefaultThinkingLevelForModel("claude:sonnet-5")).toBe("high");
     expect(getDefaultThinkingLevelForModel("codex:gpt-5.5")).toBe("high");
   });
 
   it("validates thinking levels against the resolved model", () => {
-    expect(isThinkingLevelSupportedForModel("claude:sonnet-4-6", "max")).toBe(true);
+    expect(isThinkingLevelSupportedForModel("claude:sonnet-5", "max")).toBe(true);
     expect(isThinkingLevelSupportedForModel("codex:gpt-5.5", "max")).toBe(false);
     expect(isThinkingLevelSupportedForModel("codex:gpt-5.6-sol", "ultra")).toBe(true);
     expect(isThinkingLevelSupportedForModel("codex:gpt-5.6-luna", "ultra")).toBe(false);
@@ -329,8 +330,8 @@ describe("contextWindow in catalog", () => {
     expect(fable?.contextWindow).toBe(1_000_000);
     const opus = claudeModels.find((m) => m.id === "claude:opus-4-8");
     expect(opus?.contextWindow).toBe(1_000_000);
-    const sonnet = claudeModels.find((m) => m.id === "claude:sonnet-4-6");
-    expect(sonnet?.contextWindow).toBe(200_000);
+    const sonnet = claudeModels.find((m) => m.id === "claude:sonnet-5");
+    expect(sonnet?.contextWindow).toBe(1_000_000);
     const haiku = claudeModels.find((m) => m.id === "claude:haiku-4-5");
     expect(haiku?.contextWindow).toBe(200_000);
   });
