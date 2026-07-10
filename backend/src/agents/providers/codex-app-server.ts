@@ -2,6 +2,7 @@ import { EventEmitter } from "node:events";
 import { isAbsolute, relative, resolve } from "node:path";
 import {
   commandExecutionActivityToToolCall,
+  isAgentActivitySubagentActivityKind,
   normalizeAgentActivityCommandActions,
   type AgentActivityCommandAction,
 } from "@hive/shared/agent-activity";
@@ -145,6 +146,13 @@ type ThreadItem =
       revisedPrompt?: string | null;
       result?: string;
       savedPath?: string | null;
+    }
+  | {
+      type: "subAgentActivity";
+      id: string;
+      kind?: unknown;
+      agentThreadId?: unknown;
+      agentPath?: unknown;
     }
   | { type: string; id?: string; [key: string]: unknown };
 
@@ -959,6 +967,34 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
             ? relativizeWorkspacePath(savedPath, this.currentCwd).relativePath
             : undefined,
           result: result && result.length <= MAX_IMAGE_GENERATION_RESULT_LENGTH ? result : undefined,
+        });
+        break;
+      }
+      case "subAgentActivity": {
+        if (parentToolUseId) break;
+        const activityItem = item as Extract<ThreadItem, { type: "subAgentActivity" }>;
+        if (
+          !isAgentActivitySubagentActivityKind(activityItem.kind)
+          || typeof activityItem.agentThreadId !== "string"
+          || typeof activityItem.agentPath !== "string"
+        ) {
+          this.emitDiagnostic({
+            id: diagnosticId("codex-item", `subAgentActivity-${String(activityItem.kind)}`),
+            severity: "info",
+            title: "Unsupported App Server item",
+            message: `Hive does not render sub-agent activity kind "${String(activityItem.kind)}" yet.`,
+            method: "item/subAgentActivity",
+            details: formatDiagnosticDetails(item),
+            dedupeKey: `item:subAgentActivity:${String(activityItem.kind)}`,
+          });
+          break;
+        }
+        this.emit("agent_event", {
+          type: "subagent_activity_updated",
+          id: activityItem.id,
+          activityKind: activityItem.kind,
+          agentThreadId: activityItem.agentThreadId,
+          agentPath: activityItem.agentPath,
         });
         break;
       }

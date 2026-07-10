@@ -910,6 +910,147 @@ describe("CodexAppServerSession normalized events", () => {
     ]);
   });
 
+  it.each([
+    ["started", "item/started"],
+    ["interacted", "item/completed"],
+    ["interrupted", "item/completed"],
+  ] as const)("emits %s sub-agent activity without a diagnostic", async (activityKind, method) => {
+    const proc = createMockProcess();
+    mockSpawn.mockReturnValue(proc);
+    const session = new CodexAppServerSession();
+    const events: unknown[] = [];
+    session.on("agent_event", (event) => events.push(event));
+    await initializeSession(session, proc);
+
+    proc._stdout.push(JSON.stringify({
+      method,
+      params: {
+        item: {
+          type: "subAgentActivity",
+          id: `subagent-activity-${activityKind}`,
+          kind: activityKind,
+          agentThreadId: "thread-child",
+          agentPath: `/root/${activityKind}`,
+        },
+      },
+    }) + "\n");
+
+    expect(events).toEqual([{
+      type: "subagent_activity_updated",
+      id: `subagent-activity-${activityKind}`,
+      activityKind,
+      agentThreadId: "thread-child",
+      agentPath: `/root/${activityKind}`,
+    }]);
+    expect(events.some((event) => (event as { type?: string }).type === "diagnostic")).toBe(false);
+  });
+
+  it("emits a diagnostic instead of sub-agent activity for an unknown activity kind", async () => {
+    const proc = createMockProcess();
+    mockSpawn.mockReturnValue(proc);
+    const session = new CodexAppServerSession();
+    const events: unknown[] = [];
+    session.on("agent_event", (event) => events.push(event));
+    await initializeSession(session, proc);
+
+    proc._stdout.push(JSON.stringify({
+      method: "item/started",
+      params: {
+        item: {
+          type: "subAgentActivity",
+          id: "subagent-unknown",
+          kind: "delegated",
+          agentThreadId: "thread-child",
+          agentPath: "/root/worker",
+        },
+      },
+    }) + "\n");
+
+    expect(events).toEqual([
+      expect.objectContaining({
+        type: "diagnostic",
+        severity: "info",
+        title: "Unsupported App Server item",
+        message: "Hive does not render sub-agent activity kind \"delegated\" yet.",
+        method: "item/subAgentActivity",
+      }),
+    ]);
+    expect(events.some((event) => (event as { type?: string }).type === "subagent_activity_updated")).toBe(false);
+  });
+
+  it("emits a diagnostic instead of sub-agent activity for a malformed payload", async () => {
+    const proc = createMockProcess();
+    mockSpawn.mockReturnValue(proc);
+    const session = new CodexAppServerSession();
+    const events: unknown[] = [];
+    session.on("agent_event", (event) => events.push(event));
+    await initializeSession(session, proc);
+
+    proc._stdout.push(JSON.stringify({
+      method: "item/started",
+      params: {
+        item: {
+          type: "subAgentActivity",
+          id: "subagent-missing-path",
+          kind: "started",
+          agentThreadId: "thread-child",
+        },
+      },
+    }) + "\n");
+
+    expect(events).toEqual([
+      expect.objectContaining({
+        type: "diagnostic",
+        severity: "info",
+        title: "Unsupported App Server item",
+        method: "item/subAgentActivity",
+      }),
+    ]);
+    expect(events.some((event) => (event as { type?: string }).type === "subagent_activity_updated")).toBe(false);
+  });
+
+  it("updates sub-agent activity on item completion without inferring completion", async () => {
+    const proc = createMockProcess();
+    mockSpawn.mockReturnValue(proc);
+    const session = new CodexAppServerSession();
+    const events: unknown[] = [];
+    session.on("agent_event", (event) => events.push(event));
+    await initializeSession(session, proc);
+
+    const item = {
+      type: "subAgentActivity",
+      id: "subagent-activity-1",
+      agentThreadId: "thread-child",
+      agentPath: "/root/worker",
+    };
+    proc._stdout.push(JSON.stringify({
+      method: "item/started",
+      params: { item: { ...item, kind: "started" } },
+    }) + "\n");
+    proc._stdout.push(JSON.stringify({
+      method: "item/completed",
+      params: { item: { ...item, kind: "interrupted" } },
+    }) + "\n");
+
+    expect(events).toEqual([
+      {
+        type: "subagent_activity_updated",
+        id: item.id,
+        activityKind: "started",
+        agentThreadId: item.agentThreadId,
+        agentPath: item.agentPath,
+      },
+      {
+        type: "subagent_activity_updated",
+        id: item.id,
+        activityKind: "interrupted",
+        agentThreadId: item.agentThreadId,
+        agentPath: item.agentPath,
+      },
+    ]);
+    expect(events.some((event) => (event as { type?: string }).type === "diagnostic")).toBe(false);
+  });
+
   it("emits image view activities with workspace-relative paths", async () => {
     const proc = createMockProcess();
     mockSpawn.mockReturnValue(proc);
@@ -1447,6 +1588,64 @@ describe("CodexAppServerSession normalized events", () => {
         }),
       }),
     ]);
+  });
+
+  it("suppresses sub-agent activity from receiver threads", async () => {
+    const proc = createMockProcess();
+    mockSpawn.mockReturnValue(proc);
+    const session = new CodexAppServerSession();
+    const events: unknown[] = [];
+    session.on("agent_event", (event) => events.push(event));
+    await initializeSession(session, proc);
+
+    proc._stdout.push(JSON.stringify({
+      method: "item/started",
+      params: {
+        threadId: "thread-1",
+        item: {
+          type: "collabAgentToolCall",
+          id: "collab-1",
+          tool: "spawnAgent",
+          status: "inProgress",
+          receiverThreadIds: ["thread-child"],
+          prompt: "Inspect auth",
+        },
+      },
+    }) + "\n");
+    proc._stdout.push(JSON.stringify({
+      method: "item/started",
+      params: {
+        threadId: "thread-child",
+        item: {
+          type: "subAgentActivity",
+          id: "child-subagent-1",
+          kind: "started",
+          agentThreadId: "thread-grandchild",
+          agentPath: "/root/worker/nested",
+        },
+      },
+    }) + "\n");
+    proc._stdout.push(JSON.stringify({
+      method: "item/started",
+      params: {
+        threadId: "thread-1",
+        item: {
+          type: "subAgentActivity",
+          id: "main-subagent-1",
+          kind: "started",
+          agentThreadId: "thread-child",
+          agentPath: "/root/worker",
+        },
+      },
+    }) + "\n");
+
+    expect(events).toEqual([{
+      type: "subagent_activity_updated",
+      id: "main-subagent-1",
+      activityKind: "started",
+      agentThreadId: "thread-child",
+      agentPath: "/root/worker",
+    }]);
   });
 
   it("parents live receiver-thread tools under documented Codex collab tool calls", async () => {

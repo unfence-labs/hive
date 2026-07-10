@@ -629,6 +629,88 @@ describe("ConversationSession", () => {
     ]);
   });
 
+  it("streams and persists sub-agent activity updates by item id", async () => {
+    const fakeRunner = new EventEmitter<AgentRunnerEvent>() as EventEmitter<AgentRunnerEvent> & AgentRunner;
+    fakeRunner.start = vi.fn(() => {
+      fakeRunner.emit("agent_event", {
+        type: "subagent_activity_updated",
+        id: "subagent-activity",
+        activityKind: "started",
+        agentThreadId: "thread-child",
+        agentPath: "/root/worker",
+      });
+      fakeRunner.emit("agent_event", {
+        type: "subagent_activity_updated",
+        id: "subagent-activity",
+        activityKind: "interrupted",
+        agentThreadId: "thread-child",
+        agentPath: "/root/worker",
+      });
+      fakeRunner.emit("result", { type: "result", session_id: "provider-subagent-activity", duration_ms: 1 });
+      fakeRunner.emit("exit", 0, "provider-subagent-activity");
+    });
+    fakeRunner.stop = vi.fn(() => {});
+
+    const runnerFactory: AgentRunnerFactory = vi.fn(() => ({
+      runner: fakeRunner,
+      protocol: "process" as const,
+      providerId: "codex",
+      modelId: "gpt-5.5",
+      supportsBlockingTools: false,
+      providerSessionId: "provider-subagent-activity",
+      debug: { command: "fake", args: [] },
+      start: fakeRunner.start,
+    }));
+    const session = new ConversationSession({
+      cwd: "/tmp/test",
+      dataDir: tempDir,
+      workspaceId: "ws-test",
+      sessionId: "subagent-activity-session",
+      runnerFactory,
+    });
+    const messages: WsOutgoing[] = [];
+    session.on("message", (msg) => messages.push(msg));
+
+    session.sendMessage("Inspect with a sub-agent");
+
+    await waitForMessages(messages, "done");
+
+    expect(messages.filter((msg) => msg.type === "agent_activity")).toEqual([
+      {
+        type: "agent_activity",
+        sessionId: "subagent-activity-session",
+        activity: {
+          id: "subagent-activity",
+          kind: "subagent_activity",
+          activityKind: "started",
+          agentThreadId: "thread-child",
+          agentPath: "/root/worker",
+        },
+      },
+      {
+        type: "agent_activity",
+        sessionId: "subagent-activity-session",
+        activity: {
+          id: "subagent-activity",
+          kind: "subagent_activity",
+          activityKind: "interrupted",
+          agentThreadId: "thread-child",
+          agentPath: "/root/worker",
+        },
+      },
+    ]);
+
+    const persisted = await session.getMessages();
+    const assistant = persisted.find((msg) => msg.role === "assistant");
+    expect(assistant?.agentActivities).toEqual([{
+      id: "subagent-activity",
+      kind: "subagent_activity",
+      activityKind: "interrupted",
+      agentThreadId: "thread-child",
+      agentPath: "/root/worker",
+    }]);
+  });
+
   it("bounds large command outputs before streaming and persistence", async () => {
     const largeOutput = "x".repeat(MAX_AGENT_OUTPUT_CHARS + 2048);
     const fakeRunner = new EventEmitter<AgentRunnerEvent>() as EventEmitter<AgentRunnerEvent> & AgentRunner;

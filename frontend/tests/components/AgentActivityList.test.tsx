@@ -14,6 +14,32 @@ function tool(overrides: Partial<ToolCall>): ToolCall {
 }
 
 describe("AgentActivityList", () => {
+  it.each([
+    ["started", "Started sub-agent"],
+    ["interacted", "Interacted with sub-agent"],
+    ["interrupted", "Interrupted sub-agent"],
+  ] as const)("renders %s sub-agent activity with an accessible path chip", (activityKind, title) => {
+    const agentPath = "/workspace/agents/research/very/long/sub-agent/thread/path";
+
+    render(
+      <AgentActivityList
+        activities={[{
+          id: `subagent-${activityKind}`,
+          kind: "subagent_activity",
+          activityKind,
+          agentThreadId: "thread-1",
+          agentPath,
+        }]}
+      />,
+    );
+
+    const row = screen.getByRole("button", { name: new RegExp(title) });
+    expect(row).toBeInTheDocument();
+    expect(row).not.toHaveAttribute("aria-expanded");
+    expect(screen.getByTitle(agentPath)).toHaveAttribute("aria-label", `Agent path: ${agentPath}`);
+    expect(screen.queryByText("Unsupported App Server event")).not.toBeInTheDocument();
+  });
+
   it("renders command activity with streaming output", async () => {
     const user = userEvent.setup();
     const activities: AgentActivity[] = [{

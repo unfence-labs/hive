@@ -3,6 +3,180 @@ import Testing
 @testable import HiveMobileStoresCore
 
 struct AgentActivityDecodingTests {
+    @Test(arguments: AgentActivitySubagentActivityKind.allCases)
+    func decodesSubagentActivityVariants(_ activityKind: AgentActivitySubagentActivityKind) throws {
+        let message = try decodeMessage("""
+        {
+          "id": "msg-1",
+          "sessionId": "session-1",
+          "role": "assistant",
+          "content": "",
+          "timestamp": "2026-01-01T00:00:00Z",
+          "agentActivities": [
+            {
+              "id": "subagent-\(activityKind.rawValue)",
+              "kind": "subagent_activity",
+              "activityKind": "\(activityKind.rawValue)",
+              "agentThreadId": "thread-1",
+              "agentPath": "/workspace/agents/research/sub-agent/thread"
+            }
+          ]
+        }
+        """)
+
+        let activity = try #require(message.agentActivities?.first)
+        guard case .subagentActivity(let subagent) = activity else {
+            Issue.record("Expected subagent activity")
+            return
+        }
+        #expect(subagent.activityKind == activityKind)
+        #expect(subagent.agentThreadId == "thread-1")
+        #expect(subagent.agentPath == "/workspace/agents/research/sub-agent/thread")
+        #expect(subagent.displayTitle == expectedSubagentTitle(for: activityKind))
+        #expect(subagent.iconName == expectedSubagentIcon(for: activityKind))
+        #expect(activity.toolCalls.isEmpty)
+        #expect(visibleAgentActivities([activity]).map(\.id) == ["subagent-\(activityKind.rawValue)"])
+    }
+
+    @Test
+    func keepsUnknownActivityDecodingAndVisibleFiltering() throws {
+        let message = try decodeMessage("""
+        {
+          "id": "msg-1",
+          "sessionId": "session-1",
+          "role": "assistant",
+          "content": "",
+          "timestamp": "2026-01-01T00:00:00Z",
+          "agentActivities": [
+            {
+              "id": "future-1",
+              "kind": "future_activity"
+            }
+          ]
+        }
+        """)
+
+        let activity = try #require(message.agentActivities?.first)
+        guard case .unknown(let unknown) = activity else {
+            Issue.record("Expected unknown activity")
+            return
+        }
+        #expect(unknown.id == "future-1")
+        #expect(unknown.kind == "future_activity")
+        #expect(visibleAgentActivities([activity]).map(\.id) == ["future-1"])
+    }
+
+    @Test
+    func knownActivityWithUnknownSubagentActivityKindDecodesAsUnknown() throws {
+        let message = try decodeMessage("""
+        {
+          "id": "msg-1",
+          "sessionId": "session-1",
+          "role": "assistant",
+          "content": "",
+          "timestamp": "2026-01-01T00:00:00Z",
+          "agentActivities": [
+            {
+              "id": "subagent-future",
+              "kind": "subagent_activity",
+              "activityKind": "delegated",
+              "agentThreadId": "thread-1",
+              "agentPath": "/workspace/agents/research"
+            }
+          ]
+        }
+        """)
+
+        let activity = try #require(message.agentActivities?.first)
+        guard case .unknown(let unknown) = activity else {
+            Issue.record("Expected unknown activity")
+            return
+        }
+        #expect(unknown.id == "subagent-future")
+        #expect(unknown.kind == "subagent_activity")
+        #expect(visibleAgentActivities([activity]).map(\.id) == ["subagent-future"])
+    }
+
+    @Test
+    func knownDiagnosticWithUnknownSeverityDecodesAsUnknown() throws {
+        let message = try decodeMessage("""
+        {
+          "id": "msg-1",
+          "sessionId": "session-1",
+          "role": "assistant",
+          "content": "",
+          "timestamp": "2026-01-01T00:00:00Z",
+          "agentActivities": [
+            {
+              "id": "diag-future",
+              "kind": "diagnostic",
+              "severity": "catastrophic",
+              "title": "Future diagnostic",
+              "message": "Future severity",
+              "source": "codex_app_server",
+              "method": "item/subAgentActivity"
+            }
+          ]
+        }
+        """)
+
+        let activity = try #require(message.agentActivities?.first)
+        guard case .unknown(let unknown) = activity else {
+            Issue.record("Expected unknown activity")
+            return
+        }
+        #expect(unknown.id == "diag-future")
+        #expect(unknown.kind == "diagnostic")
+        #expect(visibleAgentActivities([activity]).map(\.id) == ["diag-future"])
+    }
+
+    @Test
+    func mixedValidAndMalformedActivitiesBothSurviveDecoding() throws {
+        let message = try decodeMessage("""
+        {
+          "id": "msg-1",
+          "sessionId": "session-1",
+          "role": "assistant",
+          "content": "",
+          "timestamp": "2026-01-01T00:00:00Z",
+          "agentActivities": [
+            {
+              "id": "subagent-started",
+              "kind": "subagent_activity",
+              "activityKind": "started",
+              "agentThreadId": "thread-1",
+              "agentPath": "/workspace/agents/research"
+            },
+            {
+              "id": "subagent-future",
+              "kind": "subagent_activity",
+              "activityKind": "delegated",
+              "agentThreadId": "thread-2",
+              "agentPath": "/workspace/agents/future"
+            }
+          ]
+        }
+        """)
+
+        let activities = try #require(message.agentActivities)
+        #expect(activities.count == 2)
+
+        guard case .subagentActivity(let valid) = activities[0] else {
+            Issue.record("Expected valid subagent activity")
+            return
+        }
+        #expect(valid.id == "subagent-started")
+        #expect(valid.activityKind == .started)
+
+        guard case .unknown(let unknown) = activities[1] else {
+            Issue.record("Expected unknown activity")
+            return
+        }
+        #expect(unknown.id == "subagent-future")
+        #expect(unknown.kind == "subagent_activity")
+        #expect(visibleAgentActivities(activities).map(\.id) == ["subagent-started", "subagent-future"])
+    }
+
     @Test
     func decodesCommandExecutionWebSocketEvent() throws {
         let envelope = try decodeHubEnvelope("""
@@ -457,5 +631,21 @@ struct AgentActivityDecodingTests {
     private func decodeMessage(_ json: String) throws -> ChatMessage {
         let data = try #require(json.data(using: .utf8))
         return try JSONDecoder().decode(ChatMessage.self, from: data)
+    }
+
+    private func expectedSubagentTitle(for activityKind: AgentActivitySubagentActivityKind) -> String {
+        switch activityKind {
+        case .started: "Started sub-agent"
+        case .interacted: "Interacted with sub-agent"
+        case .interrupted: "Interrupted sub-agent"
+        }
+    }
+
+    private func expectedSubagentIcon(for activityKind: AgentActivitySubagentActivityKind) -> String {
+        switch activityKind {
+        case .started: "arrow.triangle.branch"
+        case .interacted: "bubble.left"
+        case .interrupted: "xmark.circle"
+        }
     }
 }

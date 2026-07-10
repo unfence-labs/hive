@@ -26,11 +26,27 @@ private struct AgentActivityRow: View {
             ImageViewActivityRow(activity: image)
         case .imageGeneration(let image):
             ImageGenerationActivityRow(activity: image, showExecutingState: showExecutingState)
+        case .subagentActivity(let subagent):
+            SubagentActivityRow(activity: subagent)
         case .diagnostic(let diagnostic):
             DiagnosticActivityRow(activity: diagnostic)
         case .unknown(let unknown):
             UnknownActivityRow(activity: unknown)
         }
+    }
+}
+
+private struct SubagentActivityRow: View {
+    let activity: AgentActivity.SubagentActivity
+
+    var body: some View {
+        ActivityDisclosureRow(
+            icon: activity.iconName,
+            title: activity.displayTitle,
+            detail: activity.agentPath
+        )
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(activity.displayTitle), Agent path: \(activity.agentPath)")
     }
 }
 

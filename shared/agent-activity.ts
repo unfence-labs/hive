@@ -19,6 +19,17 @@ export interface AgentActivityToolCall {
   parentToolUseId?: string;
 }
 
+export const AGENT_ACTIVITY_SUBAGENT_ACTIVITY_KINDS = ["started", "interacted", "interrupted"] as const;
+
+export type AgentActivitySubagentActivityKind = (typeof AGENT_ACTIVITY_SUBAGENT_ACTIVITY_KINDS)[number];
+
+export function isAgentActivitySubagentActivityKind(value: unknown): value is AgentActivitySubagentActivityKind {
+  return (
+    typeof value === "string"
+    && (AGENT_ACTIVITY_SUBAGENT_ACTIVITY_KINDS as readonly string[]).includes(value)
+  );
+}
+
 export interface CommandExecutionToolSource {
   id: string;
   command?: string;
@@ -84,6 +95,13 @@ export type AgentActivity =
       savedPath?: string;
       relativePath?: string;
       imageUrl?: string;
+    }
+  | {
+      id: string;
+      kind: "subagent_activity";
+      activityKind: AgentActivitySubagentActivityKind;
+      agentThreadId: string;
+      agentPath: string;
     }
   | {
       id: string;

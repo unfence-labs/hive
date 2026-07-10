@@ -5,6 +5,7 @@ import type {
   ContentBlock,
   ServerToolResultType,
 } from "../types.js";
+import type { AgentActivitySubagentActivityKind } from "@hive/shared/agent-activity";
 
 type AssistantEvent = Extract<CliJsonLine, { type: "assistant" }>;
 type UserEvent = Extract<CliJsonLine, { type: "user" }>;
@@ -56,6 +57,13 @@ export type NormalizedAgentEvent =
       timeUsedSeconds?: number;
       createdAt?: number;
       updatedAt?: number;
+    }
+  | {
+      type: "subagent_activity_updated";
+      id: string;
+      activityKind: AgentActivitySubagentActivityKind;
+      agentThreadId: string;
+      agentPath: string;
     }
   | {
       type: "diagnostic";
