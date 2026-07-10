@@ -230,13 +230,13 @@ describe("getModelCatalog", () => {
     expect(codexModels.every((model) => model.capabilities.goals)).toBe(true);
   });
 
-  it("includes isNew flag from model definition", () => {
+  it("lists the codex models in catalog order", () => {
     markProviderAvailable("codex");
     const catalog = getModelCatalog();
 
-    const newModels = catalog.models.filter((m) => m.isNew && m.provider === "codex");
-    expect(newModels.map((m) => m.id)).toEqual([
-      "codex:gpt-5.6-sol", "codex:gpt-5.6-terra", "codex:gpt-5.6-luna",
+    const codexIds = catalog.models.filter((m) => m.provider === "codex").map((m) => m.id);
+    expect(codexIds).toEqual([
+      "codex:gpt-5.6-sol", "codex:gpt-5.6-terra", "codex:gpt-5.6-luna", "codex:gpt-5.5",
     ]);
   });
 

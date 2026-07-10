@@ -166,7 +166,6 @@ export function getModelCatalog(): ModelCatalogResponse {
         provider: provider.id,
         providerLabel,
         isDefault: model.isDefault,
-        isNew: model.isNew,
         capabilities: {
           ...provider.capabilities,
           thinkingLevels: modelThinkingLevels(provider, model),

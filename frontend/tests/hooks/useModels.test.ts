@@ -27,7 +27,6 @@ const MOCK_CATALOG: ModelCatalogResponse = {
       label: "Sonnet 4.6",
       provider: "claude",
       providerLabel: "Claude Code",
-      isNew: true,
       capabilities: { thinkingLevels: ["low", "medium", "high", "xhigh", "max"], planMode: true, blockingTools: true, completions: true, goals: false },
     },
     {

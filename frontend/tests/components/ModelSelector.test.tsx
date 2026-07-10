@@ -84,26 +84,6 @@ describe("ModelSelector", () => {
     expect(screen.getByText("GPT-5.5")).toBeInTheDocument();
   });
 
-  it("shows NEW badge for models with isNew flag", async () => {
-    const modelsWithNew: ModelCatalogEntry[] = [
-      ...CLAUDE_MODELS,
-      { ...CODEX_MODELS[0], isNew: true },
-    ];
-    const user = userEvent.setup();
-    render(
-      <ModelSelector
-        models={modelsWithNew}
-        selectedModelId="claude:opus-4-7"
-
-        onSelect={vi.fn()}
-      />,
-    );
-
-    await user.click(screen.getByRole("button", { name: /Model: Opus 4.7/i }));
-
-    expect(screen.getByText("NEW")).toBeInTheDocument();
-  });
-
   it("calls onSelect when a model is clicked", async () => {
     const user = userEvent.setup();
     const onSelect = vi.fn();

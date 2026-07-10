@@ -16,7 +16,6 @@ struct ModelCatalogEntry: Codable, Identifiable, Equatable {
     let provider: String
     let providerLabel: String
     let isDefault: Bool?
-    let isNew: Bool?
     let capabilities: ProviderCapabilities
     let contextWindow: Int?
     /// Whether this model supports Claude fast mode (Opus-only).

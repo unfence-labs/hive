@@ -371,7 +371,6 @@ export interface ModelCatalogEntry {
   provider: string;
   providerLabel: string;
   isDefault?: boolean;
-  isNew?: boolean;
   capabilities: ProviderCapabilities;
   /** Maximum context window size in tokens. */
   contextWindow?: number;

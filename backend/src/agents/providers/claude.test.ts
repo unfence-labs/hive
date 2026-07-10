@@ -44,11 +44,10 @@ describe("ClaudeProvider", () => {
     expect(ids).toContain("haiku-4-5");
   });
 
-  it("exposes Fable 5 as a new 1M-context model without fast mode and not default", () => {
+  it("exposes Fable 5 as a 1M-context model without fast mode and not default", () => {
     const fable = provider.models.find((m) => m.id === "fable-5");
     expect(fable?.cliValue).toBe("claude-fable-5");
     expect(fable?.contextWindow).toBe(1_000_000);
-    expect(fable?.isNew).toBe(true);
     expect(fable?.isDefault).toBeFalsy();
     expect(fable?.supportsFastMode).toBeFalsy();
   });
