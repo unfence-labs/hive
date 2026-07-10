@@ -105,19 +105,28 @@ describe("getProvider", () => {
 
 describe("model helpers", () => {
   it("detects known model IDs without requiring provider availability", () => {
-    expect(isKnownModelId("claude:sonnet-4-6")).toBe(true);
+    expect(isKnownModelId("claude:sonnet-5")).toBe(true);
     expect(isKnownModelId("codex:gpt-5.5")).toBe(true);
     expect(isKnownModelId("claude:missing")).toBe(false);
   });
 
+  it("recognizes retired model IDs through aliases", () => {
+    expect(isKnownModelId("codex:gpt-5.3-codex")).toBe(true);
+    expect(isKnownModelId("claude:opus-4-7")).toBe(true);
+    expect(isKnownModelId("claude:sonnet-4-6")).toBe(true);
+  });
+
   it("returns high as the default thinking level when supported", () => {
-    expect(getDefaultThinkingLevelForModel("claude:sonnet-4-6")).toBe("high");
+    expect(getDefaultThinkingLevelForModel("claude:sonnet-5")).toBe("high");
     expect(getDefaultThinkingLevelForModel("codex:gpt-5.5")).toBe("high");
   });
 
-  it("validates thinking levels against the resolved provider", () => {
-    expect(isThinkingLevelSupportedForModel("claude:sonnet-4-6", "max")).toBe(true);
+  it("validates thinking levels against the resolved model", () => {
+    expect(isThinkingLevelSupportedForModel("claude:sonnet-5", "max")).toBe(true);
     expect(isThinkingLevelSupportedForModel("codex:gpt-5.5", "max")).toBe(false);
+    expect(isThinkingLevelSupportedForModel("codex:gpt-5.6-sol", "ultra")).toBe(true);
+    expect(isThinkingLevelSupportedForModel("codex:gpt-5.6-luna", "ultra")).toBe(false);
+    expect(isThinkingLevelSupportedForModel("codex:gpt-5.6-luna", "max")).toBe(true);
     expect(isThinkingLevelSupportedForModel("claude:missing", "high")).toBe(false);
   });
 });
@@ -222,13 +231,26 @@ describe("getModelCatalog", () => {
     expect(codexModels.every((model) => model.capabilities.goals)).toBe(true);
   });
 
-  it("includes isNew flag from model definition", () => {
+  it("lists the codex models in catalog order", () => {
     markProviderAvailable("codex");
     const catalog = getModelCatalog();
 
-    const newModels = catalog.models.filter((m) => m.isNew);
-    expect(newModels.length).toBeGreaterThan(0);
-    expect(newModels[0].id).toBe("codex:gpt-5.5");
+    const codexIds = catalog.models.filter((m) => m.provider === "codex").map((m) => m.id);
+    expect(codexIds).toEqual([
+      "codex:gpt-5.6-sol", "codex:gpt-5.6-terra", "codex:gpt-5.6-luna", "codex:gpt-5.5",
+    ]);
+  });
+
+  it("exposes per-model thinking levels in catalog capabilities", () => {
+    markProviderAvailable("codex");
+    const catalog = getModelCatalog();
+
+    const byId = new Map(catalog.models.map((m) => [m.id, m]));
+    expect(byId.get("codex:gpt-5.6-sol")?.capabilities.thinkingLevels).toContain("ultra");
+    expect(byId.get("codex:gpt-5.6-luna")?.capabilities.thinkingLevels).not.toContain("ultra");
+    expect(byId.get("codex:gpt-5.5")?.capabilities.thinkingLevels).toEqual([
+      "low", "medium", "high", "xhigh",
+    ]);
   });
 });
 
@@ -308,8 +330,8 @@ describe("contextWindow in catalog", () => {
     expect(fable?.contextWindow).toBe(1_000_000);
     const opus = claudeModels.find((m) => m.id === "claude:opus-4-8");
     expect(opus?.contextWindow).toBe(1_000_000);
-    const sonnet = claudeModels.find((m) => m.id === "claude:sonnet-4-6");
-    expect(sonnet?.contextWindow).toBe(200_000);
+    const sonnet = claudeModels.find((m) => m.id === "claude:sonnet-5");
+    expect(sonnet?.contextWindow).toBe(1_000_000);
     const haiku = claudeModels.find((m) => m.id === "claude:haiku-4-5");
     expect(haiku?.contextWindow).toBe(200_000);
   });

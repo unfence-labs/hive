@@ -2,11 +2,13 @@ import { execFile as execFileCb } from "node:child_process";
 import { promisify } from "node:util";
 import { ClaudeProvider } from "./claude.js";
 import { CodexProvider } from "./codex.js";
-import type {
-  AgentProvider,
-  ModelCatalogEntry,
-  ModelCatalogResponse,
-  ThinkingLevel,
+import {
+  findModel,
+  type AgentProvider,
+  type ModelCatalogEntry,
+  type ModelCatalogResponse,
+  type ModelDefinition,
+  type ThinkingLevel,
 } from "./types.js";
 
 const execFile = promisify(execFileCb);
@@ -107,15 +109,19 @@ export function getProvider(providerId: string): AgentProvider | undefined {
   return providerMap.get(providerId);
 }
 
-function resolveKnownModel(compoundModelId: string): { provider: AgentProvider; modelId: string } | undefined {
+function resolveKnownModel(compoundModelId: string): { provider: AgentProvider; model: ModelDefinition } | undefined {
   try {
-    const resolved = resolveProvider(compoundModelId);
-    return resolved.provider.models.some((m) => m.id === resolved.modelId)
-      ? resolved
-      : undefined;
+    const { provider, modelId } = resolveProvider(compoundModelId);
+    const model = findModel(provider.models, modelId);
+    return model ? { provider, model } : undefined;
   } catch {
     return undefined;
   }
+}
+
+/** Effort levels for a model: per-model override, else the provider-wide set. */
+function modelThinkingLevels(provider: AgentProvider, model: ModelDefinition): ThinkingLevel[] {
+  return model.thinkingLevels ?? provider.capabilities.thinkingLevels;
 }
 
 /**
@@ -131,7 +137,7 @@ export function isKnownModelId(compoundModelId: string): boolean {
 
 export function getDefaultThinkingLevelForModel(compoundModelId: string): ThinkingLevel | undefined {
   const resolved = resolveKnownModel(compoundModelId);
-  const levels = resolved?.provider.capabilities.thinkingLevels ?? [];
+  const levels = resolved ? modelThinkingLevels(resolved.provider, resolved.model) : [];
   if (levels.length === 0) return undefined;
   return levels.includes("high") ? "high" : levels[0];
 }
@@ -141,7 +147,7 @@ export function isThinkingLevelSupportedForModel(
   thinkingLevel: ThinkingLevel,
 ): boolean {
   const resolved = resolveKnownModel(compoundModelId);
-  return resolved?.provider.capabilities.thinkingLevels.includes(thinkingLevel) ?? false;
+  return resolved ? modelThinkingLevels(resolved.provider, resolved.model).includes(thinkingLevel) : false;
 }
 
 /** Build the model catalog for the frontend, only including available providers. */
@@ -160,8 +166,10 @@ export function getModelCatalog(): ModelCatalogResponse {
         provider: provider.id,
         providerLabel,
         isDefault: model.isDefault,
-        isNew: model.isNew,
-        capabilities: provider.capabilities,
+        capabilities: {
+          ...provider.capabilities,
+          thinkingLevels: modelThinkingLevels(provider, model),
+        },
         // This is keyed off provider.id ("codex"), not model.id. Catalog IDs are compound
         // values like "codex:gpt-5.5". We still hide Codex context windows here because
         // the CLI only exposes turn-level usage via turn.completed today, which can be

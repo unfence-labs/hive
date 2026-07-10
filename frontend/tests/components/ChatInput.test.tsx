@@ -8,8 +8,8 @@ import ChatInput, { type ChatInputHandle } from "@/components/ChatInput";
 const modelMock = vi.hoisted(() => {
   const capabilities = { thinkingLevels: ["low", "medium", "high", "xhigh", "max"], planMode: true, blockingTools: true, completions: true };
   const models = [
-    { id: "claude:opus-4-7", modelId: "opus-4-7", label: "Opus 4.7", provider: "claude", providerLabel: "Claude Code", isNew: false, supportsFastMode: true, capabilities },
-    { id: "claude:sonnet-4-6", modelId: "sonnet-4-6", label: "Sonnet 4.6", provider: "claude", providerLabel: "Claude Code", isNew: true, capabilities },
+    { id: "claude:opus-4-7", modelId: "opus-4-7", label: "Opus 4.7", provider: "claude", providerLabel: "Claude Code", supportsFastMode: true, capabilities },
+    { id: "claude:sonnet-4-6", modelId: "sonnet-4-6", label: "Sonnet 4.6", provider: "claude", providerLabel: "Claude Code", capabilities },
   ];
   return {
     models,

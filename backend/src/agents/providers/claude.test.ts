@@ -40,15 +40,14 @@ describe("ClaudeProvider", () => {
     const ids = provider.models.map((m) => m.id);
     expect(ids).toContain("fable-5");
     expect(ids).toContain("opus-4-8");
-    expect(ids).toContain("sonnet-4-6");
+    expect(ids).toContain("sonnet-5");
     expect(ids).toContain("haiku-4-5");
   });
 
-  it("exposes Fable 5 as a new 1M-context model without fast mode and not default", () => {
+  it("exposes Fable 5 as a 1M-context model without fast mode and not default", () => {
     const fable = provider.models.find((m) => m.id === "fable-5");
     expect(fable?.cliValue).toBe("claude-fable-5");
     expect(fable?.contextWindow).toBe(1_000_000);
-    expect(fable?.isNew).toBe(true);
     expect(fable?.isDefault).toBeFalsy();
     expect(fable?.supportsFastMode).toBeFalsy();
   });
@@ -110,9 +109,15 @@ describe("ClaudeProvider", () => {
   });
 
   it("adds --model with cli value when model is specified", () => {
+    const args = provider.buildArgs("Hello", { model: "sonnet-5" }, baseSession());
+    expect(args).toContain("--model");
+    expect(args).toContain("claude-sonnet-5");
+  });
+
+  it("maps persisted Sonnet 4.6 selections to Sonnet 5", () => {
     const args = provider.buildArgs("Hello", { model: "sonnet-4-6" }, baseSession());
     expect(args).toContain("--model");
-    expect(args).toContain("claude-sonnet-4-6");
+    expect(args).toContain("claude-sonnet-5");
   });
 
   it("maps persisted Opus 4.7 selections to Opus 4.8", () => {
@@ -250,7 +255,7 @@ describe("ClaudeProvider", () => {
   it("marks Opus as supporting fast mode and the others as not", () => {
     const fable = provider.models.find((m) => m.id === "fable-5");
     const opus = provider.models.find((m) => m.id === "opus-4-8");
-    const sonnet = provider.models.find((m) => m.id === "sonnet-4-6");
+    const sonnet = provider.models.find((m) => m.id === "sonnet-5");
     const haiku = provider.models.find((m) => m.id === "haiku-4-5");
     expect(opus?.supportsFastMode).toBe(true);
     expect(fable?.supportsFastMode).toBeFalsy();
@@ -271,7 +276,7 @@ describe("ClaudeProvider", () => {
   });
 
   it("omits --settings when fastMode is on but the model does not support it", () => {
-    for (const model of ["sonnet-4-6", "haiku-4-5"]) {
+    for (const model of ["sonnet-5", "haiku-4-5"]) {
       const args = provider.buildArgs("Hello", { model, fastMode: true }, baseSession());
       expect(args).not.toContain("--settings");
     }

@@ -103,11 +103,6 @@ export function ModelSelector({ models, selectedModelId, onSelect, lockedProvide
                         )}
                       >
                         <span className="flex-1">{model.label}</span>
-                        {model.isNew && (
-                          <span className="rounded-sm bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">
-                            NEW
-                          </span>
-                        )}
                         {isSelected && <CheckIcon className="size-3.5 text-primary" />}
                       </DropdownMenuItem>
                     );

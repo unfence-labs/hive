@@ -378,7 +378,7 @@ private struct ModelMenu: View {
                                 .foregroundStyle(accent)
                                 .opacity(model.id == selectedModelId ? 1 : 0)
                                 .frame(width: 15)
-                            Text(model.isNew == true ? "\(model.label)  ·  NEW" : model.label)
+                            Text(model.label)
                                 .foregroundStyle(.primary)
                             Spacer(minLength: 8)
                         }
@@ -576,11 +576,11 @@ private extension ImageAttachment {
 #Preview {
     let sampleModels: [ModelCatalogEntry] = [
         .init(id: "claude:opus-4-7", label: "Opus 4.7", provider: "claude", providerLabel: "Claude Code",
-              isDefault: true, isNew: nil,
+              isDefault: true,
               capabilities: .init(thinkingLevels: [.low, .medium, .high, .xhigh, .max], planMode: true, blockingTools: true, completions: true, goals: false),
               contextWindow: 1_000_000, supportsFastMode: true),
         .init(id: "claude:sonnet-4-6", label: "Sonnet 4.6", provider: "claude", providerLabel: "Claude Code",
-              isDefault: nil, isNew: true,
+              isDefault: nil,
               capabilities: .init(thinkingLevels: [.low, .medium, .high, .xhigh, .max], planMode: true, blockingTools: true, completions: true, goals: false),
               contextWindow: 1_000_000, supportsFastMode: nil),
     ]

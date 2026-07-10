@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { StreamParser } from "../stream-parser.js";
 import type { MessageOptions, SessionKind } from "../../types.js";
-import type { AgentProvider, StreamAdapter } from "../providers/types.js";
+import { findModel, type AgentProvider, type StreamAdapter } from "../providers/types.js";
 import type { AgentRunner } from "./types.js";
 import { CodexAppServerRunner } from "./codex-app-server-runner.js";
 import { buildCodexAppServerArgs } from "../providers/codex-app-server.js";
@@ -73,7 +73,7 @@ export function createAgentRunner(input: CreateAgentRunnerInput): CreatedAgentRu
     const runner = (
       input.existingCodexAppServerRunner ?? new CodexAppServerRunner(undefined, { enableGoals })
     ) as CodexAppServerStartRunner;
-    const model = provider!.models.find((m) => m.id === modelId);
+    const model = findModel(provider!.models, modelId);
     return {
       runner,
       protocol: "codex_app_server",

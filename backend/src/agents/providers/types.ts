@@ -13,12 +13,25 @@ export interface ModelDefinition {
   label: string;
   /** CLI value passed to --model, e.g. "opus" */
   cliValue: string;
+  /** Retired model IDs that resolve to this model (e.g. "opus-4-7" -> opus-4-8). */
+  aliases?: string[];
   isDefault?: boolean;
-  isNew?: boolean;
   /** Maximum context window size in tokens. */
   contextWindow?: number;
   /** Whether this model supports Claude fast mode (Opus-only). */
   supportsFastMode?: boolean;
+  /**
+   * Reasoning-effort levels for this model when they differ from the
+   * provider-wide capabilities (e.g. GPT-5.6 tiers each support a different
+   * ceiling). Absent means the provider's thinkingLevels apply.
+   */
+  thinkingLevels?: ThinkingLevel[];
+}
+
+/** Resolve a model by ID, honoring retired-ID aliases. */
+export function findModel(models: ModelDefinition[], modelId: string | undefined): ModelDefinition | undefined {
+  if (!modelId) return undefined;
+  return models.find((m) => m.id === modelId || m.aliases?.includes(modelId));
 }
 
 export interface ProviderCapabilities {
@@ -99,7 +112,6 @@ export interface ModelCatalogEntry {
   provider: string;
   providerLabel: string;
   isDefault?: boolean;
-  isNew?: boolean;
   capabilities: ProviderCapabilities;
   /** Maximum context window size in tokens. */
   contextWindow?: number;

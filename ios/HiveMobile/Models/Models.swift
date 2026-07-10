@@ -16,7 +16,6 @@ struct ModelCatalogEntry: Codable, Identifiable, Equatable {
     let provider: String
     let providerLabel: String
     let isDefault: Bool?
-    let isNew: Bool?
     let capabilities: ProviderCapabilities
     let contextWindow: Int?
     /// Whether this model supports Claude fast mode (Opus-only).
@@ -485,7 +484,7 @@ struct QuestionInput: Codable {
 }
 
 enum ThinkingLevel: String, Codable, CaseIterable {
-    case none, minimal, low, medium, high, xhigh, max
+    case none, minimal, low, medium, high, xhigh, max, ultra
 
     var label: String {
         switch self {
@@ -496,6 +495,7 @@ enum ThinkingLevel: String, Codable, CaseIterable {
         case .high: "High"
         case .xhigh: "xHigh"
         case .max: "Max"
+        case .ultra: "Ultra"
         }
     }
 

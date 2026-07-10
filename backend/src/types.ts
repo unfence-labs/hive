@@ -380,7 +380,7 @@ export interface MessageOptions {
   fastMode?: boolean;
 }
 
-export type ThinkingLevel = "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
+export type ThinkingLevel = "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max" | "ultra";
 
 export type BrowserSessionState = "registered" | "active" | "closed" | "error";
 
