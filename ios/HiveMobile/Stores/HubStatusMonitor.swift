@@ -568,23 +568,7 @@ private final class HubConnection: HubConnectionClient {
     }
 
     private func performConnect() {
-        let host = UserDefaults.standard.string(forKey: "serverHost") ?? "localhost"
-        let port = UserDefaults.standard.string(forKey: "serverPort") ?? "3000"
-        let token = UserDefaults.standard.string(forKey: "authToken") ?? ""
-        guard !host.isEmpty, let portInt = Int(port) else { return }
-
-        var components = URLComponents()
-        components.scheme = "ws"
-        components.host = host
-        components.port = portInt
-        components.path = "/ws/hub"
-        if !token.isEmpty {
-            components.queryItems = [URLQueryItem(name: "token", value: token)]
-        }
-
-        guard let url = components.url else {
-            return
-        }
+        guard let url = ServerEndpoint.webSocketURL(path: "/ws/hub") else { return }
 
         receiveTask?.cancel()
         pingTask?.cancel()

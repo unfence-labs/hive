@@ -94,15 +94,15 @@ final class ScriptLogStreamer {
     }
 
     private func handleControl(_ string: String) {
-        guard let data = string.data(using: .utf8),
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let type = object["type"] as? String else { return }
-
-        if type == "exit" || type == "error" {
+        guard let control = ScriptStreamControl.parse(string) else { return }
+        switch control {
+        case .ready:
+            return
+        case .exit:
             streamEnded = true
-        }
-        if type == "error" {
-            serverError = (object["message"] as? String) ?? "Log stream unavailable"
+        case .error(let message):
+            streamEnded = true
+            serverError = message ?? "Log stream unavailable"
         }
         publishTask?.cancel()
         publishTask = nil
@@ -138,21 +138,9 @@ final class ScriptLogStreamer {
     }
 
     private func makeURL() -> URL? {
-        let host = UserDefaults.standard.string(forKey: "serverHost") ?? "localhost"
-        let port = UserDefaults.standard.string(forKey: "serverPort") ?? "3000"
-        let token = UserDefaults.standard.string(forKey: "authToken") ?? ""
-        guard !host.isEmpty, let portInt = Int(port) else { return nil }
-
-        var components = URLComponents()
-        components.scheme = "ws"
-        components.host = host
-        components.port = portInt
-        components.path = "/ws/script/\(workspaceId)"
-        var query = [URLQueryItem(name: "type", value: scriptType)]
-        if !token.isEmpty {
-            query.append(URLQueryItem(name: "token", value: token))
-        }
-        components.queryItems = query
-        return components.url
+        ServerEndpoint.webSocketURL(
+            path: "/ws/script/\(workspaceId)",
+            queryItems: [URLQueryItem(name: "type", value: scriptType)]
+        )
     }
 }
