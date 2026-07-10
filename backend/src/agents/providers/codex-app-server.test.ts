@@ -167,6 +167,7 @@ describe("CodexAppServerSession request handling", () => {
     const turnStart = writes.find((w) => w.method === "turn/start");
     expect((threadStart?.params as { sandbox?: string }).sandbox).toBe("danger-full-access");
     expect((turnStart?.params as { sandboxPolicy?: { type?: string } }).sandboxPolicy?.type).toBe("dangerFullAccess");
+    expect((turnStart?.params as { summary?: string }).summary).toBe("auto");
   });
 
   it("uses the read-only sandbox on thread/start and turn/start when readOnly", async () => {
@@ -1579,9 +1580,15 @@ describe("CodexAppServerSession normalized events", () => {
     mockSpawn.mockReturnValue(proc);
     const session = new CodexAppServerSession();
     const assistantEvents: Array<{ message: { id: string; content: unknown[] } }> = [];
+    const diagnostics: unknown[] = [];
     session.on("assistant", (event) => assistantEvents.push(event as never));
+    session.on("agent_event", (event) => diagnostics.push(event));
     await initializeSession(session, proc);
 
+    proc._stdout.push(JSON.stringify({
+      method: "item/reasoning/summaryPartAdded",
+      params: { itemId: "reasoning-item-1" },
+    }) + "\n");
     proc._stdout.push(JSON.stringify({
       method: "item/reasoning/summaryTextDelta",
       params: { itemId: "reasoning-item-1", delta: "Inspect " },
@@ -1605,6 +1612,7 @@ describe("CodexAppServerSession normalized events", () => {
       [{ type: "thinking", thinking: "state" }],
       [{ type: "thinking", thinking: "Check clients" }],
     ]);
+    expect(diagnostics).toEqual([]);
   });
 
   it("renders collab agent tool calls through the existing Agent tool UI path", async () => {

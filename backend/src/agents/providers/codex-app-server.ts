@@ -306,6 +306,7 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
       cwd: options.cwd,
       approvalPolicy: "never",
       sandboxPolicy: { type: options.readOnly ? "readOnly" : "dangerFullAccess" },
+      summary: "auto",
       ...(options.model ? { model: options.model } : {}),
       ...(options.thinkingLevel ? { effort: options.thinkingLevel } : {}),
     });
@@ -642,6 +643,8 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
         break;
       case "item/agentMessage/delta":
         this.emitTextDelta(asString(data?.itemId), asString(data?.delta));
+        break;
+      case "item/reasoning/summaryPartAdded":
         break;
       case "item/reasoning/textDelta":
       case "item/reasoning/summaryTextDelta":
