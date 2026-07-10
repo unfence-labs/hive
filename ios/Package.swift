@@ -30,6 +30,7 @@ let package = Package(
                 "Models/WebSocketTypes.swift",
                 "Services/APIClient.swift",
                 "Services/HiveHTTP.swift",
+                "Stores/AnsiLogParser.swift",
                 "Stores/AutomationFormatting.swift",
                 "Stores/BackgroundAgentDerivation.swift",
                 "Stores/ChatDraftStore.swift",

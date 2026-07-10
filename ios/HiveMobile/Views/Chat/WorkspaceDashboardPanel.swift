@@ -19,7 +19,7 @@ struct ScriptDashboardAction {
     var title: String {
         switch kind {
         case .start:
-            return "Start \(scriptName)?"
+            return "Run \(scriptName)?"
         case .stop:
             return "Stop \(scriptName)?"
         case .restart:
@@ -30,24 +30,35 @@ struct ScriptDashboardAction {
     var message: String {
         switch kind {
         case .start:
-            return "This will start the \(scriptName) script."
+            return "This will run the \(scriptName) script."
         case .stop:
             return "This will stop the running \(scriptName) script."
         case .restart where wasRunning:
-            return "This will stop the current setup script and start it again."
+            return "This will stop the current \(scriptName) script and start it again."
         case .restart:
-            return "This will run the setup script again."
+            return "This will run the \(scriptName) script again."
         }
     }
 
     var confirmTitle: String {
         switch kind {
         case .start:
-            return "Start"
+            return "Run"
         case .stop:
             return "Stop"
         case .restart:
             return "Restart"
+        }
+    }
+
+    var systemImage: String {
+        switch kind {
+        case .start:
+            return "play.fill"
+        case .stop:
+            return "stop.fill"
+        case .restart:
+            return "arrow.clockwise"
         }
     }
 
@@ -67,6 +78,7 @@ struct WorkspaceDashboardPanel: View {
     let hasUnread: Bool
     let scriptsLoadFailed: Bool
     let onScriptAction: (ScriptDashboardAction) -> Void
+    var onScriptOpen: ((ScriptLogDestination) -> Void)? = nil
     var onDiffTap: ((String) -> Void)? = nil
 
     private var branchName: String {
@@ -215,12 +227,21 @@ struct WorkspaceDashboardPanel: View {
                 ) {
                     ForEach(visibleScripts) { script in
                         Button {
-                            onScriptAction(script.action)
+                            onScriptOpen?(script.logDestination(workspace: workspace))
                         } label: {
                             ScriptStatusToken(script: script)
                         }
                         .buttonStyle(.plain)
-                        .accessibilityLabel(script.action.title)
+                        .contextMenu {
+                            let action = script.action
+                            Button(role: action.isDestructive ? .destructive : nil) {
+                                onScriptAction(action)
+                            } label: {
+                                Label(action.confirmTitle, systemImage: action.systemImage)
+                            }
+                        }
+                        .accessibilityLabel("Open \(script.name) log")
+                        .accessibilityHint(script.action.title)
                     }
 
                     if hiddenScriptCount > 0 {
@@ -565,6 +586,7 @@ private struct ScriptDashboardSummary: Identifiable {
     let id: String
     let name: String
     let isSetup: Bool
+    let command: String?
     let status: ScriptStatusInfo
 
     var action: ScriptDashboardAction {
@@ -573,6 +595,17 @@ private struct ScriptDashboardSummary: Identifiable {
             scriptName: name,
             kind: actionKind,
             wasRunning: status.state == .running
+        )
+    }
+
+    func logDestination(workspace: Workspace) -> ScriptLogDestination {
+        ScriptLogDestination(
+            workspace: workspace,
+            scriptId: id,
+            command: command,
+            isSetup: isSetup,
+            initialState: status.state,
+            initialExitCode: status.exitCode
         )
     }
 
@@ -606,10 +639,14 @@ private struct ScriptDashboardSummary: Identifiable {
     }
 
     private var actionKind: ScriptDashboardActionKind {
-        if isSetup {
+        switch status.state {
+        case .running:
+            return .stop
+        case .done, .error:
             return .restart
+        case .idle:
+            return .start
         }
-        return status.state == .running ? .stop : .start
     }
 
     static func build(
@@ -628,10 +665,12 @@ private struct ScriptDashboardSummary: Identifiable {
         let mergedStatus = apiStatus.merging(liveStatus) { _, live in live }
 
         return scriptIds.map { id in
-            ScriptDashboardSummary(
+            let command = id == "setup" ? scripts.setup : scripts.run?[id]
+            return ScriptDashboardSummary(
                 id: id,
                 name: id,
                 isSetup: id == "setup",
+                command: command,
                 status: mergedStatus[id] ?? ScriptStatusInfo(state: .idle)
             )
         }
@@ -725,7 +764,8 @@ private struct PullRequestDashboardSummary {
         isStreaming: true,
         hasUnread: false,
         scriptsLoadFailed: false,
-        onScriptAction: { _ in }
+        onScriptAction: { _ in },
+        onScriptOpen: { _ in }
     )
     .frame(height: 260)
     .hiveScreenBackground()
