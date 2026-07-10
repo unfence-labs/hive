@@ -23,7 +23,7 @@ describe("ThinkingBlock", () => {
 
     const trigger = screen.getByRole("button", { name: /Reasoning/ });
     expect(trigger).toHaveAttribute("aria-expanded", "false");
-    expect(trigger).toHaveTextContent("3 phases");
+    expect(trigger).not.toHaveTextContent("phase");
     expect(trigger).toHaveTextContent("1 hidden");
     expect(screen.queryByText("Inspecting the repository")).not.toBeInTheDocument();
 
@@ -82,7 +82,7 @@ describe("ThinkingBlock", () => {
     expect(screen.getAllByText("Reasoning content unavailable")).toHaveLength(2);
   });
 
-  it("keeps streaming reasoning collapsed with a reduced-motion-safe indicator", () => {
+  it("labels streaming reasoning with a reduced-motion-safe indicator", () => {
     render(
       <ThinkingBlock
         segments={[{ id: "streaming", kind: "thinking", content: "A long in-progress thought" }]}
@@ -90,11 +90,38 @@ describe("ThinkingBlock", () => {
       />,
     );
 
-    const trigger = screen.getByRole("button", { name: /Reasoning.*Working/ });
+    const trigger = screen.getByRole("button", { name: /Reasoning.*Thinking/ });
     expect(trigger).toHaveAttribute("aria-expanded", "false");
     expect(trigger).toHaveClass("cursor-pointer");
     expect(screen.queryByText("A long in-progress thought")).not.toBeInTheDocument();
     expect(document.querySelector(".motion-safe\\:animate-pulse")).not.toBeNull();
     expect(screen.queryByText(/Thought for/)).not.toBeInTheDocument();
+    expect(trigger).not.toHaveTextContent("phase");
+  });
+
+  it("auto-expands while streaming when defaultOpen is set", () => {
+    render(
+      <ThinkingBlock
+        segments={[{ id: "streaming", kind: "thinking", content: "A long in-progress thought" }]}
+        streaming
+        defaultOpen
+      />,
+    );
+
+    const trigger = screen.getByRole("button", { name: /Reasoning.*Thinking/ });
+    expect(trigger).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByText("A long in-progress thought")).toBeInTheDocument();
+  });
+
+  it("shows a bare Reasoning label at rest with no hidden phases", () => {
+    render(
+      <ThinkingBlock
+        segments={[{ id: "visible-1", kind: "thinking", content: "Only thinking here" }]}
+      />,
+    );
+
+    const trigger = screen.getByRole("button", { name: /Reasoning/ });
+    expect(trigger).not.toHaveTextContent("phase");
+    expect(trigger).not.toHaveTextContent("hidden");
   });
 });

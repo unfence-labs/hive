@@ -272,6 +272,7 @@ export default function ChatConversation({
                 segments={currentReasoningSegments}
                 legacyContent={currentThinking}
                 streaming
+                defaultOpen
               />
               {currentStreamingText && (
                 <div className="prose-sm" data-find-content="">

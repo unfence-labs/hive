@@ -692,15 +692,14 @@ private struct ReasoningDisclosure: View {
 
     @State private var isExpanded = false
 
-    private var summary: String {
-        if streaming { return "Working…" }
-        let phaseLabel = "\(segments.count) \(segments.count == 1 ? "phase" : "phases")"
+    private var summary: String? {
+        if streaming { return "Thinking…" }
         let hiddenCount = segments.filter { $0.kind == .redacted }.count
-        return hiddenCount > 0 ? "\(phaseLabel) · \(hiddenCount) hidden" : phaseLabel
+        return hiddenCount > 0 ? "\(hiddenCount) hidden" : nil
     }
 
     private var accessibilityValue: String {
-        let progress = streaming ? "Working" : summary
+        let progress = streaming ? "Thinking" : (summary ?? "Reasoning")
         return "\(progress), \(isExpanded ? "expanded" : "collapsed")"
     }
 

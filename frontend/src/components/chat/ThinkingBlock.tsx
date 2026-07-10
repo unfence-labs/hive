@@ -9,6 +9,7 @@ interface ThinkingBlockProps {
   segments?: ReasoningSegment[];
   legacyContent?: string;
   streaming?: boolean;
+  defaultOpen?: boolean;
 }
 
 const LEGACY_SEGMENT_ID = "legacy-reasoning";
@@ -17,8 +18,9 @@ export const ThinkingBlock = memo(function ThinkingBlock({
   segments = [],
   legacyContent,
   streaming = false,
+  defaultOpen = false,
 }: ThinkingBlockProps) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(defaultOpen);
   const panelId = useId();
   const displaySegments: ReasoningSegment[] = segments.length > 0
     ? segments
@@ -29,30 +31,32 @@ export const ThinkingBlock = memo(function ThinkingBlock({
   if (displaySegments.length === 0) return null;
 
   const hiddenCount = displaySegments.filter((segment) => segment.kind === "redacted").length;
-  const phaseLabel = `${displaySegments.length} ${displaySegments.length === 1 ? "phase" : "phases"}`;
 
   return (
     <div className="my-0.5">
       <button
         type="button"
-        className="inline-flex min-h-8 max-w-full cursor-pointer items-center gap-1.5 rounded-md py-1 pr-2.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-field hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
+        className="inline-flex min-h-8 max-w-full cursor-pointer items-center gap-2 rounded-md py-1 pr-2.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-field hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
         aria-expanded={open}
         aria-controls={panelId}
         onClick={() => setOpen((current) => !current)}
       >
         <BrainIcon className="size-3.5 shrink-0" />
         <span className="shrink-0">Reasoning</span>
-        <span aria-hidden="true">·</span>
         {streaming ? (
-          <span className="inline-flex min-w-0 items-center gap-1.5">
-            <span className="size-1.5 shrink-0 rounded-full bg-primary motion-safe:animate-pulse" aria-hidden="true" />
-            <span className="truncate">Working…</span>
-          </span>
-        ) : (
-          <span className="truncate">
-            {phaseLabel}{hiddenCount > 0 ? ` · ${hiddenCount} hidden` : ""}
-          </span>
-        )}
+          <>
+            <span aria-hidden="true">·</span>
+            <span className="inline-flex min-w-0 items-center gap-1.5">
+              <span className="size-1.5 shrink-0 rounded-full bg-primary motion-safe:animate-pulse" aria-hidden="true" />
+              <span className="truncate">Thinking…</span>
+            </span>
+          </>
+        ) : hiddenCount > 0 ? (
+          <>
+            <span aria-hidden="true">·</span>
+            <span className="truncate">{hiddenCount} hidden</span>
+          </>
+        ) : null}
         <ChevronDownIcon
           className={cn(
             "size-3.5 shrink-0 motion-safe:transition-transform",
