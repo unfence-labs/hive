@@ -139,7 +139,7 @@ private struct SessionStatusIndicator: View {
     @ViewBuilder
     var body: some View {
         if isStreaming {
-            AgentActivityIndicator(dotSize: 3, spacing: 1.5)
+            StreamingDot()
                 .frame(width: 12, height: 12)
                 .accessibilityLabel("Streaming")
         } else if isUnread {

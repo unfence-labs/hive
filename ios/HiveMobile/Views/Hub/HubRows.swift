@@ -191,7 +191,7 @@ struct HubWorkspaceRow: View {
     @ViewBuilder
     private var workspaceStatus: some View {
         if isStreaming {
-            AgentActivityIndicator(dotSize: 3, spacing: 1.5)
+            StreamingDot()
                 .accessibilityLabel("Streaming")
         } else if turnCompleted {
             UnreadDot()
@@ -242,8 +242,7 @@ private struct HubActivityDot: View {
     var body: some View {
         switch state {
         case .streaming:
-            AgentActivityIndicator(dotSize: 2, spacing: 1)
-                .frame(width: 11, height: 11)
+            StreamingDot(size: 7)
                 .accessibilityLabel("Agent is working")
         case .completed:
             UnreadDot(size: 7, shadowRadius: 4)
