@@ -178,6 +178,99 @@ struct AgentActivityDecodingTests {
     }
 
     @Test
+    func decodesContextCompactionInProgress() throws {
+        let message = try decodeMessage("""
+        {
+          "id": "msg-1",
+          "sessionId": "session-1",
+          "role": "assistant",
+          "content": "",
+          "timestamp": "2026-01-01T00:00:00Z",
+          "agentActivities": [
+            {
+              "id": "compaction-1",
+              "kind": "context_compaction",
+              "status": "inProgress"
+            }
+          ]
+        }
+        """)
+
+        let activity = try #require(message.agentActivities?.first)
+        guard case .contextCompaction(let compaction) = activity else {
+            Issue.record("Expected context compaction activity")
+            return
+        }
+        #expect(compaction.status == "inProgress")
+        #expect(compaction.isPending(showExecutingState: true))
+        #expect(!compaction.isPending(showExecutingState: false))
+        #expect(compaction.displayTitle(showExecutingState: true) == "Compacting context…")
+        #expect(compaction.displayTitle(showExecutingState: false) == "Context compacted")
+        #expect(activity.toolCalls.isEmpty)
+        #expect(visibleAgentActivities([activity]).map(\.id) == ["compaction-1"])
+    }
+
+    @Test
+    func decodesContextCompactionCompleted() throws {
+        let message = try decodeMessage("""
+        {
+          "id": "msg-1",
+          "sessionId": "session-1",
+          "role": "assistant",
+          "content": "",
+          "timestamp": "2026-01-01T00:00:00Z",
+          "agentActivities": [
+            {
+              "id": "compaction-1",
+              "kind": "context_compaction",
+              "status": "completed"
+            }
+          ]
+        }
+        """)
+
+        let activity = try #require(message.agentActivities?.first)
+        guard case .contextCompaction(let compaction) = activity else {
+            Issue.record("Expected context compaction activity")
+            return
+        }
+        #expect(compaction.status == "completed")
+        #expect(!compaction.isPending(showExecutingState: true))
+        #expect(compaction.displayTitle(showExecutingState: true) == "Context compacted")
+        #expect(visibleAgentActivities([activity]).map(\.id) == ["compaction-1"])
+    }
+
+    @Test
+    func decodesContextCompactionWithoutStatus() throws {
+        let message = try decodeMessage("""
+        {
+          "id": "msg-1",
+          "sessionId": "session-1",
+          "role": "assistant",
+          "content": "",
+          "timestamp": "2026-01-01T00:00:00Z",
+          "agentActivities": [
+            {
+              "id": "compaction-1",
+              "kind": "context_compaction"
+            }
+          ]
+        }
+        """)
+
+        let activity = try #require(message.agentActivities?.first)
+        guard case .contextCompaction(let compaction) = activity else {
+            Issue.record("Expected context compaction activity")
+            return
+        }
+        #expect(compaction.status == nil)
+        #expect(compaction.isPending(showExecutingState: true))
+        #expect(compaction.displayTitle(showExecutingState: true) == "Compacting context…")
+        #expect(compaction.displayTitle(showExecutingState: false) == "Context compacted")
+        #expect(visibleAgentActivities([activity]).map(\.id) == ["compaction-1"])
+    }
+
+    @Test
     func decodesCommandExecutionWebSocketEvent() throws {
         let envelope = try decodeHubEnvelope("""
         {

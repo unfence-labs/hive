@@ -66,6 +66,11 @@ export type NormalizedAgentEvent =
       agentPath: string;
     }
   | {
+      type: "context_compaction_updated";
+      id: string;
+      status?: string;
+    }
+  | {
       type: "diagnostic";
       id: string;
       severity: "info" | "warning" | "error";

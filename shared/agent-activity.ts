@@ -105,6 +105,11 @@ export type AgentActivity =
     }
   | {
       id: string;
+      kind: "context_compaction";
+      status?: string;
+    }
+  | {
+      id: string;
       kind: "diagnostic";
       severity: "info" | "warning" | "error";
       title: string;

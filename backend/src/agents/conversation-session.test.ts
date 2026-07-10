@@ -711,6 +711,70 @@ describe("ConversationSession", () => {
     }]);
   });
 
+  it("streams and persists context compaction updates by item id", async () => {
+    const fakeRunner = new EventEmitter<AgentRunnerEvent>() as EventEmitter<AgentRunnerEvent> & AgentRunner;
+    fakeRunner.start = vi.fn(() => {
+      fakeRunner.emit("agent_event", {
+        type: "context_compaction_updated",
+        id: "compaction-1",
+        status: "inProgress",
+      });
+      fakeRunner.emit("agent_event", {
+        type: "context_compaction_updated",
+        id: "compaction-1",
+        status: "completed",
+      });
+      fakeRunner.emit("result", { type: "result", session_id: "provider-compaction", duration_ms: 1 });
+      fakeRunner.emit("exit", 0, "provider-compaction");
+    });
+    fakeRunner.stop = vi.fn(() => {});
+
+    const runnerFactory: AgentRunnerFactory = vi.fn(() => ({
+      runner: fakeRunner,
+      protocol: "process" as const,
+      providerId: "codex",
+      modelId: "gpt-5.5",
+      supportsBlockingTools: false,
+      providerSessionId: "provider-compaction",
+      debug: { command: "fake", args: [] },
+      start: fakeRunner.start,
+    }));
+    const session = new ConversationSession({
+      cwd: "/tmp/test",
+      dataDir: tempDir,
+      workspaceId: "ws-test",
+      sessionId: "compaction-session",
+      runnerFactory,
+    });
+    const messages: WsOutgoing[] = [];
+    session.on("message", (msg) => messages.push(msg));
+
+    session.sendMessage("Keep working past the context limit");
+
+    await waitForMessages(messages, "done");
+
+    expect(messages.filter((msg) => msg.type === "agent_activity")).toEqual([
+      {
+        type: "agent_activity",
+        sessionId: "compaction-session",
+        activity: { id: "compaction-1", kind: "context_compaction", status: "inProgress" },
+      },
+      {
+        type: "agent_activity",
+        sessionId: "compaction-session",
+        activity: { id: "compaction-1", kind: "context_compaction", status: "completed" },
+      },
+    ]);
+
+    const persisted = await session.getMessages();
+    const assistant = persisted.find((msg) => msg.role === "assistant");
+    expect(assistant?.agentActivities).toEqual([{
+      id: "compaction-1",
+      kind: "context_compaction",
+      status: "completed",
+    }]);
+  });
+
   it("bounds large command outputs before streaming and persistence", async () => {
     const largeOutput = "x".repeat(MAX_AGENT_OUTPUT_CHARS + 2048);
     const fakeRunner = new EventEmitter<AgentRunnerEvent>() as EventEmitter<AgentRunnerEvent> & AgentRunner;

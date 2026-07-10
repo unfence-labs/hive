@@ -42,6 +42,7 @@ enum AgentActivity: Codable, Equatable, Identifiable {
     case imageView(ImageView)
     case imageGeneration(ImageGeneration)
     case subagentActivity(SubagentActivity)
+    case contextCompaction(ContextCompaction)
     case diagnostic(Diagnostic)
     case unknown(Unknown)
 
@@ -141,6 +142,22 @@ enum AgentActivity: Codable, Equatable, Identifiable {
         }
     }
 
+    struct ContextCompaction: Codable, Equatable, Identifiable {
+        let id: String
+        let status: String?
+
+        /// A compaction is pending while a turn is live (`showExecutingState`)
+        /// and the record has not reached its terminal status, so stale
+        /// in-progress records never animate after a turn ends.
+        func isPending(showExecutingState: Bool) -> Bool {
+            showExecutingState && status != "completed"
+        }
+
+        func displayTitle(showExecutingState: Bool) -> String {
+            isPending(showExecutingState: showExecutingState) ? "Compacting context…" : "Context compacted"
+        }
+    }
+
     struct Diagnostic: Codable, Equatable, Identifiable {
         let id: String
         let severity: AgentActivitySeverity
@@ -165,6 +182,7 @@ enum AgentActivity: Codable, Equatable, Identifiable {
         case .imageView(let activity): activity.id
         case .imageGeneration(let activity): activity.id
         case .subagentActivity(let activity): activity.id
+        case .contextCompaction(let activity): activity.id
         case .diagnostic(let activity): activity.id
         case .unknown(let activity): activity.id
         }
@@ -179,6 +197,7 @@ enum AgentActivity: Codable, Equatable, Identifiable {
         case .imageView: "image_view"
         case .imageGeneration: "image_generation"
         case .subagentActivity: "subagent_activity"
+        case .contextCompaction: "context_compaction"
         case .diagnostic: "diagnostic"
         case .unknown(let activity): activity.kind
         }
@@ -215,6 +234,8 @@ enum AgentActivity: Codable, Equatable, Identifiable {
                 self = .imageGeneration(try ImageGeneration(from: decoder))
             case "subagent_activity":
                 self = .subagentActivity(try SubagentActivity(from: decoder))
+            case "context_compaction":
+                self = .contextCompaction(try ContextCompaction(from: decoder))
             case "diagnostic":
                 self = .diagnostic(try Diagnostic(from: decoder))
             default:
@@ -282,6 +303,9 @@ enum AgentActivity: Codable, Equatable, Identifiable {
             try container.encode(activity.activityKind, forKey: .activityKind)
             try container.encode(activity.agentThreadId, forKey: .agentThreadId)
             try container.encode(activity.agentPath, forKey: .agentPath)
+        case .contextCompaction(let activity):
+            try container.encode(activity.id, forKey: .id)
+            try container.encodeIfPresent(activity.status, forKey: .status)
         case .diagnostic(let activity):
             try container.encode(activity.id, forKey: .id)
             try container.encode(activity.severity, forKey: .severity)
@@ -316,7 +340,7 @@ private let activityToolCallsCache: NSCache<NSString, CachedActivityToolCalls> =
 extension AgentActivity {
     var toolCalls: [ToolCall] {
         switch self {
-        case .planUpdate, .goalUpdate, .imageView, .imageGeneration, .subagentActivity, .diagnostic, .unknown:
+        case .planUpdate, .goalUpdate, .imageView, .imageGeneration, .subagentActivity, .contextCompaction, .diagnostic, .unknown:
             return []
         case .commandExecution, .fileChange:
             break
@@ -370,7 +394,7 @@ extension AgentActivity {
                     parentToolUseId: nil
                 )
             }
-        case .planUpdate, .goalUpdate, .imageView, .imageGeneration, .subagentActivity, .diagnostic, .unknown:
+        case .planUpdate, .goalUpdate, .imageView, .imageGeneration, .subagentActivity, .contextCompaction, .diagnostic, .unknown:
             return []
         }
     }
@@ -392,6 +416,7 @@ enum VisibleAgentActivity: Equatable, Identifiable {
     case imageView(AgentActivity.ImageView)
     case imageGeneration(AgentActivity.ImageGeneration)
     case subagentActivity(AgentActivity.SubagentActivity)
+    case contextCompaction(AgentActivity.ContextCompaction)
     case diagnostic(AgentActivity.Diagnostic)
     case unknown(AgentActivity.Unknown)
 
@@ -404,6 +429,8 @@ enum VisibleAgentActivity: Equatable, Identifiable {
             self = .imageGeneration(image)
         case .subagentActivity(let subagent):
             self = .subagentActivity(subagent)
+        case .contextCompaction(let compaction):
+            self = .contextCompaction(compaction)
         case .diagnostic(let diagnostic):
             self = .diagnostic(diagnostic)
         case .unknown(let unknown):
@@ -420,6 +447,7 @@ enum VisibleAgentActivity: Equatable, Identifiable {
         case .imageView(let activity): activity.id
         case .imageGeneration(let activity): activity.id
         case .subagentActivity(let activity): activity.id
+        case .contextCompaction(let activity): activity.id
         case .diagnostic(let activity): activity.id
         case .unknown(let activity): activity.id
         }

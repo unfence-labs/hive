@@ -797,6 +797,10 @@ describe("CodexAppServerSession normalized events", () => {
       method: "serverRequest/resolved",
       params: { threadId: "thread-1", requestId: "req-1" },
     }) + "\n");
+    proc._stdout.push(JSON.stringify({
+      method: "thread/compacted",
+      params: { threadId: "thread-1" },
+    }) + "\n");
 
     expect(events).toEqual([]);
   });
@@ -911,7 +915,6 @@ describe("CodexAppServerSession normalized events", () => {
   });
 
   it.each([
-    ["started", "item/started"],
     ["interacted", "item/completed"],
     ["interrupted", "item/completed"],
   ] as const)("emits %s sub-agent activity without a diagnostic", async (activityKind, method) => {
@@ -943,6 +946,212 @@ describe("CodexAppServerSession normalized events", () => {
       agentPath: `/root/${activityKind}`,
     }]);
     expect(events.some((event) => (event as { type?: string }).type === "diagnostic")).toBe(false);
+  });
+
+  it("renders a v2 sub-agent spawn (\"started\" activity) as an Agent tool call", async () => {
+    const proc = createMockProcess();
+    mockSpawn.mockReturnValue(proc);
+    const session = new CodexAppServerSession();
+    const events: unknown[] = [];
+    const assistantEvents: unknown[] = [];
+    const userEvents: unknown[] = [];
+    session.on("agent_event", (event) => events.push(event));
+    session.on("assistant", (event) => assistantEvents.push(event));
+    session.on("user", (event) => userEvents.push(event));
+    await initializeSession(session, proc);
+
+    proc._stdout.push(JSON.stringify({
+      method: "item/completed",
+      params: {
+        item: {
+          type: "subAgentActivity",
+          id: "spawn-1",
+          kind: "started",
+          agentThreadId: "thread-child",
+          agentPath: "/root/worker",
+        },
+      },
+    }) + "\n");
+
+    expect(assistantEvents).toEqual([
+      expect.objectContaining({
+        type: "assistant",
+        message: expect.objectContaining({
+          id: "spawn-1",
+          content: [
+            expect.objectContaining({ type: "tool_use", id: "spawn-1", name: "Agent" }),
+          ],
+        }),
+      }),
+    ]);
+    expect((assistantEvents[0] as {
+      message: { content: Array<{ parentToolUseId?: string }> };
+    }).message.content[0].parentToolUseId).toBeUndefined();
+    expect(userEvents).toEqual([
+      expect.objectContaining({
+        type: "user",
+        message: expect.objectContaining({
+          content: [
+            expect.objectContaining({ type: "tool_result", tool_use_id: "spawn-1" }),
+          ],
+        }),
+      }),
+    ]);
+    expect(events.some((event) => (event as { type?: string }).type === "subagent_activity_updated")).toBe(false);
+    expect(events.some((event) => (event as { type?: string }).type === "diagnostic")).toBe(false);
+  });
+
+  it("owns child thread items after a v2 sub-agent spawn", async () => {
+    const proc = createMockProcess();
+    mockSpawn.mockReturnValue(proc);
+    const session = new CodexAppServerSession();
+    const events: unknown[] = [];
+    const assistantEvents: unknown[] = [];
+    session.on("agent_event", (event) => events.push(event));
+    session.on("assistant", (event) => assistantEvents.push(event));
+    await initializeSession(session, proc);
+
+    proc._stdout.push(JSON.stringify({
+      method: "item/completed",
+      params: {
+        item: {
+          type: "subAgentActivity",
+          id: "spawn-1",
+          kind: "started",
+          agentThreadId: "thread-child",
+          agentPath: "/root/worker",
+        },
+      },
+    }) + "\n");
+    proc._stdout.push(JSON.stringify({
+      method: "item/started",
+      params: {
+        threadId: "thread-child",
+        item: {
+          type: "commandExecution",
+          id: "child-cmd-1",
+          command: "npm test",
+          cwd: "/tmp/project",
+          status: "inProgress",
+        },
+      },
+    }) + "\n");
+    proc._stdout.push(JSON.stringify({
+      method: "item/completed",
+      params: {
+        threadId: "thread-child",
+        item: {
+          type: "commandExecution",
+          id: "child-cmd-1",
+          command: "npm test",
+          cwd: "/tmp/project",
+          status: "completed",
+          aggregatedOutput: "ok",
+          exitCode: 0,
+        },
+      },
+    }) + "\n");
+    proc._stdout.push(JSON.stringify({
+      method: "item/completed",
+      params: {
+        threadId: "thread-child",
+        item: {
+          type: "agentMessage",
+          id: "child-msg-1",
+          text: "done",
+        },
+      },
+    }) + "\n");
+
+    expect(assistantEvents).toEqual([
+      expect.objectContaining({
+        message: expect.objectContaining({
+          content: [expect.objectContaining({ type: "tool_use", id: "spawn-1", name: "Agent" })],
+        }),
+      }),
+      expect.objectContaining({
+        message: expect.objectContaining({
+          content: [
+            expect.objectContaining({
+              type: "tool_use",
+              id: "child-cmd-1",
+              name: "Bash",
+              parentToolUseId: "spawn-1",
+            }),
+          ],
+        }),
+      }),
+    ]);
+    expect(events.some((event) => (event as { type?: string }).type === "command_execution_updated")).toBe(false);
+    expect(assistantEvents.some((event) => {
+      const content = (event as { message: { content: Array<{ type?: string }> } }).message.content;
+      return content.some((block) => block.type === "text");
+    })).toBe(false);
+  });
+
+  it("replays registered child threads when a v2 wait completes", async () => {
+    const proc = createMockProcess();
+    mockSpawn.mockReturnValue(proc);
+    const session = new CodexAppServerSession();
+    const assistantEvents: Array<{ message: { content: Array<Record<string, unknown>> } }> = [];
+    session.on("assistant", (event) => assistantEvents.push(event as never));
+    await initializeSession(session, proc);
+
+    proc._stdout.push(JSON.stringify({
+      method: "item/completed",
+      params: {
+        item: {
+          type: "subAgentActivity",
+          id: "spawn-1",
+          kind: "started",
+          agentThreadId: "thread-child",
+          agentPath: "/root/worker",
+        },
+      },
+    }) + "\n");
+    proc._stdout.push(JSON.stringify({
+      method: "item/completed",
+      params: {
+        threadId: "thread-1",
+        item: {
+          type: "collabAgentToolCall",
+          id: "collab-wait-1",
+          tool: "wait",
+          status: "completed",
+          receiverThreadIds: [],
+        },
+      },
+    }) + "\n");
+
+    const read = await waitForMethod(proc, "thread/read");
+    expect(parseWrites(proc).find((write) => write.id === read.id)).toEqual(
+      expect.objectContaining({ params: expect.objectContaining({ threadId: "thread-child" }) }),
+    );
+    proc._stdout.push(appServerResponse(read.id, {
+      thread: {
+        id: "thread-child",
+        turns: [{
+          id: "turn-child",
+          items: [{
+            type: "commandExecution",
+            id: "child-cmd-1",
+            command: "npm test",
+            cwd: "/tmp/project",
+            status: "completed",
+            aggregatedOutput: "ok",
+            exitCode: 0,
+          }],
+        }],
+      },
+    }));
+
+    await waitForCondition(() =>
+      assistantEvents.some((event) => event.message.content.some((block) => block.id === "child-cmd-1")),
+    );
+    const blocks = assistantEvents.flatMap((event) => event.message.content);
+    expect(blocks.find((block) => block.id === "child-cmd-1")).toEqual(
+      expect.objectContaining({ parentToolUseId: "spawn-1" }),
+    );
   });
 
   it("emits a diagnostic instead of sub-agent activity for an unknown activity kind", async () => {
@@ -1025,7 +1234,7 @@ describe("CodexAppServerSession normalized events", () => {
     };
     proc._stdout.push(JSON.stringify({
       method: "item/started",
-      params: { item: { ...item, kind: "started" } },
+      params: { item: { ...item, kind: "interacted" } },
     }) + "\n");
     proc._stdout.push(JSON.stringify({
       method: "item/completed",
@@ -1036,7 +1245,7 @@ describe("CodexAppServerSession normalized events", () => {
       {
         type: "subagent_activity_updated",
         id: item.id,
-        activityKind: "started",
+        activityKind: "interacted",
         agentThreadId: item.agentThreadId,
         agentPath: item.agentPath,
       },
@@ -1047,6 +1256,31 @@ describe("CodexAppServerSession normalized events", () => {
         agentThreadId: item.agentThreadId,
         agentPath: item.agentPath,
       },
+    ]);
+    expect(events.some((event) => (event as { type?: string }).type === "diagnostic")).toBe(false);
+  });
+
+  it("emits context compaction updates across the item lifecycle without a diagnostic", async () => {
+    const proc = createMockProcess();
+    mockSpawn.mockReturnValue(proc);
+    const session = new CodexAppServerSession();
+    const events: unknown[] = [];
+    session.on("agent_event", (event) => events.push(event));
+    await initializeSession(session, proc);
+
+    const item = { type: "contextCompaction", id: "compaction-1" };
+    proc._stdout.push(JSON.stringify({
+      method: "item/started",
+      params: { item },
+    }) + "\n");
+    proc._stdout.push(JSON.stringify({
+      method: "item/completed",
+      params: { item },
+    }) + "\n");
+
+    expect(events).toEqual([
+      { type: "context_compaction_updated", id: "compaction-1", status: "inProgress" },
+      { type: "context_compaction_updated", id: "compaction-1", status: "completed" },
     ]);
     expect(events.some((event) => (event as { type?: string }).type === "diagnostic")).toBe(false);
   });
@@ -1619,7 +1853,7 @@ describe("CodexAppServerSession normalized events", () => {
         item: {
           type: "subAgentActivity",
           id: "child-subagent-1",
-          kind: "started",
+          kind: "interacted",
           agentThreadId: "thread-grandchild",
           agentPath: "/root/worker/nested",
         },
@@ -1632,7 +1866,7 @@ describe("CodexAppServerSession normalized events", () => {
         item: {
           type: "subAgentActivity",
           id: "main-subagent-1",
-          kind: "started",
+          kind: "interacted",
           agentThreadId: "thread-child",
           agentPath: "/root/worker",
         },
@@ -1642,10 +1876,88 @@ describe("CodexAppServerSession normalized events", () => {
     expect(events).toEqual([{
       type: "subagent_activity_updated",
       id: "main-subagent-1",
-      activityKind: "started",
+      activityKind: "interacted",
       agentThreadId: "thread-child",
       agentPath: "/root/worker",
     }]);
+  });
+
+  it("registers grandchild threads from foreign started activities without rendering them", async () => {
+    const proc = createMockProcess();
+    mockSpawn.mockReturnValue(proc);
+    const session = new CodexAppServerSession();
+    const events: unknown[] = [];
+    const assistantEvents: unknown[] = [];
+    session.on("agent_event", (event) => events.push(event));
+    session.on("assistant", (event) => assistantEvents.push(event));
+    await initializeSession(session, proc);
+
+    proc._stdout.push(JSON.stringify({
+      method: "item/started",
+      params: {
+        threadId: "thread-1",
+        item: {
+          type: "collabAgentToolCall",
+          id: "collab-1",
+          tool: "spawnAgent",
+          status: "inProgress",
+          receiverThreadIds: ["thread-child"],
+          prompt: "Inspect auth",
+        },
+      },
+    }) + "\n");
+    // A v2 spawn observed inside the child thread must stay out of the main
+    // stream but still register the grandchild thread under its spawn call.
+    proc._stdout.push(JSON.stringify({
+      method: "item/completed",
+      params: {
+        threadId: "thread-child",
+        item: {
+          type: "subAgentActivity",
+          id: "grandchild-spawn-1",
+          kind: "started",
+          agentThreadId: "thread-grandchild",
+          agentPath: "/root/worker/nested",
+        },
+      },
+    }) + "\n");
+    proc._stdout.push(JSON.stringify({
+      method: "item/started",
+      params: {
+        threadId: "thread-grandchild",
+        item: {
+          type: "commandExecution",
+          id: "grandchild-cmd-1",
+          command: "npm test",
+          cwd: "/tmp/project",
+          status: "inProgress",
+        },
+      },
+    }) + "\n");
+    proc._stdout.push(JSON.stringify({
+      method: "item/completed",
+      params: {
+        threadId: "thread-grandchild",
+        item: {
+          type: "commandExecution",
+          id: "grandchild-cmd-1",
+          command: "npm test",
+          cwd: "/tmp/project",
+          status: "completed",
+          aggregatedOutput: "ok",
+          exitCode: 0,
+        },
+      },
+    }) + "\n");
+
+    const toolUseBlocks = assistantEvents
+      .flatMap((event) => (event as { message: { content: Array<Record<string, unknown>> } }).message.content)
+      .filter((block) => block.type === "tool_use");
+    expect(toolUseBlocks.find((block) => block.id === "grandchild-spawn-1")).toBeUndefined();
+    expect(events.some((event) => (event as { type?: string }).type === "subagent_activity_updated")).toBe(false);
+    expect(toolUseBlocks.find((block) => block.id === "grandchild-cmd-1")).toEqual(
+      expect.objectContaining({ parentToolUseId: "grandchild-spawn-1" }),
+    );
   });
 
   it("parents live receiver-thread tools under documented Codex collab tool calls", async () => {
