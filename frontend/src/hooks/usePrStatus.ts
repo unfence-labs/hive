@@ -3,7 +3,6 @@ import {
   useQuery,
   useQueries,
   useQueryClient,
-  keepPreviousData,
 } from "@tanstack/react-query";
 import { wsTransport } from "@/lib/ws-transport";
 import type { PrStatusResponse } from "@/types";
@@ -49,7 +48,6 @@ export function usePrStatus(wsId: string | undefined) {
     enabled: false,
     staleTime: Number.POSITIVE_INFINITY,
     gcTime: PR_GC_TIME,
-    placeholderData: keepPreviousData,
   });
 
   const hasData = query.data !== undefined;
@@ -72,7 +70,6 @@ export function usePrStatusMap(wsIds: string[]) {
       enabled: false,
       staleTime: Number.POSITIVE_INFINITY,
       gcTime: PR_GC_TIME,
-      placeholderData: keepPreviousData,
     })),
   });
 

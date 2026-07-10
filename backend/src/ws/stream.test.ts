@@ -1504,6 +1504,37 @@ describe("WS /ws/hub", () => {
     await local.app.close();
   });
 
+  it("sends PR status when a PR-flagged workspace later becomes subscribed", async () => {
+    const prStatusProvider = {
+      getCachedStatus: vi.fn(() => undefined),
+      getStatus: vi.fn(async () => ({ pr: null })),
+    };
+    const local = await startWsApp(undefined, CONV_CMD, undefined, prStatusProvider);
+    // Sidebar effects can flag PR interest before the app-level sync sends the
+    // full subscription list: the first sync carries prWorkspaces while the
+    // workspace is still missing from workspaceIds, so nothing is sent yet.
+    const { wsReady, messages, allEnvelopes } = connectHub([], {
+      app: local.app,
+      collectAll: true,
+      prWorkspaces: [wsId],
+    });
+    const ws = await wsReady;
+
+    await new Promise((r) => setTimeout(r, 100));
+    expect(allEnvelopes.some((e) => e.event.type === "pr_status")).toBe(false);
+
+    // The follow-up sync subscribes the workspace; prWorkspaces is unchanged.
+    // The initial status must be delivered now, not skipped as already-flagged.
+    syncWorkspaces(ws, [wsId], undefined, [wsId]);
+
+    await waitForMessage(messages, (msgs) => msgs.some((m) => m.type === "pr_status"));
+    expect(prStatusProvider.getStatus).toHaveBeenCalledWith(wsId);
+    expect(messages).toContainEqual({ type: "pr_status", status: { pr: null } });
+
+    ws.close();
+    await local.app.close();
+  });
+
   it("broadcasts PR status only to hubs interested in that workspace", async () => {
     const interested = connectHub([wsId], { collectAll: true, prWorkspaces: [wsId] });
     const uninterested = connectHub([wsId], { collectAll: true });

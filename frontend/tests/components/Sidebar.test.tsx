@@ -61,6 +61,7 @@ vi.mock("react-resizable-panels", () => {
 
 vi.mock("@/lib/ws-transport", () => {
   const messageHandlers = new Map<string, Set<(msg: WsOutgoing) => void>>();
+  const globalHandlers = new Set<(workspaceId: string, msg: WsOutgoing) => void>();
 
   const getSet = (workspaceId: string) => {
     const existing = messageHandlers.get(workspaceId);
@@ -78,17 +79,24 @@ vi.mock("@/lib/ws-transport", () => {
         hadBufferedMessages: false,
       };
     }),
+    onGlobalMessage: vi.fn((handler: (workspaceId: string, msg: WsOutgoing) => void) => {
+      globalHandlers.add(handler);
+      return () => { globalHandlers.delete(handler); };
+    }),
     onReconnect: vi.fn(() => () => {}),
     syncPrWorkspaces: vi.fn(),
   };
 
   const __wsMock = {
     emit: (workspaceId: string, msg: WsOutgoing) => {
+      for (const handler of globalHandlers) handler(workspaceId, msg);
       for (const handler of messageHandlers.get(workspaceId) ?? []) handler(msg);
     },
     reset: () => {
       messageHandlers.clear();
+      globalHandlers.clear();
       wsTransport.onMessage.mockClear();
+      wsTransport.onGlobalMessage.mockClear();
       wsTransport.syncPrWorkspaces.mockClear();
     },
   };

@@ -534,10 +534,17 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
       }
     }
 
+    // A PR status was actually delivered only when the workspace was both
+    // subscribed AND PR-flagged on a previous sync. Clients can flag
+    // prWorkspaces before the full subscription list arrives (sidebar effects
+    // run before the app-level workspace sync), so PR interest recorded while
+    // the workspace was outside `workspaceIds` sent nothing — treat those as
+    // new and send the initial status now.
     const prRefreshes = [...hub.prWorkspaces]
       .filter((wsId) =>
         desired.has(wsId) &&
-        (forceBootstrap || !previousPrWorkspaces.has(wsId))
+        (forceBootstrap ||
+          !(previouslySubscribed.has(wsId) && previousPrWorkspaces.has(wsId)))
       )
       .map((wsId) => sendWorkspacePrStatus(hub, wsId));
     await Promise.all(prRefreshes);

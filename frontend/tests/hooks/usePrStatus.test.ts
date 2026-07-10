@@ -111,6 +111,34 @@ describe("usePrStatus", () => {
       expect(result.current.pr?.number).toBe(2);
     });
   });
+
+  it("does not leak the previous workspace's status when switching to an uncached one", async () => {
+    const { wrapper, queryClient } = createWrapper();
+    renderHook(() => useSyncPrWorkspaces(["ws-1", "ws-2"]), { wrapper });
+    queryClient.setQueryData(prStatusKey("ws-1"), {
+      pr: makePr({ number: 1 }),
+    } satisfies PrStatusResponse);
+
+    const { result, rerender } = renderHook(
+      ({ wsId }: { wsId: string | undefined }) => usePrStatus(wsId),
+      {
+        initialProps: { wsId: "ws-1" },
+        wrapper,
+      },
+    );
+
+    await waitFor(() => {
+      expect(result.current.pr?.number).toBe(1);
+    });
+
+    rerender({ wsId: "ws-2" });
+
+    // ws-2 has no cached status yet: show loading, never ws-1's PR.
+    await waitFor(() => {
+      expect(result.current.loading).toBe(true);
+    });
+    expect(result.current.pr).toBeNull();
+  });
 });
 
 describe("usePrStatusMap", () => {

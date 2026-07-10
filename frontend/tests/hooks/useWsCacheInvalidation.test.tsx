@@ -2,12 +2,14 @@ import { renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useWsCacheInvalidation } from "@/hooks/useWsCacheInvalidation";
 import { sessionMessagesKey } from "@/hooks/useSessionMessages";
+import { prStatusKey } from "@/hooks/usePrStatus";
 import { createWrapper } from "../test-utils";
 
 interface Message {
   type: string;
   sessionId?: string;
   streaming?: boolean;
+  status?: unknown;
 }
 
 interface Listener {
@@ -18,16 +20,20 @@ interface Listener {
 
 const mocks = vi.hoisted(() => ({
   onMessage: vi.fn(),
+  onGlobalMessage: vi.fn(),
 }));
 
 vi.mock("@/lib/ws-transport", () => ({
   wsTransport: {
     onMessage: mocks.onMessage,
+    onGlobalMessage: mocks.onGlobalMessage,
     onReconnect: vi.fn(() => () => {}),
   },
 }));
 
 const listeners: Listener[] = [];
+let globalHandler: ((wsId: string, msg: Message) => void) | null = null;
+let globalUnsubscribe: ReturnType<typeof vi.fn>;
 
 function emit(wsId: string, msg: Message) {
   const listener = listeners.find((entry) => entry.wsId === wsId);
@@ -43,6 +49,12 @@ describe("useWsCacheInvalidation", () => {
       const unsubscribe = vi.fn();
       listeners.push({ wsId, handler, unsubscribe });
       return { unsubscribe, hadBufferedMessages: false };
+    });
+    globalHandler = null;
+    globalUnsubscribe = vi.fn();
+    mocks.onGlobalMessage.mockImplementation((handler: (wsId: string, msg: Message) => void) => {
+      globalHandler = handler;
+      return globalUnsubscribe;
     });
   });
 
@@ -100,6 +112,26 @@ describe("useWsCacheInvalidation", () => {
 
     expect(invalidateSpy).toHaveBeenNthCalledWith(1, { queryKey: ["workspace", "ws-1"] });
     expect(invalidateSpy).toHaveBeenNthCalledWith(2, { queryKey: ["sessions", "ws-1"] });
+  });
+
+  it("caches pr_status from the global listener, even for workspaces outside the list", () => {
+    const { wrapper, queryClient } = createWrapper();
+    renderHook(() => useWsCacheInvalidation(["ws-1"]), { wrapper });
+
+    // pr_status can arrive before the projects list populates workspaceIds;
+    // the global listener must cache it regardless of per-workspace handlers.
+    globalHandler?.("ws-2", { type: "pr_status", status: { pr: null } });
+
+    expect(queryClient.getQueryData(prStatusKey("ws-2"))).toEqual({ pr: null });
+  });
+
+  it("unsubscribes the global listener on unmount", () => {
+    const { wrapper } = createWrapper();
+    const { unmount } = renderHook(() => useWsCacheInvalidation(["ws-1"]), { wrapper });
+
+    unmount();
+
+    expect(globalUnsubscribe).toHaveBeenCalledTimes(1);
   });
 
   it("ignores unsupported message types", () => {
