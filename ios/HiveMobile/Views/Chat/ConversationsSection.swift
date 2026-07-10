@@ -39,6 +39,7 @@ struct ConversationsSection<Header: View>: View {
     @State private var isLoading = true
     @State private var isCreatingSession = false
     @State private var errorMessage: String?
+    @State private var actionErrorMessage: String?
     @State private var sessionToDelete: SessionMetadata?
     @State private var lastRefreshAt = Date.distantPast
 
@@ -91,6 +92,16 @@ struct ConversationsSection<Header: View>: View {
         } message: {
             if let errorMessage {
                 Text(errorMessage)
+            }
+        }
+        .alert(labels.errorTitle, isPresented: Binding(
+            get: { actionErrorMessage != nil },
+            set: { if !$0 { actionErrorMessage = nil } }
+        )) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            if let actionErrorMessage {
+                Text(actionErrorMessage)
             }
         }
         .alert(
@@ -242,7 +253,7 @@ struct ConversationsSection<Header: View>: View {
             } catch is CancellationError {
                 // View disappeared.
             } catch {
-                errorMessage = error.localizedDescription
+                actionErrorMessage = error.localizedDescription
             }
         }
     }
@@ -263,7 +274,7 @@ struct ConversationsSection<Header: View>: View {
             if outcome.deleted {
                 sessions.removeAll { $0.sessionId == session.sessionId }
             }
-            errorMessage = outcome.errorMessage
+            actionErrorMessage = outcome.errorMessage
         }
     }
 }
