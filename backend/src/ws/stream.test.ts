@@ -1771,6 +1771,109 @@ describe("WS /ws/hub", () => {
     ws.close();
   });
 
+  it("processes overlapping sync_workspaces messages in send order", async () => {
+    const otherWorkspace = await createWorkspace(projectId, dataDir);
+
+    const { wsReady } = connectHub([wsId]);
+    const ws = await wsReady;
+
+    // The first sync awaits the new workspace bootstrap. The second sync must
+    // wait for it instead of undoing its state changes mid-bootstrap.
+    syncWorkspaces(ws, [wsId, otherWorkspace.id]);
+    syncWorkspaces(ws, [wsId]);
+
+    await waitForCondition(() => {
+      const channel = _getChannelsForTests().get(otherWorkspace.id);
+      return !channel || channel.hubSockets.size === 0;
+    });
+
+    expect(_getChannelsForTests().get(wsId)?.hubSockets.size).toBe(1);
+    expect(_getChannelsForTests().get(otherWorkspace.id)?.hubSockets.size ?? 0).toBe(0);
+
+    ws.close();
+  });
+
+  it("authorizes a user_message racing a sync queued behind a slow PR refresh", async () => {
+    let resolvePr!: (value: { pr: null }) => void;
+    const deferred = new Promise<{ pr: null }>((resolve) => { resolvePr = resolve; });
+    const prStatusProvider = {
+      getCachedStatus: vi.fn(() => undefined),
+      getStatus: vi.fn(() => deferred),
+    };
+    const local = await startWsApp(undefined, CONV_CMD, undefined, prStatusProvider);
+    const otherWorkspace = await createWorkspace(projectId, dataDir);
+
+    const { wsReady, allEnvelopes } = connectHub([wsId], {
+      app: local.app,
+      collectAll: true,
+      prWorkspaces: [wsId],
+    });
+    const ws = await wsReady;
+    await waitForCondition(() => allEnvelopes.some((e) => e.event.type === "status"));
+
+    // The PR refresh above is still pending. A follow-up sync adding a
+    // workspace plus an immediate message to it must be authorized:
+    // subscription intent is recorded at receipt, not when the queued sync
+    // finally runs.
+    syncWorkspaces(ws, [wsId, otherWorkspace.id], undefined, [wsId]);
+    ws.send(hubEvent(otherWorkspace.id, { type: "user_message", content: "race" }));
+
+    await waitForCondition(() =>
+      allEnvelopes.some((e) =>
+        e.workspaceId === otherWorkspace.id &&
+        e.event.type === "status" &&
+        e.event.streaming === true,
+      ),
+    );
+    expect(
+      allEnvelopes.some(
+        (e) => e.event.type === "error" && e.event.message.includes("Not subscribed"),
+      ),
+    ).toBe(false);
+
+    resolvePr({ pr: null });
+    ws.close();
+    await endSession(otherWorkspace.id, dataDir).catch(() => {});
+    await local.app.close();
+  });
+
+  it("drops a queued sync when the socket closes before it runs", async () => {
+    let resolvePr!: (value: { pr: null }) => void;
+    const deferred = new Promise<{ pr: null }>((resolve) => { resolvePr = resolve; });
+    const prStatusProvider = {
+      getCachedStatus: vi.fn(() => undefined),
+      getStatus: vi.fn(() => deferred),
+    };
+    const local = await startWsApp(undefined, CONV_CMD, undefined, prStatusProvider);
+    const otherWorkspace = await createWorkspace(projectId, dataDir);
+
+    const { wsReady, allEnvelopes } = connectHub([wsId], {
+      app: local.app,
+      collectAll: true,
+      prWorkspaces: [wsId],
+    });
+    const ws = await wsReady;
+    await waitForCondition(() => allEnvelopes.some((e) => e.event.type === "status"));
+
+    // Queue a sync behind the pending PR refresh, then drop the socket
+    // server-side (client-initiated close does not propagate under injectWS).
+    // The queued sync must not run after close and re-create channels for a
+    // dead socket.
+    syncWorkspaces(ws, [wsId, otherWorkspace.id], undefined, [wsId]);
+    // Let the frame reach the server so the sync is actually queued.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    const hub = [..._getHubSocketsForTests()].find((h) => h.subscribedWorkspaces.has(wsId));
+    hub!.ws.terminate();
+    await waitForCondition(() => !_getHubSocketsForTests().has(hub!));
+
+    resolvePr({ pr: null });
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    expect(_getChannelsForTests().get(otherWorkspace.id)).toBeUndefined();
+    expect(_getChannelsForTests().get(wsId)).toBeUndefined();
+    await local.app.close();
+  });
+
   it("delivers high-frequency events only to focused workspaces (C13)", async () => {
     const unfocused = (await createWorkspace(projectId, dataDir)).id;
 
