@@ -341,7 +341,7 @@ export interface QuestionInput {
 
 // ── Per-message options ──────────────────────────────────────────────
 
-export type ThinkingLevel = "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
+export type ThinkingLevel = "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max" | "ultra";
 
 /** Per-message options that control agent CLI behavior. */
 export interface MessageOptions {

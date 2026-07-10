@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { CodexProvider } from "./codex.js";
+import { findModel } from "./types.js";
 
 describe("CodexProvider", () => {
   const provider = new CodexProvider();
@@ -16,36 +17,43 @@ describe("CodexProvider", () => {
 
   // ── Models ─────────────────────────────────────────────────────────
 
-  it("exposes a non-empty list of models", () => {
-    expect(provider.models.length).toBeGreaterThan(0);
+  it("exposes the GPT-5.6 tiers and gpt-5.5", () => {
+    expect(provider.models.map((m) => m.id)).toEqual([
+      "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.5",
+    ]);
   });
 
-  it("has exactly one default model", () => {
+  it("has gpt-5.6-sol as the only default model", () => {
     const defaults = provider.models.filter((m) => m.isDefault);
-    expect(defaults).toHaveLength(1);
+    expect(defaults.map((m) => m.id)).toEqual(["gpt-5.6-sol"]);
   });
 
-  it("includes gpt-5.5 as default", () => {
-    const defaultModel = provider.models.find((m) => m.isDefault);
-    expect(defaultModel?.id).toBe("gpt-5.5");
+  it("tracks the catalog context windows (372K for 5.6 tiers, 272K for 5.5)", () => {
+    for (const id of ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"]) {
+      expect(provider.models.find((m) => m.id === id)?.contextWindow).toBe(372_000);
+    }
+    expect(provider.models.find((m) => m.id === "gpt-5.5")?.contextWindow).toBe(272_000);
   });
 
-  it("tracks the verified 400K context window for gpt-5.5", () => {
-    const defaultModel = provider.models.find((m) => m.isDefault);
-    expect(defaultModel?.contextWindow).toBe(400_000);
-  });
-
-  it("tracks the verified 400K context window for gpt-5.3-codex", () => {
-    const legacyModel = provider.models.find((m) => m.id === "gpt-5.3-codex");
-    expect(legacyModel?.contextWindow).toBe(400_000);
+  it("aliases retired gpt-5.3-codex to gpt-5.6-sol", () => {
+    expect(findModel(provider.models, "gpt-5.3-codex")?.id).toBe("gpt-5.6-sol");
   });
 
   // ── Capabilities ───────────────────────────────────────────────────
 
-  it("supports effort-level thinking control", () => {
+  it("supports effort-level thinking control as a baseline", () => {
     expect(provider.capabilities.thinkingLevels).toEqual([
-      "none", "minimal", "low", "medium", "high", "xhigh",
+      "low", "medium", "high", "xhigh",
     ]);
+  });
+
+  it("exposes per-model effort ceilings for the GPT-5.6 tiers", () => {
+    const levels = (id: string) => provider.models.find((m) => m.id === id)?.thinkingLevels;
+    expect(levels("gpt-5.6-sol")).toEqual(["low", "medium", "high", "xhigh", "max", "ultra"]);
+    expect(levels("gpt-5.6-terra")).toEqual(["low", "medium", "high", "xhigh", "max", "ultra"]);
+    expect(levels("gpt-5.6-luna")).toEqual(["low", "medium", "high", "xhigh", "max"]);
+    // gpt-5.5 inherits the provider baseline.
+    expect(levels("gpt-5.5")).toBeUndefined();
   });
 
   it("does not support plan mode", () => {

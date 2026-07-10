@@ -18,6 +18,7 @@ const THINKING_LEVEL_LABELS: Record<ThinkingLevel, string> = {
   high: "High",
   xhigh: "xHigh",
   max: "Max",
+  ultra: "Ultra",
 };
 
 interface ThinkingSelectorProps {

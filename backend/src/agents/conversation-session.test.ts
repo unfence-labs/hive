@@ -3828,10 +3828,11 @@ describe("ConversationSession", () => {
   it("locks provider on first sendMessage based on model prefix", () => {
     const session = createSession({ sessionId: "lock-test" });
 
+    // Retired gpt-5.3-codex aliases to gpt-5.6-sol in the canonical run options.
     session.sendMessage("Hello", { model: "codex:gpt-5.3-codex", thinkingLevel: "low" });
     expect(session.metadata.lockedProvider).toBe("codex");
     expect(session.metadata.lastRunOptions).toEqual({
-      model: "codex:gpt-5.3-codex",
+      model: "codex:gpt-5.6-sol",
       planMode: false,
       thinkingLevel: "low",
       fastMode: false,

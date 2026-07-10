@@ -485,7 +485,7 @@ struct QuestionInput: Codable {
 }
 
 enum ThinkingLevel: String, Codable, CaseIterable {
-    case none, minimal, low, medium, high, xhigh, max
+    case none, minimal, low, medium, high, xhigh, max, ultra
 
     var label: String {
         switch self {
@@ -496,6 +496,7 @@ enum ThinkingLevel: String, Codable, CaseIterable {
         case .high: "High"
         case .xhigh: "xHigh"
         case .max: "Max"
+        case .ultra: "Ultra"
         }
     }
 

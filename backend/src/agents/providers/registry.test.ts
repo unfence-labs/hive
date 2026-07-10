@@ -110,14 +110,22 @@ describe("model helpers", () => {
     expect(isKnownModelId("claude:missing")).toBe(false);
   });
 
+  it("recognizes retired model IDs through aliases", () => {
+    expect(isKnownModelId("codex:gpt-5.3-codex")).toBe(true);
+    expect(isKnownModelId("claude:opus-4-7")).toBe(true);
+  });
+
   it("returns high as the default thinking level when supported", () => {
     expect(getDefaultThinkingLevelForModel("claude:sonnet-4-6")).toBe("high");
     expect(getDefaultThinkingLevelForModel("codex:gpt-5.5")).toBe("high");
   });
 
-  it("validates thinking levels against the resolved provider", () => {
+  it("validates thinking levels against the resolved model", () => {
     expect(isThinkingLevelSupportedForModel("claude:sonnet-4-6", "max")).toBe(true);
     expect(isThinkingLevelSupportedForModel("codex:gpt-5.5", "max")).toBe(false);
+    expect(isThinkingLevelSupportedForModel("codex:gpt-5.6-sol", "ultra")).toBe(true);
+    expect(isThinkingLevelSupportedForModel("codex:gpt-5.6-luna", "ultra")).toBe(false);
+    expect(isThinkingLevelSupportedForModel("codex:gpt-5.6-luna", "max")).toBe(true);
     expect(isThinkingLevelSupportedForModel("claude:missing", "high")).toBe(false);
   });
 });
@@ -226,9 +234,22 @@ describe("getModelCatalog", () => {
     markProviderAvailable("codex");
     const catalog = getModelCatalog();
 
-    const newModels = catalog.models.filter((m) => m.isNew);
-    expect(newModels.length).toBeGreaterThan(0);
-    expect(newModels[0].id).toBe("codex:gpt-5.5");
+    const newModels = catalog.models.filter((m) => m.isNew && m.provider === "codex");
+    expect(newModels.map((m) => m.id)).toEqual([
+      "codex:gpt-5.6-sol", "codex:gpt-5.6-terra", "codex:gpt-5.6-luna",
+    ]);
+  });
+
+  it("exposes per-model thinking levels in catalog capabilities", () => {
+    markProviderAvailable("codex");
+    const catalog = getModelCatalog();
+
+    const byId = new Map(catalog.models.map((m) => [m.id, m]));
+    expect(byId.get("codex:gpt-5.6-sol")?.capabilities.thinkingLevels).toContain("ultra");
+    expect(byId.get("codex:gpt-5.6-luna")?.capabilities.thinkingLevels).not.toContain("ultra");
+    expect(byId.get("codex:gpt-5.5")?.capabilities.thinkingLevels).toEqual([
+      "low", "medium", "high", "xhigh",
+    ]);
   });
 });
 

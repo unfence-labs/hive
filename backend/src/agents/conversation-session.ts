@@ -9,7 +9,7 @@ import { AgentEventNormalizer, type NormalizedAgentEvent } from "./agent-event-n
 import { appendBoundedAgentOutput, boundAgentOutput } from "./bounded-output.js";
 import type { CodexGoalResult, CodexGoalSetParams, CodexGoalStatus } from "./providers/codex-app-server.js";
 import { resolveProvider } from "./providers/registry.js";
-import type { AgentProvider } from "./providers/types.js";
+import { findModel, type AgentProvider } from "./providers/types.js";
 import { createAgentRunner, type AgentRunnerFactory } from "./runners/factory.js";
 import type { AgentRunner, AgentRunnerTurnStartedEvent, StopReason } from "./runners/types.js";
 import { DEBUG_AGENT_LOGS } from "../utils/env.js";
@@ -342,10 +342,10 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
     resolved: { provider: AgentProvider; modelId: string },
   ): MessageOptions {
     const { provider, modelId } = resolved;
-    const model = provider.models.find((m) => m.id === modelId)
+    const model = findModel(provider.models, modelId)
       ?? provider.models.find((m) => m.isDefault)
       ?? provider.models[0];
-    const thinkingLevels = provider.capabilities.thinkingLevels;
+    const thinkingLevels = model?.thinkingLevels ?? provider.capabilities.thinkingLevels;
     const thinkingLevel = thinkingLevels.length > 0
       ? (msgOptions?.thinkingLevel && thinkingLevels.includes(msgOptions.thinkingLevel)
           ? msgOptions.thinkingLevel
@@ -820,7 +820,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
       return;
     }
 
-    const model = resolved.provider.models.find((m) => m.id === resolved.modelId);
+    const model = findModel(resolved.provider.models, resolved.modelId);
     const env = {
       ...(resolved.provider.buildEnv?.({ ...msgOptions, model: resolved.modelId }) ?? {}),
       ...(this.browserEnv ?? {}),
