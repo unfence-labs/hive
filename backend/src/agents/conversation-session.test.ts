@@ -236,6 +236,16 @@ function thinkingAssistantLine(thinking: string, text: string): string {
   }) + "\n";
 }
 
+function reasoningAssistantLine(
+  messageId: string,
+  content: Array<{ type: "thinking"; thinking: string } | { type: "redacted_thinking"; data: string }>,
+): string {
+  return JSON.stringify({
+    type: "assistant",
+    message: { id: messageId, role: "assistant", content },
+  }) + "\n";
+}
+
 let tempDir: string;
 
 beforeEach(async () => {
@@ -2849,7 +2859,62 @@ describe("ConversationSession", () => {
 
     const thinkingMsgs = messages.filter((m) => m.type === "thinking");
     expect(thinkingMsgs).toHaveLength(1);
-    expect(thinkingMsgs[0]).toEqual({ type: "thinking", sessionId: "sess-thinking", text: "Hmm, let me think..." });
+    expect(thinkingMsgs[0]).toEqual({
+      type: "thinking",
+      sessionId: "sess-thinking",
+      text: "Hmm, let me think...",
+      segmentId: "reasoning:msg-1:0",
+      kind: "thinking",
+    });
+  });
+
+  it("retains separate live reasoning phases and redacted semantics in snapshots", () => {
+    const session = createSession({ sessionId: "reasoning-segments-live" });
+    const messages: WsOutgoing[] = [];
+    session.on("message", (msg) => messages.push(msg));
+
+    session.sendMessage("Think in phases");
+    mockProc._stdout.push(reasoningAssistantLine("reasoning-1", [
+      { type: "thinking", thinking: "Inspect " },
+      { type: "redacted_thinking", data: "encrypted" },
+    ]));
+    mockProc._stdout.push(reasoningAssistantLine("reasoning-1", [
+      { type: "thinking", thinking: "state" },
+    ]));
+    mockProc._stdout.push(reasoningAssistantLine("reasoning-2", [
+      { type: "thinking", thinking: "Check clients" },
+    ]));
+
+    expect(messages.filter((msg) => msg.type === "thinking")).toEqual([
+      expect.objectContaining({
+        text: "Inspect ",
+        segmentId: "reasoning:reasoning-1:0",
+        kind: "thinking",
+      }),
+      expect.objectContaining({
+        text: "[redacted]\n",
+        segmentId: "reasoning:reasoning-1:1",
+        kind: "redacted",
+      }),
+      expect.objectContaining({
+        text: "state",
+        segmentId: "reasoning:reasoning-1:0",
+        kind: "thinking",
+      }),
+      expect.objectContaining({
+        text: "Check clients",
+        segmentId: "reasoning:reasoning-2:0",
+        kind: "thinking",
+      }),
+    ]);
+    expect(session.getStreamingSnapshot()).toMatchObject({
+      thinking: "Inspect [redacted]\nstateCheck clients",
+      reasoningSegments: [
+        { id: "reasoning:reasoning-1:0", kind: "thinking", content: "Inspect state" },
+        { id: "reasoning:reasoning-1:1", kind: "redacted" },
+        { id: "reasoning:reasoning-2:0", kind: "thinking", content: "Check clients" },
+      ],
+    });
   });
 
   it("emits done on successful process close", async () => {
@@ -3749,7 +3814,43 @@ describe("ConversationSession", () => {
     const lines = raw.split("\n").filter(Boolean);
     const assistantMsg = JSON.parse(lines[1]);
     expect(assistantMsg.thinkingContent).toBe("Deep thought");
+    expect(assistantMsg.reasoningSegments).toEqual([{
+      id: "reasoning:msg-1:0",
+      kind: "thinking",
+      content: "Deep thought",
+    }]);
     expect(assistantMsg.content).toBe("The answer");
+  });
+
+  it("persists multiple reasoning segments while preserving legacy thinking content", async () => {
+    const session = createSession({ sessionId: "reasoning-segments-persist" });
+
+    session.sendMessage("Think in phases");
+    mockProc._stdout.push(reasoningAssistantLine("reasoning-1", [
+      { type: "thinking", thinking: "First " },
+      { type: "redacted_thinking", data: "encrypted" },
+    ]));
+    mockProc._stdout.push(reasoningAssistantLine("reasoning-1", [
+      { type: "thinking", thinking: "phase" },
+    ]));
+    mockProc._stdout.push(reasoningAssistantLine("reasoning-2", [
+      { type: "thinking", thinking: "Second phase" },
+    ]));
+    mockProc._stdout.push(resultLine());
+    mockProc._emitClose(0);
+
+    await session.drain();
+
+    const messagesPath = join(tempDir, "sessions", "reasoning-segments-persist", "messages.jsonl");
+    const raw = await readFile(messagesPath, "utf-8");
+    const lines = raw.split("\n").filter(Boolean);
+    const assistantMsg = JSON.parse(lines[1]);
+    expect(assistantMsg.thinkingContent).toBe("First [redacted]\nphaseSecond phase");
+    expect(assistantMsg.reasoningSegments).toEqual([
+      { id: "reasoning:reasoning-1:0", kind: "thinking", content: "First phase" },
+      { id: "reasoning:reasoning-1:1", kind: "redacted" },
+      { id: "reasoning:reasoning-2:0", kind: "thinking", content: "Second phase" },
+    ]);
   });
 
   it("persists tool calls in assistant message", async () => {

@@ -13,6 +13,7 @@ import type {
   ChatMessage,
   QueuedMessage,
   QuestionAnswer,
+  ReasoningSegment,
   SessionMetadata,
   ToolCall,
 } from "@/types";
@@ -59,6 +60,7 @@ export interface ConversationPaneProps {
   streamingStartedAt?: number | null;
   currentStreamingText: string;
   currentThinking: string;
+  currentReasoningSegments: ReasoningSegment[];
   activeToolCalls: ToolCall[];
   activeAgentActivities: AgentActivity[];
   pendingToolInputs: PendingToolInput[];
@@ -126,6 +128,7 @@ export function ConversationPane({
   streamingStartedAt,
   currentStreamingText,
   currentThinking,
+  currentReasoningSegments,
   activeToolCalls,
   activeAgentActivities,
   pendingToolInputs,
@@ -193,6 +196,7 @@ export function ConversationPane({
               streamingStartedAt={streamingStartedAt}
               currentStreamingText={currentStreamingText}
               currentThinking={currentThinking}
+              currentReasoningSegments={currentReasoningSegments}
               activeToolCalls={activeToolCalls}
               activeAgentActivities={activeAgentActivities}
               pendingToolInputs={pendingToolInputs}

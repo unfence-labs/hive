@@ -72,7 +72,17 @@ vi.mock("@/components/ai-elements/message", () => ({
 }));
 
 vi.mock("@/components/chat/ThinkingBlock", () => ({
-  ThinkingBlock: ({ content }: { content: string }) => <div data-testid="thinking-block">{content}</div>,
+  ThinkingBlock: ({
+    segments = [],
+    legacyContent,
+    streaming,
+  }: {
+    segments?: ChatMessage["reasoningSegments"];
+    legacyContent?: string;
+    streaming?: boolean;
+  }) => segments.length > 0 || legacyContent
+    ? <div data-testid="thinking-block" data-streaming={String(Boolean(streaming))}>{segments.map((segment) => segment.content).join("") || legacyContent}</div>
+    : null,
 }));
 
 vi.mock("@/components/chat/ToolCallList", () => ({
@@ -85,6 +95,7 @@ const baseConversationProps: ComponentProps<typeof ChatConversation> = {
   streamingStartedAt: null,
   currentStreamingText: "",
   currentThinking: "",
+  currentReasoningSegments: [],
   activeToolCalls: [],
   activeAgentActivities: [],
   switchCounter: 0,
@@ -98,6 +109,30 @@ function renderConversation(props?: Partial<ComponentProps<typeof ChatConversati
     />,
   );
 }
+
+describe("ChatConversation live reasoning", () => {
+  it("renders typed live reasoning even before answer text arrives", () => {
+    renderConversation({
+      isStreaming: true,
+      currentReasoningSegments: [
+        { id: "reasoning-1", kind: "thinking", content: "Inspecting files" },
+        { id: "hidden-1", kind: "redacted" },
+      ],
+    });
+
+    expect(screen.getByTestId("thinking-block")).toHaveTextContent("Inspecting files");
+    expect(screen.getByTestId("thinking-block")).toHaveAttribute("data-streaming", "true");
+  });
+
+  it("keeps the legacy live thinking path as a fallback", () => {
+    renderConversation({
+      isStreaming: true,
+      currentThinking: "Legacy thought",
+    });
+
+    expect(screen.getByTestId("thinking-block")).toHaveTextContent("Legacy thought");
+  });
+});
 
 describe("ChatConversation empty states", () => {
   it("renders the workspace welcome state when metadata is available", () => {

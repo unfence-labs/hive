@@ -211,6 +211,12 @@ export interface ToolCall {
   parentToolUseId?: string;
 }
 
+export interface ReasoningSegment {
+  id: string;
+  kind: "thinking" | "redacted";
+  content?: string;
+}
+
 export interface ChatMessage {
   id: string;
   sessionId: string;
@@ -222,6 +228,7 @@ export interface ChatMessage {
   agentActivities?: AgentActivity[];
   goalCommand?: boolean;
   thinkingContent?: string;
+  reasoningSegments?: ReasoningSegment[];
   timestamp: string;
   cancelled?: boolean;
   /** Extra diagnostics for interrupted turns (stderr summary, exit code). */
@@ -406,7 +413,13 @@ export type WsIncoming =
 /** Backend -> Frontend */
 export type WsOutgoing =
   | { type: "text_delta"; sessionId: string; text: string }
-  | { type: "thinking"; sessionId: string; text: string }
+  | {
+      type: "thinking";
+      sessionId: string;
+      text: string;
+      segmentId?: string;
+      kind?: ReasoningSegment["kind"];
+    }
   | { type: "tool_use"; sessionId: string; id: string; name: string; input: string; parentToolUseId?: string }
   | { type: "tool_result"; sessionId: string; toolUseId: string; output: string }
   | { type: "agent_activity"; sessionId: string; activity: AgentActivity }
@@ -415,6 +428,7 @@ export type WsOutgoing =
       sessionId: string;
       text: string;
       thinking: string;
+      reasoningSegments: ReasoningSegment[];
       toolCalls: ToolCall[];
       agentActivities: AgentActivity[];
       agentPlanMode: boolean;

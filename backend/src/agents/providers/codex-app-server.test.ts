@@ -1574,6 +1574,39 @@ describe("CodexAppServerSession normalized events", () => {
     ]);
   });
 
+  it("preserves Codex reasoning item identities across streamed deltas", async () => {
+    const proc = createMockProcess();
+    mockSpawn.mockReturnValue(proc);
+    const session = new CodexAppServerSession();
+    const assistantEvents: Array<{ message: { id: string; content: unknown[] } }> = [];
+    session.on("assistant", (event) => assistantEvents.push(event as never));
+    await initializeSession(session, proc);
+
+    proc._stdout.push(JSON.stringify({
+      method: "item/reasoning/summaryTextDelta",
+      params: { itemId: "reasoning-item-1", delta: "Inspect " },
+    }) + "\n");
+    proc._stdout.push(JSON.stringify({
+      method: "item/reasoning/textDelta",
+      params: { itemId: "reasoning-item-1", delta: "state" },
+    }) + "\n");
+    proc._stdout.push(JSON.stringify({
+      method: "item/reasoning/summaryTextDelta",
+      params: { itemId: "reasoning-item-2", delta: "Check clients" },
+    }) + "\n");
+
+    expect(assistantEvents.map((event) => event.message.id)).toEqual([
+      "reasoning-item-1",
+      "reasoning-item-1",
+      "reasoning-item-2",
+    ]);
+    expect(assistantEvents.map((event) => event.message.content)).toEqual([
+      [{ type: "thinking", thinking: "Inspect " }],
+      [{ type: "thinking", thinking: "state" }],
+      [{ type: "thinking", thinking: "Check clients" }],
+    ]);
+  });
+
   it("renders collab agent tool calls through the existing Agent tool UI path", async () => {
     const proc = createMockProcess();
     mockSpawn.mockReturnValue(proc);

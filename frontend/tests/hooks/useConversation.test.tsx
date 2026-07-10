@@ -1817,6 +1817,63 @@ describe("useConversation", () => {
     });
 
     expect(result.current.currentThinking).toBe("First second");
+    expect(result.current.currentReasoningSegments).toEqual([]);
+  });
+
+  it("upserts typed reasoning deltas by segment id and retains redacted phases", async () => {
+    const { __wsMock } = await getWsMock();
+    const { result } = renderConversation("ws-1");
+
+    act(() => {
+      __wsMock.emit("ws-1", {
+        type: "user_message",
+        message: {
+          id: "u1",
+          sessionId: "sess-1",
+          role: "user",
+          content: "think",
+          timestamp: "2026-02-12T00:00:00.000Z",
+        },
+      });
+    });
+
+    act(() => {
+      __wsMock.emit("ws-1", {
+        type: "thinking",
+        sessionId: "sess-1",
+        segmentId: "reasoning-1",
+        kind: "thinking",
+        text: "First ",
+      });
+      __wsMock.emit("ws-1", {
+        type: "thinking",
+        sessionId: "sess-1",
+        segmentId: "hidden-1",
+        kind: "redacted",
+        text: "must not be exposed",
+      });
+      __wsMock.emit("ws-1", {
+        type: "thinking",
+        sessionId: "sess-1",
+        segmentId: "reasoning-1",
+        kind: "thinking",
+        text: "phase",
+      });
+      __wsMock.emit("ws-1", {
+        type: "thinking",
+        sessionId: "sess-1",
+        segmentId: "reasoning-2",
+        kind: "thinking",
+        text: "Second phase",
+      });
+    });
+
+    expect(result.current.currentReasoningSegments).toEqual([
+      { id: "reasoning-1", kind: "thinking", content: "First phase" },
+      { id: "hidden-1", kind: "redacted" },
+      { id: "reasoning-2", kind: "thinking", content: "Second phase" },
+    ]);
+    expect(result.current.currentThinking).toBe("");
   });
 
   it("persists thinking content in finalized assistant message on done", async () => {
@@ -1847,6 +1904,52 @@ describe("useConversation", () => {
 
     const assistant = result.current.messages.at(-1);
     expect(assistant?.thinkingContent).toBe("Deep thought");
+    expect(assistant?.content).toBe("Answer");
+  });
+
+  it("persists typed reasoning segments in the optimistic finalized message", async () => {
+    const { __wsMock } = await getWsMock();
+    const { result } = renderConversation("ws-1");
+
+    act(() => {
+      __wsMock.emit("ws-1", {
+        type: "user_message",
+        message: {
+          id: "u1",
+          sessionId: "sess-1",
+          role: "user",
+          content: "think",
+          timestamp: "2026-02-12T00:00:00.000Z",
+        },
+      });
+    });
+    act(() => {
+      __wsMock.emit("ws-1", {
+        type: "thinking",
+        sessionId: "sess-1",
+        segmentId: "reasoning-1",
+        kind: "thinking",
+        text: "Visible thought",
+      });
+      __wsMock.emit("ws-1", {
+        type: "thinking",
+        sessionId: "sess-1",
+        segmentId: "hidden-1",
+        kind: "redacted",
+        text: "",
+      });
+      __wsMock.emit("ws-1", { type: "text_delta", sessionId: "sess-1", text: "Answer" });
+    });
+    act(() => {
+      __wsMock.emit("ws-1", { type: "done", sessionId: "sess-1" });
+    });
+
+    const assistant = result.current.messages.at(-1);
+    expect(assistant?.reasoningSegments).toEqual([
+      { id: "reasoning-1", kind: "thinking", content: "Visible thought" },
+      { id: "hidden-1", kind: "redacted" },
+    ]);
+    expect(assistant?.thinkingContent).toBeUndefined();
     expect(assistant?.content).toBe("Answer");
   });
 
@@ -2280,6 +2383,10 @@ describe("useConversation", () => {
         sessionId: "sess-1",
         text: "Before after",
         thinking: "Canonical thinking",
+        reasoningSegments: [
+          { id: "reasoning-1", kind: "thinking", content: "Canonical visible reasoning" },
+          { id: "hidden-1", kind: "redacted" },
+        ],
         toolCalls: [{
           id: "tool-1",
           name: "Read",
@@ -2301,6 +2408,10 @@ describe("useConversation", () => {
     expect(result.current.sessionId).toBe("sess-1");
     expect(result.current.currentStreamingText).toBe("Before after");
     expect(result.current.currentThinking).toBe("Canonical thinking");
+    expect(result.current.currentReasoningSegments).toEqual([
+      { id: "reasoning-1", kind: "thinking", content: "Canonical visible reasoning" },
+      { id: "hidden-1", kind: "redacted" },
+    ]);
     expect(result.current.activeToolCalls).toEqual([
       expect.objectContaining({ id: "tool-1", output: "file contents" }),
     ]);

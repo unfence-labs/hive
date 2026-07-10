@@ -126,6 +126,7 @@ export default function BrainView() {
     streamingStartedAt,
     currentStreamingText,
     currentThinking,
+    currentReasoningSegments,
     activeToolCalls,
     activeAgentActivities,
     pendingToolInputs,
@@ -373,6 +374,7 @@ export default function BrainView() {
               streamingStartedAt={streamingStartedAt}
               currentStreamingText={currentStreamingText}
               currentThinking={currentThinking}
+              currentReasoningSegments={currentReasoningSegments}
               activeToolCalls={activeToolCalls}
               activeAgentActivities={activeAgentActivities}
               pendingToolInputs={pendingToolInputs}

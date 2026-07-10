@@ -28,6 +28,7 @@ function baseProps(overrides: Partial<ConversationPaneProps> = {}): Conversation
     messages: [],
     currentStreamingText: "",
     currentThinking: "",
+    currentReasoningSegments: [],
     activeToolCalls: [],
     activeAgentActivities: [],
     pendingToolInputs: [],

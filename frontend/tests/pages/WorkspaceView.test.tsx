@@ -359,6 +359,7 @@ function buildConversationState(
     workspaceStatus: "idle",
     currentStreamingText: "",
     currentThinking: "",
+    currentReasoningSegments: [],
     activeToolCalls: [],
     activeAgentActivities: [],
     pendingToolInputs: [],

@@ -1,6 +1,6 @@
 import { useEffect, useCallback, useReducer, useRef, useSyncExternalStore } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import type { AgentActivity, ChatMessage, FileMention, ImageAttachment, MessageOptions, ToolCall, WsOutgoing, QuestionAnswer, QuestionInput } from "@/types";
+import type { AgentActivity, ChatMessage, FileMention, ImageAttachment, MessageOptions, ReasoningSegment, ToolCall, WsOutgoing, QuestionAnswer, QuestionInput } from "@/types";
 import { wsTransport } from "@/lib/ws-transport";
 import {
   useSessionMessages,
@@ -19,6 +19,7 @@ export interface PendingToolInput {
 interface SessionStreamState {
   currentText: string;
   currentThinking: string;
+  currentReasoningSegments: ReasoningSegment[];
   activeToolCalls: ToolCall[];
   activeAgentActivities: AgentActivity[];
   isStreaming: boolean;
@@ -30,6 +31,7 @@ interface SessionStreamState {
 const emptyStreamState: SessionStreamState = {
   currentText: "",
   currentThinking: "",
+  currentReasoningSegments: [],
   activeToolCalls: [],
   activeAgentActivities: [],
   isStreaming: false,
@@ -130,6 +132,7 @@ function streamHasRecoverableState(stream: SessionStreamState): boolean {
   return stream.isStreaming ||
     stream.currentText.length > 0 ||
     stream.currentThinking.length > 0 ||
+    stream.currentReasoningSegments.length > 0 ||
     stream.activeToolCalls.length > 0 ||
     stream.activeAgentActivities.length > 0 ||
     stream.pendingToolInputs.length > 0;
@@ -138,6 +141,7 @@ function streamHasRecoverableState(stream: SessionStreamState): boolean {
 function streamHasVisibleState(stream: SessionStreamState): boolean {
   return stream.currentText.length > 0 ||
     stream.currentThinking.length > 0 ||
+    stream.currentReasoningSegments.length > 0 ||
     stream.activeToolCalls.length > 0 ||
     stream.activeAgentActivities.length > 0 ||
     stream.pendingToolInputs.length > 0;
@@ -153,10 +157,13 @@ function buildFinalizedMessage(
   const toolCalls = stream.activeToolCalls.length > 0 ? stream.activeToolCalls : undefined;
   const agentActivities = stream.activeAgentActivities.length > 0 ? stream.activeAgentActivities : undefined;
   const thinkingContent = stream.currentThinking || undefined;
+  const reasoningSegments = stream.currentReasoningSegments.length > 0
+    ? stream.currentReasoningSegments
+    : undefined;
 
   if (msg.type === "cancelled") {
     const hasActivity = stream.activeAgentActivities.length > 0;
-    const hasThinking = stream.currentThinking.length > 0;
+    const hasThinking = stream.currentThinking.length > 0 || stream.currentReasoningSegments.length > 0;
     // Ignore a stale cancelled with no accumulated data.
     if (!stream.isStreaming && !hasOutput && !hasActivity && !hasThinking) return null;
     return {
@@ -166,6 +173,7 @@ function buildFinalizedMessage(
       content: hasOutput ? stream.currentText : CANCELLED_NO_OUTPUT_MESSAGE,
       toolCalls,
       agentActivities,
+      reasoningSegments,
       thinkingContent,
       timestamp: new Date().toISOString(),
       cancelled: true,
@@ -179,6 +187,7 @@ function buildFinalizedMessage(
     content: stream.currentText,
     toolCalls,
     agentActivities,
+    reasoningSegments,
     thinkingContent,
     timestamp: new Date().toISOString(),
     durationMs: msg.durationMs,
@@ -222,6 +231,27 @@ function upsertActivity(activities: AgentActivity[], activity: AgentActivity): A
   return activities.map((item, itemIndex) => itemIndex === index ? activity : item);
 }
 
+function appendReasoningDelta(
+  segments: ReasoningSegment[],
+  id: string,
+  kind: ReasoningSegment["kind"],
+  text: string,
+): ReasoningSegment[] {
+  const index = segments.findIndex((segment) => segment.id === id);
+  if (index < 0) {
+    return [
+      ...segments,
+      kind === "redacted" ? { id, kind } : { id, kind, content: text },
+    ];
+  }
+
+  return segments.map((segment, segmentIndex) => {
+    if (segmentIndex !== index) return segment;
+    if (kind === "redacted") return { id, kind };
+    return { id, kind, content: (segment.content ?? "") + text };
+  });
+}
+
 function reducer(state: ConversationState, action: Action): ConversationState {
   switch (action.type) {
     case "user_message": {
@@ -239,6 +269,7 @@ function reducer(state: ConversationState, action: Action): ConversationState {
             streamingStartedAt: stream.streamingStartedAt ?? Date.now(),
             currentText: "",
             currentThinking: "",
+            currentReasoningSegments: [],
             activeToolCalls: [],
             activeAgentActivities: [],
             pendingToolInputs: [],
@@ -262,6 +293,16 @@ function reducer(state: ConversationState, action: Action): ConversationState {
       if (!sid) return state;
       const stream = state.sessionStreams[sid];
       if (!stream) return state;
+      if (action.segmentId) {
+        return updateStream(state, sid, {
+          currentReasoningSegments: appendReasoningDelta(
+            stream.currentReasoningSegments,
+            action.segmentId,
+            action.kind ?? "thinking",
+            action.text,
+          ),
+        });
+      }
       return updateStream(state, sid, { currentThinking: stream.currentThinking + action.text });
     }
 
@@ -312,6 +353,7 @@ function reducer(state: ConversationState, action: Action): ConversationState {
             ...existing,
             currentText: action.text,
             currentThinking: action.thinking,
+            currentReasoningSegments: action.reasoningSegments ?? [],
             activeToolCalls: action.toolCalls,
             activeAgentActivities: action.agentActivities,
             isStreaming: true,
@@ -338,7 +380,7 @@ function reducer(state: ConversationState, action: Action): ConversationState {
       if (!stream) return state;
       const hasOutput = stream.currentText.length > 0 || stream.activeToolCalls.length > 0;
       const hasActivity = stream.activeAgentActivities.length > 0;
-      const hasThinking = stream.currentThinking.length > 0;
+      const hasThinking = stream.currentThinking.length > 0 || stream.currentReasoningSegments.length > 0;
       // Ignore stale cancelled events when there's no stream data.
       if (!stream.isStreaming && !hasOutput && !hasActivity && !hasThinking) return state;
       return { ...state, sessionStreams: deleteStream(state, sid) };
@@ -375,6 +417,7 @@ function reducer(state: ConversationState, action: Action): ConversationState {
           if (
             !stream.currentText &&
             !stream.currentThinking &&
+            stream.currentReasoningSegments.length === 0 &&
             stream.activeToolCalls.length === 0 &&
             stream.activeAgentActivities.length === 0 &&
             stream.pendingToolInputs.length === 0
@@ -797,6 +840,7 @@ export function useConversation(workspaceId: string | undefined) {
     workspaceStatus: state.workspaceStatus,
     currentStreamingText: activeStream?.currentText ?? "",
     currentThinking: activeStream?.currentThinking ?? "",
+    currentReasoningSegments: activeStream?.currentReasoningSegments ?? [],
     activeToolCalls: activeStream?.activeToolCalls ?? [],
     activeAgentActivities: activeStream?.activeAgentActivities ?? [],
     pendingToolInputs: activeStream?.pendingToolInputs ?? [],

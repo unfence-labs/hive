@@ -100,6 +100,7 @@ function emptyConversation() {
     workspaceStatus: "idle",
     currentStreamingText: "",
     currentThinking: "",
+    currentReasoningSegments: [],
     activeToolCalls: [],
     activeAgentActivities: [],
     pendingToolInputs: [],

@@ -21,6 +21,7 @@ import type {
   FileMention,
   ImageAttachment,
   MessageOptions,
+  ReasoningSegment,
   SessionKind,
   ToolCall,
   ToolInputResult,
@@ -261,6 +262,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
   // In-progress streaming accumulators (instance-level for snapshot access)
   private _streamText = "";
   private _streamThinking = "";
+  private _streamReasoningSegments: ReasoningSegment[] = [];
   private _streamToolCalls: ToolCall[] = [];
   private _streamAgentActivities: AgentActivity[] = [];
   private _agentPlanMode = false;
@@ -330,11 +332,12 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
   /** Return a snapshot of in-progress streaming content.
    *  Returns null when the session is not streaming. Used by WS bootstrap to replay
    *  accumulated state to late-connecting clients. */
-  getStreamingSnapshot(): { text: string; thinking: string; toolCalls: ToolCall[]; agentActivities: AgentActivity[]; agentPlanMode: boolean } | null {
+  getStreamingSnapshot(): { text: string; thinking: string; reasoningSegments: ReasoningSegment[]; toolCalls: ToolCall[]; agentActivities: AgentActivity[]; agentPlanMode: boolean } | null {
     if (this._status !== "streaming") return null;
     return {
       text: this._streamText,
       thinking: this._streamThinking,
+      reasoningSegments: this._streamReasoningSegments.map((segment) => ({ ...segment })),
       toolCalls: this._streamToolCalls.map(tc => ({ ...tc })),
       agentActivities: this._streamAgentActivities.map(cloneAgentActivity),
       agentPlanMode: this._agentPlanMode,
@@ -563,6 +566,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
   private resetStreamAccumulators(): void {
     this._streamText = "";
     this._streamThinking = "";
+    this._streamReasoningSegments = [];
     this._streamToolCalls = [];
     this._streamAgentActivities = [];
     this._agentPlanMode = false;
@@ -1055,7 +1059,14 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
         break;
       case "thinking_delta":
         this._streamThinking += event.text;
-        this.emit("message", { type: "thinking", sessionId: this.sessionId, text: event.text });
+        this.upsertReasoningSegment(event.segmentId, "thinking", event.text);
+        this.emit("message", {
+          type: "thinking",
+          sessionId: this.sessionId,
+          text: event.text,
+          segmentId: event.segmentId,
+          kind: "thinking",
+        });
         break;
       case "tool_started":
         this.upsertToolCall(event.id, event.name, event.input, event.parentToolUseId);
@@ -1078,6 +1089,14 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
         break;
       case "redacted_thinking":
         this._streamThinking += event.text;
+        this.upsertReasoningSegment(event.segmentId, "redacted");
+        this.emit("message", {
+          type: "thinking",
+          sessionId: this.sessionId,
+          text: event.text,
+          segmentId: event.segmentId,
+          kind: "redacted",
+        });
         break;
       case "usage_updated":
         return { inputTokens: event.inputTokens, outputTokens: event.outputTokens };
@@ -1110,6 +1129,19 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
         break;
     }
     return undefined;
+  }
+
+  private upsertReasoningSegment(
+    id: string,
+    kind: ReasoningSegment["kind"],
+    content?: string,
+  ): void {
+    const segment = this._streamReasoningSegments.find((item) => item.id === id);
+    if (segment) {
+      if (content) segment.content = (segment.content ?? "") + content;
+      return;
+    }
+    this._streamReasoningSegments.push({ id, kind, ...(content ? { content } : {}) });
   }
 
   private upsertToolCall(id: string, name: string, input: string, parentToolUseId?: string): void {
@@ -1504,6 +1536,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
     // content even though new arrays are installed synchronously.
     const streamText = this._streamText;
     const streamThinking = this._streamThinking;
+    const streamReasoningSegments = this._streamReasoningSegments;
     const streamToolCalls = this._streamToolCalls;
     const streamAgentActivities = this._streamAgentActivities;
     const pendingImageAttachments = this.pendingImageAttachments;
@@ -1548,6 +1581,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
               ? streamAgentActivities.map(cloneAgentActivity)
               : undefined,
             thinkingContent: streamThinking || undefined,
+            reasoningSegments: streamReasoningSegments.length > 0 ? streamReasoningSegments : undefined,
             timestamp: new Date().toISOString(),
             cancelled: shouldSurfaceCancelled || undefined,
             errorDetail: cancellationErrorDetail,

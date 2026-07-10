@@ -270,7 +270,8 @@ struct ConversationStoreSessionTests {
         let event = try JSONDecoder().decode(WsOutgoing.self, from: json)
 
         guard case .streamSnapshot(let sessionId, let text, let thinking, let toolCalls,
-                                   let activities, let agentPlanMode, let startedAt) = event else {
+                                   let activities, let agentPlanMode, let startedAt,
+                                   let reasoningSegments) = event else {
             Issue.record("Expected stream snapshot")
             return
         }
@@ -281,6 +282,7 @@ struct ConversationStoreSessionTests {
         #expect(activities.count == 1)
         #expect(agentPlanMode == true)
         #expect(startedAt == 1_700_000_002_000.0)
+        #expect(reasoningSegments.isEmpty)
     }
 
     @Test @MainActor

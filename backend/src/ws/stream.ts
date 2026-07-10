@@ -253,6 +253,7 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
       sessionId: session.sessionId,
       text: snapshot.text,
       thinking: snapshot.thinking,
+      reasoningSegments: snapshot.reasoningSegments,
       toolCalls: snapshot.toolCalls,
       agentActivities: snapshot.agentActivities,
       agentPlanMode: snapshot.agentPlanMode,

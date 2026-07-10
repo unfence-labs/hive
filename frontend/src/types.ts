@@ -224,6 +224,12 @@ export interface ToolCall {
   parentToolUseId?: string;
 }
 
+export interface ReasoningSegment {
+  id: string;
+  kind: "thinking" | "redacted";
+  content?: string;
+}
+
 export interface ChatMessage {
   id: string;
   sessionId: string;
@@ -234,6 +240,8 @@ export interface ChatMessage {
   toolCalls?: ToolCall[];
   agentActivities?: AgentActivity[];
   goalCommand?: boolean;
+  reasoningSegments?: ReasoningSegment[];
+  /** Legacy reasoning payload kept for messages persisted before typed segments. */
   thinkingContent?: string;
   timestamp: string;
   cancelled?: boolean;
@@ -395,7 +403,13 @@ export type WsIncoming =
 /** Backend -> Frontend */
 export type WsOutgoing =
   | { type: "text_delta"; sessionId: string; text: string }
-  | { type: "thinking"; sessionId: string; text: string }
+  | {
+      type: "thinking";
+      sessionId: string;
+      text: string;
+      segmentId?: string;
+      kind?: ReasoningSegment["kind"];
+    }
   | { type: "tool_use"; sessionId: string; id: string; name: string; input: string; parentToolUseId?: string }
   | { type: "tool_result"; sessionId: string; toolUseId: string; output: string }
   | { type: "agent_activity"; sessionId: string; activity: AgentActivity }
@@ -404,6 +418,8 @@ export type WsOutgoing =
       sessionId: string;
       text: string;
       thinking: string;
+      /** Absent only when replaying a snapshot from an older backend. */
+      reasoningSegments?: ReasoningSegment[];
       toolCalls: ToolCall[];
       agentActivities: AgentActivity[];
       agentPlanMode: boolean;

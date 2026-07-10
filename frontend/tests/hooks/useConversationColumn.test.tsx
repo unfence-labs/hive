@@ -51,6 +51,7 @@ function makeConversation(overrides: Record<string, unknown> = {}) {
     workspaceStatus: "idle",
     currentStreamingText: "",
     currentThinking: "",
+    currentReasoningSegments: [],
     activeToolCalls: [],
     activeAgentActivities: [],
     pendingToolInputs: [],
