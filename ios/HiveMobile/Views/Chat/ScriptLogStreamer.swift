@@ -7,6 +7,7 @@ final class ScriptLogStreamer {
     private(set) var lines: [AnsiLine] = []
     private(set) var pending: AnsiLine?
     private(set) var truncated = false
+    private(set) var serverError: String?
 
     private var parser = AnsiLogParser()
     private var task: URLSessionWebSocketTask?
@@ -42,18 +43,6 @@ final class ScriptLogStreamer {
         task = nil
     }
 
-    func clear() {
-        intentionallyClosed = true
-        reconnectTask?.cancel()
-        reconnectTask = nil
-        receiveLoop?.cancel()
-        receiveLoop = nil
-        task?.cancel(with: .goingAway, reason: nil)
-        task = nil
-        parser.reset()
-        publish()
-    }
-
     private func connect() {
         reconnectTask?.cancel()
         reconnectTask = nil
@@ -61,6 +50,7 @@ final class ScriptLogStreamer {
         task?.cancel(with: .goingAway, reason: nil)
 
         parser.reset()
+        serverError = nil
         publish()
 
         guard let url = makeURL() else { return }
@@ -105,6 +95,9 @@ final class ScriptLogStreamer {
 
         if type == "exit" || type == "error" {
             streamEnded = true
+        }
+        if type == "error" {
+            serverError = (object["message"] as? String) ?? "Log stream unavailable"
         }
     }
 

@@ -50,7 +50,9 @@ struct ScriptLogView: View {
         VStack(spacing: 0) {
             header
             Divider().overlay(WhisperColor.separator)
-            if status.state == .idle && !hasOutput {
+            if let serverError = streamer.serverError, !hasOutput {
+                streamErrorState(serverError)
+            } else if status.state == .idle && !hasOutput {
                 emptyState
             } else {
                 transcript
@@ -194,6 +196,14 @@ struct ScriptLogView: View {
                         .logRow()
                 }
 
+                if let serverError = streamer.serverError {
+                    Text(serverError)
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(WhisperColor.danger)
+                        .frame(maxWidth: .infinity, alignment: .center)
+                        .logRow()
+                }
+
                 Color.clear
                     .frame(height: 1)
                     .id(Self.bottomAnchorID)
@@ -294,6 +304,19 @@ struct ScriptLogView: View {
         .background(WhisperColor.codeBlockBg)
     }
 
+    private func streamErrorState(_ message: String) -> some View {
+        VStack(spacing: HiveSpacing.lg) {
+            Image(systemName: "exclamationmark.triangle")
+                .font(.system(size: 40))
+                .foregroundStyle(WhisperColor.textMuted)
+            Text(message)
+                .font(.subheadline)
+                .foregroundStyle(WhisperColor.textSecondary)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(WhisperColor.codeBlockBg)
+    }
+
     // MARK: - Actions
 
     private var actionTitle: String {
@@ -334,7 +357,6 @@ struct ScriptLogView: View {
     }
 
     private func performRestart() {
-        streamer.clear()
         runAction {
             do {
                 try await api.stopWorkspaceScript(workspaceId: workspace.id, scriptId: scriptId)
