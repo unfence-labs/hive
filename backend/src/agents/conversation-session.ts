@@ -6,6 +6,7 @@ import { workspaceFileRawPath } from "@hive/shared/workspace-files";
 import { nanoid } from "nanoid";
 import sharp from "sharp";
 import { AgentEventNormalizer, type NormalizedAgentEvent } from "./agent-event-normalizer.js";
+import { cleanReasoningText } from "./reasoning-text.js";
 import { appendBoundedAgentOutput, boundAgentOutput } from "./bounded-output.js";
 import type { CodexGoalResult, CodexGoalSetParams, CodexGoalStatus } from "./providers/codex-app-server.js";
 import { resolveProvider } from "./providers/registry.js";
@@ -165,14 +166,10 @@ function isCodexGoalRunner(runner: AgentRunner): runner is CodexGoalRunner {
 }
 
 /**
- * Codex separates reasoning summary parts with `<!-- -->` HTML comments,
- * streamed token-split across deltas — only accumulated text can be cleaned.
- * Normalize the markers to paragraph breaks and drop segments left empty.
+ * Safety net behind the Codex adapter's streaming separator filter: normalize
+ * any `<!-- -->` marker that still reaches accumulated reasoning content and
+ * drop segments left empty (see reasoning-text.ts).
  */
-function cleanReasoningText(text: string): string {
-  return text.replace(/\s*<!--\s*-->\s*/g, "\n\n").trimEnd();
-}
-
 function cleanReasoningSegments(segments: ReasoningSegment[]): ReasoningSegment[] {
   return segments
     .map((segment) => segment.content === undefined

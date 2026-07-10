@@ -741,6 +741,19 @@ private struct ReasoningDisclosure: View {
     }
 }
 
+/// Render reasoning content as inline markdown so Codex summary headlines
+/// (`**headline**`) and emphasis match the web renderer, while the base mono
+/// font keeps the compact "raw reasoning" look. Inline-only parsing preserves
+/// the paragraph whitespace between summary parts.
+private func reasoningMarkdown(_ text: String) -> AttributedString {
+    (try? AttributedString(
+        markdown: text,
+        options: AttributedString.MarkdownParsingOptions(
+            interpretedSyntax: .inlineOnlyPreservingWhitespace
+        )
+    )) ?? AttributedString(text)
+}
+
 private struct ReasoningPhaseContent: View {
     let segment: ReasoningSegment
     let phase: Int
@@ -749,7 +762,7 @@ private struct ReasoningPhaseContent: View {
         Group {
             switch segment.kind {
             case .thinking:
-                Text(segment.content ?? "")
+                Text(reasoningMarkdown(segment.content ?? ""))
                     .font(WhisperFont.mono(11))
                     .foregroundStyle(WhisperColor.textSecondary)
                     .lineSpacing(2)
