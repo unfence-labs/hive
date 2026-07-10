@@ -110,6 +110,17 @@ describe("AgentEventNormalizer", () => {
     }]);
   });
 
+  it("skips signature-only thinking blocks with empty text", () => {
+    const normalizer = new AgentEventNormalizer();
+
+    const events = normalizer.handleAssistant(assistant([
+      { type: "thinking", thinking: "" },
+      { type: "text", text: "Answer" },
+    ]));
+
+    expect(events).toEqual([{ type: "text_delta", text: "Answer" }]);
+  });
+
   it("nests a subagent's tool under its parent via the native parent_tool_use_id", () => {
     const normalizer = new AgentEventNormalizer();
 

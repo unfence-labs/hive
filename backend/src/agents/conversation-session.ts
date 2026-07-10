@@ -164,6 +164,23 @@ function isCodexGoalRunner(runner: AgentRunner): runner is CodexGoalRunner {
     && typeof candidate.clearGoal === "function";
 }
 
+/**
+ * Codex separates reasoning summary parts with `<!-- -->` HTML comments,
+ * streamed token-split across deltas — only accumulated text can be cleaned.
+ * Normalize the markers to paragraph breaks and drop segments left empty.
+ */
+function cleanReasoningText(text: string): string {
+  return text.replace(/\s*<!--\s*-->\s*/g, "\n\n").trimEnd();
+}
+
+function cleanReasoningSegments(segments: ReasoningSegment[]): ReasoningSegment[] {
+  return segments
+    .map((segment) => segment.content === undefined
+      ? segment
+      : { ...segment, content: cleanReasoningText(segment.content) })
+    .filter((segment) => segment.kind === "redacted" || segment.content);
+}
+
 function cloneAgentActivity(activity: AgentActivity): AgentActivity {
   switch (activity.kind) {
     case "command_execution":
@@ -1535,8 +1552,8 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
     // before resetting, so the deferred persist below still sees this turn's
     // content even though new arrays are installed synchronously.
     const streamText = this._streamText;
-    const streamThinking = this._streamThinking;
-    const streamReasoningSegments = this._streamReasoningSegments;
+    const streamThinking = cleanReasoningText(this._streamThinking);
+    const streamReasoningSegments = cleanReasoningSegments(this._streamReasoningSegments);
     const streamToolCalls = this._streamToolCalls;
     const streamAgentActivities = this._streamAgentActivities;
     const pendingImageAttachments = this.pendingImageAttachments;

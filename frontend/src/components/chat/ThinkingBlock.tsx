@@ -22,11 +22,16 @@ export const ThinkingBlock = memo(function ThinkingBlock({
 }: ThinkingBlockProps) {
   const [open, setOpen] = useState(defaultOpen);
   const panelId = useId();
-  const displaySegments: ReasoningSegment[] = segments.length > 0
+  const sourceSegments: ReasoningSegment[] = segments.length > 0
     ? segments
     : legacyContent
       ? [{ id: LEGACY_SEGMENT_ID, kind: "thinking", content: legacyContent }]
       : [];
+  // Claude 5 family models emit signature-only thinking blocks; contentless
+  // segments (including ones already persisted) have nothing to show.
+  const displaySegments = sourceSegments.filter(
+    (segment) => segment.kind === "redacted" || segment.content?.trim(),
+  );
 
   if (displaySegments.length === 0) return null;
 
@@ -74,10 +79,8 @@ export const ThinkingBlock = memo(function ThinkingBlock({
                   <EyeOffIcon className="size-3.5 shrink-0" aria-hidden="true" />
                   <span>Reasoning hidden by provider</span>
                 </div>
-              ) : segment.content?.trim() ? (
-                <MessageResponse isAnimating={streaming}>{segment.content ?? ""}</MessageResponse>
               ) : (
-                <span className="text-xs">Reasoning content unavailable</span>
+                <MessageResponse isAnimating={streaming}>{segment.content ?? ""}</MessageResponse>
               )}
             </div>
           ))}

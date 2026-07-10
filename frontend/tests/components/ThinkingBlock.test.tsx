@@ -66,9 +66,9 @@ describe("ThinkingBlock", () => {
     expect(screen.queryByText("Reasoning hidden by provider")).not.toBeInTheDocument();
   });
 
-  it("shows neutral copy when a typed thinking phase has no content", async () => {
+  it("hides contentless thinking phases entirely", async () => {
     const user = userEvent.setup();
-    render(
+    const { container, rerender } = render(
       <ThinkingBlock
         segments={[
           { id: "missing", kind: "thinking" },
@@ -77,9 +77,21 @@ describe("ThinkingBlock", () => {
       />,
     );
 
+    expect(container).toBeEmptyDOMElement();
+
+    rerender(
+      <ThinkingBlock
+        segments={[
+          { id: "missing", kind: "thinking" },
+          { id: "visible", kind: "thinking", content: "Real thought" },
+        ]}
+      />,
+    );
+
     await user.click(screen.getByRole("button", { name: /Reasoning/ }));
 
-    expect(screen.getAllByText("Reasoning content unavailable")).toHaveLength(2);
+    expect(screen.getByText("Real thought")).toBeInTheDocument();
+    expect(screen.queryByText("Reasoning content unavailable")).not.toBeInTheDocument();
   });
 
   it("labels streaming reasoning with a reduced-motion-safe indicator", () => {

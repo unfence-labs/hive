@@ -53,6 +53,29 @@ struct ReasoningSegmentsTests {
     }
 
     @Test
+    func hidesContentlessThinkingSegments() throws {
+        let data = Data("""
+        {
+          "id": "message-1",
+          "sessionId": "session-1",
+          "role": "assistant",
+          "content": "Answer",
+          "reasoningSegments": [
+            { "id": "reasoning-1", "kind": "thinking", "content": "" },
+            { "id": "reasoning-2", "kind": "thinking" },
+            { "id": "reasoning-3", "kind": "redacted" },
+            { "id": "reasoning-4", "kind": "thinking", "content": "Visible" }
+          ],
+          "timestamp": "2026-07-10T00:00:00.000Z"
+        }
+        """.utf8)
+
+        let message = try JSONDecoder().decode(ChatMessage.self, from: data)
+
+        #expect(message.resolvedReasoningSegments.map(\.id) == ["reasoning-3", "reasoning-4"])
+    }
+
+    @Test
     func decodesTypedAndLegacyThinkingEvents() throws {
         let typedData = Data("""
         {

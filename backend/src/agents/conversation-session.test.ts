@@ -3853,6 +3853,43 @@ describe("ConversationSession", () => {
     ]);
   });
 
+  it("strips Codex summary part separators from persisted reasoning", async () => {
+    const session = createSession({ sessionId: "reasoning-separator-strip" });
+
+    session.sendMessage("Think");
+    mockProc._stdout.push(reasoningAssistantLine("reasoning-1", [
+      { type: "thinking", thinking: "**First part**" },
+    ]));
+    // Codex streams the `<!-- -->` part separator token-split across deltas,
+    // so it can only be removed from accumulated content at finalize time.
+    mockProc._stdout.push(reasoningAssistantLine("reasoning-1", [
+      { type: "thinking", thinking: "\n\n<!--" },
+    ]));
+    mockProc._stdout.push(reasoningAssistantLine("reasoning-1", [
+      { type: "thinking", thinking: " -->\n\n" },
+    ]));
+    mockProc._stdout.push(reasoningAssistantLine("reasoning-1", [
+      { type: "thinking", thinking: "Second part" },
+    ]));
+    mockProc._stdout.push(reasoningAssistantLine("reasoning-2", [
+      { type: "thinking", thinking: "**Headline only**\n\n<!-- -->" },
+    ]));
+    mockProc._stdout.push(resultLine());
+    mockProc._emitClose(0);
+
+    await session.drain();
+
+    const messagesPath = join(tempDir, "sessions", "reasoning-separator-strip", "messages.jsonl");
+    const raw = await readFile(messagesPath, "utf-8");
+    const lines = raw.split("\n").filter(Boolean);
+    const assistantMsg = JSON.parse(lines[1]);
+    expect(assistantMsg.reasoningSegments).toEqual([
+      { id: "reasoning:reasoning-1:0", kind: "thinking", content: "**First part**\n\nSecond part" },
+      { id: "reasoning:reasoning-2:0", kind: "thinking", content: "**Headline only**" },
+    ]);
+    expect(assistantMsg.thinkingContent).toBe("**First part**\n\nSecond part**Headline only**");
+  });
+
   it("persists tool calls in assistant message", async () => {
     const session = createSession({ sessionId: "toolcall-persist" });
 

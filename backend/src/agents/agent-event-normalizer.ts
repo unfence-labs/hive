@@ -109,7 +109,12 @@ export class AgentEventNormalizer {
           events.push({ type: "text_delta", text: block.text });
           break;
         case "thinking":
-          events.push({ type: "thinking_delta", segmentId: reasoningSegmentId, text: block.thinking });
+          // Claude 5 family models return signature-only thinking blocks whose
+          // text is always empty; skip them so clients never receive a
+          // contentless reasoning segment.
+          if (block.thinking) {
+            events.push({ type: "thinking_delta", segmentId: reasoningSegmentId, text: block.thinking });
+          }
           break;
         case "tool_use":
         case "server_tool_use":

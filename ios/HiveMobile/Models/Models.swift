@@ -416,11 +416,20 @@ extension ChatMessage {
     var clipboardText: String { content }
 
     var resolvedReasoningSegments: [ReasoningSegment] {
+        let source: [ReasoningSegment]
         if let reasoningSegments, !reasoningSegments.isEmpty {
-            return reasoningSegments
+            source = reasoningSegments
+        } else if let thinkingContent, !thinkingContent.isEmpty {
+            source = [ReasoningSegment(id: "legacy-thinking", kind: .thinking, content: thinkingContent)]
+        } else {
+            return []
         }
-        guard let thinkingContent, !thinkingContent.isEmpty else { return [] }
-        return [ReasoningSegment(id: "legacy-thinking", kind: .thinking, content: thinkingContent)]
+        // Claude 5 family models emit signature-only thinking blocks; contentless
+        // segments (including ones already persisted) have nothing to show.
+        return source.filter { segment in
+            segment.kind == .redacted
+                || segment.content?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+        }
     }
 }
 

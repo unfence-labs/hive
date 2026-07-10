@@ -749,23 +749,15 @@ private struct ReasoningPhaseContent: View {
         Group {
             switch segment.kind {
             case .thinking:
-                VStack(alignment: .leading, spacing: 6) {
-                    if let content = segment.content, !content.isEmpty {
-                        Text(content)
-                            .font(WhisperFont.mono(11))
-                            .foregroundStyle(WhisperColor.textSecondary)
-                            .lineSpacing(2)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .textSelection(.enabled)
-                    } else {
-                        Text("Reasoning content unavailable")
-                            .font(WhisperFont.scaled(12))
-                            .foregroundStyle(WhisperColor.textMuted)
-                    }
-                }
-                .padding(.vertical, 8)
-                .accessibilityElement(children: .combine)
-                .accessibilityLabel("Reasoning phase \(phase)")
+                Text(segment.content ?? "")
+                    .font(WhisperFont.mono(11))
+                    .foregroundStyle(WhisperColor.textSecondary)
+                    .lineSpacing(2)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .textSelection(.enabled)
+                    .padding(.vertical, 8)
+                    .accessibilityElement(children: .combine)
+                    .accessibilityLabel("Reasoning phase \(phase)")
             case .redacted:
                 HStack(spacing: 8) {
                     Image(systemName: "eye.slash")
