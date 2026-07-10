@@ -21,6 +21,7 @@ struct ChatInputBar: View {
     var onStop: (() -> Void)?
 
     @AppStorage("hiveAccent") private var accentId = AccentOption.defaultId
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var attachedImages: [AttachedImage] = []
     @State private var selectedItems: [PhotosPickerItem] = []
     @State private var showAttachmentError = false
@@ -164,7 +165,7 @@ struct ChatInputBar: View {
             HStack(spacing: 8) {
                 ForEach(attachedImages) { item in
                     AttachmentChip(source: item.attachment?.dataUrl, pending: item.attachment == nil) {
-                        withAnimation(.spring(duration: 0.25)) {
+                        animateAttachment {
                             attachedImages.removeAll { $0.id == item.id }
                         }
                         onDraftAttachmentsChange(attachedImages.compactMap(\.attachment))
@@ -214,8 +215,9 @@ struct ChatInputBar: View {
                 Image(systemName: "plus")
                     .font(.system(size: 16, weight: .medium))
                     .foregroundStyle(WhisperColor.textSecondary)
-                    .frame(width: 32, height: 32)
+                    .frame(width: 44, height: 44)
             }
+            .accessibilityLabel("Attach image")
 
             TextField("Message", text: $draft, axis: .vertical)
                 .lineLimit(1...10)
@@ -228,8 +230,11 @@ struct ChatInputBar: View {
                 Image(systemName: "arrow.up.circle.fill")
                     .font(.system(size: 28))
                     .foregroundStyle(canSend ? WhisperColor.text : WhisperColor.textMuted)
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
             }
             .disabled(!canSend)
+            .accessibilityLabel("Send message")
 
             if isBusy {
                 Button {
@@ -239,7 +244,10 @@ struct ChatInputBar: View {
                     Image(systemName: "stop.circle.fill")
                         .font(.system(size: 28))
                         .foregroundStyle(.red)
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
                 }
+                .accessibilityLabel("Stop response")
             }
         }
         .padding(.horizontal, 16)
@@ -267,6 +275,10 @@ struct ChatInputBar: View {
         return hasContent && !hasPending && !isBusy
     }
 
+    private func animateAttachment(_ body: () -> Void) {
+        if reduceMotion { body() } else { withAnimation(.spring(duration: 0.25), body) }
+    }
+
     private func handleSend() {
         Haptics.impact(.light)
         let imageAttachments = attachedImages.compactMap(\.attachment)
@@ -281,7 +293,7 @@ struct ChatInputBar: View {
         showAttachmentError = false
         for item in items {
             let pending = AttachedImage(attachment: nil)
-            withAnimation(.spring(duration: 0.25)) {
+            animateAttachment {
                 attachedImages.append(pending)
             }
             item.loadTransferable(type: Data.self) { result in
@@ -294,7 +306,7 @@ struct ChatInputBar: View {
                             $0.id != pending.id && $0.attachment?.dataUrl == attachment.dataUrl
                         }
                         if isDuplicate {
-                            withAnimation(.spring(duration: 0.25)) {
+                            animateAttachment {
                                 attachedImages.removeAll { $0.id == pending.id }
                             }
                         } else {
@@ -302,7 +314,7 @@ struct ChatInputBar: View {
                             onDraftAttachmentsChange(attachedImages.compactMap(\.attachment))
                         }
                     } else {
-                        withAnimation(.spring(duration: 0.25)) {
+                        animateAttachment {
                             attachedImages.remove(at: index)
                             showAttachmentError = true
                         }
@@ -318,7 +330,7 @@ struct ChatInputBar: View {
         guard normalized != current else { return }
 
         let restored: [AttachedImage] = attachments.compactMap { attachment in
-            guard attachment.decodedImage != nil else { return nil }
+            guard attachment.hasDecodableImagePayload else { return nil }
             return AttachedImage(attachment: attachment)
         }
         attachedImages = restored + attachedImages.filter { $0.attachment == nil }
@@ -548,15 +560,14 @@ private extension ImageAttachment {
         )
     }
 
-    var decodedImage: UIImage? {
+    var hasDecodableImagePayload: Bool {
         let payload: String
         if let commaIndex = dataUrl.firstIndex(of: ",") {
             payload = String(dataUrl[dataUrl.index(after: commaIndex)...])
         } else {
             payload = dataUrl
         }
-        guard let data = Data(base64Encoded: payload) else { return nil }
-        return UIImage(data: data)
+        return Data(base64Encoded: payload) != nil
     }
 }
 

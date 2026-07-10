@@ -8,8 +8,8 @@ enum AddProjectMode: String, CaseIterable {
 struct AddProjectSheet: View {
     @Environment(\.dismiss) private var dismiss
     let api: APIClient
-    let onClone: (String) -> Void
-    let onCreate: (_ name: String, _ visibility: String?) -> Void
+    let onClone: (String) async -> String?
+    let onCreate: (_ name: String, _ visibility: String?) async -> String?
 
     @State private var mode: AddProjectMode = .clone
 
@@ -21,6 +21,9 @@ struct AddProjectSheet: View {
     @State private var visibility = "private"
     @State private var accountStatus: AccountStatusResponse?
     @State private var loadingAccount = false
+
+    @State private var isSubmitting = false
+    @State private var submitError: String?
 
     private var ghConnected: Bool {
         accountStatus?.authenticated == true
@@ -45,19 +48,41 @@ struct AddProjectSheet: View {
                     }
                 }
                 .pickerStyle(.segmented)
+                .disabled(isSubmitting)
 
-                if mode == .clone {
-                    cloneForm
-                } else {
-                    createForm
+                Group {
+                    if mode == .clone {
+                        cloneForm
+                    } else {
+                        createForm
+                    }
                 }
+                .disabled(isSubmitting)
 
                 Spacer()
 
-                Button(mode == .clone ? "Add Project" : "Create Project") { submit() }
-                    .buttonStyle(.glassProminent)
-                    .disabled(!canSubmit)
-                    .frame(maxWidth: .infinity)
+                if let submitError {
+                    Text(submitError)
+                        .font(.footnote)
+                        .foregroundStyle(WhisperColor.danger)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+
+                Button {
+                    submit()
+                } label: {
+                    if isSubmitting {
+                        ProgressView()
+                            .controlSize(.small)
+                            .frame(maxWidth: .infinity)
+                    } else {
+                        Text(mode == .clone ? "Add Project" : "Create Project")
+                            .frame(maxWidth: .infinity)
+                    }
+                }
+                .buttonStyle(.glassProminent)
+                .disabled(!canSubmit || isSubmitting)
+                .frame(maxWidth: .infinity)
             }
             .padding()
             .hiveScreenBackground()
@@ -73,6 +98,7 @@ struct AddProjectSheet: View {
         }
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
+        .interactiveDismissDisabled(isSubmitting)
         .onChange(of: mode) { _, newMode in
             if newMode == .create && accountStatus == nil {
                 checkAccountStatus()
@@ -160,17 +186,25 @@ struct AddProjectSheet: View {
     // MARK: - Actions
 
     private func submit() {
-        switch mode {
-        case .clone:
-            let trimmed = url.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty else { return }
-            onClone(trimmed)
-        case .create:
-            let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-            guard !trimmed.isEmpty else { return }
-            onCreate(trimmed, ghConnected ? visibility : nil)
+        guard !isSubmitting else { return }
+        isSubmitting = true
+        submitError = nil
+        Task {
+            let error: String?
+            switch mode {
+            case .clone:
+                error = await onClone(url.trimmingCharacters(in: .whitespacesAndNewlines))
+            case .create:
+                let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                error = await onCreate(trimmed, ghConnected ? visibility : nil)
+            }
+            isSubmitting = false
+            if let error {
+                submitError = error
+            } else {
+                dismiss()
+            }
         }
-        dismiss()
     }
 
     private func checkAccountStatus() {
@@ -198,7 +232,7 @@ struct AddProjectSheet: View {
 #Preview {
     Text("Hub")
         .sheet(isPresented: .constant(true)) {
-            AddProjectSheet(api: APIClient(), onClone: { _ in }, onCreate: { _, _ in })
+            AddProjectSheet(api: APIClient(), onClone: { _ in nil }, onCreate: { _, _ in nil })
         }
         .preferredColorScheme(.dark)
 }

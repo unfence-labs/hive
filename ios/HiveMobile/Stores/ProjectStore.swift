@@ -111,13 +111,13 @@ final class ProjectStore {
         }
     }
 
-    func createProject(url: String) async {
+    func createProject(url: String) async -> String? {
         await createProjectWithWorkspace(displayName: Self.extractRepoName(from: url)) {
             try await api.createProject(url: url)
         }
     }
 
-    func createNewProject(name: String, visibility: String?) async {
+    func createNewProject(name: String, visibility: String?) async -> String? {
         await createProjectWithWorkspace(displayName: name) {
             try await api.createNewProject(name: name, visibility: visibility)
         }
@@ -126,8 +126,8 @@ final class ProjectStore {
     private func createProjectWithWorkspace(
         displayName: String,
         apiCall: () async throws -> Project
-    ) async {
-        guard !isCreatingProject else { return }
+    ) async -> String? {
+        guard !isCreatingProject else { return "A project is already being created." }
 
         isCreatingProject = true
         cloningRepoName = displayName
@@ -158,14 +158,18 @@ final class ProjectStore {
 
             syncMonitoredWorkspaces()
             pendingNavigation = workspace
+            cloningRepoName = nil
+            isCreatingProject = false
+            return nil
         } catch is CancellationError {
-            // Ignore
+            cloningRepoName = nil
+            isCreatingProject = false
+            return nil
         } catch {
-            errorMessage = error.localizedDescription
+            cloningRepoName = nil
+            isCreatingProject = false
+            return error.localizedDescription
         }
-
-        cloningRepoName = nil
-        isCreatingProject = false
     }
 
     func archiveWorkspace(id: String) async {

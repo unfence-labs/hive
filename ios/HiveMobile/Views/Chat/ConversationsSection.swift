@@ -39,6 +39,7 @@ struct ConversationsSection<Header: View>: View {
     @State private var isLoading = true
     @State private var isCreatingSession = false
     @State private var errorMessage: String?
+    @State private var actionErrorMessage: String?
     @State private var sessionToDelete: SessionMetadata?
     @State private var lastRefreshAt = Date.distantPast
 
@@ -84,13 +85,23 @@ struct ConversationsSection<Header: View>: View {
             }
         }
         .alert(labels.errorTitle, isPresented: Binding(
-            get: { errorMessage != nil },
+            get: { errorMessage != nil && !sessions.isEmpty },
             set: { if !$0 { errorMessage = nil } }
         )) {
             Button("OK", role: .cancel) {}
         } message: {
             if let errorMessage {
                 Text(errorMessage)
+            }
+        }
+        .alert(labels.errorTitle, isPresented: Binding(
+            get: { actionErrorMessage != nil },
+            set: { if !$0 { actionErrorMessage = nil } }
+        )) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            if let actionErrorMessage {
+                Text(actionErrorMessage)
             }
         }
         .alert(
@@ -138,14 +149,8 @@ struct ConversationsSection<Header: View>: View {
                 } label: {
                     ConversationRow(
                         session: session,
-                        isStreaming: projectStore.statusMonitor.isStreaming(
-                            workspaceId: workspace.id,
-                            sessionId: session.sessionId
-                        ),
-                        isUnread: projectStore.statusMonitor.isUnread(
-                            workspaceId: workspace.id,
-                            sessionId: session.sessionId
-                        )
+                        monitor: projectStore.statusMonitor,
+                        workspaceId: workspace.id
                     )
                 }
                 .buttonStyle(.plain)
@@ -168,6 +173,15 @@ struct ConversationsSection<Header: View>: View {
         .overlay {
             if isLoading, sessions.isEmpty {
                 ListLoadingSkeleton()
+            } else if let errorMessage, sessions.isEmpty {
+                ContentUnavailableView {
+                    Label("Couldn't load conversations", systemImage: "exclamationmark.triangle")
+                } description: {
+                    Text(errorMessage)
+                } actions: {
+                    Button("Retry") { Task { await refreshContent(force: true) } }
+                        .buttonStyle(.borderedProminent)
+                }
             } else if !isLoading, sessions.isEmpty {
                 VStack(spacing: HiveSpacing.sm) {
                     Text(labels.emptyTitle)
@@ -177,6 +191,11 @@ struct ConversationsSection<Header: View>: View {
                         .font(.subheadline)
                         .foregroundStyle(WhisperColor.textSecondary)
                         .multilineTextAlignment(.center)
+                    Button("New conversation") {
+                        createSession()
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(sessions.count >= maxSessions || isCreatingSession)
                 }
                 .padding(.horizontal, HiveSpacing.xl)
             }
@@ -234,7 +253,7 @@ struct ConversationsSection<Header: View>: View {
             } catch is CancellationError {
                 // View disappeared.
             } catch {
-                errorMessage = error.localizedDescription
+                actionErrorMessage = error.localizedDescription
             }
         }
     }
@@ -255,7 +274,7 @@ struct ConversationsSection<Header: View>: View {
             if outcome.deleted {
                 sessions.removeAll { $0.sessionId == session.sessionId }
             }
-            errorMessage = outcome.errorMessage
+            actionErrorMessage = outcome.errorMessage
         }
     }
 }

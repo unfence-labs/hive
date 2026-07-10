@@ -53,8 +53,8 @@ struct DiffLinesView: View {
     private func backgroundColor(_ kind: DiffLine.Kind) -> Color {
         switch kind {
         case .context: .clear
-        case .added: Color.green.opacity(0.12)
-        case .removed: Color.red.opacity(0.12)
+        case .added: WhisperColor.diffAdded.opacity(0.12)
+        case .removed: WhisperColor.diffRemoved.opacity(0.12)
         case .hunk: .clear
         }
     }

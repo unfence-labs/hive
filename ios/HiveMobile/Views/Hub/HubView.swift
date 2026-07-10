@@ -18,10 +18,12 @@ struct HubView: View {
     @State private var projectExpansionOverrides: [String: Bool] = HubView.loadExpansionOverrides(
         key: HubView.projectExpansionKey
     )
+    @State private var sections: [HubSection] = []
+    @State private var searchText = ""
 
     var body: some View {
-        let sections = baseSections
-        let prIds = visiblePrWorkspaceIds(in: sections)
+        let displayedSections = filteredSections(sections)
+        let prIds = visiblePrWorkspaceIds(in: displayedSections)
 
         ZStack {
             WhisperColor.appBackground
@@ -31,8 +33,11 @@ struct HubView: View {
                 VStack(alignment: .leading, spacing: HiveSpacing.md) {
                     if store.projects.isEmpty {
                         emptyState
+                    } else if !searchText.isEmpty, displayedSections.isEmpty {
+                        ContentUnavailableView.search(text: searchText)
+                            .padding(.top, 40)
                     } else {
-                        denseHubContent(sections: sections)
+                        denseHubContent(sections: displayedSections)
                     }
                 }
                 .padding(.horizontal, HiveSpacing.lg)
@@ -41,6 +46,7 @@ struct HubView: View {
             .scrollBounceBehavior(.always)
             .scrollContentBackground(.hidden)
         }
+        .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .automatic))
         .navigationTitle("Hub")
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(WhisperColor.appBackground, for: .navigationBar)
@@ -67,6 +73,8 @@ struct HubView: View {
         .task(id: prIds) {
             store.statusMonitor.syncVisiblePrWorkspaces(prIds)
         }
+        .onChange(of: store.projects, initial: true) { _, _ in sections = baseSections }
+        .onChange(of: store.uiPreferences.sidebar) { _, _ in sections = baseSections }
         .overlay {
             if let errorMessage = store.errorMessage {
                 errorBanner(errorMessage)
@@ -104,12 +112,8 @@ struct HubView: View {
         .sheet(isPresented: $showAddProject) {
             AddProjectSheet(
                 api: APIClient(),
-                onClone: { url in
-                    Task { await store.createProject(url: url) }
-                },
-                onCreate: { name, visibility in
-                    Task { await store.createNewProject(name: name, visibility: visibility) }
-                }
+                onClone: { url in await store.createProject(url: url) },
+                onCreate: { name, visibility in await store.createNewProject(name: name, visibility: visibility) }
             )
         }
         .alert(
@@ -125,7 +129,7 @@ struct HubView: View {
             }
             Button("Cancel", role: .cancel) {}
         } message: { ws in
-            Text("\"\(ws.name)\" will be archived.")
+            Text("\"\(ws.name)\" will be archived and removed from this list. Archived workspaces can be restored from the desktop app.")
         }
     }
 
@@ -147,11 +151,16 @@ struct HubView: View {
         } else if store.isLoading || !store.hasLoadedSuccessfully {
             loadingState
         } else {
-            ContentUnavailableView(
-                "No Projects",
-                systemImage: "folder",
-                description: Text("Tap + to add your first project, or connect to your Hive server from Settings.")
-            )
+            ContentUnavailableView {
+                Label("No Projects", systemImage: "folder")
+            } description: {
+                Text("Tap + to add your first project, or connect to your Hive server from Settings.")
+            } actions: {
+                Button("Add project") { showAddProject = true }
+                    .buttonStyle(.borderedProminent)
+                Button("Open Settings") { openSettings?() }
+                    .buttonStyle(.bordered)
+            }
             .padding(.top, 40)
         }
     }
@@ -199,6 +208,26 @@ struct HubView: View {
             projects: store.projects,
             preferences: store.uiPreferences.sidebar
         )
+    }
+
+    private func filteredSections(_ sections: [HubSection]) -> [HubSection] {
+        guard !searchText.isEmpty else { return sections }
+        return sections.compactMap { section in
+            let nodes = section.projects.compactMap { node -> HubProjectNode? in
+                let projectMatches = node.project.name.localizedCaseInsensitiveContains(searchText)
+                let workspaces = node.project.workspaces.filter {
+                    $0.name.localizedCaseInsensitiveContains(searchText)
+                        || $0.branch.localizedCaseInsensitiveContains(searchText)
+                }
+                if projectMatches { return node }
+                guard !workspaces.isEmpty else { return nil }
+                var project = node.project
+                project.workspaces = workspaces
+                return HubProjectNode(project: project)
+            }
+            guard !nodes.isEmpty else { return nil }
+            return HubSection(kind: section.kind, projects: nodes, defaultExpanded: true)
+        }
     }
 
     private func visiblePrWorkspaceIds(in sections: [HubSection]) -> [String] {
@@ -272,12 +301,7 @@ struct HubView: View {
                     NavigationLink(value: workspace) {
                         HubWorkspaceRow(
                             workspace: workspace,
-                            isStreaming: store.statusMonitor.isStreaming(workspace.id),
-                            turnCompleted: store.statusMonitor.isCompleted(workspace.id)
-                                || store.statusMonitor.hasUnreadSessions(workspace.id),
-                            diffStats: store.statusMonitor.diffStats(for: workspace.id),
-                            prStatus: store.statusMonitor.prStatus(for: workspace.id),
-                            isPrStatusLoading: store.statusMonitor.isPrStatusLoading(workspace.id)
+                            monitor: store.statusMonitor
                         )
                     }
                     .buttonStyle(.plain)
@@ -371,14 +395,15 @@ struct HubView: View {
     // MARK: - Expansion State
 
     private func isSectionExpanded(_ section: HubSection) -> Bool {
-        return sectionExpansionOverrides[section.id] ?? section.defaultExpanded
+        return !searchText.isEmpty || (sectionExpansionOverrides[section.id] ?? section.defaultExpanded)
     }
 
     private func isProjectExpanded(_ project: Project) -> Bool {
-        return projectExpansionOverrides[project.id] ?? projectHasLiveAttention(project)
+        return !searchText.isEmpty || (projectExpansionOverrides[project.id] ?? projectHasLiveAttention(project))
     }
 
     private func setSection(_ section: HubSection, expanded: Bool) {
+        guard searchText.isEmpty else { return }
         withAnimation(.easeInOut(duration: 0.2)) {
             sectionExpansionOverrides[section.id] = expanded
         }
@@ -386,6 +411,7 @@ struct HubView: View {
     }
 
     private func setProject(_ projectId: String, expanded: Bool) {
+        guard searchText.isEmpty else { return }
         withAnimation(.easeInOut(duration: 0.2)) {
             projectExpansionOverrides[projectId] = expanded
         }

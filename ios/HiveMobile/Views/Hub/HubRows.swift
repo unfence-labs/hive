@@ -131,11 +131,15 @@ struct HubProjectRow: View {
 
 struct HubWorkspaceRow: View {
     let workspace: Workspace
-    let isStreaming: Bool
-    let turnCompleted: Bool
-    let diffStats: DiffStatResponse?
-    let prStatus: PrStatusResponse?
-    let isPrStatusLoading: Bool
+    let monitor: HubStatusMonitor
+
+    private var isStreaming: Bool { monitor.isStreaming(workspace.id) }
+    private var turnCompleted: Bool {
+        monitor.isCompleted(workspace.id) || monitor.hasUnreadSessions(workspace.id)
+    }
+    private var diffStats: DiffStatResponse? { monitor.diffStats(for: workspace.id) }
+    private var prStatus: PrStatusResponse? { monitor.prStatus(for: workspace.id) }
+    private var isPrStatusLoading: Bool { monitor.isPrStatusLoading(workspace.id) }
 
     private var diffSummary: HubDiffSummary {
         HubDiffSummary(diffStats: diffStats)
@@ -181,16 +185,20 @@ struct HubWorkspaceRow: View {
         .padding(.vertical, 6)
         .frame(maxWidth: .infinity, minHeight: 42, alignment: .leading)
         .contentShape(Rectangle())
+        .accessibilityElement(children: .combine)
     }
 
     @ViewBuilder
     private var workspaceStatus: some View {
         if isStreaming {
             AgentActivityIndicator(dotSize: 3, spacing: 1.5)
+                .accessibilityLabel("Streaming")
         } else if turnCompleted {
             UnreadDot()
+                .accessibilityLabel("Unread activity")
         } else {
             StatusDot()
+                .accessibilityHidden(true)
         }
     }
 }
@@ -234,15 +242,9 @@ private struct HubActivityDot: View {
     var body: some View {
         switch state {
         case .streaming:
-            ZStack {
-                Circle()
-                    .fill(Color.accentColor.opacity(0.28))
-                    .frame(width: 11, height: 11)
-                Circle()
-                    .fill(Color.accentColor)
-                    .frame(width: 7, height: 7)
-            }
-            .accessibilityLabel("Agent is working")
+            AgentActivityIndicator(dotSize: 2, spacing: 1)
+                .frame(width: 11, height: 11)
+                .accessibilityLabel("Agent is working")
         case .completed:
             UnreadDot(size: 7, shadowRadius: 4)
                 .accessibilityLabel("Unread activity")
@@ -260,11 +262,11 @@ private struct HubDiffBadge: View {
         HStack(spacing: 5) {
             if additions > 0 {
                 Text("+\(additions)")
-                    .foregroundStyle(WhisperColor.success)
+                    .foregroundStyle(WhisperColor.diffAdded)
             }
             if deletions > 0 {
                 Text("-\(deletions)")
-                    .foregroundStyle(.red)
+                    .foregroundStyle(WhisperColor.diffRemoved)
             }
         }
         .font(.caption2.monospacedDigit().weight(.medium))

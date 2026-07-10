@@ -14,6 +14,7 @@ struct UnreadDot: View {
     let size: CGFloat
     let shadowRadius: CGFloat
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var appeared = false
     private let color = Color.accentColor
 
@@ -30,8 +31,12 @@ struct UnreadDot: View {
             .scaleEffect(appeared ? 1.0 : 0.3)
             .opacity(appeared ? 1.0 : 0.0)
             .onAppear {
-                withAnimation(.spring(duration: 0.4, bounce: 0.3)) {
+                if reduceMotion {
                     appeared = true
+                } else {
+                    withAnimation(.spring(duration: 0.4, bounce: 0.3)) {
+                        appeared = true
+                    }
                 }
             }
     }

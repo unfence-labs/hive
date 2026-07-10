@@ -2,8 +2,15 @@ import SwiftUI
 
 struct ConversationRow: View {
     let session: SessionMetadata
-    let isStreaming: Bool
-    let isUnread: Bool
+    let monitor: HubStatusMonitor
+    let workspaceId: String
+
+    private var isStreaming: Bool {
+        monitor.isStreaming(workspaceId: workspaceId, sessionId: session.sessionId)
+    }
+    private var isUnread: Bool {
+        monitor.isUnread(workspaceId: workspaceId, sessionId: session.sessionId)
+    }
 
     private var title: String { session.displayTitle }
 
@@ -147,6 +154,7 @@ private struct SessionStatusIndicator: View {
 }
 
 #Preview {
+    let store = ProjectStore(storeCache: ConversationStoreCache())
     List {
         ConversationRow(
             session: SessionMetadata(
@@ -160,8 +168,8 @@ private struct SessionStatusIndicator: View {
                 messageCount: 5,
                 lockedProvider: "claude"
             ),
-            isStreaming: true,
-            isUnread: false
+            monitor: store.statusMonitor,
+            workspaceId: "ws1"
         )
         .listRowBackground(WhisperColor.appBackground)
         .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))

@@ -62,30 +62,51 @@ enum ComposerAutocomplete {
         var id: String { path }
     }
 
+    /// Precomputed lowercased forms for a repository path so per-keystroke
+    /// matching avoids re-lowercasing every candidate.
+    struct FileCandidate {
+        let path: String
+        let basename: String
+        let lowerName: String
+        let lowerPath: String
+    }
+
+    static func prepareFiles(_ files: [String]) -> [FileCandidate] {
+        files.map { path in
+            let name = basename(of: path)
+            return FileCandidate(
+                path: path,
+                basename: name,
+                lowerName: name.lowercased(),
+                lowerPath: path.lowercased()
+            )
+        }
+    }
+
     /// Tiered fuzzy match over repository paths: basename exact > basename
     /// prefix > basename substring > path substring > path subsequence, ties
     /// broken by shorter path. Empty query lists the first files as-is.
     static func matchFiles(_ files: [String], query: String, limit: Int = 15) -> [FileMatch] {
+        matchFiles(prepareFiles(files), query: query, limit: limit)
+    }
+
+    static func matchFiles(_ candidates: [FileCandidate], query: String, limit: Int = 15) -> [FileMatch] {
         if query.isEmpty {
-            return files.prefix(limit).map { FileMatch(path: $0, basename: basename(of: $0)) }
+            return candidates.prefix(limit).map { FileMatch(path: $0.path, basename: $0.basename) }
         }
 
         let q = query.lowercased()
         var scored: [(match: FileMatch, score: Int)] = []
-        for path in files {
-            let name = basename(of: path)
-            let lowerName = name.lowercased()
-            let lowerPath = path.lowercased()
-
+        for candidate in candidates {
             let score: Int
-            if lowerName == q { score = 100 }
-            else if lowerName.hasPrefix(q) { score = 80 }
-            else if lowerName.contains(q) { score = 60 }
-            else if lowerPath.contains(q) { score = 40 }
-            else if isSubsequence(q, of: lowerPath) { score = 20 }
+            if candidate.lowerName == q { score = 100 }
+            else if candidate.lowerName.hasPrefix(q) { score = 80 }
+            else if candidate.lowerName.contains(q) { score = 60 }
+            else if candidate.lowerPath.contains(q) { score = 40 }
+            else if isSubsequence(q, of: candidate.lowerPath) { score = 20 }
             else { continue }
 
-            scored.append((FileMatch(path: path, basename: name), score))
+            scored.append((FileMatch(path: candidate.path, basename: candidate.basename), score))
         }
 
         return scored

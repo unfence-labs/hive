@@ -21,7 +21,11 @@ struct AutomationDetailView: View {
             }
 
             Section {
-                if !isLoading, runs.isEmpty {
+                if isLoading, runs.isEmpty {
+                    ListLoadingSkeleton(rowCount: 3)
+                        .listRowBackground(WhisperColor.appBackground)
+                        .listRowSeparator(.hidden)
+                } else if !isLoading, runs.isEmpty {
                     if let errorMessage {
                         ContentUnavailableView {
                             Label("Couldn't load runs", systemImage: "exclamationmark.triangle")

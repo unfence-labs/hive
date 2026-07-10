@@ -68,7 +68,9 @@ struct ContextRingView: View {
             }
             .frame(width: 16, height: 16)
             .animation(.easeInOut(duration: 0.3), value: fraction)
-            .help(tooltipText)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Context usage")
+            .accessibilityValue(tooltipText)
         }
     }
 }

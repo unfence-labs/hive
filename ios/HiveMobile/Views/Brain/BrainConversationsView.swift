@@ -11,6 +11,7 @@ struct BrainConversationsView: View {
     @Environment(ProjectStore.self) private var projectStore
 
     @State private var brainState: BrainState?
+    @State private var stateLoadFailed = false
     @State private var brainStatus: BrainStatusResponse?
     @State private var brainDiff: BrainDiffResponse?
     @State private var statusLoading = true
@@ -56,7 +57,9 @@ struct BrainConversationsView: View {
 
     var body: some View {
         Group {
-            if brainState == nil {
+            if stateLoadFailed && brainState == nil {
+                errorState
+            } else if brainState == nil {
                 loadingPlaceholder
             } else if brainState?.exists == false {
                 emptyState
@@ -117,6 +120,21 @@ struct BrainConversationsView: View {
             .navigationBarTitleDisplayMode(.inline)
     }
 
+    private var errorState: some View {
+        ContentUnavailableView {
+            Label("Couldn't reach the Brain", systemImage: "exclamationmark.triangle")
+        } description: {
+            Text("Check your connection and try again.")
+        } actions: {
+            Button("Retry") { Task { await loadState() } }
+                .buttonStyle(.borderedProminent)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .hiveScreenBackground()
+        .navigationTitle("Brain")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
     private var emptyState: some View {
         VStack(spacing: HiveSpacing.md) {
             Image(systemName: "brain")
@@ -140,11 +158,11 @@ struct BrainConversationsView: View {
     private func loadState() async {
         do {
             brainState = try await api.fetchBrain()
+            stateLoadFailed = false
         } catch is CancellationError {
             // View disappeared.
         } catch {
-            // Degrade to the empty state if the Brain state can't be fetched.
-            brainState = BrainState(exists: false, repoUrl: nil, createdAt: nil, lastSyncedAt: nil)
+            stateLoadFailed = true
         }
     }
 

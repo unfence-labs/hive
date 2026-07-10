@@ -98,11 +98,11 @@ private struct ChangedFileRow: View {
             Spacer(minLength: 8)
             if file.additions > 0 {
                 Text("+\(file.additions)")
-                    .foregroundStyle(.green)
+                    .foregroundStyle(WhisperColor.diffAdded)
             }
             if file.deletions > 0 {
                 Text("-\(file.deletions)")
-                    .foregroundStyle(.red)
+                    .foregroundStyle(WhisperColor.diffRemoved)
             }
             Image(systemName: "chevron.right")
                 .font(.caption2.weight(.semibold))
@@ -362,10 +362,10 @@ struct WorkspaceFileDiffView: View {
                     .truncationMode(.middle)
                 Spacer(minLength: 8)
                 if parsed.added > 0 {
-                    Text("+\(parsed.added)").foregroundStyle(.green)
+                    Text("+\(parsed.added)").foregroundStyle(WhisperColor.diffAdded)
                 }
                 if parsed.removed > 0 {
-                    Text("-\(parsed.removed)").foregroundStyle(.red)
+                    Text("-\(parsed.removed)").foregroundStyle(WhisperColor.diffRemoved)
                 }
             }
             .font(WhisperFont.mono(11))
@@ -539,16 +539,20 @@ private struct ReviewSummaryBar: View {
                 Image(systemName: "chevron.up")
                     .font(.footnote.weight(.semibold))
                     .foregroundStyle(WhisperColor.textSecondary)
-                    .frame(width: 28, height: 28)
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .accessibilityLabel("Previous comment")
             Button { onJump(1) } label: {
                 Image(systemName: "chevron.down")
                     .font(.footnote.weight(.semibold))
                     .foregroundStyle(WhisperColor.textSecondary)
-                    .frame(width: 28, height: 28)
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .accessibilityLabel("Next comment")
             Spacer()
             Button("Send review", action: onSend)
                 .font(WhisperFont.scaled(13, weight: .semibold))
