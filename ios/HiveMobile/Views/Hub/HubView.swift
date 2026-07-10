@@ -403,6 +403,7 @@ struct HubView: View {
     }
 
     private func setSection(_ section: HubSection, expanded: Bool) {
+        guard searchText.isEmpty else { return }
         withAnimation(.easeInOut(duration: 0.2)) {
             sectionExpansionOverrides[section.id] = expanded
         }
@@ -410,6 +411,7 @@ struct HubView: View {
     }
 
     private func setProject(_ projectId: String, expanded: Bool) {
+        guard searchText.isEmpty else { return }
         withAnimation(.easeInOut(duration: 0.2)) {
             projectExpansionOverrides[projectId] = expanded
         }
