@@ -91,7 +91,6 @@ struct ScriptLogView: View {
             handleStateChange(from: old, to: new)
         }
         .onAppear {
-            if status.state == .running { runStartedAt = Date() }
             streamer.start(workspaceId: workspace.id, scriptType: scriptId)
         }
         .onDisappear {
@@ -106,9 +105,9 @@ struct ScriptLogView: View {
             HStack(spacing: HiveSpacing.sm) {
                 statusChip
                 Spacer(minLength: HiveSpacing.sm)
-                if status.state == .running {
+                if status.state == .running, let runStartedAt {
                     TimelineView(.periodic(from: .now, by: 1)) { timeline in
-                        Text(elapsedText(at: timeline.date))
+                        Text(elapsedText(since: runStartedAt, at: timeline.date))
                             .font(.caption.monospacedDigit())
                             .foregroundStyle(WhisperColor.textMuted)
                     }
@@ -396,8 +395,7 @@ struct ScriptLogView: View {
         }
     }
 
-    private func elapsedText(at date: Date) -> String {
-        let start = runStartedAt ?? date
+    private func elapsedText(since start: Date, at date: Date) -> String {
         let total = max(0, Int(date.timeIntervalSince(start)))
         let minutes = total / 60
         let seconds = total % 60
