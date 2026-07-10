@@ -13,6 +13,7 @@ final class ScriptLogStreamer {
     private var task: URLSessionWebSocketTask?
     private var receiveLoop: Task<Void, Never>?
     private var reconnectTask: Task<Void, Never>?
+    private var publishTask: Task<Void, Never>?
     private var intentionallyClosed = false
     private var streamEnded = false
     private var backoff: UInt64 = 1
@@ -39,6 +40,8 @@ final class ScriptLogStreamer {
         reconnectTask = nil
         receiveLoop?.cancel()
         receiveLoop = nil
+        publishTask?.cancel()
+        publishTask = nil
         task?.cancel(with: .goingAway, reason: nil)
         task = nil
     }
@@ -47,6 +50,8 @@ final class ScriptLogStreamer {
         reconnectTask?.cancel()
         reconnectTask = nil
         receiveLoop?.cancel()
+        publishTask?.cancel()
+        publishTask = nil
         task?.cancel(with: .goingAway, reason: nil)
 
         parser.reset()
@@ -73,7 +78,7 @@ final class ScriptLogStreamer {
                 switch message {
                 case .data(let data):
                     parser.feed(data)
-                    publish()
+                    schedulePublish()
                 case .string(let string):
                     handleControl(string)
                 @unknown default:
@@ -98,6 +103,19 @@ final class ScriptLogStreamer {
         }
         if type == "error" {
             serverError = (object["message"] as? String) ?? "Log stream unavailable"
+        }
+        publishTask?.cancel()
+        publishTask = nil
+        publish()
+    }
+
+    private func schedulePublish() {
+        guard publishTask == nil else { return }
+        publishTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(80))
+            guard let self, !Task.isCancelled else { return }
+            self.publishTask = nil
+            self.publish()
         }
     }
 
