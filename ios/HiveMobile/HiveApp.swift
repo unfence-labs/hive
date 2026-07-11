@@ -30,9 +30,28 @@ struct HiveApp: App {
         HiveThemeMode(rawValue: themeModeId) ?? .system
     }
 
+    /// Tab switches must be instant: the iOS 26 TabView cross-dissolve blends
+    /// both tabs' content mid-transition, which reads as a UI flash. The fade
+    /// runs inside UIKit's tab controller, so SwiftUI transactions can't
+    /// disable it — UIKit animations are suspended for the switch instead.
+    private var tabSelection: Binding<AppTab> {
+        Binding(
+            get: { selectedTab },
+            set: { switchTab(to: $0) }
+        )
+    }
+
+    private func switchTab(to tab: AppTab) {
+        UIView.setAnimationsEnabled(false)
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) { selectedTab = tab }
+        DispatchQueue.main.async { UIView.setAnimationsEnabled(true) }
+    }
+
     var body: some Scene {
         WindowGroup {
-            TabView(selection: $selectedTab) {
+            TabView(selection: tabSelection) {
                 Tab("Brain", systemImage: "brain", value: .brain) {
                     NavigationStack(path: $brainPath) {
                         BrainConversationsView(
@@ -40,11 +59,12 @@ struct HiveApp: App {
                             navigationPath: $brainPath
                         )
                     }
+                    .hiveScreenBackground()
                     .toolbar(brainPath.isEmpty ? .automatic : .hidden, for: .tabBar)
                 }
                 Tab("Hub", systemImage: "square.grid.2x2.fill", value: .hub) {
                     NavigationStack(path: $hubPath) {
-                        HubView(openSettings: { selectedTab = .settings })
+                        HubView(openSettings: { switchTab(to: .settings) })
                             .navigationDestination(for: Workspace.self) { workspace in
                                 WorkspaceConversationsView(
                                     workspace: workspace,
@@ -53,6 +73,7 @@ struct HiveApp: App {
                                 )
                             }
                     }
+                    .hiveScreenBackground()
                     .toolbar(hubPath.isEmpty ? .automatic : .hidden, for: .tabBar)
                 }
                 .badge(projectStore.statusMonitor.hubBadgeCount)
@@ -60,6 +81,7 @@ struct HiveApp: App {
                     NavigationStack {
                         SettingsView()
                     }
+                    .hiveScreenBackground()
                 }
             }
             .hiveScreenBackground()
@@ -84,7 +106,7 @@ struct HiveApp: App {
             .task { await modelCatalog.loadIfNeeded() }
             .onChange(of: projectStore.pendingNavigation) { _, workspace in
                 guard let workspace else { return }
-                selectedTab = .hub
+                switchTab(to: .hub)
                 hubPath.append(workspace)
                 projectStore.pendingNavigation = nil
             }
@@ -145,7 +167,7 @@ struct HiveApp: App {
                 projectStore.pendingNavigation = target.workspace
             } else {
                 projectStore.pendingSessionNavigation = nil
-                selectedTab = .hub
+                switchTab(to: .hub)
             }
         }
     }

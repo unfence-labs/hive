@@ -246,6 +246,13 @@ final class APIClient {
         try await get(path: "/api/workspaces/\(pathSegment(workspaceId))/diff/stat")
     }
 
+    func fetchWorkspaceFileContent(workspaceId: String, path: String) async throws -> WorkspaceFileContentResponse {
+        var allowed = CharacterSet.urlQueryAllowed
+        allowed.remove(charactersIn: "&=+?#")
+        let encoded = path.addingPercentEncoding(withAllowedCharacters: allowed) ?? path
+        return try await get(path: "/api/workspaces/\(pathSegment(workspaceId))/file?path=\(encoded)")
+    }
+
     func fetchModels() async throws -> ModelCatalogResponse {
         try await get(path: "/api/models")
     }
