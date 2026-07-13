@@ -7,6 +7,7 @@ import AppearanceSettings from "@/pages/settings/AppearanceSettings";
 import ConnectionSettings from "@/pages/settings/ConnectionSettings";
 import NotificationSettings from "@/pages/settings/NotificationSettings";
 import AgentSettings from "@/pages/settings/AgentSettings";
+import ModelsSettings from "@/pages/settings/ModelsSettings";
 import ProjectDetail from "@/pages/settings/ProjectDetail";
 import BrainView from "@/pages/BrainView";
 import AddProjectDialog from "@/components/AddProjectDialog";
@@ -110,6 +111,7 @@ export default function App() {
             <Route path="settings/connection" element={<ConnectionSettings onRefreshConnection={() => { wsTransport.disconnectAll(); fetchProjects(); }} />} />
             <Route path="settings/notifications" element={<NotificationSettings />} />
             <Route path="settings/cli" element={<AgentSettings />} />
+            <Route path="settings/models" element={<ModelsSettings />} />
             <Route path="settings/instructions" element={<Suspense fallback={null}><InstructionsSettings /></Suspense>} />
             <Route path="settings/prompt" element={<Suspense fallback={null}><PromptTemplatesSettings /></Suspense>} />
             <Route path="settings/skills" element={<Suspense fallback={null}><SkillsSettings /></Suspense>} />

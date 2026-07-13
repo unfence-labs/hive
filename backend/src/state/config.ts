@@ -26,6 +26,8 @@ export interface NotificationsConfig {
 
 export interface AppConfig {
   notifications: NotificationsConfig;
+  /** Compound model id ("provider:model") used as the default for new conversations. */
+  defaultModelId?: string;
 }
 
 const DEFAULT_APNS: ApnsConfig = {
@@ -71,6 +73,9 @@ export async function loadConfig(dataDir = getDataDir()): Promise<AppConfig> {
           deviceTokens: apns?.deviceTokens ?? DEFAULT_APNS.deviceTokens,
         },
       },
+      defaultModelId: typeof parsed.defaultModelId === "string" && parsed.defaultModelId
+        ? parsed.defaultModelId
+        : undefined,
     };
   } catch {
     return structuredClone(DEFAULT_CONFIG);

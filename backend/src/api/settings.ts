@@ -1,10 +1,36 @@
 import type { FastifyInstance } from "fastify";
 import { loadConfig, saveConfig } from "../state/config.js";
+import { getModelCatalog } from "../agents/providers/registry.js";
 import { rebuildNotifier, updateLiveApnsToken } from "../agents/agent-manager.js";
 import { TelegramChannel } from "../notifications/telegram.js";
 import { ApnsChannel } from "../notifications/apns.js";
 
 export async function settingsRoutes(app: FastifyInstance): Promise<void> {
+  app.get("/api/settings/defaults", async () => {
+    const config = await loadConfig();
+    return { defaultModelId: config.defaultModelId ?? null };
+  });
+
+  app.put<{
+    Body: { defaultModelId?: string | null };
+  }>("/api/settings/defaults", async (req, reply) => {
+    const { defaultModelId } = req.body ?? {};
+    if (defaultModelId !== null && typeof defaultModelId !== "string") {
+      return reply.status(400).send({ error: "Invalid payload" });
+    }
+    const config = await loadConfig();
+    if (!defaultModelId) {
+      delete config.defaultModelId;
+    } else {
+      if (!getModelCatalog().models.some((m) => m.id === defaultModelId)) {
+        return reply.status(400).send({ error: "Unknown model id" });
+      }
+      config.defaultModelId = defaultModelId;
+    }
+    await saveConfig(config);
+    return { defaultModelId: config.defaultModelId ?? null };
+  });
+
   app.get("/api/settings/notifications", async () => {
     const config = await loadConfig();
     return config.notifications;

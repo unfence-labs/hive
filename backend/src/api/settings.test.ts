@@ -17,6 +17,7 @@ vi.mock("../agents/agent-manager.js", () => ({
 import { settingsRoutes } from "./settings.js";
 import { loadConfig } from "../state/config.js";
 import { TelegramChannel } from "../notifications/telegram.js";
+import { getModelCatalog, markProviderAvailable } from "../agents/providers/registry.js";
 
 const DEFAULT_APNS = { enabled: false, teamId: "", keyId: "", keyContent: "", bundleId: "", sandbox: false, deviceTokens: [] as string[] };
 
@@ -45,6 +46,79 @@ afterEach(async () => {
   } else {
     process.env.DATA_DIR = previousDataDir;
   }
+});
+
+describe("defaults routes", () => {
+  it("GET /api/settings/defaults returns null when nothing is saved", async () => {
+    const res = await app.inject({ method: "GET", url: "/api/settings/defaults" });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ defaultModelId: null });
+  });
+
+  it("PUT /api/settings/defaults rejects non-string payloads", async () => {
+    const res = await app.inject({
+      method: "PUT",
+      url: "/api/settings/defaults",
+      payload: { defaultModelId: 42 },
+    });
+
+    expect(res.statusCode).toBe(400);
+    expect(res.json()).toEqual({ error: "Invalid payload" });
+  });
+
+  it("PUT /api/settings/defaults rejects model ids not in the catalog", async () => {
+    const res = await app.inject({
+      method: "PUT",
+      url: "/api/settings/defaults",
+      payload: { defaultModelId: "claude:not-a-model" },
+    });
+
+    expect(res.statusCode).toBe(400);
+    expect(res.json()).toEqual({ error: "Unknown model id" });
+  });
+
+  it("PUT /api/settings/defaults saves a catalog model and GET returns it", async () => {
+    markProviderAvailable("claude");
+    const modelId = getModelCatalog().models[0].id;
+
+    const res = await app.inject({
+      method: "PUT",
+      url: "/api/settings/defaults",
+      payload: { defaultModelId: modelId },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ defaultModelId: modelId });
+
+    const config = await loadConfig(tempDir);
+    expect(config.defaultModelId).toBe(modelId);
+
+    const getRes = await app.inject({ method: "GET", url: "/api/settings/defaults" });
+    expect(getRes.json()).toEqual({ defaultModelId: modelId });
+  });
+
+  it("PUT /api/settings/defaults with null clears the saved default", async () => {
+    markProviderAvailable("claude");
+    const modelId = getModelCatalog().models[0].id;
+    await app.inject({
+      method: "PUT",
+      url: "/api/settings/defaults",
+      payload: { defaultModelId: modelId },
+    });
+
+    const res = await app.inject({
+      method: "PUT",
+      url: "/api/settings/defaults",
+      payload: { defaultModelId: null },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ defaultModelId: null });
+
+    const config = await loadConfig(tempDir);
+    expect(config.defaultModelId).toBeUndefined();
+  });
 });
 
 describe("settings routes", () => {
