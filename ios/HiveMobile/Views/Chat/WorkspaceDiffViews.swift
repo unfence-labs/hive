@@ -411,6 +411,9 @@ struct WorkspaceFileDiffView: View {
         if renderedMarkdownPaths.contains(path) {
             renderedMarkdownPaths.remove(path)
         } else {
+            // Re-fetch on entry: the worktree file may have changed since last render.
+            markdownContents[path] = nil
+            markdownFailedPaths.remove(path)
             renderedMarkdownPaths.insert(path)
         }
     }
@@ -419,20 +422,26 @@ struct WorkspaceFileDiffView: View {
     private func markdownPage(path: String) -> some View {
         if let content = markdownContents[path] {
             ScrollView {
-                SelectableMarkdownText(markdown: content)
-                    .padding(HiveSpacing.md)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(
-                        RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .fill(WhisperColor.surfaceRaised)
-                    )
-                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .stroke(WhisperColor.borderSubtle, lineWidth: 1)
-                    )
-                    .padding(.horizontal, HiveSpacing.md)
-                    .padding(.vertical, HiveSpacing.sm)
+                VStack(alignment: .leading, spacing: HiveSpacing.sm) {
+                    Text("Current file contents — may differ from this diff")
+                        .font(WhisperFont.scaled(12))
+                        .foregroundStyle(WhisperColor.textMuted)
+                        .padding(.horizontal, HiveSpacing.md)
+                    SelectableMarkdownText(markdown: content)
+                        .padding(HiveSpacing.md)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(
+                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                .fill(WhisperColor.surfaceRaised)
+                        )
+                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                .stroke(WhisperColor.borderSubtle, lineWidth: 1)
+                        )
+                }
+                .padding(.horizontal, HiveSpacing.md)
+                .padding(.vertical, HiveSpacing.sm)
             }
         } else if markdownFailedPaths.contains(path) {
             ContentUnavailableView {
@@ -454,6 +463,8 @@ struct WorkspaceFileDiffView: View {
             let response = try await api.fetchWorkspaceFileContent(workspaceId: workspace.id, path: path)
             markdownContents[path] = response.content
         } catch {
+            // APIClient normalizes task cancellation to CancellationError.
+            guard !(error is CancellationError) else { return }
             markdownFailedPaths.insert(path)
         }
     }
@@ -480,6 +491,7 @@ struct WorkspaceFileDiffView: View {
                 pendingComments = anchoredComments(restored, linesByFile: filesByPath.mapValues(\.lines))
             }
         } catch {
+            guard !(error is CancellationError) else { return }
             loadFailed = true
         }
     }

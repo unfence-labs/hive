@@ -42,6 +42,7 @@ struct HiveApp: App {
     }
 
     private func switchTab(to tab: AppTab) {
+        guard tab != selectedTab else { return }
         UIView.setAnimationsEnabled(false)
         var transaction = Transaction()
         transaction.disablesAnimations = true
@@ -107,7 +108,8 @@ struct HiveApp: App {
             .onChange(of: projectStore.pendingNavigation) { _, workspace in
                 guard let workspace else { return }
                 switchTab(to: .hub)
-                hubPath.append(workspace)
+                // Deferred one tick so the push animates after UIKit animations re-enable.
+                DispatchQueue.main.async { hubPath.append(workspace) }
                 projectStore.pendingNavigation = nil
             }
             .onAppear {

@@ -31,17 +31,17 @@ struct StreamingDot: View {
                 .frame(width: size, height: size)
                 .scaleEffect(reduceMotion ? 1.6 : (pinging ? 2 : 1))
                 .opacity(reduceMotion ? 0.28 : (pinging ? 0 : 0.7))
+                .animation(
+                    reduceMotion ? nil : .easeOut(duration: 1).repeatForever(autoreverses: false),
+                    value: pinging
+                )
             Circle()
                 .fill(color)
                 .frame(width: size, height: size)
         }
         .frame(width: size, height: size)
-        .onAppear {
-            guard !reduceMotion else { return }
-            withAnimation(.easeOut(duration: 1).repeatForever(autoreverses: false)) {
-                pinging = true
-            }
-        }
+        .onAppear { pinging = true }
+        .onDisappear { pinging = false }
     }
 }
 
