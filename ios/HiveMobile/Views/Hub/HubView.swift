@@ -45,21 +45,21 @@ struct HubView: View {
             }
             .scrollBounceBehavior(.always)
             .scrollContentBackground(.hidden)
+            .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .automatic))
+            .refreshable {
+                // Unstructured Task shields refresh from SwiftUI prematurely
+                // cancelling the .refreshable task on ScrollView (known iOS 26 regression).
+                await Task { @MainActor in
+                    store.statusMonitor.forceRefresh()
+                    await store.refresh(force: true, userInitiated: true)
+                }.value
+            }
         }
-        .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .automatic))
         .navigationTitle("Hub")
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(WhisperColor.appBackground, for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
         .toolbar { toolbarContent }
-        .refreshable {
-            // Unstructured Task shields refresh from SwiftUI prematurely
-            // cancelling the .refreshable task on ScrollView (known iOS 26 regression).
-            await Task { @MainActor in
-                store.statusMonitor.forceRefresh()
-                await store.refresh(force: true, userInitiated: true)
-            }.value
-        }
         .task {
             // Always safe: existing data stays visible while refresh runs.
             await store.refresh()

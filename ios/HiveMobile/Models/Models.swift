@@ -418,6 +418,11 @@ struct DiffResponse: Codable {
     let omittedFileCount: Int
 }
 
+struct WorkspaceFileContentResponse: Codable {
+    let content: String
+    let path: String
+}
+
 struct DiffStatResponse: Codable, Equatable {
     let committed: [DiffFileStat]
     let uncommitted: [DiffFileStat]

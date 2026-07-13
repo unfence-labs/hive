@@ -60,6 +60,14 @@ final class APIClient {
         return value.addingPercentEncoding(withAllowedCharacters: allowed) ?? value
     }
 
+    /// Percent-encode a query value; also encodes `&=+?#`, which are legal in
+    /// a query but change its meaning.
+    static func queryValue(_ value: String) -> String {
+        var allowed = CharacterSet.urlQueryAllowed
+        allowed.remove(charactersIn: "&=+?#")
+        return value.addingPercentEncoding(withAllowedCharacters: allowed) ?? value
+    }
+
     // MARK: - Generic request methods
 
     private func request<T: Decodable>(_ method: String, path: String, body: Data? = nil) async throws -> T {
@@ -167,7 +175,7 @@ final class APIClient {
     }
 
     func createWorkspace(projectId: String) async throws -> Workspace {
-        try await post(path: "/api/projects/\(projectId)/workspaces")
+        try await post(path: "/api/projects/\(pathSegment(projectId))/workspaces")
     }
 
     func createProject(url: String) async throws -> Project {
@@ -187,11 +195,11 @@ final class APIClient {
     }
 
     func fetchSessions(workspaceId: String) async throws -> [SessionMetadata] {
-        try await get(path: "/api/workspaces/\(workspaceId)/sessions")
+        try await get(path: "/api/workspaces/\(pathSegment(workspaceId))/sessions")
     }
 
     func fetchMessages(workspaceId: String, sessionId: String, since: String? = nil) async throws -> [ChatMessage] {
-        var path = "/api/workspaces/\(workspaceId)/sessions/\(sessionId)/messages"
+        var path = "/api/workspaces/\(pathSegment(workspaceId))/sessions/\(pathSegment(sessionId))/messages"
         if let since, let encoded = since.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) {
             path += "?since=\(encoded)"
         }
@@ -199,22 +207,22 @@ final class APIClient {
     }
 
     func createSession(workspaceId: String) async throws -> SessionMetadata {
-        try await post(path: "/api/workspaces/\(workspaceId)/sessions")
+        try await post(path: "/api/workspaces/\(pathSegment(workspaceId))/sessions")
     }
 
     func deleteSession(workspaceId: String, sessionId: String) async throws {
-        try await requestVoid("DELETE", path: "/api/workspaces/\(workspaceId)/sessions/\(sessionId)")
+        try await requestVoid("DELETE", path: "/api/workspaces/\(pathSegment(workspaceId))/sessions/\(pathSegment(sessionId))")
     }
 
     func fetchFileCompletions(workspaceId: String) async throws -> [String] {
-        let resp: FileCompletionsResponse = try await get(path: "/api/workspaces/\(workspaceId)/file-completions")
+        let resp: FileCompletionsResponse = try await get(path: "/api/workspaces/\(pathSegment(workspaceId))/file-completions")
         return resp.files
     }
 
     func fetchCompletions(workspaceId: String, provider: String?) async throws -> [CompletionItem] {
-        var path = "/api/workspaces/\(workspaceId)/completions"
+        var path = "/api/workspaces/\(pathSegment(workspaceId))/completions"
         if let provider, !provider.isEmpty {
-            path += "?provider=\(pathSegment(provider))"
+            path += "?provider=\(Self.queryValue(provider))"
         }
         let resp: CompletionsResponse = try await get(path: path)
         return resp.items
@@ -235,7 +243,7 @@ final class APIClient {
     }
 
     func archiveWorkspace(workspaceId: String) async throws {
-        try await requestVoid("POST", path: "/api/workspaces/\(workspaceId)/archive")
+        try await requestVoid("POST", path: "/api/workspaces/\(pathSegment(workspaceId))/archive")
     }
 
     func fetchWorkspaceDiff(workspaceId: String, scope: String) async throws -> DiffResponse {
@@ -246,22 +254,26 @@ final class APIClient {
         try await get(path: "/api/workspaces/\(pathSegment(workspaceId))/diff/stat")
     }
 
+    func fetchWorkspaceFileContent(workspaceId: String, path: String) async throws -> WorkspaceFileContentResponse {
+        try await get(path: "/api/workspaces/\(pathSegment(workspaceId))/file?path=\(Self.queryValue(path))")
+    }
+
     func fetchModels() async throws -> ModelCatalogResponse {
         try await get(path: "/api/models")
     }
 
     func fetchWorkspaceScripts(workspaceId: String) async throws -> WorkspaceScriptsResponse {
-        try await get(path: "/api/workspaces/\(workspaceId)/scripts")
+        try await get(path: "/api/workspaces/\(pathSegment(workspaceId))/scripts")
     }
 
     func startWorkspaceScript(workspaceId: String, scriptId: String) async throws {
         let scriptPath = pathSegment(scriptId)
-        try await requestVoid("POST", path: "/api/workspaces/\(workspaceId)/scripts/\(scriptPath)/start")
+        try await requestVoid("POST", path: "/api/workspaces/\(pathSegment(workspaceId))/scripts/\(scriptPath)/start")
     }
 
     func stopWorkspaceScript(workspaceId: String, scriptId: String) async throws {
         let scriptPath = pathSegment(scriptId)
-        try await requestVoid("POST", path: "/api/workspaces/\(workspaceId)/scripts/\(scriptPath)/stop")
+        try await requestVoid("POST", path: "/api/workspaces/\(pathSegment(workspaceId))/scripts/\(scriptPath)/stop")
     }
 
     // MARK: - Brain

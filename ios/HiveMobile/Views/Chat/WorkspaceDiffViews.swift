@@ -153,6 +153,9 @@ struct WorkspaceFileDiffView: View {
     @State private var draftComment: DiffComment?
     @State private var scrollRequest: CommentScrollRequest?
     @State private var expandedPaths: Set<String> = []
+    @State private var renderedMarkdownPaths: Set<String> = []
+    @State private var markdownContents: [String: String] = [:]
+    @State private var markdownFailedPaths: Set<String> = []
 
     private let api = APIClient()
     private let draftStore = ChatDraftStore.shared
@@ -197,6 +200,19 @@ struct WorkspaceFileDiffView: View {
         .navigationSubtitle(Text("\(index + 1) of \(paths.count)"))
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
+            if isMarkdown(paths[index]) {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        toggleMarkdownRender(paths[index])
+                    } label: {
+                        if renderedMarkdownPaths.contains(paths[index]) {
+                            Label("View diff", systemImage: "plus.forwardslash.minus")
+                        } else {
+                            Label("View rendered", systemImage: "doc.richtext")
+                        }
+                    }
+                }
+            }
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
                     sendToChat()
@@ -256,7 +272,9 @@ struct WorkspaceFileDiffView: View {
 
     @ViewBuilder
     private func filePage(path: String) -> some View {
-        if let filesByPath {
+        if renderedMarkdownPaths.contains(path) {
+            markdownPage(path: path)
+        } else if let filesByPath {
             if let parsed = filesByPath[path] {
                 if parsed.file.isBinary {
                     ContentUnavailableView("Binary file changed", systemImage: "doc.zipper")
@@ -384,6 +402,73 @@ struct WorkspaceFileDiffView: View {
         return dir.isEmpty ? "" : dir + "/"
     }
 
+    private func isMarkdown(_ path: String) -> Bool {
+        let ext = (path as NSString).pathExtension.lowercased()
+        return ext == "md" || ext == "markdown"
+    }
+
+    private func toggleMarkdownRender(_ path: String) {
+        if renderedMarkdownPaths.contains(path) {
+            renderedMarkdownPaths.remove(path)
+        } else {
+            // Re-fetch on entry: the worktree file may have changed since last render.
+            markdownContents[path] = nil
+            markdownFailedPaths.remove(path)
+            renderedMarkdownPaths.insert(path)
+        }
+    }
+
+    @ViewBuilder
+    private func markdownPage(path: String) -> some View {
+        if let content = markdownContents[path] {
+            ScrollView {
+                VStack(alignment: .leading, spacing: HiveSpacing.sm) {
+                    Text("Current file contents — may differ from this diff")
+                        .font(WhisperFont.scaled(12))
+                        .foregroundStyle(WhisperColor.textMuted)
+                        .padding(.horizontal, HiveSpacing.md)
+                    SelectableMarkdownText(markdown: content)
+                        .padding(HiveSpacing.md)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(
+                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                .fill(WhisperColor.surfaceRaised)
+                        )
+                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                .stroke(WhisperColor.borderSubtle, lineWidth: 1)
+                        )
+                }
+                .padding(.horizontal, HiveSpacing.md)
+                .padding(.vertical, HiveSpacing.sm)
+            }
+        } else if markdownFailedPaths.contains(path) {
+            ContentUnavailableView {
+                Label("Couldn't load the file", systemImage: "wifi.exclamationmark")
+            } description: {
+                Text("The file may have been deleted, or the server is unreachable.")
+            } actions: {
+                Button("Retry") { Task { await loadMarkdownContent(path) } }
+            }
+        } else {
+            ProgressView()
+                .task { await loadMarkdownContent(path) }
+        }
+    }
+
+    private func loadMarkdownContent(_ path: String) async {
+        markdownFailedPaths.remove(path)
+        do {
+            let response = try await api.fetchWorkspaceFileContent(workspaceId: workspace.id, path: path)
+            markdownContents[path] = response.content
+        } catch {
+            // APIClient normalizes task cancellation to CancellationError.
+            guard !(error is CancellationError) else { return }
+            markdownFailedPaths.insert(path)
+        }
+    }
+
     private func loadDiff() async {
         loadFailed = false
         do {
@@ -406,6 +491,7 @@ struct WorkspaceFileDiffView: View {
                 pendingComments = anchoredComments(restored, linesByFile: filesByPath.mapValues(\.lines))
             }
         } catch {
+            guard !(error is CancellationError) else { return }
             loadFailed = true
         }
     }
