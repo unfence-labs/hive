@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { loadConfig, saveConfig } from "../state/config.js";
+import { loadConfig, updateConfig } from "../state/config.js";
 import { getModelCatalog } from "../agents/providers/registry.js";
 import { rebuildNotifier, updateLiveApnsToken } from "../agents/agent-manager.js";
 import { TelegramChannel } from "../notifications/telegram.js";
@@ -18,16 +18,16 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
     if (defaultModelId !== null && typeof defaultModelId !== "string") {
       return reply.status(400).send({ error: "Invalid payload" });
     }
-    const config = await loadConfig();
-    if (!defaultModelId) {
-      delete config.defaultModelId;
-    } else {
-      if (!getModelCatalog().models.some((m) => m.id === defaultModelId)) {
-        return reply.status(400).send({ error: "Unknown model id" });
-      }
-      config.defaultModelId = defaultModelId;
+    if (defaultModelId && !getModelCatalog().models.some((m) => m.id === defaultModelId)) {
+      return reply.status(400).send({ error: "Unknown model id" });
     }
-    await saveConfig(config);
+    const config = await updateConfig((c) => {
+      if (!defaultModelId) {
+        delete c.defaultModelId;
+      } else {
+        c.defaultModelId = defaultModelId;
+      }
+    });
     return { defaultModelId: config.defaultModelId ?? null };
   });
 
@@ -55,26 +55,26 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
     if (!hasTelegram && !hasApns) {
       return reply.status(400).send({ error: "Invalid payload" });
     }
-    const config = await loadConfig();
-    if (hasTelegram) {
-      config.notifications.telegram = {
-        enabled: telegram.enabled,
-        botToken: telegram.botToken?.trim() ?? "",
-        chatId: telegram.chatId?.trim() ?? "",
-      };
-    }
-    if (hasApns) {
-      config.notifications.apns = {
-        ...config.notifications.apns, // preserve deviceTokens
-        enabled: apns.enabled,
-        teamId: apns.teamId?.trim() ?? "",
-        keyId: apns.keyId?.trim() ?? "",
-        keyContent: apns.keyContent?.trim() ?? "",
-        bundleId: apns.bundleId?.trim() ?? "",
-        sandbox: apns.sandbox ?? false,
-      };
-    }
-    await saveConfig(config);
+    const config = await updateConfig((c) => {
+      if (hasTelegram) {
+        c.notifications.telegram = {
+          enabled: telegram.enabled,
+          botToken: telegram.botToken?.trim() ?? "",
+          chatId: telegram.chatId?.trim() ?? "",
+        };
+      }
+      if (hasApns) {
+        c.notifications.apns = {
+          ...c.notifications.apns, // preserve deviceTokens
+          enabled: apns.enabled,
+          teamId: apns.teamId?.trim() ?? "",
+          keyId: apns.keyId?.trim() ?? "",
+          keyContent: apns.keyContent?.trim() ?? "",
+          bundleId: apns.bundleId?.trim() ?? "",
+          sandbox: apns.sandbox ?? false,
+        };
+      }
+    });
     rebuildNotifier(config);
     return { ok: true };
   });
@@ -110,13 +110,14 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
     if (!raw || raw.length < 32) {
       return reply.status(400).send({ error: "Invalid device token" });
     }
-    const config = await loadConfig();
-    if (config.notifications.apns.deviceTokens.includes(raw)) {
-      return { ok: true, added: false };
-    }
-    config.notifications.apns.deviceTokens.push(raw);
-    await saveConfig(config);
-    updateLiveApnsToken(raw);
-    return { ok: true, added: true };
+    let added = false;
+    await updateConfig((c) => {
+      if (!c.notifications.apns.deviceTokens.includes(raw)) {
+        c.notifications.apns.deviceTokens.push(raw);
+        added = true;
+      }
+    });
+    if (added) updateLiveApnsToken(raw);
+    return { ok: true, added };
   });
 }

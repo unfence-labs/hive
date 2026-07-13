@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { loadConfig, saveConfig, type AppConfig } from "./config.js";
+import { loadConfig, saveConfig, updateConfig, type AppConfig } from "./config.js";
 
 const DEFAULT_APNS = { enabled: false, teamId: "", keyId: "", keyContent: "", bundleId: "", sandbox: false, deviceTokens: [] as string[] };
 
@@ -153,5 +153,29 @@ describe("saveConfig", () => {
 
     const loaded = await loadConfig(dataDir);
     expect(loaded).toEqual(config);
+  });
+});
+
+describe("updateConfig", () => {
+  it("persists concurrent updates without dropping either", async () => {
+    await Promise.all([
+      updateConfig((c) => { c.defaultModelId = "claude:opus-4-8"; }, dataDir),
+      updateConfig((c) => { c.notifications.apns.deviceTokens.push("deadbeef"); }, dataDir),
+    ]);
+
+    const loaded = await loadConfig(dataDir);
+    expect(loaded.defaultModelId).toBe("claude:opus-4-8");
+    expect(loaded.notifications.apns.deviceTokens).toEqual(["deadbeef"]);
+  });
+
+  it("keeps accepting updates after a mutate callback throws", async () => {
+    await expect(
+      updateConfig(() => { throw new Error("boom"); }, dataDir),
+    ).rejects.toThrow("boom");
+
+    await updateConfig((c) => { c.defaultModelId = "claude:opus-4-8"; }, dataDir);
+
+    const loaded = await loadConfig(dataDir);
+    expect(loaded.defaultModelId).toBe("claude:opus-4-8");
   });
 });
