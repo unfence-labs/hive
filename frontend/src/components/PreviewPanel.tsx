@@ -37,7 +37,8 @@ export interface PreviewPanelHandle {
 
 interface PreviewPanelProps {
   wsId: string;
-  annotationCount: number;
+  /** Pending annotations held by the host; restored into the page on reload. */
+  annotations: UiAnnotation[];
   /** Mirrors the annotator's list into the host (chips + send flow). */
   onAnnotationsChange: (annotations: UiAnnotation[]) => void;
 }
@@ -56,7 +57,7 @@ const DEVICE_WIDTHS: Record<DeviceWidth, number | null> = {
  * annotate mode + annotations between the iframe and the composer.
  */
 export const PreviewPanel = forwardRef<PreviewPanelHandle, PreviewPanelProps>(
-  function PreviewPanel({ wsId, annotationCount, onAnnotationsChange }, ref) {
+  function PreviewPanel({ wsId, annotations, onAnnotationsChange }, ref) {
     const { status, start, stop, isStarting, startError } = usePreview(wsId);
     const proxy = status?.proxy ?? null;
     const detectedUrl = status?.detectedUrl;
@@ -71,6 +72,9 @@ export const PreviewPanel = forwardRef<PreviewPanelHandle, PreviewPanelProps>(
     const [annotateMode, setAnnotateMode] = useState(false);
     const annotateModeRef = useRef(false);
     annotateModeRef.current = annotateMode;
+    /** Latest pending annotations for the message bridge (no re-subscribe). */
+    const annotationsRef = useRef<UiAnnotation[]>([]);
+    annotationsRef.current = annotations;
     const pageReadyRef = useRef(false);
     const autoStartedForRef = useRef<string | null>(null);
     const currentHrefRef = useRef<string | null>(null);
@@ -158,7 +162,17 @@ export const PreviewPanel = forwardRef<PreviewPanelHandle, PreviewPanelProps>(
           if (msg.type === "hive:ready") {
             // Fresh page load: overlay state reset, re-apply annotate mode.
             pageReadyRef.current = true;
-            onAnnotationsChange([]);
+            // Restore pending annotations so full reloads (HMR fallback,
+            // navigation) don't lose typed-but-unsent notes.
+            const pendingAnnotations = annotationsRef.current;
+            if (pendingAnnotations.length > 0) {
+              postToPage({
+                type: "hive:restore-annotations",
+                annotations: pendingAnnotations.map((a) => ({ ...a, pageUrl: toProxyUrl(a.pageUrl) })),
+              });
+            } else {
+              onAnnotationsChange([]);
+            }
             if (annotateModeRef.current) {
               postToPage({ type: "hive:set-annotate-mode", active: true });
             }
@@ -172,7 +186,7 @@ export const PreviewPanel = forwardRef<PreviewPanelHandle, PreviewPanelProps>(
       };
       window.addEventListener("message", onMessage);
       return () => window.removeEventListener("message", onMessage);
-    }, [onAnnotationsChange, postToPage, toDisplayUrl]);
+    }, [onAnnotationsChange, postToPage, toDisplayUrl, toProxyUrl]);
 
     const toggleAnnotateMode = useCallback(() => {
       const next = !annotateModeRef.current;
@@ -285,9 +299,9 @@ export const PreviewPanel = forwardRef<PreviewPanelHandle, PreviewPanelProps>(
           >
             <PencilLineIcon className="size-3.5" />
             <span className="text-[11px]">Annotate</span>
-            {annotationCount > 0 && (
+            {annotations.length > 0 && (
               <span className="rounded-full bg-primary px-1.5 text-[10px] font-semibold leading-4 text-primary-foreground">
-                {annotationCount}
+                {annotations.length}
               </span>
             )}
           </button>

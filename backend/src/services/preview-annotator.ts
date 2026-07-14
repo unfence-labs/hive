@@ -140,6 +140,9 @@ export const ANNOTATOR_SCRIPT = `
     layer.style.height = document.documentElement.scrollHeight + "px";
     layer.replaceChildren();
     for (const a of state.annotations) {
+      // Annotations restored from the host may belong to another page; keep
+      // them in state (and in the host chips) but only paint pins here.
+      if (a.pageUrl && a.pageUrl !== location.href) continue;
       if (a.kind === "area") {
         const r = document.createElement("div");
         r.className = "hva-rect"; own(r);
@@ -382,6 +385,13 @@ export const ANNOTATOR_SCRIPT = `
     switch (msg.type) {
       case "hive:set-annotate-mode": setActive(!!msg.active); break;
       case "hive:clear-annotations": state.annotations = []; render(); break;
+      case "hive:restore-annotations": {
+        const list = Array.isArray(msg.annotations) ? msg.annotations : [];
+        state.annotations = list;
+        state.nextId = list.reduce((m, a) => Math.max(m, a.id), 0) + 1;
+        render();
+        break;
+      }
       case "hive:remove-annotation":
         state.annotations = state.annotations.filter((a) => a.id !== msg.id);
         render();

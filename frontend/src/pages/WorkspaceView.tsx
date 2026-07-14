@@ -677,7 +677,7 @@ export default function WorkspaceView() {
                 key={wsId}
                 ref={previewPanelRef}
                 wsId={wsId}
-                annotationCount={previewAnnotations.length}
+                annotations={previewAnnotations}
                 onAnnotationsChange={setPreviewAnnotations}
               />
             </div>
