@@ -21,22 +21,30 @@ interface ModelSelectorProps {
   lockedProvider?: string;
 }
 
+export interface ModelProviderGroup {
+  provider: string;
+  providerLabel: string;
+  models: ModelCatalogEntry[];
+}
+
+export function groupModelsByProvider(models: ModelCatalogEntry[]): ModelProviderGroup[] {
+  const map = new Map<string, ModelProviderGroup>();
+  for (const model of models) {
+    const existing = map.get(model.provider);
+    if (existing) {
+      existing.models.push(model);
+    } else {
+      map.set(model.provider, { providerLabel: model.providerLabel, provider: model.provider, models: [model] });
+    }
+  }
+  return Array.from(map.values());
+}
+
 export function ModelSelector({ models, selectedModelId, onSelect, lockedProvider }: ModelSelectorProps) {
   const selected = models.find((m) => m.id === selectedModelId);
   const label = selected?.label ?? "Select model";
 
-  const grouped = useMemo(() => {
-    const map = new Map<string, { providerLabel: string; provider: string; models: ModelCatalogEntry[] }>();
-    for (const model of models) {
-      const existing = map.get(model.provider);
-      if (existing) {
-        existing.models.push(model);
-      } else {
-        map.set(model.provider, { providerLabel: model.providerLabel, provider: model.provider, models: [model] });
-      }
-    }
-    return Array.from(map.values());
-  }, [models]);
+  const grouped = useMemo(() => groupModelsByProvider(models), [models]);
 
   return (
     <DropdownMenu>

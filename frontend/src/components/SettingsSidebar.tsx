@@ -6,6 +6,7 @@ import {
   Bot,
   ChevronRight,
   CircleUser,
+  Cpu,
   FileCode2,
   FileText,
   Folder,
@@ -96,6 +97,12 @@ export default function SettingsSidebar() {
               label="CLI"
               icon={<Bot className="h-4 w-4" />}
               active={pathname === "/settings/cli"}
+            />
+            <NavItem
+              to="/settings/models"
+              label="Models"
+              icon={<Cpu className="h-4 w-4" />}
+              active={pathname === "/settings/models"}
             />
             <NavItem
               to="/settings/instructions"

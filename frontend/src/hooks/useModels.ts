@@ -33,6 +33,14 @@ export function __resetModelCatalogCacheForTests(): void {
   catalogPromise = null;
 }
 
+/** Settings saved a new global default: patch the cached catalog so composers
+ *  mounted after this seed with it without a page reload. */
+export function setCachedDefaultModelId(defaultModelId: string): void {
+  if (catalogCache) {
+    catalogCache = { ...catalogCache, defaultModelId };
+  }
+}
+
 function loadCatalog(): Promise<ModelCatalogResponse> {
   if (!catalogPromise) {
     catalogPromise = api.get<ModelCatalogResponse>("/api/models")

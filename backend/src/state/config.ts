@@ -26,6 +26,8 @@ export interface NotificationsConfig {
 
 export interface AppConfig {
   notifications: NotificationsConfig;
+  /** Compound model id ("provider:model") used as the default for new conversations. */
+  defaultModelId?: string;
 }
 
 const DEFAULT_APNS: ApnsConfig = {
@@ -71,6 +73,9 @@ export async function loadConfig(dataDir = getDataDir()): Promise<AppConfig> {
           deviceTokens: apns?.deviceTokens ?? DEFAULT_APNS.deviceTokens,
         },
       },
+      defaultModelId: typeof parsed.defaultModelId === "string" && parsed.defaultModelId
+        ? parsed.defaultModelId
+        : undefined,
     };
   } catch {
     return structuredClone(DEFAULT_CONFIG);
@@ -83,4 +88,23 @@ export async function saveConfig(config: AppConfig, dataDir = getDataDir()): Pro
   const tmp = join(dataDir, `config.${randomUUID()}.tmp`);
   await writeFile(tmp, JSON.stringify(config, null, 2), "utf-8");
   await rename(tmp, target);
+}
+
+// Serializes read-modify-write cycles so concurrent writers (settings routes,
+// APNs token persistence) cannot load the same snapshot and drop each other's
+// changes. saveConfig alone is atomic per write but does not close this window.
+let updateQueue: Promise<unknown> = Promise.resolve();
+
+export function updateConfig(
+  mutate: (config: AppConfig) => void,
+  dataDir = getDataDir(),
+): Promise<AppConfig> {
+  const task = updateQueue.then(async () => {
+    const config = await loadConfig(dataDir);
+    mutate(config);
+    await saveConfig(config, dataDir);
+    return config;
+  });
+  updateQueue = task.catch(() => undefined); // keep the chain alive on failure
+  return task;
 }

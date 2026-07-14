@@ -18,7 +18,7 @@ import { TelegramChannel } from "../notifications/telegram.js";
 import { ApnsChannel } from "../notifications/apns.js";
 import { browserSessionManager } from "../services/browser-session-manager.js";
 import type { AppConfig } from "../state/config.js";
-import { loadConfig, saveConfig } from "../state/config.js";
+import { updateConfig } from "../state/config.js";
 
 let notifier: Notifier | undefined;
 let liveApnsChannel: ApnsChannel | null = null;
@@ -46,9 +46,9 @@ export function rebuildNotifier(config: AppConfig): void {
     const ch = ApnsChannel.fromConfig(apns, (tokens) => {
       void (async () => {
         try {
-          const cfg = await loadConfig();
-          cfg.notifications.apns.deviceTokens = tokens;
-          await saveConfig(cfg);
+          await updateConfig((c) => {
+            c.notifications.apns.deviceTokens = tokens;
+          });
         } catch (err) {
           console.error("[apns] failed to persist token changes:", err);
         }
