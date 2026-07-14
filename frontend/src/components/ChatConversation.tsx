@@ -17,7 +17,7 @@ import { WorkspaceWelcome } from "@/components/WorkspaceWelcome";
 import { formatElapsed } from "@/lib/time";
 import { getFallbackInteractiveAssistantIndex, hasExitPlanModeTool } from "@/lib/plan-state";
 import { Trash2Icon } from "lucide-react";
-import type { AgentActivity, ChatMessage as ChatMessageType, QueuedMessage, ToolCall, QuestionAnswer } from "@/types";
+import type { AgentActivity, ChatMessage as ChatMessageType, QueuedMessage, ToolCall, QuestionAnswer, UiAnnotation } from "@/types";
 import type { PendingToolInput } from "@/hooks/useConversation";
 import type { PlanStatus } from "@/components/chat/PlanProposal";
 
@@ -39,6 +39,8 @@ interface ChatConversationProps {
   pendingToolInputs?: PendingToolInput[];
   onQuestionAnswer?: (toolCallId: string, answers: QuestionAnswer[]) => void;
   onFileMentionClick?: (relativePath: string) => void;
+  /** Opens the preview and flashes a sent annotation's location. */
+  onLocateAnnotation?: (annotation: UiAnnotation) => void;
   /** When set, the workspace welcome offers a button to open a terminal tab. */
   onStartTerminal?: () => void;
   workspaceName?: string;
@@ -73,6 +75,7 @@ export default function ChatConversation({
   pendingToolInputs = [],
   onQuestionAnswer,
   onFileMentionClick,
+  onLocateAnnotation,
   onStartTerminal,
   workspaceName,
   projectName,
@@ -258,6 +261,7 @@ export default function ChatConversation({
               dismissedToolCallIds={dismissedToolCallIds}
               onQuestionAnswer={onQuestionAnswer}
               onFileMentionClick={onFileMentionClick}
+              onLocateAnnotation={onLocateAnnotation}
             />
           );
         })}

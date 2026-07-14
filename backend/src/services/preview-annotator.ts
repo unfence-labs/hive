@@ -23,6 +23,8 @@ export const ANNOTATOR_SCRIPT = `
     ".hva-pin{position:absolute;pointer-events:auto;width:22px;height:22px;transform:translate(-50%,-50%);background:#4f46e5;color:#fff;border-radius:999px;border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.3);font:bold 11px/18px -apple-system,sans-serif;text-align:center;cursor:pointer;padding:0}",
     ".hva-rect{position:absolute;pointer-events:none;border:1.5px dashed #4f46e5;background:rgba(79,70,229,.10);border-radius:3px}",
     ".hva-dragrect{position:fixed;z-index:2147483642;pointer-events:none;border:1.5px dashed #4f46e5;background:rgba(79,70,229,.12)}",
+    ".hva-pulse{position:absolute;pointer-events:none;border:2px solid #4f46e5;border-radius:6px;animation:hva-pulse 1.6s ease-out forwards}",
+    "@keyframes hva-pulse{0%{box-shadow:0 0 0 0 rgba(79,70,229,.55);opacity:1}100%{box-shadow:0 0 0 18px rgba(79,70,229,0);opacity:.15}}",
     ".hva-popover{position:absolute;pointer-events:auto;z-index:2147483645;background:#fff;color:#111827;border-radius:10px;box-shadow:0 8px 30px rgba(0,0,0,.25);padding:10px;width:260px;font:13px -apple-system,'Segoe UI',sans-serif}",
     ".hva-popover textarea{width:100%;height:60px;border:1px solid #d1d5db;border-radius:6px;padding:6px;font:inherit;resize:vertical;box-sizing:border-box;background:#fff;color:#111827}",
     ".hva-popover .hva-row{display:flex;justify-content:flex-end;gap:6px;margin-top:8px}",
@@ -82,19 +84,33 @@ export const ANNOTATOR_SCRIPT = `
     return parts.join(" > ");
   }
 
+  // Library wrappers (Radix Primitive.div, Slot, styled/motion shims...) carry
+  // no signal for the agent; keep walking up to the first app-level component.
+  function isWrapperComponentName(name) {
+    if (name.indexOf(".") !== -1) return true;
+    return /^(Primitive|Slot|Presence|Portal|Provider|Consumer|Context|Fragment|ForwardRef|Memo|Styled|Motion|AnimatePresence|Transition)/.test(name);
+  }
+
   function reactComponentFor(el) {
     let node = el;
     while (node) {
       const key = Object.keys(node).find((k) => k.startsWith("__reactFiber$"));
       if (key) {
         let fiber = node[key];
+        let fallback = null;
         while (fiber) {
           const t = fiber.type;
-          if (typeof t === "function" && t.name) return t.name;
-          if (typeof t === "object" && t && t.displayName) return t.displayName;
+          const name =
+            (typeof t === "function" && t.name) ||
+            (typeof t === "object" && t && t.displayName) ||
+            null;
+          if (name) {
+            if (!isWrapperComponentName(name)) return name;
+            if (!fallback) fallback = name;
+          }
           fiber = fiber.return;
         }
-        return null;
+        return fallback;
       }
       node = node.parentElement;
     }
@@ -136,8 +152,9 @@ export const ANNOTATOR_SCRIPT = `
       pin.className = "hva-pin"; own(pin);
       pin.textContent = String(a.id);
       pin.title = a.note || "";
-      const px = a.kind === "area" ? a.rect.x : a.rect.x + a.rect.w / 2;
-      const py = a.kind === "area" ? a.rect.y : a.rect.y + a.rect.h / 2;
+      // Pin the top-right corner so the pin never covers the element content.
+      const px = a.kind === "area" ? a.rect.x : a.rect.x + a.rect.w;
+      const py = a.rect.y;
       pin.style.left = px + "px"; pin.style.top = py + "px";
       pin.addEventListener("click", (e) => { e.stopPropagation(); openPopover(a, px, py); });
       layer.appendChild(pin);
@@ -284,7 +301,7 @@ export const ANNOTATOR_SCRIPT = `
         elementText: elementText(el),
         rect: { x: Math.round(r.left + sx), y: Math.round(r.top + sy), w: Math.round(r.width), h: Math.round(r.height) },
       };
-      openPopover(ann, r.left + sx + r.width / 2, r.top + sy + r.height / 2);
+      openPopover(ann, r.left + sx + r.width, r.top + sy);
     }
   }, true);
 
@@ -293,6 +310,51 @@ export const ANNOTATOR_SCRIPT = `
   }, true);
 
   window.addEventListener("resize", () => { if (state.annotations.length) render(); });
+
+  // ── locate helpers (host-driven: chips and sent-message badges) ──
+  function scrollToRect(rect) {
+    window.scrollTo({
+      top: Math.max(0, rect.y - window.innerHeight / 2 + rect.h / 2),
+      left: Math.max(0, rect.x - window.innerWidth / 2 + rect.w / 2),
+      behavior: "smooth",
+    });
+  }
+
+  function pulseAt(rect) {
+    const pulse = document.createElement("div");
+    pulse.className = "hva-pulse"; own(pulse);
+    pulse.style.left = (rect.x - 4) + "px";
+    pulse.style.top = (rect.y - 4) + "px";
+    pulse.style.width = (rect.w + 8) + "px";
+    pulse.style.height = (rect.h + 8) + "px";
+    layer.appendChild(pulse);
+    setTimeout(() => pulse.remove(), 1700);
+  }
+
+  function focusAnnotation(id) {
+    const a = state.annotations.find((x) => x.id === id);
+    if (!a) return;
+    scrollToRect(a.rect);
+    pulseAt(a.rect);
+    const px = a.kind === "area" ? a.rect.x : a.rect.x + a.rect.w;
+    openPopover(a, px, a.rect.y);
+  }
+
+  function flashLocation(selector, rect) {
+    let target = null;
+    if (selector) {
+      try { target = document.querySelector(selector); } catch { target = null; }
+    }
+    if (target) {
+      const r = target.getBoundingClientRect();
+      const abs = { x: r.left + window.scrollX, y: r.top + window.scrollY, w: r.width, h: r.height };
+      scrollToRect(abs);
+      pulseAt(abs);
+    } else if (rect) {
+      scrollToRect(rect);
+      pulseAt(rect);
+    }
+  }
 
   // ── SPA navigation reporting ──
   const origPush = history.pushState.bind(history);
@@ -313,6 +375,8 @@ export const ANNOTATOR_SCRIPT = `
         state.annotations = state.annotations.filter((a) => a.id !== msg.id);
         render();
         break;
+      case "hive:focus-annotation": focusAnnotation(msg.id); break;
+      case "hive:flash": flashLocation(msg.selector, msg.rect); break;
       case "hive:reload": location.reload(); break;
       case "hive:navigate":
         if (typeof msg.href === "string") location.href = msg.href;

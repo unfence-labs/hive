@@ -55,6 +55,8 @@ interface ChatInputProps {
   /** Pending preview annotations, attached as agent context on send. */
   annotations?: UiAnnotation[];
   onRemoveAnnotation?: (id: number) => void;
+  /** Scrolls the preview to the annotation and opens its note editor. */
+  onFocusAnnotation?: (id: number) => void;
 }
 
 interface AutocompleteState {
@@ -101,6 +103,7 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput
   agentPlanMode,
   annotations,
   onRemoveAnnotation,
+  onFocusAnnotation,
 }, ref) {
   const [value, setValue] = useState("");
   // Seeded at mount from the per-session compose-options store (sticky across
@@ -382,16 +385,22 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput
         <PromptInput onSubmit={handleSubmit} accept="image/*" multiple>
         <PromptInputBody>
           {annotationCount > 0 && (
-            <div className="flex flex-wrap gap-1.5 px-3 pt-2">
+            <div className="flex w-full flex-wrap gap-1.5 px-3 pt-2">
               {annotations!.map((a) => (
                 <span
                   key={a.id}
-                  title={a.selector ?? a.pageUrl}
                   className="inline-flex max-w-56 items-center gap-1 rounded-md border border-primary/25 bg-primary/10 px-1.5 py-0.5 text-[11px] text-primary"
                 >
-                  <PencilLineIcon className="size-3 shrink-0" />
-                  <span className="shrink-0 font-semibold">{a.id}</span>
-                  <span className="truncate">{a.note || a.elementText || a.selector || "area"}</span>
+                  <button
+                    type="button"
+                    title={`Show in preview — ${a.selector ?? a.pageUrl}`}
+                    className="flex min-w-0 items-center gap-1 hover:underline"
+                    onClick={() => onFocusAnnotation?.(a.id)}
+                  >
+                    <PencilLineIcon className="size-3 shrink-0" />
+                    <span className="shrink-0 font-semibold">{a.id}</span>
+                    <span className="truncate">{a.note || a.elementText || a.selector || "area"}</span>
+                  </button>
                   {onRemoveAnnotation && (
                     <button
                       type="button"

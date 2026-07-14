@@ -15,6 +15,7 @@ import type {
   QuestionAnswer,
   SessionMetadata,
   ToolCall,
+  UiAnnotation,
 } from "@/types";
 
 /**
@@ -69,6 +70,8 @@ export interface ConversationPaneProps {
   pendingToolInputs: PendingToolInput[];
   onQuestionAnswer?: (toolCallId: string, answers: QuestionAnswer[]) => void;
   onFileMentionClick?: (relativePath: string) => void;
+  /** Opens the preview and flashes a sent annotation's location. */
+  onLocateAnnotation?: (annotation: UiAnnotation) => void;
   switchCounter: number;
   agentPlanMode?: boolean;
   error?: string;
@@ -140,6 +143,7 @@ export function ConversationPane({
   pendingToolInputs,
   onQuestionAnswer,
   onFileMentionClick,
+  onLocateAnnotation,
   switchCounter,
   agentPlanMode,
   error,
@@ -211,6 +215,7 @@ export function ConversationPane({
               pendingToolInputs={pendingToolInputs}
               onQuestionAnswer={onQuestionAnswer}
               onFileMentionClick={onFileMentionClick}
+              onLocateAnnotation={onLocateAnnotation}
               onStartTerminal={onStartTerminal}
               workspaceName={workspaceName}
               projectName={projectName}

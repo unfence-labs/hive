@@ -269,6 +269,24 @@ export default function WorkspaceView() {
     previewPanelRef.current?.clearAnnotations();
   }, []);
 
+  // Composer chip click: bring the preview forward, scroll to the pin, open
+  // its note editor.
+  const handleFocusAnnotation = useCallback((id: number) => {
+    setPreviewOpen(true);
+    setPreviewTabActive(true);
+    // The panel stays mounted while chips exist, so the ref is already live.
+    previewPanelRef.current?.focusAnnotation(id);
+  }, []);
+
+  // Sent-message badge click: reopen the preview and flash where the
+  // annotation was made (pins are cleared on send, so this re-resolves the
+  // selector, falling back to the recorded rect).
+  const handleLocateAnnotation = useCallback((annotation: UiAnnotation) => {
+    setPreviewOpen(true);
+    setPreviewTabActive(true);
+    requestAnimationFrame(() => previewPanelRef.current?.flashLocation(annotation));
+  }, []);
+
   // Clear unread only when the active conversation is actually visible.
   // If a takeover tab (file or preview) is open, keep unread state so the
   // conversation tab can show a dot.
@@ -573,6 +591,7 @@ export default function WorkspaceView() {
             pendingToolInputs={pendingToolInputs}
             onQuestionAnswer={answerQuestion}
             onFileMentionClick={handleFileTreeSelect}
+            onLocateAnnotation={handleLocateAnnotation}
             activeProvider={effectiveLockedProvider}
             workspaceName={workspace?.name}
             projectName={workspace?.projectName}
@@ -645,6 +664,7 @@ export default function WorkspaceView() {
                   setPreviewAnnotations((prev) => prev.filter((a) => a.id !== id));
                   previewPanelRef.current?.removeAnnotation(id);
                 }}
+                onFocusAnnotation={handleFocusAnnotation}
               />
               )
             }

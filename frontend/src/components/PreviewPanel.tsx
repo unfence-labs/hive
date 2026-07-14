@@ -18,6 +18,7 @@ import {
   TabletIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { openExternal } from "@/lib/open-external";
 import { usePreview, previewProxyOrigin } from "@/hooks/usePreview";
 import type { UiAnnotation } from "@/types";
 
@@ -26,6 +27,10 @@ export interface PreviewPanelHandle {
   clearAnnotations: () => void;
   /** Remove a single annotation pin inside the previewed page. */
   removeAnnotation: (id: number) => void;
+  /** Scroll a pending annotation into view and open its note editor. */
+  focusAnnotation: (id: number) => void;
+  /** Navigate to a sent annotation's page if needed and flash its location. */
+  flashLocation: (annotation: UiAnnotation) => void;
 }
 
 interface PreviewPanelProps {
@@ -66,6 +71,9 @@ export const PreviewPanel = forwardRef<PreviewPanelHandle, PreviewPanelProps>(
     annotateModeRef.current = annotateMode;
     const pageReadyRef = useRef(false);
     const autoStartedForRef = useRef<string | null>(null);
+    const currentHrefRef = useRef<string | null>(null);
+    /** Flash queued until the target page finishes loading in the iframe. */
+    const pendingFlashRef = useRef<UiAnnotation | null>(null);
 
     const postToPage = useCallback((msg: Record<string, unknown>) => {
       iframeRef.current?.contentWindow?.postMessage(msg, "*");
@@ -77,10 +85,32 @@ export const PreviewPanel = forwardRef<PreviewPanelHandle, PreviewPanelProps>(
       [proxy, proxyOrigin],
     );
 
+    /** Annotations carry dev-server URLs; the iframe loads via the proxy. */
+    const toProxyUrl = useCallback(
+      (href: string) => (proxy && proxyOrigin ? href.replace(proxy.targetUrl, proxyOrigin) : href),
+      [proxy, proxyOrigin],
+    );
+
+    const flashLocation = useCallback((annotation: UiAnnotation) => {
+      const samePage = currentHrefRef.current === annotation.pageUrl;
+      if (samePage && pageReadyRef.current) {
+        postToPage({ type: "hive:flash", selector: annotation.selector, rect: annotation.rect });
+        return;
+      }
+      pendingFlashRef.current = annotation;
+      if (!samePage) {
+        pageReadyRef.current = false;
+        setIframeSrc(toProxyUrl(annotation.pageUrl));
+        setIframeKey((k) => k + 1);
+      }
+    }, [postToPage, toProxyUrl]);
+
     useImperativeHandle(ref, () => ({
       clearAnnotations: () => postToPage({ type: "hive:clear-annotations" }),
       removeAnnotation: (id: number) => postToPage({ type: "hive:remove-annotation", id }),
-    }), [postToPage]);
+      focusAnnotation: (id: number) => postToPage({ type: "hive:focus-annotation", id }),
+      flashLocation,
+    }), [postToPage, flashLocation]);
 
     // Auto-start the proxy once per detected dev-server URL.
     useEffect(() => {
@@ -111,8 +141,11 @@ export const PreviewPanel = forwardRef<PreviewPanelHandle, PreviewPanelProps>(
           onAnnotationsChange(annotations.map((a) => ({ ...a, pageUrl: toDisplayUrl(a.pageUrl) })));
           setAnnotateMode(Boolean(msg.active));
         } else if (msg.type === "hive:nav" || msg.type === "hive:ready") {
-          if (typeof msg.href === "string" && document.activeElement !== urlInputRef.current) {
-            setUrlInput(toDisplayUrl(msg.href));
+          if (typeof msg.href === "string") {
+            currentHrefRef.current = toDisplayUrl(msg.href);
+            if (document.activeElement !== urlInputRef.current) {
+              setUrlInput(currentHrefRef.current);
+            }
           }
           if (msg.type === "hive:ready") {
             // Fresh page load: overlay state reset, re-apply annotate mode.
@@ -120,6 +153,11 @@ export const PreviewPanel = forwardRef<PreviewPanelHandle, PreviewPanelProps>(
             onAnnotationsChange([]);
             if (annotateModeRef.current) {
               postToPage({ type: "hive:set-annotate-mode", active: true });
+            }
+            const pending = pendingFlashRef.current;
+            if (pending) {
+              pendingFlashRef.current = null;
+              postToPage({ type: "hive:flash", selector: pending.selector, rect: pending.rect });
             }
           }
         }
@@ -249,7 +287,10 @@ export const PreviewPanel = forwardRef<PreviewPanelHandle, PreviewPanelProps>(
             type="button"
             className={toolbarButton()}
             title="Open in external browser"
-            onClick={() => window.open(urlInput || proxy?.targetUrl || detectedUrl, "_blank")}
+            onClick={() => {
+              const url = urlInput || proxy?.targetUrl || detectedUrl;
+              if (url) void openExternal(url);
+            }}
             disabled={!urlInput && !proxy && !detectedUrl}
           >
             <ExternalLinkIcon className="size-3.5" />

@@ -1,5 +1,5 @@
 import { memo, useState, type ReactNode } from "react";
-import type { ChatMessage as ChatMessageType, FileMention, QuestionAnswer } from "@/types";
+import type { ChatMessage as ChatMessageType, FileMention, QuestionAnswer, UiAnnotation } from "@/types";
 import { cn } from "@/lib/utils";
 import { formatElapsed } from "@/lib/time";
 import { resolveImageSrc } from "@/lib/image-url";
@@ -8,7 +8,7 @@ import { ThinkingBlock } from "@/components/chat/ThinkingBlock";
 import { AgentActivityList, getInlineAgentActivities } from "@/components/chat/AgentActivityList";
 import { CopyButton } from "@/components/chat/CopyButton";
 import { ImageLightbox } from "@/components/chat/ImageLightbox";
-import { FileIcon, PencilLineIcon, TargetIcon } from "lucide-react";
+import { ChevronDownIcon, CrosshairIcon, FileIcon, PencilLineIcon, TargetIcon } from "lucide-react";
 import type { PlanStatus } from "@/components/chat/PlanProposal";
 import { AT_MENTION_RE, splitByAllMentions } from "@/lib/file-mentions";
 
@@ -60,6 +60,8 @@ interface ChatMessageProps {
   dismissedToolCallIds?: Set<string>;
   onQuestionAnswer?: (toolCallId: string, answers: QuestionAnswer[]) => void;
   onFileMentionClick?: (relativePath: string) => void;
+  /** Opens the preview and flashes the annotation's location on its page. */
+  onLocateAnnotation?: (annotation: UiAnnotation) => void;
 }
 
 const ChatMessage = memo(function ChatMessage({
@@ -69,9 +71,11 @@ const ChatMessage = memo(function ChatMessage({
   dismissedToolCallIds,
   onQuestionAnswer,
   onFileMentionClick,
+  onLocateAnnotation,
 }: ChatMessageProps) {
   const isUser = message.role === "user";
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
+  const [annotationsExpanded, setAnnotationsExpanded] = useState(false);
   const inlineAgentActivities = getInlineAgentActivities(message.agentActivities ?? []);
   const showAssistantActions = !isUser && (message.durationMs != null || Boolean(message.content));
 
@@ -128,16 +132,48 @@ const ChatMessage = memo(function ChatMessage({
             </div>
           )}
           {message.annotations && message.annotations.length > 0 && (
-            <div className="mt-1 flex justify-end">
-              <span
-                title={message.annotations.map((a) => `${a.id}. ${a.note || a.selector || "area"}`).join("\n")}
-                className="inline-flex items-center gap-1 rounded-full border border-primary/15 bg-background px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground shadow-sm"
+            <div className="mt-1 flex w-full flex-col items-end gap-1">
+              <button
+                type="button"
+                onClick={() => setAnnotationsExpanded((v) => !v)}
+                className="inline-flex items-center gap-1 rounded-full border border-primary/15 bg-background px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground shadow-sm transition-colors hover:text-foreground"
               >
                 <PencilLineIcon className="size-3" />
                 {message.annotations.length === 1
                   ? "1 UI annotation"
                   : `${message.annotations.length} UI annotations`}
-              </span>
+                <ChevronDownIcon
+                  className={cn("size-3 transition-transform", annotationsExpanded && "rotate-180")}
+                />
+              </button>
+              {annotationsExpanded && (
+                <div className="w-full rounded-md border border-border/40 bg-background p-2 text-left shadow-sm">
+                  {message.annotations.map((a) => (
+                    <div key={a.id} className="flex items-start gap-2 border-b border-border/30 py-1 last:border-b-0">
+                      <span className="mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full bg-primary text-[10px] font-semibold text-primary-foreground">
+                        {a.id}
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-xs text-foreground">{a.note || "(no note)"}</p>
+                        <p className="mt-0.5 truncate font-mono text-[10px] text-muted-foreground">
+                          {a.selector ?? `area ${Math.round(a.rect.w)}×${Math.round(a.rect.h)}`}
+                          {a.component ? ` · <${a.component}>` : ""}
+                        </p>
+                      </div>
+                      {onLocateAnnotation && (
+                        <button
+                          type="button"
+                          title="Show in preview"
+                          className="shrink-0 rounded-md p-1 text-muted-foreground transition-colors hover:bg-accent/50 hover:text-primary"
+                          onClick={() => onLocateAnnotation(a)}
+                        >
+                          <CrosshairIcon className="size-3.5" />
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
           {message.goalCommand && (
