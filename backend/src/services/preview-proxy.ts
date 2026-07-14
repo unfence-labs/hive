@@ -314,6 +314,13 @@ export function stopPreviewProxy(wsId: string): boolean {
   return true;
 }
 
+/** Full per-workspace cleanup: proxy, detected URL, and output tail. */
+export function clearPreviewState(wsId: string): void {
+  stopPreviewProxy(wsId);
+  detectedUrls.delete(wsId);
+  outputTails.delete(wsId);
+}
+
 /** Stop every preview proxy (graceful shutdown). */
 export function stopAllPreviewProxies(): void {
   for (const wsId of [...proxies.keys()]) stopPreviewProxy(wsId);

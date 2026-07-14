@@ -3,6 +3,7 @@ import http from "node:http";
 import { WebSocketServer, WebSocket } from "ws";
 import {
   _clearAllPreviews,
+  clearPreviewState,
   getDetectedPreviewUrl,
   getPreviewProxy,
   notePreviewOutput,
@@ -138,6 +139,18 @@ describe("preview proxy", () => {
 
   it("rejects non-http target URLs", async () => {
     await expect(startPreviewProxy("ws-1", "file:///etc/passwd")).rejects.toThrow(/protocol/);
+  });
+
+  it("clearPreviewState stops the proxy and forgets the detected URL", async () => {
+    await startPreviewProxy("ws-x", `http://127.0.0.1:${devPort}`);
+    notePreviewOutput("ws-x", "Local: http://localhost:5173/\n");
+    expect(getPreviewProxy("ws-x")).not.toBeNull();
+    expect(getDetectedPreviewUrl("ws-x")).toBe("http://localhost:5173/");
+
+    clearPreviewState("ws-x");
+
+    expect(getPreviewProxy("ws-x")).toBeNull();
+    expect(getDetectedPreviewUrl("ws-x")).toBeUndefined();
   });
 });
 

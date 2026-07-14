@@ -19,6 +19,7 @@ import { copyProjectEnvToWorkspace } from "../state/project-env.js";
 import { BadRequestError, ConflictError, NotFoundError } from "../utils/errors.js";
 import { stopAllForWorkspace } from "../services/script-runner.js";
 import { stopAllTerminalsForWorkspace } from "../services/terminal-runner.js";
+import { clearPreviewState } from "../services/preview-proxy.js";
 import type { Workspace, ProjectState, WorkspaceFileTreeNode, DiffFileStat, DiffFileStatus, DiffScope, DiffResponse, DiffStatResponse } from "../types.js";
 
 function findWorkspace(state: ProjectState, wsId: string): Workspace | undefined {
@@ -109,6 +110,7 @@ export async function deleteWorkspace(
 ): Promise<void> {
   stopAllForWorkspace(wsId);
   stopAllTerminalsForWorkspace(wsId);
+  clearPreviewState(wsId);
 
   const result = await getWorkspace(wsId, dataDir);
   if (!result) throw new NotFoundError(`Workspace ${wsId} not found`);

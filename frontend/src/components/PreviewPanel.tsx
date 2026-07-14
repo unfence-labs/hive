@@ -31,6 +31,8 @@ export interface PreviewPanelHandle {
   focusAnnotation: (id: number) => void;
   /** Navigate to a sent annotation's page if needed and flash its location. */
   flashLocation: (annotation: UiAnnotation) => void;
+  /** Stop the backend proxy server; used when the preview tab closes. */
+  stopProxy: () => void;
 }
 
 interface PreviewPanelProps {
@@ -55,7 +57,7 @@ const DEVICE_WIDTHS: Record<DeviceWidth, number | null> = {
  */
 export const PreviewPanel = forwardRef<PreviewPanelHandle, PreviewPanelProps>(
   function PreviewPanel({ wsId, annotationCount, onAnnotationsChange }, ref) {
-    const { status, start, isStarting, startError } = usePreview(wsId);
+    const { status, start, stop, isStarting, startError } = usePreview(wsId);
     const proxy = status?.proxy ?? null;
     const detectedUrl = status?.detectedUrl;
     const proxyOrigin = proxy ? previewProxyOrigin(proxy.port) : null;
@@ -115,7 +117,8 @@ export const PreviewPanel = forwardRef<PreviewPanelHandle, PreviewPanelProps>(
       removeAnnotation: (id: number) => postToPage({ type: "hive:remove-annotation", id }),
       focusAnnotation: (id: number) => postToPage({ type: "hive:focus-annotation", id }),
       flashLocation,
-    }), [postToPage, flashLocation]);
+      stopProxy: () => stop(),
+    }), [postToPage, flashLocation, stop]);
 
     // Auto-start the proxy once per detected dev-server URL.
     useEffect(() => {

@@ -66,6 +66,9 @@ export async function previewRoutes(app: FastifyInstance, dataDir?: string) {
     "/api/workspaces/:wsId/preview/stop",
     async (req, reply) => {
       const { wsId } = req.params;
+      if (!(await workspaceExists(wsId))) {
+        return reply.status(404).send({ error: "Workspace not found" });
+      }
       stopPreviewProxy(wsId);
       const status = previewStatus(wsId);
       broadcastToWorkspace(wsId, { type: "preview_status", status });

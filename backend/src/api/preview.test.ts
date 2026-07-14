@@ -168,6 +168,17 @@ describe("preview routes", () => {
     expect(mocks.broadcastToWorkspace).not.toHaveBeenCalled();
   });
 
+  it("POST /api/workspaces/:wsId/preview/stop returns 404 for unknown workspace", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/workspaces/unknown/preview/stop",
+    });
+
+    expect(res.statusCode).toBe(404);
+    expect(res.json()).toEqual({ error: "Workspace not found" });
+    expect(mocks.stopPreviewProxy).not.toHaveBeenCalled();
+  });
+
   it("POST /api/workspaces/:wsId/preview/stop stops the proxy and broadcasts status", async () => {
     mocks.getPreviewProxy.mockReturnValue(null);
 

@@ -235,6 +235,8 @@ export default function WorkspaceView() {
     setPreviewTabActive(true);
   }, []);
   const closePreviewTab = useCallback(() => {
+    // Stop the backend proxy first: flipping previewOpen unmounts the panel.
+    previewPanelRef.current?.stopProxy();
     setPreviewOpen(false);
     setPreviewTabActive(false);
     setPreviewAnnotations([]);
