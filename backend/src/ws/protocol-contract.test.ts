@@ -11,6 +11,8 @@ const SWIFT_WS_TYPES_PATH = `${repoRoot}/ios/HiveMobile/Models/WebSocketTypes.sw
 const swiftDecoderExceptions = new Set([
   // Web/Tauri-only event for the live agent-browser panel; iOS intentionally treats it as unknown.
   "browser_status",
+  // Web/Tauri-only event for the workspace preview proxy; iOS intentionally treats it as unknown.
+  "preview_status",
 ]);
 
 function readRepoFile(path: string): string {

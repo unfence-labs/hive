@@ -11,9 +11,9 @@ import {
   usePromptInputAttachments,
   type AttachmentsContext,
 } from "@/components/ai-elements/prompt-input";
-import type { ChatMessage, CompletionItem, FileMention, ImageAttachment, MessageOptions, QueuedMessage, ThinkingLevel } from "@/types";
+import type { ChatMessage, CompletionItem, FileMention, ImageAttachment, MessageOptions, QueuedMessage, ThinkingLevel, UiAnnotation } from "@/types";
 import { cn } from "@/lib/utils";
-import { BookOpenIcon, PlusIcon, SquareIcon, ZapIcon } from "lucide-react";
+import { BookOpenIcon, PencilLineIcon, PlusIcon, SquareIcon, XIcon, ZapIcon } from "lucide-react";
 import { AttachmentPreview } from "@/components/chat/AttachmentPreview";
 import { AutocompletePopup } from "@/components/chat/AutocompletePopup";
 import { FileAutocompletePopup } from "@/components/chat/FileAutocompletePopup";
@@ -42,7 +42,7 @@ interface ChatInputProps {
    *  controls. Read at mount as a fallback seed for the composer controls when
    *  the per-session compose-options store is empty (e.g. after a full reload). */
   lastRunOptions?: MessageOptions;
-  onSend: (content: string, images?: ImageAttachment[], options?: MessageOptions, fileMentions?: FileMention[]) => boolean;
+  onSend: (content: string, images?: ImageAttachment[], options?: MessageOptions, fileMentions?: FileMention[], annotations?: UiAnnotation[]) => boolean;
   onStop: () => void;
   disabled: boolean;
   isStreaming: boolean;
@@ -52,6 +52,9 @@ interface ChatInputProps {
   queuedMessage?: QueuedMessage | null;
   onQueue: (msg: QueuedMessage) => void;
   agentPlanMode?: boolean;
+  /** Pending preview annotations, attached as agent context on send. */
+  annotations?: UiAnnotation[];
+  onRemoveAnnotation?: (id: number) => void;
 }
 
 interface AutocompleteState {
@@ -96,6 +99,8 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput
   queuedMessage,
   onQueue,
   agentPlanMode,
+  annotations,
+  onRemoveAnnotation,
 }, ref) {
   const [value, setValue] = useState("");
   // Seeded at mount from the per-session compose-options store (sticky across
@@ -134,7 +139,8 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput
   const isDisconnected = connectionStatus === "disconnected";
   const hasQueuedMessage = !!queuedMessage;
   const isInputDisabled = disabled || isDisconnected || hasQueuedMessage;
-  const canSubmit = !isInputDisabled && (value.trim().length > 0 || fileCount > 0);
+  const annotationCount = annotations?.length ?? 0;
+  const canSubmit = !isInputDisabled && (value.trim().length > 0 || fileCount > 0 || annotationCount > 0);
 
   const { models, selectedModelId, selectedModel, setSelectedModelId, capabilities } = useModels(lockedProvider, lastRunOptions?.model);
   const contextUsage = useContextUsage(messages, selectedModel);
@@ -308,7 +314,8 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput
   );
 
   const handleSubmit = ({ text, files }: PromptInputMessage) => {
-    const trimmed = text.trim();
+    // Annotations carry their own notes, so they can be sent without text.
+    const trimmed = text.trim() || (annotationCount > 0 ? "Address the attached UI annotations." : "");
     if (!trimmed && files.length === 0) return;
     if (disabled || isDisconnected) return;
 
@@ -331,10 +338,12 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput
       ? fileMentions.map((m) => ({ displayName: m.displayName, relativePath: m.relativePath }))
       : undefined;
 
+    const pendingAnnotations = annotationCount > 0 ? annotations : undefined;
+
     if (isStreaming) {
-      onQueue({ content: trimmed, images, options, fileMentions: mentions });
+      onQueue({ content: trimmed, images, options, fileMentions: mentions, annotations: pendingAnnotations });
     } else {
-      const sent = onSend(trimmed, images, options, mentions);
+      const sent = onSend(trimmed, images, options, mentions, pendingAnnotations);
       if (!sent) throw new Error("Message send failed");
     }
     discardCurrentDraft();
@@ -372,6 +381,31 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput
         )}
         <PromptInput onSubmit={handleSubmit} accept="image/*" multiple>
         <PromptInputBody>
+          {annotationCount > 0 && (
+            <div className="flex flex-wrap gap-1.5 px-3 pt-2">
+              {annotations!.map((a) => (
+                <span
+                  key={a.id}
+                  title={a.selector ?? a.pageUrl}
+                  className="inline-flex max-w-56 items-center gap-1 rounded-md border border-primary/25 bg-primary/10 px-1.5 py-0.5 text-[11px] text-primary"
+                >
+                  <PencilLineIcon className="size-3 shrink-0" />
+                  <span className="shrink-0 font-semibold">{a.id}</span>
+                  <span className="truncate">{a.note || a.elementText || a.selector || "area"}</span>
+                  {onRemoveAnnotation && (
+                    <button
+                      type="button"
+                      aria-label={`Remove annotation ${a.id}`}
+                      className="shrink-0 rounded p-0.5 hover:bg-primary/20"
+                      onClick={() => onRemoveAnnotation(a.id)}
+                    >
+                      <XIcon className="size-2.5" />
+                    </button>
+                  )}
+                </span>
+              ))}
+            </div>
+          )}
           <ChatInputAttachments onFileCountChange={setFileCount} attachmentsRef={attachmentsRef} />
           <MentionHighlightOverlay
             value={value}

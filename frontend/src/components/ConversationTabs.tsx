@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { MessageSquareIcon, PlusIcon, XIcon, FileIcon, GitCompareArrowsIcon } from "lucide-react";
+import { MessageSquareIcon, PlusIcon, XIcon, FileIcon, GitCompareArrowsIcon, GlobeIcon } from "lucide-react";
 import AgentActivityPreview from "@/components/chat/AgentActivityPreview";
 import { ProviderIcon, isKnownProvider } from "@/components/chat/ProviderIcon";
 import {
@@ -37,6 +37,11 @@ interface ConversationTabsProps {
   onFileTabActivate?: () => void;
   onFileTabClose?: () => void;
   onConversationActivate?: () => void;
+  /** Pinned preview (in-app browser) takeover tab. */
+  previewOpen?: boolean;
+  isPreviewTabActive?: boolean;
+  onPreviewTabActivate?: () => void;
+  onPreviewTabClose?: () => void;
   /** Live provider of the active session — shows the tab icon immediately, before
    * the sessions list refetches the persisted lockedProvider. */
   activeProvider?: string;
@@ -194,6 +199,10 @@ export function ConversationTabs({
   onFileTabActivate,
   onFileTabClose,
   onConversationActivate,
+  previewOpen,
+  isPreviewTabActive,
+  onPreviewTabActivate,
+  onPreviewTabClose,
   activeProvider,
 }: ConversationTabsProps) {
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
@@ -202,10 +211,14 @@ export function ConversationTabs({
   // discoverable that more conversations live off-screen.
   const [edges, setEdges] = useState({ left: false, right: false });
 
+  // Any takeover surface (file/diff or preview) hides the conversation body,
+  // so session tabs use this for their visible/unread state.
+  const isTakeoverActive = Boolean(isFileTabActive || isPreviewTabActive);
+
   const { isSessionStreaming: isFallbackStreaming, isSessionUnread: isFallbackUnread } = getFallbackVisualState({
     activeSessionId,
     isStreaming,
-    isFileTabActive,
+    isFileTabActive: isTakeoverActive,
     streamingSessions,
     unreadSessions,
   });
@@ -296,6 +309,24 @@ export function ConversationTabs({
           </button>
         )}
 
+        {/* Pinned preview takeover tab. */}
+        {previewOpen && (
+          <button
+            type="button"
+            className={cn(
+              "group relative flex h-7 max-w-44 shrink-0 items-center gap-1.5 rounded-md px-2 text-xs transition-colors",
+              isPreviewTabActive
+                ? "text-foreground after:absolute after:inset-x-2 after:bottom-0 after:h-0.5 after:rounded-full after:bg-primary"
+                : "text-muted-foreground hover:text-foreground",
+            )}
+            onClick={onPreviewTabActivate}
+          >
+            <GlobeIcon className="size-3 shrink-0 text-primary" />
+            <span className="truncate">Preview</span>
+            <TabCloseAction onClose={() => onPreviewTabClose?.()} />
+          </button>
+        )}
+
         {/* Scrollable conversation strip. */}
         <div className="relative min-w-0 flex-1">
           <div
@@ -308,7 +339,7 @@ export function ConversationTabs({
                 type="button"
                 className={cn(
                   "relative flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2 text-xs transition-colors",
-                  !isFileTabActive
+                  !isTakeoverActive
                     ? "text-foreground after:absolute after:inset-x-2 after:bottom-0 after:h-0.5 after:rounded-full after:bg-primary"
                     : "text-muted-foreground hover:text-foreground",
                 )}
@@ -323,7 +354,7 @@ export function ConversationTabs({
                 sessionId: session.sessionId,
                 activeSessionId,
                 isStreaming,
-                isFileTabActive,
+                isFileTabActive: isTakeoverActive,
                 streamingSessions,
                 unreadSessions,
               });
@@ -344,7 +375,7 @@ export function ConversationTabs({
                   type="button"
                   className={cn(
                     "group relative flex h-7 max-w-44 shrink-0 items-center gap-1.5 rounded-md px-2 text-xs transition-colors",
-                    isActive && !isFileTabActive
+                    isActive && !isTakeoverActive
                       ? "text-foreground after:absolute after:inset-x-2 after:bottom-0 after:h-0.5 after:rounded-full after:bg-primary"
                       : "text-muted-foreground hover:text-foreground",
                   )}

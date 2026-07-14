@@ -8,7 +8,7 @@ import { ThinkingBlock } from "@/components/chat/ThinkingBlock";
 import { AgentActivityList, getInlineAgentActivities } from "@/components/chat/AgentActivityList";
 import { CopyButton } from "@/components/chat/CopyButton";
 import { ImageLightbox } from "@/components/chat/ImageLightbox";
-import { FileIcon, TargetIcon } from "lucide-react";
+import { FileIcon, PencilLineIcon, TargetIcon } from "lucide-react";
 import type { PlanStatus } from "@/components/chat/PlanProposal";
 import { AT_MENTION_RE, splitByAllMentions } from "@/lib/file-mentions";
 
@@ -125,6 +125,19 @@ const ChatMessage = memo(function ChatMessage({
                 className="absolute -top-2 -right-2 opacity-0 transition-opacity group-hover/user-msg:opacity-100"
               />
               {renderContentWithMentions(message.content, message.fileMentions, onFileMentionClick)}
+            </div>
+          )}
+          {message.annotations && message.annotations.length > 0 && (
+            <div className="mt-1 flex justify-end">
+              <span
+                title={message.annotations.map((a) => `${a.id}. ${a.note || a.selector || "area"}`).join("\n")}
+                className="inline-flex items-center gap-1 rounded-full border border-primary/15 bg-background px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground shadow-sm"
+              >
+                <PencilLineIcon className="size-3" />
+                {message.annotations.length === 1
+                  ? "1 UI annotation"
+                  : `${message.annotations.length} UI annotations`}
+              </span>
             </div>
           )}
           {message.goalCommand && (

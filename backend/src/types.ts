@@ -182,6 +182,33 @@ export interface FileMention {
   relativePath: string;  // e.g. "src/utils/git.ts"
 }
 
+// ── Preview annotation types ────────────────────────────────────────
+
+/** One user annotation made on the workspace preview (element click or area
+ *  drag). Coordinates are page pixels captured inside the previewed app. */
+export interface UiAnnotation {
+  id: number;
+  kind: "element" | "area";
+  note: string;
+  /** URL of the previewed page, rewritten to the dev-server origin. */
+  pageUrl: string;
+  rect: { x: number; y: number; w: number; h: number };
+  viewport: { w: number; h: number };
+  selector?: string;
+  /** React component name resolved from the fiber tree, when available. */
+  component?: string;
+  elementText?: string;
+  /** Top-level selectors fully contained in an area annotation. */
+  selectorsInArea?: string[];
+}
+
+/** Live preview state for a workspace: last dev-server URL detected in script
+ *  output plus the running proxy, if any. */
+export interface PreviewStatusPayload {
+  detectedUrl?: string;
+  proxy: { port: number; targetUrl: string } | null;
+}
+
 // ── Session / Chat types ────────────────────────────────────────────
 
 export interface SessionMetadata {
@@ -218,6 +245,7 @@ export interface ChatMessage {
   content: string;
   images?: ImageAttachment[];
   fileMentions?: FileMention[];
+  annotations?: UiAnnotation[];
   toolCalls?: ToolCall[];
   agentActivities?: AgentActivity[];
   goalCommand?: boolean;
@@ -399,7 +427,7 @@ export interface BrowserStatusPayload {
 /** Frontend -> Backend */
 export type WsIncoming =
   | { type: "switch_session"; sessionId: string }
-  | { type: "user_message"; content: string; images?: ImageAttachment[]; fileMentions?: FileMention[]; options?: MessageOptions; sessionId?: string }
+  | { type: "user_message"; content: string; images?: ImageAttachment[]; fileMentions?: FileMention[]; annotations?: UiAnnotation[]; options?: MessageOptions; sessionId?: string }
   | { type: "stop"; sessionId?: string }
   | { type: "tool_input_response"; requestId: string; toolName: string; result: ToolInputResult; sessionId?: string };
 
@@ -442,6 +470,7 @@ export type WsOutgoing =
   | { type: "pr_status"; status: PrStatusResponse }
   | { type: "script_status"; scriptType: ScriptType; state: ScriptState; exitCode?: number }
   | { type: "browser_status"; status: BrowserStatusPayload }
+  | { type: "preview_status"; status: PreviewStatusPayload }
   | { type: "plan_mode_changed"; sessionId: string; active: boolean };
 
 // ── Automation types ─────────────────────────────────────────────────

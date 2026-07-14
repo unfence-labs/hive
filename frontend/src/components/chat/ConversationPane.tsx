@@ -46,6 +46,11 @@ export interface ConversationPaneProps {
   onFileTabActivate?: () => void;
   onFileTabClose?: () => void;
   onConversationActivate?: () => void;
+  /** Pinned preview takeover tab (WorkspaceView renders the panel itself). */
+  previewOpen?: boolean;
+  isPreviewTabActive?: boolean;
+  onPreviewTabActivate?: () => void;
+  onPreviewTabClose?: () => void;
   /** Live provider of the active session, used as the tab icon before the
    * sessions list refetches the locked provider. */
   activeProvider?: string;
@@ -119,6 +124,10 @@ export function ConversationPane({
   onFileTabActivate,
   onFileTabClose,
   onConversationActivate,
+  previewOpen,
+  isPreviewTabActive,
+  onPreviewTabActivate,
+  onPreviewTabClose,
   activeProvider,
   messages,
   isHistoryLoading,
@@ -178,9 +187,13 @@ export function ConversationPane({
         onFileTabActivate={onFileTabActivate}
         onFileTabClose={onFileTabClose}
         onConversationActivate={onConversationActivate}
+        previewOpen={previewOpen}
+        isPreviewTabActive={isPreviewTabActive}
+        onPreviewTabActivate={onPreviewTabActivate}
+        onPreviewTabClose={onPreviewTabClose}
         activeProvider={activeProvider}
       />
-      <div className={!isFileTabActive ? "flex min-h-0 flex-1 flex-col" : "hidden"}>
+      <div className={!isFileTabActive && !isPreviewTabActive ? "flex min-h-0 flex-1 flex-col" : "hidden"}>
         {activeIsTerminal ? (
           terminalView
         ) : (

@@ -49,6 +49,7 @@ Run Hive as a **local web app**, a **Tauri desktop app** (pointed at a local or 
 - Attach images to messages; the backend resizes and stores them per session.
 - Browse files, preview raw content, inspect inline diffs, paste diff comments into prompts, and use `#file`, `/command`, and `@agent` autocomplete.
 - Open a conversation tab as a full-pane interactive **terminal** (login shell in the worktree) on desktop.
+- Open a full-pane **browser preview** of the workspace dev server (⌘⇧B): Hive detects the localhost URL in run-script output, proxies it with HMR intact, and injects an annotation overlay — click elements or drag areas, leave notes, and the annotations (CSS selectors, React components, positions) attach to the next message as structured agent context.
 
 </td>
 <td width="50%" valign="top">
@@ -268,6 +269,7 @@ Public backend surface exposed by route modules under `backend/src/api/`.
 | Settings | `GET/PUT /api/settings/notifications`, `POST /api/settings/notifications/test`, `POST /api/settings/notifications/test-apns`, `POST /api/devices/apns`, `GET /api/settings/cli`, `GET/PUT/DELETE /api/settings/instructions`, `POST /api/settings/instructions/sync`, `GET/POST /api/settings/skills`, `GET/PUT/DELETE /api/settings/skills/:id`, `POST /api/settings/skills/:id/sync`, `POST /api/settings/skills/sync-missing`, `GET/POST /api/settings/subagents`, `GET /api/settings/subagents/:id`, `PUT/DELETE /api/settings/subagents/:id/providers/:provider`, `POST /api/settings/subagents/:id/providers/:provider/counterpart` |
 | Account | `GET /api/account/status`, `POST /api/account/connect`, `POST /api/account/connect/poll`, `POST /api/account/disconnect` |
 | Scripts & prefs | `GET /api/workspaces/:wsId/scripts`, `POST /api/workspaces/:wsId/scripts/:type/start`, `POST /api/workspaces/:wsId/scripts/:type/stop`, `POST /api/workspaces/:wsId/terminal/start`, `POST /api/workspaces/:wsId/terminal/stop`, `POST /api/workspaces/:wsId/terminal-tabs/:sessionId/start`, `POST /api/workspaces/:wsId/terminal-tabs/:sessionId/stop`, `GET/PUT /api/ui-preferences` |
+| Preview | `GET /api/workspaces/:wsId/preview`, `POST /api/workspaces/:wsId/preview/start`, `POST /api/workspaces/:wsId/preview/stop` (per-workspace reverse proxy on its own port; injects the annotation overlay into HTML and tunnels WebSocket/HMR) |
 
 `wsId=brain` is valid for session and hub routes through the shared session dispatcher.
 

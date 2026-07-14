@@ -24,6 +24,7 @@ import type {
   SessionKind,
   ToolCall,
   ToolInputResult,
+  UiAnnotation,
   SessionMetadata,
   WsOutgoing,
 } from "../types.js";
@@ -419,7 +420,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
   /** Send a user message. Spawns a CLI process for this turn.
    *  When `cliContent` is provided, it is sent to the CLI instead of `content`
    *  while the displayed/persisted message remains `content`. */
-  sendMessage(content: string, msgOptions?: MessageOptions, images?: ImageAttachment[], cliContent?: string, fileMentions?: FileMention[]): void {
+  sendMessage(content: string, msgOptions?: MessageOptions, images?: ImageAttachment[], cliContent?: string, fileMentions?: FileMention[], annotations?: UiAnnotation[]): void {
     // Terminal sessions host a shell PTY, not an agent. Never spawn a runner.
     // Defensive: the UI does not call this for terminal tabs.
     if (this.sessionKind === "terminal") {
@@ -473,7 +474,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
           !this.testCommand &&
           resolved?.provider.id === "codex" &&
           isInteractiveSessionKind(this.sessionKind);
-        this.emitUserMessage(content, urlImages, fileMentions);
+        this.emitUserMessage(content, urlImages, fileMentions, undefined, annotations);
         this.startAgentTurn(
           useNativeCodexImages ? promptContent : this.buildPromptWithImages(promptContent, imagePaths),
           msgOptions,
@@ -486,7 +487,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
         this.emit("error", err instanceof Error ? err : new Error(String(err)));
       });
     } else {
-      this.emitUserMessage(content, undefined, fileMentions);
+      this.emitUserMessage(content, undefined, fileMentions, undefined, annotations);
       this.startAgentTurn(promptContent, msgOptions, resolved);
     }
   }
@@ -496,6 +497,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
     images?: ImageAttachment[],
     fileMentions?: FileMention[],
     goalCommand?: boolean,
+    annotations?: UiAnnotation[],
   ): void {
     const userMsg: ChatMessage = {
       id: nanoid(12),
@@ -504,6 +506,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
       content,
       images: images?.length ? images : undefined,
       fileMentions: fileMentions?.length ? fileMentions : undefined,
+      annotations: annotations?.length ? annotations : undefined,
       goalCommand: goalCommand || undefined,
       timestamp: new Date().toISOString(),
     };
