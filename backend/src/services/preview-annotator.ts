@@ -156,7 +156,7 @@ export const ANNOTATOR_SCRIPT = `
       const px = a.kind === "area" ? a.rect.x : a.rect.x + a.rect.w;
       const py = a.rect.y;
       pin.style.left = px + "px"; pin.style.top = py + "px";
-      pin.addEventListener("click", (e) => { e.stopPropagation(); openPopover(a, px, py); });
+      pin.addEventListener("click", (e) => { e.stopPropagation(); openPopover(a); });
       layer.appendChild(pin);
     }
     notify();
@@ -166,8 +166,10 @@ export const ANNOTATOR_SCRIPT = `
   let popover = null;
   function closePopover() { if (popover) popover.remove(); popover = null; }
 
-  function openPopover(annotation, pageX, pageY) {
+  function openPopover(annotation) {
     closePopover();
+    hoverBox.style.display = "none";
+    hoverLabel.style.display = "none";
     popover = document.createElement("div");
     popover.className = "hva-popover"; own(popover);
     const desc = annotation.kind === "element" ? annotation.selector : "selected area";
@@ -180,9 +182,19 @@ export const ANNOTATOR_SCRIPT = `
       '<button type="button" class="hva-save">Save</button>' +
       "</div>";
     popover.querySelector(".hva-sel").textContent = desc;
-    const x = Math.min(pageX + 12, document.documentElement.scrollWidth - 280);
-    popover.style.left = Math.max(8, x) + "px";
-    popover.style.top = (pageY + 12) + "px";
+    // Place the editor beside the annotated rect, never on top of it:
+    // right of it, else left, else below.
+    const rect = annotation.rect;
+    const docW = document.documentElement.scrollWidth;
+    let x = rect.x + rect.w + 12;
+    let y = rect.y;
+    if (x + 268 > docW) x = rect.x - 272;
+    if (x < 8) {
+      x = Math.max(8, Math.min(rect.x, docW - 268));
+      y = rect.y + rect.h + 12;
+    }
+    popover.style.left = x + "px";
+    popover.style.top = y + "px";
     layer.appendChild(popover);
     const ta = popover.querySelector("textarea");
     ta.value = annotation.note || "";
@@ -288,7 +300,7 @@ export const ANNOTATOR_SCRIPT = `
         pageUrl: location.href,
         selectorsInArea: top.slice(0, 8).map(selectorFor),
       };
-      openPopover(ann, rect.x + rect.w, rect.y);
+      openPopover(ann);
     } else {
       const el = targetAt(e.clientX, e.clientY);
       if (!el) return;
@@ -301,7 +313,7 @@ export const ANNOTATOR_SCRIPT = `
         elementText: elementText(el),
         rect: { x: Math.round(r.left + sx), y: Math.round(r.top + sy), w: Math.round(r.width), h: Math.round(r.height) },
       };
-      openPopover(ann, r.left + sx + r.width, r.top + sy);
+      openPopover(ann);
     }
   }, true);
 
@@ -336,8 +348,7 @@ export const ANNOTATOR_SCRIPT = `
     if (!a) return;
     scrollToRect(a.rect);
     pulseAt(a.rect);
-    const px = a.kind === "area" ? a.rect.x : a.rect.x + a.rect.w;
-    openPopover(a, px, a.rect.y);
+    openPopover(a);
   }
 
   function flashLocation(selector, rect) {
