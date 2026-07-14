@@ -766,6 +766,40 @@ describe("WS /ws/hub", () => {
     await endSession(wsId, dataDir).catch(() => {});
   });
 
+  it("persists and broadcasts UI annotations without leaking their markdown into the displayed content", async () => {
+    const { wsReady, messages } = connectHub([wsId]);
+    const ws = await wsReady;
+
+    await waitForMessage(messages, (msgs) => msgs.length >= 1);
+
+    ws.send(hubEvent(wsId, {
+      type: "user_message",
+      content: "Fix this button",
+      annotations: [{
+        id: 1, kind: "element", note: "make it primary",
+        pageUrl: "http://localhost:5173/", selector: "#submit",
+        rect: { x: 1, y: 2, w: 30, h: 10 }, viewport: { w: 1280, h: 800 },
+      }],
+    }));
+
+    await waitForMessage(
+      messages,
+      (msgs) => msgs.some((m) => m.type === "user_message"),
+    );
+
+    const userMessageFrame = messages.find((m) => m.type === "user_message");
+    expect(userMessageFrame?.type).toBe("user_message");
+    if (!userMessageFrame || userMessageFrame.type !== "user_message") {
+      throw new Error("Expected a broadcast user_message frame");
+    }
+    expect(userMessageFrame.message.content).toBe("Fix this button");
+    expect(userMessageFrame.message.annotations).toHaveLength(1);
+    expect(userMessageFrame.message.annotations?.[0].selector).toBe("#submit");
+
+    ws.close();
+    await endSession(wsId, dataDir).catch(() => {});
+  });
+
   it("switches sessions without interrupting an already streaming session", async () => {
     const fakeClaudePath = join(tempDir, "fake-claude-sleep.sh");
     await writeFile(fakeClaudePath, "#!/bin/sh\nsleep 5\n", "utf-8");
