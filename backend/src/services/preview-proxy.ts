@@ -40,6 +40,46 @@ const detectedUrls = new Map<string, string>();
 /** Rolling PTY output tail per workspace so URLs split across chunks match. */
 const outputTails = new Map<string, string>();
 
+// ── Auth gate ────────────────────────────────────────────────────────
+// The proxy is a separate HTTP server from the main API, so when
+// HIVE_AUTH_TOKEN protects the deployment it must be enforced here too.
+// The iframe cannot attach headers to its own subresource/HMR requests,
+// so the first navigation goes through a bootstrap redirect that sets a
+// same-origin cookie carried automatically by every subsequent request.
+
+export const PREVIEW_AUTH_PATH = "/__hive/auth";
+const PREVIEW_COOKIE = "hive_preview_token";
+
+/** Read at request time (not module load) so tests can toggle it. */
+function expectedToken(): string | undefined {
+  return process.env.HIVE_AUTH_TOKEN?.trim() || undefined;
+}
+
+function cookieToken(req: http.IncomingMessage): string | undefined {
+  const raw = req.headers.cookie;
+  if (!raw) return undefined;
+  for (const part of raw.split(";")) {
+    const [name, ...rest] = part.trim().split("=");
+    if (name === PREVIEW_COOKIE) return decodeURIComponent(rest.join("="));
+  }
+  return undefined;
+}
+
+function isPreviewAuthorized(req: http.IncomingMessage): boolean {
+  const token = expectedToken();
+  if (!token) return true; // no token configured -> local trust model, unchanged
+  return cookieToken(req) === token;
+}
+
+/** Remove the hive_preview_token pair so the token never reaches the dev server. */
+function stripPreviewCookie(cookieHeader: string): string | undefined {
+  const kept = cookieHeader
+    .split(";")
+    .map((part) => part.trim())
+    .filter((part) => part.split("=")[0] !== PREVIEW_COOKIE);
+  return kept.length ? kept.join("; ") : undefined;
+}
+
 // eslint-disable-next-line no-control-regex
 const ANSI_RE = /\x1b\[[0-9;?]*[A-Za-z]/g;
 const URL_RE = /https?:\/\/(?:localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1?\])(?::\d+)?(?:\/[^\s"'`|)\]]*)?/g;
@@ -88,6 +128,11 @@ function buildRequestHeaders(req: http.IncomingMessage, target: URL): http.Outgo
     // without decompression plumbing (negligible cost on loopback).
     if (lower === "accept-encoding" || lower === "connection") continue;
     if (lower === "host") continue;
+    if (lower === "cookie" && typeof value === "string") {
+      const stripped = stripPreviewCookie(value);
+      if (stripped) headers[key] = stripped;
+      continue;
+    }
     headers[key] = value;
   }
   headers.host = target.host;
@@ -95,6 +140,32 @@ function buildRequestHeaders(req: http.IncomingMessage, target: URL): http.Outgo
 }
 
 function handleRequest(entry: PreviewEntry, req: http.IncomingMessage, res: http.ServerResponse): void {
+  if (req.url?.startsWith(PREVIEW_AUTH_PATH)) {
+    const query = new URL(req.url, "http://x").searchParams;
+    const token = expectedToken();
+    if (token && query.get("token") !== token) {
+      res.writeHead(403, { "content-type": "text/plain" });
+      res.end("Forbidden");
+      return;
+    }
+    const next = query.get("next") ?? "/";
+    // Same-origin paths only: never redirect to an absolute URL from the
+    // query ("//host" is protocol-relative and therefore absolute too).
+    const location = next.startsWith("/") && !next.startsWith("//") ? next : "/";
+    const headers: http.OutgoingHttpHeaders = { location, "cache-control": "no-store" };
+    if (token) {
+      headers["set-cookie"] = `${PREVIEW_COOKIE}=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax`;
+    }
+    res.writeHead(302, headers);
+    res.end();
+    return;
+  }
+  if (!isPreviewAuthorized(req)) {
+    res.writeHead(403, { "content-type": "text/plain", "cache-control": "no-store" });
+    res.end("Forbidden: preview requires authentication");
+    return;
+  }
+
   if (req.url === ANNOTATOR_PATH) {
     res.writeHead(200, {
       "content-type": "text/javascript; charset=utf-8",
@@ -157,6 +228,12 @@ function handleRequest(entry: PreviewEntry, req: http.IncomingMessage, res: http
 
 /** Tunnel WebSocket upgrades (Vite/Next HMR) straight to the dev server. */
 function handleUpgrade(entry: PreviewEntry, req: http.IncomingMessage, socket: net.Socket, head: Buffer): void {
+  if (!isPreviewAuthorized(req)) {
+    socket.write("HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n");
+    socket.destroy();
+    return;
+  }
+
   const target = entry.target;
   const port = Number(target.port) || (target.protocol === "https:" ? 443 : 80);
   const upstream: net.Socket =
@@ -168,7 +245,14 @@ function handleUpgrade(entry: PreviewEntry, req: http.IncomingMessage, socket: n
     const lines = [`${req.method} ${req.url} HTTP/1.1`];
     for (let i = 0; i < req.rawHeaders.length; i += 2) {
       const key = req.rawHeaders[i];
-      const value = key.toLowerCase() === "host" ? target.host : req.rawHeaders[i + 1];
+      const lower = key.toLowerCase();
+      let value = req.rawHeaders[i + 1];
+      if (lower === "host") value = target.host;
+      if (lower === "cookie") {
+        const stripped = stripPreviewCookie(value);
+        if (!stripped) continue;
+        value = stripped;
+      }
       lines.push(`${key}: ${value}`);
     }
     upstream.write(lines.join("\r\n") + "\r\n\r\n");

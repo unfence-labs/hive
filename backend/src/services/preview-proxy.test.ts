@@ -6,6 +6,7 @@ import {
   getDetectedPreviewUrl,
   getPreviewProxy,
   notePreviewOutput,
+  PREVIEW_AUTH_PATH,
   startPreviewProxy,
   stopPreviewProxy,
 } from "./preview-proxy.js";
@@ -32,6 +33,9 @@ beforeAll(async () => {
     } else if (req.url === "/data.json") {
       res.writeHead(200, { "content-type": "application/json" });
       res.end('{"ok":true}');
+    } else if (req.url === "/echo-cookies") {
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ cookie: req.headers.cookie ?? null }));
     } else {
       res.writeHead(404, { "content-type": "text/plain" });
       res.end("not found");
@@ -55,8 +59,12 @@ afterEach(() => {
   _clearAllPreviews();
 });
 
-async function fetchProxy(port: number, path: string): Promise<{ status: number; headers: Headers; body: string }> {
-  const res = await fetch(`http://127.0.0.1:${port}${path}`);
+async function fetchProxy(
+  port: number,
+  path: string,
+  init?: RequestInit,
+): Promise<{ status: number; headers: Headers; body: string }> {
+  const res = await fetch(`http://127.0.0.1:${port}${path}`, init);
   return { status: res.status, headers: res.headers, body: await res.text() };
 }
 
@@ -130,6 +138,112 @@ describe("preview proxy", () => {
 
   it("rejects non-http target URLs", async () => {
     await expect(startPreviewProxy("ws-1", "file:///etc/passwd")).rejects.toThrow(/protocol/);
+  });
+});
+
+describe("preview proxy auth", () => {
+  const TOKEN = "secret123";
+  const COOKIE = `hive_preview_token=${TOKEN}`;
+  let savedToken: string | undefined;
+
+  beforeAll(() => {
+    savedToken = process.env.HIVE_AUTH_TOKEN;
+    process.env.HIVE_AUTH_TOKEN = TOKEN;
+  });
+
+  afterAll(() => {
+    if (savedToken === undefined) delete process.env.HIVE_AUTH_TOKEN;
+    else process.env.HIVE_AUTH_TOKEN = savedToken;
+  });
+
+  it("rejects plain requests without the auth cookie", async () => {
+    const info = await startPreviewProxy("ws-1", `http://127.0.0.1:${devPort}`);
+    const res = await fetchProxy(info.port, "/");
+    expect(res.status).toBe(403);
+  });
+
+  it("bootstraps a cookie via the auth redirect, then serves the app", async () => {
+    const info = await startPreviewProxy("ws-1", `http://127.0.0.1:${devPort}`);
+    const auth = await fetchProxy(info.port, `${PREVIEW_AUTH_PATH}?token=${TOKEN}&next=%2F`, {
+      redirect: "manual",
+    });
+    expect(auth.status).toBe(302);
+    expect(auth.headers.get("location")).toBe("/");
+    const setCookie = auth.headers.get("set-cookie") ?? "";
+    expect(setCookie).toContain("hive_preview_token");
+    const cookie = setCookie.split(";")[0];
+
+    const page = await fetchProxy(info.port, "/", { headers: { cookie } });
+    expect(page.status).toBe(200);
+    expect(page.body).toContain(ANNOTATOR_PATH);
+  });
+
+  it("rejects the auth redirect with a wrong token", async () => {
+    const info = await startPreviewProxy("ws-1", `http://127.0.0.1:${devPort}`);
+    const res = await fetchProxy(info.port, `${PREVIEW_AUTH_PATH}?token=wrong`, {
+      redirect: "manual",
+    });
+    expect(res.status).toBe(403);
+  });
+
+  it("rejects absolute redirect targets in the auth bootstrap", async () => {
+    const info = await startPreviewProxy("ws-1", `http://127.0.0.1:${devPort}`);
+    const res = await fetchProxy(
+      info.port,
+      `${PREVIEW_AUTH_PATH}?token=${TOKEN}&next=${encodeURIComponent("http://evil.example")}`,
+      { redirect: "manual" },
+    );
+    expect(res.status).toBe(302);
+    expect(res.headers.get("location")).toBe("/");
+  });
+
+  it("rejects protocol-relative redirect targets in the auth bootstrap", async () => {
+    const info = await startPreviewProxy("ws-1", `http://127.0.0.1:${devPort}`);
+    const res = await fetchProxy(
+      info.port,
+      `${PREVIEW_AUTH_PATH}?token=${TOKEN}&next=${encodeURIComponent("//evil.example")}`,
+      { redirect: "manual" },
+    );
+    expect(res.status).toBe(302);
+    expect(res.headers.get("location")).toBe("/");
+  });
+
+  it("rejects WebSocket upgrades without the cookie and tunnels them with it", async () => {
+    const info = await startPreviewProxy("ws-1", `http://127.0.0.1:${devPort}`);
+
+    const unauthorized = new WebSocket(`ws://127.0.0.1:${info.port}/hmr`);
+    const failure = await new Promise<Error>((resolvePromise, reject) => {
+      unauthorized.on("error", resolvePromise);
+      unauthorized.on("open", () => reject(new Error("upgrade should have been rejected")));
+    });
+    expect(failure.message).toContain("403");
+
+    const authorized = new WebSocket(`ws://127.0.0.1:${info.port}/hmr`, {
+      headers: { cookie: COOKIE },
+    });
+    const reply = await new Promise<string>((resolvePromise, reject) => {
+      authorized.on("open", () => authorized.send("ping"));
+      authorized.on("message", (data) => resolvePromise(data.toString()));
+      authorized.on("error", reject);
+    });
+    authorized.close();
+    expect(reply).toBe("echo:ping");
+  });
+
+  it("strips the auth cookie before forwarding upstream", async () => {
+    const info = await startPreviewProxy("ws-1", `http://127.0.0.1:${devPort}`);
+
+    const mixed = await fetchProxy(info.port, "/echo-cookies", {
+      headers: { cookie: `${COOKIE}; theme=dark` },
+    });
+    expect(mixed.status).toBe(200);
+    expect(JSON.parse(mixed.body)).toEqual({ cookie: "theme=dark" });
+
+    const only = await fetchProxy(info.port, "/echo-cookies", {
+      headers: { cookie: COOKIE },
+    });
+    expect(only.status).toBe(200);
+    expect(JSON.parse(only.body)).toEqual({ cookie: null });
   });
 });
 

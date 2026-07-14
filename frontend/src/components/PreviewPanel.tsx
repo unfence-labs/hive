@@ -19,7 +19,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { openExternal } from "@/lib/open-external";
-import { usePreview, previewProxyOrigin } from "@/hooks/usePreview";
+import { usePreview, previewProxyOrigin, previewIframeSrc } from "@/hooks/usePreview";
 import type { UiAnnotation } from "@/types";
 
 export interface PreviewPanelHandle {
@@ -100,10 +100,15 @@ export const PreviewPanel = forwardRef<PreviewPanelHandle, PreviewPanelProps>(
       pendingFlashRef.current = annotation;
       if (!samePage) {
         pageReadyRef.current = false;
-        setIframeSrc(toProxyUrl(annotation.pageUrl));
+        if (proxyOrigin) {
+          const u = new URL(toProxyUrl(annotation.pageUrl));
+          setIframeSrc(previewIframeSrc(proxyOrigin, u.pathname + u.search + u.hash));
+        } else {
+          setIframeSrc(toProxyUrl(annotation.pageUrl));
+        }
         setIframeKey((k) => k + 1);
       }
-    }, [postToPage, toProxyUrl]);
+    }, [postToPage, toProxyUrl, proxyOrigin]);
 
     useImperativeHandle(ref, () => ({
       clearAnnotations: () => postToPage({ type: "hive:clear-annotations" }),
@@ -126,7 +131,7 @@ export const PreviewPanel = forwardRef<PreviewPanelHandle, PreviewPanelProps>(
         setIframeSrc(null);
         return;
       }
-      setIframeSrc((prev) => (prev?.startsWith(proxyOrigin) ? prev : `${proxyOrigin}/`));
+      setIframeSrc((prev) => (prev?.startsWith(proxyOrigin) ? prev : previewIframeSrc(proxyOrigin)));
     }, [proxyOrigin]);
 
     // Bridge messages from the injected annotator.
@@ -187,7 +192,7 @@ export const PreviewPanel = forwardRef<PreviewPanelHandle, PreviewPanelProps>(
       if (!input) return;
       if (!/^https?:\/\//.test(input) && !input.startsWith("/")) input = `http://${input}`;
       if (input.startsWith("/")) {
-        if (proxyOrigin) setIframeSrc(proxyOrigin + input);
+        if (proxyOrigin) setIframeSrc(previewIframeSrc(proxyOrigin, input));
         return;
       }
       let url: URL;
@@ -198,7 +203,7 @@ export const PreviewPanel = forwardRef<PreviewPanelHandle, PreviewPanelProps>(
       }
       const path = url.pathname + url.search + url.hash;
       if (proxy && proxyOrigin && url.origin === new URL(proxy.targetUrl).origin) {
-        setIframeSrc(proxyOrigin + path);
+        setIframeSrc(previewIframeSrc(proxyOrigin, path));
         setIframeKey((k) => k + 1);
         return;
       }
@@ -206,7 +211,7 @@ export const PreviewPanel = forwardRef<PreviewPanelHandle, PreviewPanelProps>(
       try {
         const next = await start(url.origin);
         if (next.proxy) {
-          setIframeSrc(previewProxyOrigin(next.proxy.port) + path);
+          setIframeSrc(previewIframeSrc(previewProxyOrigin(next.proxy.port), path));
           setIframeKey((k) => k + 1);
         }
       } catch {

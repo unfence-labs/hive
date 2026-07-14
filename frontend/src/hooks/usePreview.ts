@@ -19,6 +19,13 @@ export function previewProxyOrigin(port: number): string {
   }
 }
 
+/** Wrap a proxy-origin URL in the auth bootstrap redirect when a token is set. */
+export function previewIframeSrc(proxyOrigin: string, path = "/"): string {
+  const token = import.meta.env.VITE_HIVE_AUTH_TOKEN?.trim();
+  if (!token) return proxyOrigin + path;
+  return `${proxyOrigin}/__hive/auth?token=${encodeURIComponent(token)}&next=${encodeURIComponent(path)}`;
+}
+
 export interface UsePreviewReturn {
   /** Latest merged preview state (WS live event wins over the REST snapshot). */
   status: PreviewStatusPayload | null;
