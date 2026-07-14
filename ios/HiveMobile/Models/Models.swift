@@ -225,6 +225,35 @@ struct FileMention: Codable, Equatable {
     let relativePath: String
 }
 
+// MARK: - Preview Annotations
+
+/// One user annotation made on the workspace preview (web/desktop only).
+/// Mirrors `UiAnnotation` in `backend/src/types.ts`.
+struct UiAnnotation: Codable, Equatable {
+    struct Rect: Codable, Equatable {
+        let x: Double
+        let y: Double
+        let w: Double
+        let h: Double
+    }
+
+    struct Viewport: Codable, Equatable {
+        let w: Double
+        let h: Double
+    }
+
+    let id: Int
+    let kind: String
+    let note: String
+    let pageUrl: String
+    let rect: Rect
+    let viewport: Viewport
+    let selector: String?
+    let component: String?
+    let elementText: String?
+    let selectorsInArea: [String]?
+}
+
 // MARK: - Composer Completions
 
 /// One `/command` or `@agent` completion scanned by the backend. Mirrors
@@ -294,6 +323,7 @@ struct ChatMessage: Codable, Equatable, Identifiable {
     let content: String
     let images: [ImageAttachment]?
     let fileMentions: [FileMention]?
+    let annotations: [UiAnnotation]?
     let toolCalls: [ToolCall]?
     let agentActivities: [AgentActivity]?
     let goalCommand: Bool?
@@ -309,6 +339,7 @@ struct ChatMessage: Codable, Equatable, Identifiable {
 
     init(id: String, sessionId: String, role: MessageRole, content: String,
          images: [ImageAttachment]?, fileMentions: [FileMention]? = nil,
+         annotations: [UiAnnotation]? = nil,
          toolCalls: [ToolCall]?, agentActivities: [AgentActivity]? = nil,
          goalCommand: Bool? = nil,
          thinkingContent: String?,
@@ -322,6 +353,7 @@ struct ChatMessage: Codable, Equatable, Identifiable {
         self.content = content
         self.images = images
         self.fileMentions = fileMentions
+        self.annotations = annotations
         self.toolCalls = toolCalls
         self.agentActivities = agentActivities
         self.goalCommand = goalCommand
@@ -344,6 +376,7 @@ struct ChatMessage: Codable, Equatable, Identifiable {
         content = try container.decode(String.self, forKey: .content)
         images = try container.decodeIfPresent([ImageAttachment].self, forKey: .images)
         fileMentions = try container.decodeIfPresent([FileMention].self, forKey: .fileMentions)
+        annotations = try container.decodeIfPresent([UiAnnotation].self, forKey: .annotations)
         toolCalls = try container.decodeIfPresent([ToolCall].self, forKey: .toolCalls)
         agentActivities = try container.decodeIfPresent([AgentActivity].self, forKey: .agentActivities)
         goalCommand = try container.decodeIfPresent(Bool.self, forKey: .goalCommand)
@@ -390,7 +423,7 @@ struct ChatMessage: Codable, Equatable, Identifiable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, sessionId, role, content, images, fileMentions, toolCalls, agentActivities
+        case id, sessionId, role, content, images, fileMentions, annotations, toolCalls, agentActivities
         case goalCommand
         case thinkingContent, timestamp, cancelled, errorDetail, durationMs
         case inputTokens, outputTokens, contextUsedTokens, contextWindowTokens

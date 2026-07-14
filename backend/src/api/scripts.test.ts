@@ -79,9 +79,9 @@ beforeEach(async () => {
   mocks.listWorkspaceSessions.mockReset();
   mocks.broadcastToWorkspace.mockReset();
   mocks.getScriptStatus.mockReturnValue({});
-  mocks.startScript.mockReturnValue({ exitListeners: new Map() });
+  mocks.startScript.mockReturnValue({ exitListeners: new Map(), listeners: new Map() });
   mocks.stopScript.mockReturnValue(true);
-  mocks.startTerminal.mockReturnValue({ exitListeners: new Map() });
+  mocks.startTerminal.mockReturnValue({ exitListeners: new Map(), listeners: new Map() });
   mocks.stopTerminal.mockReturnValue(true);
   // Default: the terminal-tab session exists and is a terminal kind.
   mocks.listWorkspaceSessions.mockResolvedValue([
@@ -244,7 +244,7 @@ describe("script routes", () => {
 
   it("registers an exit listener that broadcasts done/error on process exit", async () => {
     const exitListeners = new Map<string, (code: number) => void>();
-    mocks.startScript.mockReturnValue({ exitListeners });
+    mocks.startScript.mockReturnValue({ exitListeners, listeners: new Map() });
     await writeHiveJson({ scripts: { setup: "npm ci" } });
 
     await app.inject({
@@ -273,7 +273,7 @@ describe("script routes", () => {
 
   it("broadcasts script_status error on non-zero exit", async () => {
     const exitListeners = new Map<string, (code: number) => void>();
-    mocks.startScript.mockReturnValue({ exitListeners });
+    mocks.startScript.mockReturnValue({ exitListeners, listeners: new Map() });
     await writeHiveJson({ scripts: { run: { backend: "npm run dev" } } });
 
     await app.inject({
@@ -338,7 +338,7 @@ describe("script routes", () => {
 
   it("POST /api/workspaces/:wsId/terminal/start registers exit listener and broadcasts terminal exit state", async () => {
     const exitListeners = new Map<string, (code: number) => void>();
-    mocks.startScript.mockReturnValue({ exitListeners });
+    mocks.startScript.mockReturnValue({ exitListeners, listeners: new Map() });
 
     await app.inject({
       method: "POST",
@@ -362,7 +362,7 @@ describe("script routes", () => {
 
   it("POST /api/workspaces/:wsId/terminal/start broadcasts terminal error on non-zero exit", async () => {
     const exitListeners = new Map<string, (code: number) => void>();
-    mocks.startScript.mockReturnValue({ exitListeners });
+    mocks.startScript.mockReturnValue({ exitListeners, listeners: new Map() });
 
     await app.inject({
       method: "POST",

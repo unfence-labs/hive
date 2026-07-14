@@ -15,6 +15,7 @@ import type {
   QuestionAnswer,
   SessionMetadata,
   ToolCall,
+  UiAnnotation,
 } from "@/types";
 
 /**
@@ -46,6 +47,11 @@ export interface ConversationPaneProps {
   onFileTabActivate?: () => void;
   onFileTabClose?: () => void;
   onConversationActivate?: () => void;
+  /** Pinned preview takeover tab (WorkspaceView renders the panel itself). */
+  previewOpen?: boolean;
+  isPreviewTabActive?: boolean;
+  onPreviewTabActivate?: () => void;
+  onPreviewTabClose?: () => void;
   /** Live provider of the active session, used as the tab icon before the
    * sessions list refetches the locked provider. */
   activeProvider?: string;
@@ -64,6 +70,8 @@ export interface ConversationPaneProps {
   pendingToolInputs: PendingToolInput[];
   onQuestionAnswer?: (toolCallId: string, answers: QuestionAnswer[]) => void;
   onFileMentionClick?: (relativePath: string) => void;
+  /** Opens the preview and flashes a sent annotation's location. */
+  onLocateAnnotation?: (annotation: UiAnnotation) => void;
   switchCounter: number;
   agentPlanMode?: boolean;
   error?: string;
@@ -119,6 +127,10 @@ export function ConversationPane({
   onFileTabActivate,
   onFileTabClose,
   onConversationActivate,
+  previewOpen,
+  isPreviewTabActive,
+  onPreviewTabActivate,
+  onPreviewTabClose,
   activeProvider,
   messages,
   isHistoryLoading,
@@ -131,6 +143,7 @@ export function ConversationPane({
   pendingToolInputs,
   onQuestionAnswer,
   onFileMentionClick,
+  onLocateAnnotation,
   switchCounter,
   agentPlanMode,
   error,
@@ -178,9 +191,13 @@ export function ConversationPane({
         onFileTabActivate={onFileTabActivate}
         onFileTabClose={onFileTabClose}
         onConversationActivate={onConversationActivate}
+        previewOpen={previewOpen}
+        isPreviewTabActive={isPreviewTabActive}
+        onPreviewTabActivate={onPreviewTabActivate}
+        onPreviewTabClose={onPreviewTabClose}
         activeProvider={activeProvider}
       />
-      <div className={!isFileTabActive ? "flex min-h-0 flex-1 flex-col" : "hidden"}>
+      <div className={!isFileTabActive && !isPreviewTabActive ? "flex min-h-0 flex-1 flex-col" : "hidden"}>
         {activeIsTerminal ? (
           terminalView
         ) : (
@@ -198,6 +215,7 @@ export function ConversationPane({
               pendingToolInputs={pendingToolInputs}
               onQuestionAnswer={onQuestionAnswer}
               onFileMentionClick={onFileMentionClick}
+              onLocateAnnotation={onLocateAnnotation}
               onStartTerminal={onStartTerminal}
               workspaceName={workspaceName}
               projectName={projectName}

@@ -1,6 +1,6 @@
 import { useEffect, useCallback, useReducer, useRef, useSyncExternalStore } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import type { AgentActivity, ChatMessage, FileMention, ImageAttachment, MessageOptions, ToolCall, WsOutgoing, QuestionAnswer, QuestionInput } from "@/types";
+import type { AgentActivity, ChatMessage, FileMention, ImageAttachment, MessageOptions, ToolCall, UiAnnotation, WsOutgoing, QuestionAnswer, QuestionInput } from "@/types";
 import { wsTransport } from "@/lib/ws-transport";
 import {
   useSessionMessages,
@@ -658,6 +658,7 @@ export function useConversation(workspaceId: string | undefined) {
     options?: MessageOptions,
     sessionId?: string,
     fileMentions?: FileMention[],
+    annotations?: UiAnnotation[],
   ): boolean => {
     if (!workspaceId) {
       dispatch({ type: "error", message: "Message not sent: no workspace selected." });
@@ -669,6 +670,7 @@ export function useConversation(workspaceId: string | undefined) {
       content,
       images: images?.length ? images : undefined,
       fileMentions: fileMentions?.length ? fileMentions : undefined,
+      annotations: annotations?.length ? annotations : undefined,
       options,
       ...sessionIdField(targetSessionId),
     });

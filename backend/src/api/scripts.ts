@@ -8,6 +8,8 @@ import {
   getScriptStatus,
 } from "../services/script-runner.js";
 import { startTerminal, stopTerminal } from "../services/terminal-runner.js";
+import { getPreviewProxy, notePreviewOutput } from "../services/preview-proxy.js";
+import type { PtyProcess } from "../services/pty-process.js";
 import { listWorkspaceSessions } from "../agents/session-dispatch.js";
 import { broadcastToWorkspace } from "../ws/stream.js";
 import { workspacesDir } from "../utils/paths.js";
@@ -27,6 +29,20 @@ export async function scriptRoutes(app: FastifyInstance, dataDir?: string) {
     };
   }
 
+  /** Watch PTY output for a dev-server URL so the preview panel can offer it. */
+  function watchForPreviewUrl(wsId: string, proc: PtyProcess) {
+    const listenerId = `preview-detect-${Date.now()}`;
+    proc.listeners.set(listenerId, (data) => {
+      const url = notePreviewOutput(wsId, data);
+      if (url) {
+        broadcastToWorkspace(wsId, {
+          type: "preview_status",
+          status: { detectedUrl: url, proxy: getPreviewProxy(wsId) },
+        });
+      }
+    });
+  }
+
   function startAndBroadcast(
     wsId: string,
     scriptType: string,
@@ -34,6 +50,7 @@ export async function scriptRoutes(app: FastifyInstance, dataDir?: string) {
     wsPath: string,
   ) {
     const proc = startScript(wsId, scriptType, command, wsPath);
+    watchForPreviewUrl(wsId, proc);
     broadcastToWorkspace(wsId, {
       type: "script_status",
       scriptType,
@@ -176,7 +193,9 @@ export async function scriptRoutes(app: FastifyInstance, dataDir?: string) {
       }
 
       try {
-        startTerminal(wsId, sessionId, resolved.wsPath);
+        // Terminal-tab shells also feed preview detection: a dev server started
+        // by hand in a Hive terminal should light up the preview affordance too.
+        watchForPreviewUrl(wsId, startTerminal(wsId, sessionId, resolved.wsPath));
         return reply.send({ started: true });
       } catch (err: unknown) {
         return reply.status(409).send({ error: errorMessage(err, "Failed to start terminal") });

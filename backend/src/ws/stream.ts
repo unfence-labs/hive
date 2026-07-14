@@ -12,6 +12,7 @@ import {
 } from "../agents/session-dispatch.js";
 import type { SessionOptions } from "../agents/agent-manager.js";
 import { errorMessage } from "../utils/errors.js";
+import { annotationsToMarkdown } from "../utils/annotations.js";
 import { isAuthorized } from "../utils/auth.js";
 import type { WsIncoming, WsOutgoing, HubIncoming, HubOutgoing } from "../types.js";
 import { getScriptStatus } from "../services/script-runner.js";
@@ -637,7 +638,13 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
             }
           }
 
-          targetSession.sendMessage(incoming.content, incoming.options, incoming.images, cliContent, incoming.fileMentions);
+          // Annotations ride along as a structured markdown block in the CLI
+          // content only; the displayed message keeps the user's clean text.
+          if (incoming.annotations?.length) {
+            cliContent = `${cliContent ?? incoming.content}\n\n${annotationsToMarkdown(incoming.annotations)}`;
+          }
+
+          targetSession.sendMessage(incoming.content, incoming.options, incoming.images, cliContent, incoming.fileMentions, incoming.annotations);
           broadcastToChannel(channel, wsId, {
             type: "status",
             status: "busy",

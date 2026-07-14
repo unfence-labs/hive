@@ -278,7 +278,7 @@ describe("useConversationColumn — per-session message queue", () => {
     mocks.useConversation.mockImplementation(() => conversation);
     rerender();
 
-    expect(sendMessage).toHaveBeenCalledWith("hello", [], undefined, undefined, []);
+    expect(sendMessage).toHaveBeenCalledWith("hello", [], undefined, undefined, [], undefined);
     expect(result.current.queuedMessage).toBeNull();
   });
 

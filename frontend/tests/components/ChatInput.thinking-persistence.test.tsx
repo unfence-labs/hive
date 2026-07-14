@@ -150,7 +150,7 @@ describe("ChatInput thinking-level persistence", () => {
       planMode: true,
       thinkingLevel: "high",
       fastMode: true,
-    }, undefined);
+    }, undefined, undefined);
   });
 
   it("isolates plan and fast mode by workspace for the same session id", async () => {
@@ -196,6 +196,6 @@ describe("ChatInput thinking-level persistence", () => {
       model: "claude:opus-4-7",
       planMode: false,
       thinkingLevel: "high",
-    }, undefined);
+    }, undefined, undefined);
   });
 });

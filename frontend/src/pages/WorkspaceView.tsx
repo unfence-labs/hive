@@ -16,6 +16,7 @@ import { BranchLabel } from "@/components/BranchLabel";
 import { ModifiedFileList } from "@/components/diff/ModifiedFileList";
 import { PrStatusSection } from "@/components/PrStatusSection";
 import { BrowserPanel } from "@/components/BrowserPanel";
+import { PreviewPanel, type PreviewPanelHandle } from "@/components/PreviewPanel";
 import ScriptPanel from "@/components/ScriptPanel";
 import { Skeleton } from "@/components/ui/skeleton";
 import { OpenTargetDropdown } from "@/components/OpenTargetDropdown";
@@ -29,7 +30,9 @@ import { hasPendingExitPlanModeInput, isPlanAwaitingUserInput, findPlanContent }
 import { buildInitialExpanded, countFiles, DEFAULT_EXPANDED, findFirstFilePath } from "@/lib/file-tree";
 import { PlanActionBar } from "@/components/chat/PlanActionBar";
 import { useScripts } from "@/hooks/useScripts";
-import type { DiffFileStat, DiffScope, DiffStatResponse, FileMention, ImageAttachment, MessageOptions, Workspace, WorkspaceFileTreeNode } from "@/types";
+import { GlobeIcon } from "lucide-react";
+import { cn } from "@/lib/utils";
+import type { DiffFileStat, DiffScope, DiffStatResponse, FileMention, ImageAttachment, MessageOptions, UiAnnotation, Workspace, WorkspaceFileTreeNode } from "@/types";
 
 function matchesDiffStat(filePath: string | null | undefined, stat: DiffFileStat): boolean {
   return !!filePath && (stat.file === filePath || filePath.endsWith(`/${stat.file}`));
@@ -220,14 +223,81 @@ export default function WorkspaceView() {
 
   const [renderMode, setRenderMode] = useState<"raw" | "rendered">("raw");
 
-  // Clear unread only when the active conversation is actually visible.
-  // If the file tab is open, keep unread state so the tab can show a dot.
+  // ── Preview tab (in-app browser + annotations) ──
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [previewTabActive, setPreviewTabActive] = useState(false);
+  const [previewAnnotations, setPreviewAnnotations] = useState<UiAnnotation[]>([]);
+  const previewPanelRef = useRef<PreviewPanelHandle>(null);
+  const previewDetected = wsId ? Boolean(liveData[wsId]?.preview?.detectedUrl) : false;
+
+  const openPreviewTab = useCallback(() => {
+    setPreviewOpen(true);
+    setPreviewTabActive(true);
+  }, []);
+  const closePreviewTab = useCallback(() => {
+    // Stop the backend proxy first: flipping previewOpen unmounts the panel.
+    previewPanelRef.current?.stopProxy();
+    setPreviewOpen(false);
+    setPreviewTabActive(false);
+    setPreviewAnnotations([]);
+  }, []);
+
+  // Reset preview state on workspace switch (the panel is keyed by wsId).
   useEffect(() => {
-    if (isFileTabActive) return;
+    setPreviewOpen(false);
+    setPreviewTabActive(false);
+    setPreviewAnnotations([]);
+  }, [wsId]);
+
+  // ⌘⇧B / Ctrl+Shift+B toggles the preview tab (mirrors Conductor).
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === "b") {
+        e.preventDefault();
+        if (previewTabActive) {
+          setPreviewTabActive(false);
+        } else {
+          setPreviewOpen(true);
+          setPreviewTabActive(true);
+        }
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [previewTabActive]);
+
+  const clearSentAnnotations = useCallback(() => {
+    setPreviewAnnotations([]);
+    previewPanelRef.current?.clearAnnotations();
+  }, []);
+
+  // Composer chip click: bring the preview forward, scroll to the pin, open
+  // its note editor.
+  const handleFocusAnnotation = useCallback((id: number) => {
+    setPreviewOpen(true);
+    setPreviewTabActive(true);
+    // The panel stays mounted while chips exist, so the ref is already live.
+    previewPanelRef.current?.focusAnnotation(id);
+  }, []);
+
+  // Sent-message badge click: reopen the preview and flash where the
+  // annotation was made (pins are cleared on send, so this re-resolves the
+  // selector, falling back to the recorded rect).
+  const handleLocateAnnotation = useCallback((annotation: UiAnnotation) => {
+    setPreviewOpen(true);
+    setPreviewTabActive(true);
+    requestAnimationFrame(() => previewPanelRef.current?.flashLocation(annotation));
+  }, []);
+
+  // Clear unread only when the active conversation is actually visible.
+  // If a takeover tab (file or preview) is open, keep unread state so the
+  // conversation tab can show a dot.
+  useEffect(() => {
+    if (isFileTabActive || previewTabActive) return;
     if (wsId && sessionId && liveData[wsId]?.unreadSessions?.[sessionId]) {
       clearUnread(wsId, sessionId);
     }
-  }, [isFileTabActive, wsId, sessionId, liveData, clearUnread]);
+  }, [isFileTabActive, previewTabActive, wsId, sessionId, liveData, clearUnread]);
 
   // Scripts (hive.json setup/run)
   const {
@@ -311,11 +381,13 @@ export default function WorkspaceView() {
 
   const handleFileTreeSelect = useCallback((path: string) => {
     setSelectedPath(path);
+    setPreviewTabActive(false);
     openFileTab(path);
   }, [openFileTab]);
 
   const handleModifiedFileClick = useCallback((filePath: string, scope: DiffScope) => {
     setSelectedPath(filePath);
+    setPreviewTabActive(false);
     openDiffTab(filePath, scope);
     setSidebarTab("modified");
   }, [openDiffTab]);
@@ -356,17 +428,20 @@ export default function WorkspaceView() {
   }, [hasPendingPlan, messages, activeToolCalls]);
 
   const handleSend = useCallback(
-    (content: string, images?: ImageAttachment[], options?: MessageOptions, fileMentions?: FileMention[]): boolean => {
+    (content: string, images?: ImageAttachment[], options?: MessageOptions, fileMentions?: FileMention[], annotations?: UiAnnotation[]): boolean => {
       if (hasPendingPlan && hasPendingExitPlanInput) {
         rejectToolInput(content);
         bumpScrollToBottom();
         return true;
       }
-      const sent = sendMessage(content, images, options, undefined, fileMentions);
-      if (sent) bumpScrollToBottom();
+      const sent = sendMessage(content, images, options, undefined, fileMentions, annotations);
+      if (sent) {
+        bumpScrollToBottom();
+        if (annotations?.length) clearSentAnnotations();
+      }
       return sent;
     },
-    [hasPendingPlan, hasPendingExitPlanInput, rejectToolInput, sendMessage, bumpScrollToBottom],
+    [hasPendingPlan, hasPendingExitPlanInput, rejectToolInput, sendMessage, bumpScrollToBottom, clearSentAnnotations],
   );
 
   // Refs for inline diff → chat input bridge
@@ -405,8 +480,13 @@ export default function WorkspaceView() {
   }, [availableDiffScopes, defaultDiffScope, diffScope, setDiffScope, setFileViewMode]);
 
   const handleFocusConversation = useCallback(() => {
+    setPreviewTabActive(false);
     if (sessionId) activateTab(`session:${sessionId}`);
   }, [sessionId, activateTab]);
+
+  // A takeover surface can only be one of file/preview at a time; the preview
+  // tab wins while active and the file tab resumes when it deactivates.
+  const effectiveFileTabActive = Boolean(isFileTabActive && !previewTabActive);
 
   // Full skeleton on initial load
   if (workspaceQuery.isLoading) {
@@ -454,6 +534,20 @@ export default function WorkspaceView() {
               />
             </div>
             <div className="ml-auto" />
+            <button
+              type="button"
+              title={previewTabActive ? "Hide preview (⌘⇧B)" : "Preview (⌘⇧B)"}
+              onClick={() => (previewTabActive ? setPreviewTabActive(false) : openPreviewTab())}
+              className={cn(
+                "relative flex size-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground",
+                previewTabActive && "bg-primary/10 text-primary",
+              )}
+            >
+              <GlobeIcon className="size-3.5" />
+              {previewDetected && !previewOpen && (
+                <span className="absolute right-0.5 top-0.5 size-1.5 rounded-full bg-primary" />
+              )}
+            </button>
             <OpenTargetDropdown
               path={workspace?.worktreePath}
               pathUnavailableReason={copyWorkspacePathDisabledReason}
@@ -467,14 +561,27 @@ export default function WorkspaceView() {
             streamingSessions={wsId ? liveData[wsId]?.streamingSessions : undefined}
             unreadSessions={wsId ? liveData[wsId]?.unreadSessions : undefined}
             onCreateSession={handleCreateSession}
-            onActivateSession={handleActivateSession}
+            onActivateSession={(id) => {
+              setPreviewTabActive(false);
+              handleActivateSession(id);
+            }}
             onDeleteSession={handleDeleteSession}
             openFile={openFile}
-            isFileTabActive={isFileTabActive}
+            isFileTabActive={effectiveFileTabActive}
             fileViewMode={fileViewMode}
-            onFileTabActivate={() => openFile && activateTab(`file:${openFile}`)}
+            onFileTabActivate={() => {
+              setPreviewTabActive(false);
+              if (openFile) activateTab(`file:${openFile}`);
+            }}
             onFileTabClose={closeFileTab}
-            onConversationActivate={() => sessionId && activateTab(`session:${sessionId}`)}
+            onConversationActivate={() => {
+              setPreviewTabActive(false);
+              if (sessionId) activateTab(`session:${sessionId}`);
+            }}
+            previewOpen={previewOpen}
+            isPreviewTabActive={previewTabActive}
+            onPreviewTabActivate={() => setPreviewTabActive(true)}
+            onPreviewTabClose={closePreviewTab}
             messages={messages}
             isHistoryLoading={isHistoryLoading}
             isHistoryError={isHistoryError}
@@ -486,6 +593,7 @@ export default function WorkspaceView() {
             pendingToolInputs={pendingToolInputs}
             onQuestionAnswer={answerQuestion}
             onFileMentionClick={handleFileTreeSelect}
+            onLocateAnnotation={handleLocateAnnotation}
             activeProvider={effectiveLockedProvider}
             workspaceName={workspace?.name}
             projectName={workspace?.projectName}
@@ -547,13 +655,34 @@ export default function WorkspaceView() {
                 placeholder={hasPendingPlan ? "Enter your plan adjustments here..." : undefined}
                 messages={messages}
                 queuedMessage={queuedMessage}
-                onQueue={(msg) => { setQueuedMessage(msg); bumpScrollToBottom(); }}
+                onQueue={(msg) => {
+                  setQueuedMessage(msg);
+                  bumpScrollToBottom();
+                  if (msg.annotations?.length) clearSentAnnotations();
+                }}
                 agentPlanMode={agentPlanMode}
+                annotations={previewAnnotations}
+                onRemoveAnnotation={(id) => {
+                  setPreviewAnnotations((prev) => prev.filter((a) => a.id !== id));
+                  previewPanelRef.current?.removeAnnotation(id);
+                }}
+                onFocusAnnotation={handleFocusAnnotation}
               />
               )
             }
           />
-          {isFileTabActive && openFile && wsId && (
+          {previewOpen && wsId && (
+            <div className={previewTabActive ? "flex min-h-0 flex-1 flex-col" : "hidden"}>
+              <PreviewPanel
+                key={wsId}
+                ref={previewPanelRef}
+                wsId={wsId}
+                annotations={previewAnnotations}
+                onAnnotationsChange={setPreviewAnnotations}
+              />
+            </div>
+          )}
+          {effectiveFileTabActive && openFile && wsId && (
             <FileTabView
               wsId={wsId}
               filePath={openFile}

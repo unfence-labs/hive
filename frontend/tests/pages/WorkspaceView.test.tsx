@@ -1514,6 +1514,7 @@ describe("WorkspaceView behavior", () => {
       undefined,
       undefined,
       undefined,
+      undefined,
     );
   });
 

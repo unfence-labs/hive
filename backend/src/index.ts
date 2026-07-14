@@ -47,6 +47,8 @@ import { preflight } from "./utils/preflight.js";
 import { detectAvailableProviders } from "./agents/providers/registry.js";
 import { stopAllScripts } from "./services/script-runner.js";
 import { stopAllTerminals } from "./services/terminal-runner.js";
+import { stopAllPreviewProxies } from "./services/preview-proxy.js";
+import { previewRoutes } from "./api/preview.js";
 import { initWorkspaceIndex } from "./state/workspace-index.js";
 
 const HOST = process.env.HOST ?? "127.0.0.1";
@@ -352,6 +354,7 @@ export async function buildApp(opts: BuildAppOptions = {}) {
   await app.register((instance: FastifyInstance) => providerUsageRoutes(instance));
   await app.register((instance: FastifyInstance) => accountRoutes(instance));
   await app.register((instance: FastifyInstance) => scriptRoutes(instance));
+  await app.register((instance: FastifyInstance) => previewRoutes(instance));
   await app.register((instance: FastifyInstance) =>
     scriptWsRoutes(instance, { authToken }),
   );
@@ -468,6 +471,7 @@ async function main() {
 
     stopAllScripts();
     stopAllTerminals();
+    stopAllPreviewProxies();
 
     // Drain persist queues with timeout
     await Promise.race([

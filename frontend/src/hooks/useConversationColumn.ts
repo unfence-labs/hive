@@ -211,8 +211,8 @@ export function useConversationColumn(
     if (workspaceStatus !== "idle") return;
     if (pendingToolInputs.length > 0) return;
 
-    const { content, images, options, fileMentions } = queuedMessage;
-    const sent = sendMessage(content, images, options, undefined, fileMentions);
+    const { content, images, options, fileMentions, annotations } = queuedMessage;
+    const sent = sendMessage(content, images, options, undefined, fileMentions, annotations);
     if (sent) setQueuedMessage(null);
     // If send fails (WS disconnected), keep queue — effect re-fires on reconnect.
   }, [queuedMessage, isStreaming, workspaceStatus, pendingToolInputs, sendMessage, setQueuedMessage]);

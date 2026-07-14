@@ -213,7 +213,7 @@ describe("ChatInput draft persistence", () => {
     expect(onSend).toHaveBeenLastCalledWith("hello", undefined, {
       planMode: true,
       thinkingLevel: "xhigh",
-    }, undefined);
+    }, undefined, undefined);
   });
 
   it("seeds defaults when the session has no lastRunOptions", async () => {
@@ -227,7 +227,7 @@ describe("ChatInput draft persistence", () => {
     expect(onSend).toHaveBeenLastCalledWith("hi", undefined, {
       planMode: false,
       thinkingLevel: "high",
-    }, undefined);
+    }, undefined, undefined);
   });
 
   it("removes empty drafts after session switch", () => {
@@ -261,7 +261,7 @@ describe("ChatInput draft persistence", () => {
     expect(onSend).toHaveBeenCalledWith("send this draft", undefined, {
       planMode: false,
       thinkingLevel: "high",
-    }, undefined);
+    }, undefined, undefined);
     expect(inputValue()).toBe("");
 
     unmount();
