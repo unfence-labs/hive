@@ -195,6 +195,8 @@ export function SetupWizard({ client: injectedClient, onComplete }: SetupWizardP
       screen = (
         <GuidedSetupScreen
           client={client}
+          baseUrl={serverBaseUrl}
+          authToken={inputs.authToken ?? ""}
           onContinue={() => advance()}
           onBack={back}
           onContinueLater={continueLater}

@@ -1,11 +1,11 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { CheckCircle2, ExternalLink } from "lucide-react";
 import { SetupScreen } from "./SetupScreen";
 import { ErrorPanel } from "./ErrorPanel";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Spinner } from "@/components/ui/spinner";
-import { setupApi, pollOperation } from "@/hooks/useSetupApi";
+import { createSetupApi, pollOperation } from "@/hooks/useSetupApi";
 import type { ProvisionClient } from "@/lib/provision-client";
 import type {
   SetupStatus,
@@ -17,6 +17,13 @@ import type { SetupError } from "@/pages/setup/machine";
 
 interface GuidedSetupScreenProps {
   client: ProvisionClient;
+  /**
+   * The NEW server's base URL + token. The app-level stores still point at the
+   * previous connection until the wizard's final screen commits them, so this
+   * screen must talk to the freshly-provisioned backend explicitly.
+   */
+  baseUrl: string;
+  authToken: string;
   onContinue: () => void;
   onBack: () => void;
   onContinueLater: () => void;
@@ -104,6 +111,8 @@ function OperationActions({ op }: { op: SetupOperation }) {
 
 export function GuidedSetupScreen({
   client,
+  baseUrl,
+  authToken,
   onContinue,
   onBack,
   onContinueLater,
@@ -116,13 +125,18 @@ export function GuidedSetupScreen({
   const [claudeDone, setClaudeDone] = useState(false);
   const [activeOp, setActiveOp] = useState<SetupOperation | null>(null);
 
+  const setupApi = useMemo(
+    () => createSetupApi({ baseUrl, token: authToken }),
+    [baseUrl, authToken],
+  );
+
   const refreshStatus = useCallback(async () => {
     try {
       setStatus(await setupApi.getStatus());
     } catch {
       setError({ state: "guided_setup", code: "UNKNOWN" });
     }
-  }, []);
+  }, [setupApi]);
 
   useEffect(() => {
     void refreshStatus();
@@ -155,7 +169,7 @@ export function GuidedSetupScreen({
     setError(null);
     try {
       const { operationId } = await setupApi.run({ steps, options: { language } });
-      const op = await pollOperation(operationId, setActiveOp);
+      const op = await pollOperation(operationId, setActiveOp, { api: setupApi });
       if (op.status === "failed") {
         const failed = op.steps.find((s) => s.status === "failed");
         setError({ state: "guided_setup", code: failed?.error?.code ?? "UNKNOWN" });
