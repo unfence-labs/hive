@@ -22,17 +22,20 @@ const DEPENDENCIES: Dependency[] = [
     minVersion: [2, 17], // worktree remove --force requires 2.17+
     parseVersion: (out) => out.match(/(\d+\.\d+\.\d+)/)?.[1] ?? null,
   },
+  // claude and gh are soft requirements: on a freshly provisioned server they
+  // are installed BY the backend (guided setup / Settings), so the server must
+  // boot without them. Missing tools surface via /api/setup/status detection.
   {
     name: "claude",
     command: "claude",
     versionArgs: ["--version"],
-    required: true,
+    required: false,
   },
   {
     name: "gh",
     command: "gh",
     versionArgs: ["--version"],
-    required: true,
+    required: false,
     parseVersion: (out) => out.match(/(\d+\.\d+\.\d+)/)?.[1] ?? null,
   },
   {

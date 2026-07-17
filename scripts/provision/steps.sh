@@ -138,7 +138,16 @@ step_configure_ufw() {
 
 title_install_release() { echo "Install the Hive backend"; }
 guard_install_release() {
-  [ "$(readlink -f "$HIVE_OPT/current" 2>/dev/null)" = "$HIVE_OPT/releases/$HIVE_VERSION" ]
+  [ "$(readlink -f "$HIVE_OPT/current" 2>/dev/null)" = "$HIVE_OPT/releases/$HIVE_VERSION" ] || return 1
+  # Dev tarballs reuse the same version string; only skip if the content is
+  # identical too (checksum recorded at install time).
+  if [ -n "$OPT_RELEASE_FILE" ] && [ -f "$OPT_RELEASE_FILE" ]; then
+    local recorded current_sum
+    recorded="$(cat "$HIVE_OPT/releases/$HIVE_VERSION/.tarball.sha256" 2>/dev/null || true)"
+    current_sum="$(sha256sum "$OPT_RELEASE_FILE" | cut -d' ' -f1)"
+    [ -n "$recorded" ] && [ "$recorded" = "$current_sum" ] || return 1
+  fi
+  return 0
 }
 step_install_release() {
   local rel="$HIVE_OPT/releases/$HIVE_VERSION" tarball
@@ -160,6 +169,7 @@ step_install_release() {
 
   rm -rf "$rel"; install -d -o hive -g hive "$rel"
   tar -xzf "$tarball" -C "$rel"
+  sha256sum "$tarball" | cut -d' ' -f1 >"$rel/.tarball.sha256"
   chown -R hive:hive "$rel"
   ln -sfn "$rel" "$HIVE_OPT/release.tmp"
   mv -Tf "$HIVE_OPT/release.tmp" "$HIVE_OPT/current"

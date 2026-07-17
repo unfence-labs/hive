@@ -71,8 +71,8 @@ describe("preflight()", () => {
     expect(console.warn).toHaveBeenCalledWith(expect.stringContaining("optional: 'codex' not found"));
   });
 
-  it("exits when a required dependency is missing", async () => {
-    vi.spyOn(process, "exit").mockImplementation(((code?: string | number | null) => {
+  it("warns but does not exit when claude is missing (guided setup installs it later)", async () => {
+    const exitSpy = vi.spyOn(process, "exit").mockImplementation(((code?: string | number | null) => {
       throw new Error(`exit-${String(code)}`);
     }) as never);
 
@@ -90,8 +90,29 @@ describe("preflight()", () => {
       },
     );
 
+    await preflight();
+
+    expect(exitSpy).not.toHaveBeenCalled();
+    expect(console.warn).toHaveBeenCalledWith(expect.stringContaining("optional: 'claude' not found"));
+  });
+
+  it("exits when a required dependency is missing", async () => {
+    vi.spyOn(process, "exit").mockImplementation(((code?: string | number | null) => {
+      throw new Error(`exit-${String(code)}`);
+    }) as never);
+
+    mockExecFile.mockImplementation(
+      (cmd: string, _args: string[], cb: (...a: unknown[]) => void) => {
+        if (cmd === "git") {
+          cb(new Error("not found"), { stdout: "", stderr: "" });
+          return;
+        }
+        cb(null, { stdout: "1.0.0", stderr: "" });
+      },
+    );
+
     await expect(preflight()).rejects.toThrow("exit-1");
-    expect(console.error).toHaveBeenCalledWith(expect.stringContaining("'claude' not found"));
+    expect(console.error).toHaveBeenCalledWith(expect.stringContaining("'git' not found"));
   });
 
   it("exits when git version is below minimum", async () => {
