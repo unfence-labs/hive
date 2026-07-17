@@ -2,7 +2,8 @@
 
 **Status: design proposal, not yet implemented.** This document describes the target
 installation and configuration flow for open-source Hive. Today's manual setup is
-documented in [GETTING_STARTED.md](../GETTING_STARTED.md) and [deploy/README.md](../deploy/README.md).
+documented in [GETTING_STARTED.md](../GETTING_STARTED.md). (A `deploy/` directory
+with unit templates does not exist on `main` yet; this design introduces it.)
 
 ## Goals
 

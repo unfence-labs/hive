@@ -6,6 +6,34 @@ frozen contracts, per-step specs, per-PR test cases, and the feedback-loop
 infrastructure that lets every piece be validated locally before touching real
 infrastructure.
 
+> **Amendments — review round 1 (2026-07-17).** Eight decisions changed from
+> the original draft after design review; each is folded into the sections
+> below and carries its full rationale in the corresponding commit message:
+>
+> 1. **Threat model:** the `hive` user is assumed hostile (agents execute
+>    arbitrary code as this user) — Docker rootless-only, the updater ignores
+>    the `hive`-writable trigger file and refuses downgrades, helpers audited
+>    for escalation by effect (§2, §5.4, §5.6, §6.3).
+> 2. **System OpenSSH sidecar replaces russh:** agent-held keys become the
+>    happy path instead of an excluded population; one whole client less to
+>    maintain (§2, §4, §8-S4, PR 2.1).
+> 3. **Rollback belongs to the updater only** (no `OnFailure=` on
+>    `hive.service`) and the backend binds `0.0.0.0` behind ufw — a slow
+>    tailscaled boot must never trigger a root rollback (§5.3, §5.4).
+> 4. **Claude auth runs locally on the user's machine** (wizard-driven
+>    `setup-token`, token POSTed to the backend); Codex stays device-auth on
+>    the VPS (rotating refresh tokens forbid copying `auth.json`); detection
+>    reports `authenticated`; auth is re-entrant — day 366 is designed
+>    (§3.4, §6.2, §6.4).
+> 5. **`/ws/setup` dropped** — REST polling covers setup progress once no
+>    client PTY input remains (§3.5; PR 3.2 removed).
+> 6. **Auth token is hash-only at rest** on provisioned servers; `shred`
+>    replaced by `rm` (no false guarantees) (§3.3, §5.5).
+> 7. **Pristine-server guard:** `probe_env` refuses inhabited servers; no
+>    migration tool from manual installs in v1 (§1.6, §5.2, §10).
+> 8. **Factual fix:** `deploy/` templates do not exist on `main` yet; both
+>    docs now say so instead of "(exist)".
+
 ---
 
 ## 1. Ground rules
@@ -106,8 +134,8 @@ state file's forces `--reset` behavior (a new script may change step semantics).
 
 ### 3.3 Secrets env file
 
-Uploaded by the app via SFTP to `/var/lib/hive/provision.env` (0600, root),
-**never argv**:
+Streamed by the app over SSH stdin to `/var/lib/hive/provision.env` (0600,
+root), **never argv**:
 
 ```
 HIVE_VERSION=0.3.0
@@ -244,7 +272,7 @@ frontend/src-tauri/src/ssh/
 frontend/src/pages/setup/            # wizard (state machine §9)
 frontend/src/hooks/useAuthToken.ts
 
-deploy/                              # templates; provision steps 71 embed these
+deploy/                              # templates; provision steps 71 embed these (to create — deploy/ does not exist on main yet)
   hive.service  hive.env.example
   hive-updater.service  hive-updater.path
 
