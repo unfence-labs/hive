@@ -226,10 +226,14 @@ flows. Day 366 is a designed path.
   the root updater never consumes `hive`-writable input (it resolves the
   latest release itself and refuses downgrades). Every helper is audited
   against this criterion.
-- **Secrets at rest:** token in a `0600` EnvironmentFile; auth token stored
-  hashed server-side; the app persists only a path reference to the user's SSH
-  key (generated-key fallback: `0600` file in the app data dir); iOS token to
-  move from UserDefaults to Keychain.
+- **Secrets at rest:** the server stores only the SHA-256 of the auth token —
+  the app, which generated it, is the sole holder of the plaintext (a lost
+  token is *reset* over SSH, not recovered). Agent CLI tokens live in `0600`
+  files under the service user's home — readable by agent-run code, an
+  accepted v1 trade-off (see the hostile-`hive` threat model above). The app
+  persists only a path reference to the user's SSH key (generated-key
+  fallback: `0600` file in the app data dir); iOS token to move from
+  UserDefaults to Keychain.
 
 ## Updates
 

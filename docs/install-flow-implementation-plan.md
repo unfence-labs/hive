@@ -105,15 +105,15 @@ Uploaded by the app via SFTP to `/var/lib/hive/provision.env` (0600, root),
 
 ```
 HIVE_VERSION=0.3.0
-HIVE_AUTH_TOKEN_SHA256=<hex>       # backend stores/compares the hash only
-HIVE_AUTH_TOKEN=<plaintext>        # written into hive.env for the service, then this file is shredded
+HIVE_AUTH_TOKEN_SHA256=<hex>       # the ONLY form of the token that ever lands on server disk (§5.5)
 TS_AUTHKEY=tskey-auth-...
 HIVE_HOST_MODE=tailnet             # or "loopback" (tests)
 HIVE_PORT=3000
 ```
 
 `provision.sh` consumes it, writes `/etc/hive/hive.env` (0600) for the service,
-and `shred -u`s the provision copy in its last step.
+and `rm -f`s the provision copy in its last step (review dropped `shred`: on
+journaling filesystems it adds no real guarantee — don't pretend otherwise).
 
 ### 3.4 Setup REST API (backend)
 
@@ -287,12 +287,12 @@ The built artifact wraps everything in `main "$@"` called on the last line
 | `configure_ufw` | rules already present | `ufw default deny incoming; ufw allow in on tailscale0; ufw allow ssh; ufw --force enable` | `ufw status` matches (ssh stays open — repair channel) |
 | `fetch_release` | tarball present + checksum ok | download `hive-backend-$HIVE_VERSION-linux-$ARCH.tar.gz` (or `--release-file`) | sha256 verified else `die CHECKSUM_MISMATCH` |
 | `install_release` | `current` → this version | unpack `/opt/hive/releases/<v>`; link `shared/data` → `/home/hive/.hive`; scratch-symlink + `mv -T` swap | `readlink current` |
-| `write_secrets` | `/etc/hive/hive.env` content identical | write env (HOST=0.0.0.0 — tailnet-only enforced by ufw; 127.0.0.1 when `HIVE_HOST_MODE=loopback` (tests); PORT, DATA_DIR, HIVE_AUTH_TOKEN, PATH incl. mise shims) 0600 | perms + owner |
+| `write_secrets` | `/etc/hive/hive.env` content identical | write env (HOST=0.0.0.0 — tailnet-only enforced by ufw; 127.0.0.1 when `HIVE_HOST_MODE=loopback` (tests); PORT, DATA_DIR, HIVE_AUTH_TOKEN_SHA256 (hash-only — §5.5), PATH incl. mise shims) 0600 | perms + owner |
 | `write_units` | unit content identical | install `hive.service` + updater pair from embedded templates; `daemon-reload` | `systemd-analyze verify` |
 | `install_helpers` | dir content identical | §5.6 helpers + sudoers drop-in | `visudo -c` |
 | `enable_service` | active | `systemctl enable --now hive` | `systemctl is-active` |
 | `health_check` | — | curl `--retry 10` health with token (tailnet IP; 127.0.0.1 in loopback mode) | 200 + version matches |
-| `cleanup` | — | `shred -u /var/lib/hive/provision.env`; print/emit pairing summary `data:{tailnetIp,port}` | — |
+| `cleanup` | — | `rm -f /var/lib/hive/provision.env`; print/emit pairing summary `data:{tailnetIp,port}` | — |
 
 Every step is independently re-runnable; the chaos harness (§7.2) proves it for
 every kill point.
@@ -346,13 +346,17 @@ enforced by ufw, not by binding the 100.x IP, which races tailscaled at boot.)
   unit and no `OnFailure=` on `hive.service`: rollback can only happen
   inside the updater's window, never from a steady-state crash
 
-### 5.5 Auth token at rest
+### 5.5 Auth token at rest — hash-only
 
-`/etc/hive/hive.env` carries `HIVE_AUTH_TOKEN` (the service must compare
-incoming bearers). Additionally `HIVE_AUTH_TOKEN_SHA256` is supported by
-`utils/auth.ts`: if only the hash is present, the backend hashes incoming
-tokens before `timingSafeEqual` (removes plaintext-at-rest; enabled by
-provision, transparent to clients). Backend change lands in PR 0.3.
+Provisioned installs never store the plaintext token server-side:
+`/etc/hive/hive.env` carries only `HIVE_AUTH_TOKEN_SHA256`, and
+`utils/auth.ts` hashes incoming bearers before `timingSafeEqual`. The app
+generated the token and is the sole holder of the plaintext (it also feeds
+the iOS QR). `HIVE_AUTH_TOKEN` (plaintext) remains accepted for legacy
+manual installs only — one mode per install, never both. Consequence, by
+design: the token is *reset*, never *recovered* — a lost token means SSH in
+and write a new hash (documented one-liner; SSH is the repair channel).
+Backend change lands in PR 0.3.
 
 ### 5.6 Privileged helpers (v1 substitute for a root helper daemon)
 
