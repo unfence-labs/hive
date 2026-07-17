@@ -49,7 +49,9 @@ fn ssh_common_args(key_path: &str) -> Vec<String> {
         "-o".into(), "BatchMode=yes".into(),
         "-o".into(), "ConnectTimeout=15".into(),
         "-o".into(), "StrictHostKeyChecking=yes".into(),
-        "-o".into(), format!("UserKnownHostsFile={}", known_hosts_path().display()),
+        // Quote the path: ssh tokenizes -o values on whitespace, and the macOS
+        // config dir ("Application Support") contains a space.
+        "-o".into(), format!("UserKnownHostsFile=\"{}\"", known_hosts_path().display()),
         "-i".into(), key_path.to_string(),
         "-l".into(), "root".into(),
     ]
@@ -282,7 +284,7 @@ fn maybe_upload_release(params: &ProvisionParams) -> Result<(), String> {
     }
     let mut scp_args = vec![
         "-o".to_string(), "BatchMode=yes".into(),
-        "-o".into(), format!("UserKnownHostsFile={}", known_hosts_path().display()),
+        "-o".into(), format!("UserKnownHostsFile=\"{}\"", known_hosts_path().display()),
         "-i".into(), params.key_path.clone(),
     ];
     scp_args.push(tarball);
