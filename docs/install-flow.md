@@ -14,8 +14,9 @@ documented in [GETTING_STARTED.md](../GETTING_STARTED.md) and [deploy/README.md]
 3. **Subscriptions, not API keys.** Claude and Codex authenticate with the user's
    existing consumer subscription (Claude Pro/Max, ChatGPT Plus/Pro). Hive never
    asks for a pay-per-use API key.
-4. **Never publicly exposed.** The backend binds to the Tailscale interface from
-   its first second. No port is ever reachable from the public internet, so there
+4. **Never publicly exposed.** The backend is reachable only over the Tailscale
+   interface from its first second (ufw default-deny enforces this).
+   No port is ever reachable from the public internet, so there
    is no setup-window attack surface (the class of bug behind the Portainer
    first-run takeover CVE and the OpenClaw mass-exposure incident).
 5. **One script, simple tech.** A single idempotent `provision.sh` does all
@@ -86,7 +87,7 @@ flowchart TD
         S2["node 22 (NodeSource) · git<br/>ufw default-deny + allow in on tailscale0"]
         S3["/opt/hive/releases/N ← release tarball (checksum)<br/>current → N symlink · shared/ for data"]
         S4["HIVE_AUTH_TOKEN → EnvironmentFile (0600)<br/>systemd units: hive.service + hive-updater"]
-        S5["start Hive — bound to the TAILNET IP only,<br/>never on a public interface"]
+        S5["start Hive — reachable over the tailnet only<br/>(ufw default-deny; no public port ever open)"]
         S1 --> S2 --> S3 --> S4 --> S5
     end
 
@@ -138,7 +139,7 @@ sequenceDiagram
     W->>V: run detached, tail NDJSON progress
     V->>T: tailscale up --auth-key (node joins tailnet)
     V->>V: install node, ufw, Hive release, systemd units
-    V->>H: start hive.service bound to tailnet IP
+    V->>H: start hive.service (tailnet-only via ufw)
     W->>H: GET /health over tailnet (token) — first API contact
     W--xV: close SSH (repair channel only)
     W->>H: guided setup: claude / codex / gh (PTY device flows)
@@ -166,8 +167,11 @@ sequenceDiagram
   after 180 days" failure.
 - The script installs Tailscale from the official apt repo and runs
   `tailscale up --auth-key=…` — fully non-interactive, no login URL to lift.
-- The backend binds to the Tailscale IP (100.x.y.z). `ufw` is default-deny with
-  `allow in on tailscale0`; no public port is ever opened.
+- The backend listens on `0.0.0.0`; reachability is enforced by `ufw`
+  (default-deny, `allow in on tailscale0`) — no public port is ever opened.
+  Binding the 100.x IP directly was dropped in review: it races tailscaled at
+  boot (the IP may not be assigned yet → crash loop on every slow reboot);
+  the firewall alone carries the guarantee.
 - Optional (guided later, for clean iOS HTTPS): enabling **MagicDNS + HTTPS** on
   the tailnet gives `https://<host>.<tailnet>.ts.net` with a real Let's Encrypt
   certificate. This is a one-time manual toggle in the admin console and publishes
@@ -235,7 +239,10 @@ flowchart LR
 - The updater is a separate systemd unit triggered by a path unit, so restarting
   Hive never kills the update mid-flight.
 - Keep 2–3 release generations; rollback is a second symlink swap.
-- `StartLimitBurst` + `OnFailure=hive-rollback.service` protect against boot loops.
+- Rollback logic lives only inside the updater's window: after the swap, the
+  updater health-checks and rolls back itself. `hive.service` has no
+  `OnFailure=` hook — a steady-state crash (full disk, slow tailscale at
+  boot) must never trigger a root rollback of a healthy release.
 - If an update is requested while agent sessions are running, the UI warns first.
 - If the backend is ever unreachable, the desktop app still holds a working SSH
   key: SSH is the out-of-band repair channel (tail logs, roll back, restart).

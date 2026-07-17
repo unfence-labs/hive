@@ -232,8 +232,8 @@ frontend/src/pages/setup/            # wizard (state machine §9)
 frontend/src/hooks/useAuthToken.ts
 
 deploy/                              # templates; provision steps 71 embed these
-  hive.service  hive.env.example     # (exist)
-  hive-updater.service  hive-updater.path  hive-rollback.service
+  hive.service  hive.env.example
+  hive-updater.service  hive-updater.path
 
 test/
   images/ubuntu-systemd.Dockerfile   # Tier-1
@@ -282,11 +282,11 @@ The built artifact wraps everything in `main "$@"` called on the last line
 | `configure_ufw` | rules already present | `ufw default deny incoming; ufw allow in on tailscale0; ufw allow ssh; ufw --force enable` | `ufw status` matches (ssh stays open — repair channel) |
 | `fetch_release` | tarball present + checksum ok | download `hive-backend-$HIVE_VERSION-linux-$ARCH.tar.gz` (or `--release-file`) | sha256 verified else `die CHECKSUM_MISMATCH` |
 | `install_release` | `current` → this version | unpack `/opt/hive/releases/<v>`; link `shared/data` → `/home/hive/.hive`; scratch-symlink + `mv -T` swap | `readlink current` |
-| `write_secrets` | `/etc/hive/hive.env` content identical | write env (HOST=tailnet IP or per `HIVE_HOST_MODE`, PORT, DATA_DIR, HIVE_AUTH_TOKEN, PATH incl. mise shims) 0600 | perms + owner |
-| `write_units` | unit content identical | install `hive.service`, updater trio from embedded templates; `daemon-reload` | `systemd-analyze verify` |
+| `write_secrets` | `/etc/hive/hive.env` content identical | write env (HOST=0.0.0.0 — tailnet-only enforced by ufw; 127.0.0.1 when `HIVE_HOST_MODE=loopback` (tests); PORT, DATA_DIR, HIVE_AUTH_TOKEN, PATH incl. mise shims) 0600 | perms + owner |
+| `write_units` | unit content identical | install `hive.service` + updater pair from embedded templates; `daemon-reload` | `systemd-analyze verify` |
 | `install_helpers` | dir content identical | §5.6 helpers + sudoers drop-in | `visudo -c` |
 | `enable_service` | active | `systemctl enable --now hive` | `systemctl is-active` |
-| `health_check` | — | curl `--retry 10` health on bound IP with token | 200 + version matches |
+| `health_check` | — | curl `--retry 10` health with token (tailnet IP; 127.0.0.1 in loopback mode) | 200 + version matches |
 | `cleanup` | — | `shred -u /var/lib/hive/provision.env`; print/emit pairing summary `data:{tailnetIp,port}` | — |
 
 Every step is independently re-runnable; the chaos harness (§7.2) proves it for
@@ -309,7 +309,6 @@ Restart=on-failure
 RestartSec=5
 StartLimitIntervalSec=60
 StartLimitBurst=3
-OnFailure=hive-rollback.service
 MemoryMax=3G
 NoNewPrivileges=true
 ProtectSystem=strict
@@ -322,7 +321,11 @@ WantedBy=multi-user.target
 
 (`deploy/hive.service` — the manual-install template — stays; step 71 embeds
 this hardened variant. Single source: both generated from one template at
-`build.sh` time to prevent drift.)
+`build.sh` time to prevent drift. No `OnFailure=` rollback hook by review
+decision: rollback is owned by the updater within its update window (§5.4) —
+a steady-state crash, e.g. slow tailscaled at boot or a full disk, must never
+swap releases. The backend binds `0.0.0.0`; tailnet-only reachability is
+enforced by ufw, not by binding the 100.x IP, which races tailscaled at boot.)
 
 ### 5.4 Updater units (installed in Phase 1, used in Phase 6)
 
@@ -332,8 +335,11 @@ this hardened variant. Single source: both generated from one template at
   user); the updater resolves the latest release from GitHub itself and
   refuses any version ≤ the installed one (downgrade protection), then runs
   `helpers/update-hive.sh` (§5.6)
-- `hive-rollback.service`: `Type=oneshot`, root; `mv -T` current → previous
-  generation + restart + emit a marker file the API surfaces
+- After the swap the updater itself health-checks the restarted service and,
+  on failure, rolls back (`mv -T` current → previous generation + restart +
+  a marker file the API surfaces). There is no separate `hive-rollback`
+  unit and no `OnFailure=` on `hive.service`: rollback can only happen
+  inside the updater's window, never from a steady-state crash
 
 ### 5.5 Auth token at rest
 
