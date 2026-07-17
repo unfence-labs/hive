@@ -6,13 +6,42 @@ frozen contracts, per-step specs, per-PR test cases, and the feedback-loop
 infrastructure that lets every piece be validated locally before touching real
 infrastructure.
 
+> **Amendments — review round 1 (2026-07-17).** Eight decisions changed from
+> the original draft after design review; each is folded into the sections
+> below and carries its full rationale in the corresponding commit message:
+>
+> 1. **Threat model:** the `hive` user is assumed hostile (agents execute
+>    arbitrary code as this user) — Docker rootless-only, the updater ignores
+>    the `hive`-writable trigger file and refuses downgrades, helpers audited
+>    for escalation by effect (§2, §5.4, §5.6, §6.3).
+> 2. **System OpenSSH sidecar replaces russh:** agent-held keys become the
+>    happy path instead of an excluded population; one whole client less to
+>    maintain (§2, §4, §8-S4, PR 2.1).
+> 3. **Rollback belongs to the updater only** (no `OnFailure=` on
+>    `hive.service`) and the backend binds `0.0.0.0` behind ufw — a slow
+>    tailscaled boot must never trigger a root rollback (§5.3, §5.4).
+> 4. **Claude auth runs locally on the user's machine** (wizard-driven
+>    `setup-token`, token POSTed to the backend); Codex stays device-auth on
+>    the VPS (rotating refresh tokens forbid copying `auth.json`); detection
+>    reports `authenticated`; auth is re-entrant — day 366 is designed
+>    (§3.4, §6.2, §6.4).
+> 5. **`/ws/setup` dropped** — REST polling covers setup progress once no
+>    client PTY input remains (§3.5; PR 3.2 removed).
+> 6. **Auth token is hash-only at rest** on provisioned servers; `shred`
+>    replaced by `rm` (no false guarantees) (§3.3, §5.5).
+> 7. **Pristine-server guard:** `probe_env` refuses inhabited servers; no
+>    migration tool from manual installs in v1 (§1.6, §5.2, §10).
+> 8. **Factual fix:** `deploy/` templates do not exist on `main` yet; both
+>    docs now say so instead of "(exist)".
+
 ---
 
 ## 1. Ground rules
 
 1. **Build order follows risk.** The four genuine unknowns (Tailscale tagged-key
-   friction, Claude PTY auth behavior, Tailscale-in-CI, russh vs stock sshd) are
-   resolved by timeboxed spikes in week 1 — before any contract is frozen.
+   friction, Claude local-auth capture, Tailscale-in-CI, system-ssh sidecar
+   portability) are resolved by timeboxed spikes in week 1 — before any
+   contract is frozen.
 2. **Everything is testable without a cloud account by default.** Real VPS +
    real tailnet appear only in the nightly E2E and the manual release checklist.
 3. **`provision.sh` is safely re-runnable at any interruption point.** This is
@@ -21,8 +50,16 @@ infrastructure.
    tests in all three languages (bash, Rust, TypeScript). After freezing,
    changing a contract requires bumping its `v` field and updating all three
    test suites in the same PR.
-5. **Nothing in this plan touches the existing hub WS protocol**, so iOS is
-   unaffected until Phase 5 (which only adds a QR scanner + Keychain move).
+5. **Nothing in this plan touches the existing hub WS protocol** — and since
+   review dropped the planned `/ws/setup` channel (§3.5), no new WS surface
+   is added at all. iOS is unaffected until Phase 5 (which only adds a QR
+   scanner + Keychain move).
+6. **Pristine servers only.** `provision.sh` refuses servers that already run
+   other services or a manual Hive install (`probe_env` →
+   `SERVER_NOT_PRISTINE` / `EXISTING_INSTALL`) instead of half-applying
+   firewall and unit changes to an inhabited box. No automatic migration from
+   manual installs in v1 — the documented path is: back up `~/.hive`, wipe or
+   recreate the server, run the wizard, restore the data dir.
 
 ---
 
@@ -35,11 +72,16 @@ infrastructure.
 | Privileged helpers | root via sudoers | `/usr/lib/hive/helpers/*.sh` | fixed, argument-free wrappers (§5.6); the v1 substitute for a helper daemon |
 | `hive-updater.service` | root (oneshot) | VPS, triggered by path unit | separate cgroup → survives hive restart |
 | Agent CLIs (claude/codex/gh) + mise/uv | `hive` user | `/home/hive` | credentials live in the service user's home |
-| Tauri app + embedded SSH | user | desktop | russh; app-owned or user-selected key |
+| Tauri app + system `ssh` sidecar | user | desktop | spawns OpenSSH (present by default on macOS/Linux/Win10+); user's key/agent, or app-generated fallback key |
 
 The `hive` user model (vs. running as the login user like the manual setup)
 is what allows unit hardening. All agent credentials, mise shims, and repos
 live under `/home/hive`.
+
+Threat model: the `hive` user is **assumed hostile** — Hive's product runs LLM
+agents that execute arbitrary code as this user. Every helper and unit is
+audited against one criterion: compromise of `hive` may yield agent
+credentials and repos, never root.
 
 ---
 
@@ -92,20 +134,20 @@ state file's forces `--reset` behavior (a new script may change step semantics).
 
 ### 3.3 Secrets env file
 
-Uploaded by the app via SFTP to `/var/lib/hive/provision.env` (0600, root),
-**never argv**:
+Streamed by the app over SSH stdin to `/var/lib/hive/provision.env` (0600,
+root), **never argv**:
 
 ```
 HIVE_VERSION=0.3.0
-HIVE_AUTH_TOKEN_SHA256=<hex>       # backend stores/compares the hash only
-HIVE_AUTH_TOKEN=<plaintext>        # written into hive.env for the service, then this file is shredded
+HIVE_AUTH_TOKEN_SHA256=<hex>       # the ONLY form of the token that ever lands on server disk (§5.5)
 TS_AUTHKEY=tskey-auth-...
 HIVE_HOST_MODE=tailnet             # or "loopback" (tests)
 HIVE_PORT=3000
 ```
 
 `provision.sh` consumes it, writes `/etc/hive/hive.env` (0600) for the service,
-and `shred -u`s the provision copy in its last step.
+and `rm -f`s the provision copy in its last step (review dropped `shred`: on
+journaling filesystems it adds no real guarantee — don't pretend otherwise).
 
 ### 3.4 Setup REST API (backend)
 
@@ -114,7 +156,7 @@ GET  /api/version
      → {"version":"0.3.0","protocolVersion":1,"commit":"abc123"}
 
 GET  /api/setup/status
-     → {"detected":{"claude":{"installed":true,"version":"2.1.53"},
+     → {"detected":{"claude":{"installed":true,"version":"2.1.53","authenticated":true},
                     "codex":{"installed":false},"gh":{...},"tailscale":{...},
                     "mise":{...},"uv":{...},"docker":{...}},
         "operations":[SetupOperation, ...]}
@@ -125,7 +167,7 @@ POST /api/setup/run           body {"steps":["install_claude","auth_claude"],"op
 GET  /api/setup/operations/:id            → SetupOperation
 GET  /api/setup/operations/:id/log?since=<seq>  → NDJSON lines (backfill)
 POST /api/setup/operations/:id/retry      → re-runs from the failed step
-POST /api/setup/auth/claude/token         body {"token":"sk-ant-oat01-..."}   // Mac-side fallback
+POST /api/setup/auth/claude/token         body {"token":"sk-ant-oat01-..."}   // PRIMARY path: token captured locally by the wizard
 POST /api/system/update                   → {"operationId":...}               // Phase 6
 ```
 
@@ -147,27 +189,31 @@ interface SetupStep {
 }
 ```
 
-### 3.5 Setup WS channel (`/ws/setup`)
+### 3.5 Setup progress transport — REST polling (no new WS channel)
 
-Own mini-protocol (NOT part of `HubOutgoing` — the hub protocol and iOS stay
-untouched). Auth: same bearer/`?token=` as other WS routes.
+Review decision: with Claude auth running locally (§6.4) no client→server
+PTY input remains — gh's Enter keystroke is injected server-side — so the
+originally planned `/ws/setup` channel lost its founding use case. The
+wizard polls instead (setup steps take tens of seconds; 1–2 s latency is
+invisible):
 
-```jsonc
-// client → server
-{"type":"subscribe","operationId":"op-1a2b","sinceSeq":0}
-{"type":"pty_input","data":"<base64>"}         // for interactive auth steps
-// server → client
-{"type":"op","op":{/* SetupOperation */}}                    // on every state change
-{"type":"log","seq":17,"stepId":"install_claude","line":"..."}
-{"type":"pty_data","data":"<base64>"}
-{"type":"auth_action","stepId":"auth_codex","kind":"open_url_with_code",
- "url":"https://auth.openai.com/device","code":"ABCD-1234","expiresAt":"..."}
-{"type":"auth_action","stepId":"auth_claude","kind":"open_url","url":"https://claude.ai/oauth/..."}
+- `GET /api/setup/operations/:id` every 1–2 s while an operation runs
+- `GET /api/setup/operations/:id/log?since=<seq>` for incremental log lines
+
+Interactive data rides on the step itself:
+
+```ts
+interface SetupStep {
+  // ...as in 3.4, plus:
+  action?: { kind: "open_url" | "open_url_with_code";
+             url: string; code?: string; expiresAt?: string };
+}
 ```
 
-Reconnect: client re-subscribes with `sinceSeq`; server replays from the
-operation's `log.jsonl` then streams live (same durable-log trick as the
-provision script).
+The hub WS protocol and iOS stay untouched — no new WS surface at all. If a
+truly interactive terminal is ever needed in the wizard, the backend's
+existing session PTY/WS infrastructure is the starting point, not a bespoke
+setup channel.
 
 ### 3.6 Release artifact layout (GitHub Releases)
 
@@ -198,8 +244,10 @@ scripts/provision/
   lib.sh                    # framework: emit/run_step/state/locking/traps (§5.1)
   protocol.schema.json      # frozen contract 3.1
   steps/
-    00-probe-os.sh          10-apt-baseline.sh      20-install-node.sh
-    30-create-user.sh       40-install-tailscale.sh 41-tailscale-up.sh
+    00-probe-os.sh          01-probe-env.sh         10-apt-baseline.sh
+    20-install-node.sh
+    30-create-user.sh       40-install-tailscale.sh
+    41-tailscale-up.sh
     50-configure-ufw.sh     60-fetch-release.sh     61-install-release.sh
     70-write-secrets.sh     71-write-units.sh       72-install-helpers.sh
     80-enable-service.sh    90-health-check.sh      99-cleanup.sh
@@ -211,26 +259,26 @@ backend/src/
   services/setup/operations.ts       # durable op engine (§8, PR 3.1)
   services/setup/detect.ts
   services/setup/installers/{claude,codex,gh,mise,uv,docker}.ts
-  services/setup/auth-flows/{claude-setup-token,codex-device,gh-device}.ts
+  services/setup/auth-flows/{claude-token,codex-device,gh-device}.ts   # claude-token: validate/write/verify (captured wizard-side)
   services/setup/runner.ts           # detached child + line-buffered capture
   services/update/updater.ts
-  ws/setup.ts                        # WS 3.5
   utils/auth.ts                      # extended: hashed-token compare (§5.5)
 
 frontend/src-tauri/src/ssh/
-  mod.rs  keys.rs  known_hosts.rs  provision.rs
-  bin/hive-ssh.rs                    # CLI over the same crate; used by CI E2E only
+  mod.rs                             # sidecar driver: spawn system ssh/ssh-keyscan, stream output
+  keys.rs  known_hosts.rs  provision.rs
+                                     # CI E2E drives the plain `ssh` binary — no separate CLI to maintain
 
 frontend/src/pages/setup/            # wizard (state machine §9)
 frontend/src/hooks/useAuthToken.ts
 
-deploy/                              # templates; provision steps 71 embed these
-  hive.service  hive.env.example     # (exist)
-  hive-updater.service  hive-updater.path  hive-rollback.service
+deploy/                              # templates; provision steps 71 embed these (to create — deploy/ does not exist on main yet)
+  hive.service  hive.env.example
+  hive-updater.service  hive-updater.path
 
 test/
   images/ubuntu-systemd.Dockerfile   # Tier-1
-  images/sshd.Dockerfile             # Rust SSH integration target
+  images/sshd.Dockerfile             # ssh sidecar-driver integration target
   fixtures/fake-clis/{claude,codex,gh,tailscale}      # scenario-driven stubs (§7.4)
   fixtures/transcripts/*.txt         # recorded real-CLI output (Spike S2)
   tools/record-cli.sh                # PTY recorder used on the spike VM
@@ -267,6 +315,7 @@ The built artifact wraps everything in `main "$@"` called on the last line
 | Step | Guard (skip if…) | Action | Verify (emit `data`) |
 |---|---|---|---|
 | `probe_os` | never skips | parse `/etc/os-release`, check systemd + arch (x64/arm64) | in matrix (Ubuntu 22.04/24.04, Debian 12) else `die UNSUPPORTED_OS` |
+| `probe_env` | never skips | refuse non-pristine servers: running Hive process or busy `HIVE_PORT` → `die EXISTING_INSTALL`; `/opt/hive` present without our state file, or pre-existing non-default ufw rules → `die SERVER_NOT_PRISTINE`. A server previously provisioned by us (state file present) passes — that's a resume, not a conflict | pristine or ours |
 | `apt_baseline` | all pkgs `dpkg -s` ok | `apt_install build-essential python3 python-is-python3 pkg-config libssl-dev unzip xz-utils jq ripgrep fd-find sqlite3 git-delta fzf tree gnupg ca-certificates ufw` + `ln -sf $(command -v fdfind) /usr/local/bin/fd` | `fd --version`, `rg --version` |
 | `install_node` | `node -v` ≥ 22 | NodeSource repo + `apt_install nodejs` | `node -v`, `npm -v` |
 | `create_user` | `id hive` exists | `useradd -m -s /bin/bash hive`; `install -d -o hive /home/hive/.hive` | home exists, owned |
@@ -275,12 +324,12 @@ The built artifact wraps everything in `main "$@"` called on the last line
 | `configure_ufw` | rules already present | `ufw default deny incoming; ufw allow in on tailscale0; ufw allow ssh; ufw --force enable` | `ufw status` matches (ssh stays open — repair channel) |
 | `fetch_release` | tarball present + checksum ok | download `hive-backend-$HIVE_VERSION-linux-$ARCH.tar.gz` (or `--release-file`) | sha256 verified else `die CHECKSUM_MISMATCH` |
 | `install_release` | `current` → this version | unpack `/opt/hive/releases/<v>`; link `shared/data` → `/home/hive/.hive`; scratch-symlink + `mv -T` swap | `readlink current` |
-| `write_secrets` | `/etc/hive/hive.env` content identical | write env (HOST=tailnet IP or per `HIVE_HOST_MODE`, PORT, DATA_DIR, HIVE_AUTH_TOKEN, PATH incl. mise shims) 0600 | perms + owner |
-| `write_units` | unit content identical | install `hive.service`, updater trio from embedded templates; `daemon-reload` | `systemd-analyze verify` |
+| `write_secrets` | `/etc/hive/hive.env` content identical | write env (HOST=0.0.0.0 — tailnet-only enforced by ufw; 127.0.0.1 when `HIVE_HOST_MODE=loopback` (tests); PORT, DATA_DIR, HIVE_AUTH_TOKEN_SHA256 (hash-only — §5.5), PATH incl. mise shims) 0600 | perms + owner |
+| `write_units` | unit content identical | install `hive.service` + updater pair from embedded templates; `daemon-reload` | `systemd-analyze verify` |
 | `install_helpers` | dir content identical | §5.6 helpers + sudoers drop-in | `visudo -c` |
 | `enable_service` | active | `systemctl enable --now hive` | `systemctl is-active` |
-| `health_check` | — | curl `--retry 10` health on bound IP with token | 200 + version matches |
-| `cleanup` | — | `shred -u /var/lib/hive/provision.env`; print/emit pairing summary `data:{tailnetIp,port}` | — |
+| `health_check` | — | curl `--retry 10` health with token (tailnet IP; 127.0.0.1 in loopback mode) | 200 + version matches |
+| `cleanup` | — | `rm -f /var/lib/hive/provision.env`; print/emit pairing summary `data:{tailnetIp,port}` | — |
 
 Every step is independently re-runnable; the chaos harness (§7.2) proves it for
 every kill point.
@@ -302,7 +351,6 @@ Restart=on-failure
 RestartSec=5
 StartLimitIntervalSec=60
 StartLimitBurst=3
-OnFailure=hive-rollback.service
 MemoryMax=3G
 NoNewPrivileges=true
 ProtectSystem=strict
@@ -315,23 +363,37 @@ WantedBy=multi-user.target
 
 (`deploy/hive.service` — the manual-install template — stays; step 71 embeds
 this hardened variant. Single source: both generated from one template at
-`build.sh` time to prevent drift.)
+`build.sh` time to prevent drift. No `OnFailure=` rollback hook by review
+decision: rollback is owned by the updater within its update window (§5.4) —
+a steady-state crash, e.g. slow tailscaled at boot or a full disk, must never
+swap releases. The backend binds `0.0.0.0`; tailnet-only reachability is
+enforced by ufw, not by binding the 100.x IP, which races tailscaled at boot.)
 
 ### 5.4 Updater units (installed in Phase 1, used in Phase 6)
 
 - `hive-updater.path`: `PathExists=/opt/hive/shared/.update-requested`
-- `hive-updater.service`: `Type=oneshot`, root; reads requested version, runs
+- `hive-updater.service`: `Type=oneshot`, root; the request file is a pure
+  trigger — its **content is ignored** (it is writable by the hostile `hive`
+  user); the updater resolves the latest release from GitHub itself and
+  refuses any version ≤ the installed one (downgrade protection), then runs
   `helpers/update-hive.sh` (§5.6)
-- `hive-rollback.service`: `Type=oneshot`, root; `mv -T` current → previous
-  generation + restart + emit a marker file the API surfaces
+- After the swap the updater itself health-checks the restarted service and,
+  on failure, rolls back (`mv -T` current → previous generation + restart +
+  a marker file the API surfaces). There is no separate `hive-rollback`
+  unit and no `OnFailure=` on `hive.service`: rollback can only happen
+  inside the updater's window, never from a steady-state crash
 
-### 5.5 Auth token at rest
+### 5.5 Auth token at rest — hash-only
 
-`/etc/hive/hive.env` carries `HIVE_AUTH_TOKEN` (the service must compare
-incoming bearers). Additionally `HIVE_AUTH_TOKEN_SHA256` is supported by
-`utils/auth.ts`: if only the hash is present, the backend hashes incoming
-tokens before `timingSafeEqual` (removes plaintext-at-rest; enabled by
-provision, transparent to clients). Backend change lands in PR 0.3.
+Provisioned installs never store the plaintext token server-side:
+`/etc/hive/hive.env` carries only `HIVE_AUTH_TOKEN_SHA256`, and
+`utils/auth.ts` hashes incoming bearers before `timingSafeEqual`. The app
+generated the token and is the sole holder of the plaintext (it also feeds
+the iOS QR). `HIVE_AUTH_TOKEN` (plaintext) remains accepted for legacy
+manual installs only — one mode per install, never both. Consequence, by
+design: the token is *reset*, never *recovered* — a lost token means SSH in
+and write a new hash (documented one-liner; SSH is the repair channel).
+Backend change lands in PR 0.3.
 
 ### 5.6 Privileged helpers (v1 substitute for a root helper daemon)
 
@@ -353,6 +415,9 @@ hive ALL=(root) NOPASSWD: /usr/lib/hive/helpers/install-claude.sh, /usr/lib/hive
 
 Explicit file list, **no wildcards, never `apt-get` or `tailscale` directly**
 (GTFOBins). mise/uv/rustup run as `hive` directly — no helper needed.
+Helpers are audited for escalation by *effect*, not only argument injection:
+`install-docker.sh` sets up **rootless Docker only** — `hive` never joins the
+`docker` group (instant root equivalence for a user running agent code).
 
 ### 5.7 Uninstall
 
@@ -387,26 +452,42 @@ timeout, all run in parallel; result cached 30 s. Adds: tailscale (+
 `status --json` state), mise, uv, docker (+ compose plugin), and per-CLI
 `latestVersion` reuse from `agents-settings.ts`.
 
+Each agent CLI probe also reports `authenticated` (gh: `gh auth status`;
+codex: `~hive/.codex/auth.json` present + parseable; claude:
+`CLAUDE_CODE_OAUTH_TOKEN` present in the service env, verified by a cheap
+`claude -p` smoke on demand). Guided setup skips auth steps already green —
+a logged-in CLI is never asked to log in again.
+
 ### 6.3 Installers
 
 Each installer = ordered SetupSteps with the same guard/action/verify shape as
 provision steps. Privileged actions call helpers (§5.6); user-space ones run as
 `hive` (mise shims mode + `mise trust -a`; uv installer; corepack note for
-Node ≥ 25). Docker installer ends with the rootless-vs-group decision encoded
-per the design doc.
+Node ≥ 25). Docker installer is rootless-only (review decision: the `docker`
+group is root equivalence for a user that runs arbitrary agent code).
 
 ### 6.4 Auth-flow drivers (`auth-flows/*`)
 
-Common shape: spawn CLI in a PTY (`spawnPtyProcess`), scan output with
-**versioned regex sets keyed by CLI version** (from Spike S2 transcripts), emit
-`auth_action` frames, handle: URL lift, code lift, paste-back injection,
+Codex and gh: spawn the CLI in a PTY (`spawnPtyProcess`), scan output with
+**versioned regex sets keyed by CLI version** (from Spike S2 transcripts),
+expose `action` data on the step (§3.5), handle: URL lift, code lift,
 **gh Enter-keystroke injection** (cli/cli #12925), 15-min code expiry →
-auto-regenerate (max 3), and typed errors (`CODEX_DEVICE_AUTH_DISABLED`,
-`CLAUDE_PASTEBACK_BROKEN` → surface the Mac fallback).
-Post-auth: claude → write `CLAUDE_CODE_OAUTH_TOKEN` into `/etc/hive/hive.env`
-via helper + pre-seed `~hive/.claude.json` (`hasCompletedOnboarding`,
-per-project trust) + assert `ANTHROPIC_API_KEY` absent; codex → verify
-`~hive/.codex/auth.json` exists 0600.
+auto-regenerate (max 3), and typed errors (`CODEX_DEVICE_AUTH_DISABLED`).
+Codex post-auth: verify `~hive/.codex/auth.json` exists 0600.
+
+Claude never runs interactively on the VPS (review decision — the wizard
+captures the token locally, see design doc): `claude-token.ts` backs
+`POST /api/setup/auth/claude/token` — validate token format, write
+`CLAUDE_CODE_OAUTH_TOKEN` into `/etc/hive/hive.env` via helper, pre-seed
+`~hive/.claude.json` (`hasCompletedOnboarding`, per-project trust), assert
+`ANTHROPIC_API_KEY` absent, verify with a `claude -p` smoke call. Install
+channel: official native installer (no Anthropic apt repo exists) with
+`DISABLE_AUTOUPDATER=1` — Hive owns updates.
+
+Auth is re-entrant after install (day 366): detection exposes per-CLI
+`authenticated`, token expiry/revocation surfaces in `/api/setup/status` and
+the health payload (`AUTH_EXPIRED`), and Settings offers "Reconnect <CLI>"
+re-running the same operations.
 
 ---
 
@@ -442,7 +523,7 @@ make vm-reset       # multipass restore hive-test.pristine    (~5 s "new VPS")
 make vm-provision   # full provision incl. tailscale (real test tailnet key from .env.local)
 make vm-setup-steps # drive /api/setup against the VM with fake or real CLIs
 make vm-update-e2e  # Phase 6 scenario (local release server, good + broken release)
-make vm-ssh-e2e     # Rust crate integration vs the VM's stock sshd
+make vm-ssh-e2e     # ssh sidecar-driver integration vs the VM's stock sshd
 ```
 
 Snapshots make "fresh VPS" a 5-second operation — this is the everyday manual
@@ -455,7 +536,7 @@ of the real tools** (captured in Spike S2 with `test/tools/record-cli.sh`,
 which wraps the CLI in `script -q` on the VM). Scenario selection via env:
 
 ```
-FAKE_CLAUDE_SCENARIO=happy | paste_back_broken | slow_user | code_expired
+FAKE_CLAUDE_SCENARIO=happy | paste_back_broken | slow_user | code_expired   # consumed by wizard-side tests (local setup-token capture)
 FAKE_CODEX_SCENARIO=happy | device_auth_disabled | url_variant_2
 FAKE_GH_SCENARIO=happy | waits_for_enter | timeout
 ```
@@ -486,8 +567,8 @@ make e2e-nightly-local          # run the nightly script against your own Hetzne
 ### 7.7 CI wiring
 
 - **PR CI (additions):** shellcheck + bats; Tier-1 provision run; chaos (3 kill
-  points); Rust ssh tests vs sshd container; vitest incl. contract tests +
-  fake-CLI driver tests; frontend tests.
+  points); ssh sidecar-driver tests vs sshd container; vitest incl. contract
+  tests + fake-CLI driver tests; frontend tests.
 - **Nightly:** full chaos matrix; Tier-3 E2E; fixture-drift job (installs
   latest real CLIs in a container, re-records `--help`/version banners, fails
   if parsers' version key is unknown → early warning of upstream changes).
@@ -505,23 +586,26 @@ make e2e-nightly-local          # run the nightly script against your own Hetzne
 expiry" click. Output: decision recorded in install-flow.md + the exact wizard
 deep-link URLs.
 
-**S2 — CLI transcripts.** On a pristine Multipass VM: run
-`claude setup-token`, `claude` first-run, `codex login --device-auth`,
-`gh auth login --web` under `test/tools/record-cli.sh`; capture happy path +
-every reachable error (wrong code, expiry, codex admin-gate). Verify the
-claude paste-back state on the current CLI version (issues #42965/#48048).
-Output: `test/fixtures/transcripts/*`, parser spec per CLI+version, and a
-go/no-go on PTY-first vs Mac-fallback-first for Claude (plan assumes PTY-first
-per the design doc; the fallback ships either way).
+**S2 — CLI transcripts.** Codex + gh on a pristine Multipass VM; claude
+**locally** on macOS/Windows/Linux (its capture lives in the wizard now): run
+`codex login --device-auth`, `gh auth login --web`, and local
+`claude setup-token` + `claude` first-run under `test/tools/record-cli.sh`;
+capture happy path + every reachable error (wrong code, expiry, codex
+admin-gate, claude paste-back state on the current version — issues
+#42965/#48048). Output: `test/fixtures/transcripts/*`, parser spec per
+CLI+version.
 
 **S3 — tailnet in CI.** Throwaway workflow: (a) tailscale up with an ephemeral
 key on a GitHub runner; (b) Headscale container + client. Assert a runner ↔ VM
 tailnet connection both ways. Output: Tier-3 network choice.
 
-**S4 — russh vs stock sshd.** `hive-ssh` prototype: connect/exec/sftp/tail
-against Multipass (stock Ubuntu sshd) and a Hetzner default image, with
-ed25519 + RSA + passphrase keys. Output: confirmed auth matrix + any sshd
-config edge (e.g., `PubkeyAcceptedAlgorithms`) folded into error taxonomy.
+**S4 — system-ssh sidecar portability.** Prototype the sidecar driver: spawn
+the OS `ssh`/`ssh-keyscan` for connect/exec/stdin-upload/detached-run/
+tail-resume against Multipass (stock Ubuntu sshd) and a Hetzner default image.
+Validate: presence + version floor on macOS/Windows 10+/Linux, `SSH_ASKPASS`
+behavior from a GUI-spawned process on all three, agent-held keys (1Password),
+coarse error mapping from exit codes/stderr. Output: confirmed support matrix
+folded into the error taxonomy.
 
 ---
 
@@ -546,7 +630,7 @@ welcome
  → tailnet_handoff        (poll /health via tailnet; timeout → diagnostics screen:
                            is Mac on tailnet? is node visible? keep SSH available)
  → guided_setup           (sub-machine: detect → claude → stacks → codex? → gh? →
-                           verify; each step = SetupOperation via /ws/setup)
+                           verify; each step = SetupOperation polled over REST §3.5)
  → ios_pairing            (QR render; "skip")
  → done                   (summary; where things live; how updates work)
 ```
@@ -565,7 +649,8 @@ CHECKSUM_MISMATCH, TS_AUTHKEY_INVALID, TS_DAEMON_DOWN, UFW_FAILURE,
 RELEASE_DOWNLOAD_FAILED, SERVICE_START_FAILED, HEALTH_TIMEOUT,
 SSH_AUTH_FAILED, SSH_HOST_KEY_CHANGED, SSH_UNREACHABLE, SSH_NO_ROOT,
 CLAUDE_PASTEBACK_BROKEN, DEVICE_CODE_EXPIRED, CODEX_DEVICE_AUTH_DISABLED,
-GH_POLL_STUCK, INTERRUPTED, CONCURRENT_RUN, UNKNOWN`
+GH_POLL_STUCK, AUTH_EXPIRED, SERVER_NOT_PRISTINE, EXISTING_INSTALL,
+INTERRUPTED, CONCURRENT_RUN, UNKNOWN`
 
 Each code maps to a user-facing hint (i18n-ready) + a docs anchor. Contract
 test asserts bash/TS lists are identical.
@@ -605,7 +690,9 @@ DoD: `make provision-docker` runs an empty-steps skeleton green. **E: 3**
 
 **PR 1.2 — Core steps** (probe→health, minus tailscale/ufw; `--release-file`).
 T: Tier-1 clean run; double-run all-skip; per-step bats guard tests; wrong-OS
-container (debian:11) → `UNSUPPORTED_OS`; checksum-tamper → `CHECKSUM_MISMATCH`.
+container (debian:11) → `UNSUPPORTED_OS`; dirty container (foreign service on
+the port / pre-existing ufw rules) → `SERVER_NOT_PRISTINE`; checksum-tamper →
+`CHECKSUM_MISMATCH`.
 DoD: container serves authenticated /health on 127.0.0.1. **E: 3**
 
 **PR 1.3 — Chaos harness** (`chaos.sh`, CI wiring).
@@ -622,12 +709,14 @@ DoD: fresh VM → tailnet-only Hive, idempotent, uninstallable. **E: 3**
 
 ### Phase 2 — Tauri SSH
 
-**PR 2.1 — russh core** (`mod.rs, keys.rs, known_hosts.rs`, sshd test image).
-T (Rust, CI): auth ok (ed25519/RSA), encrypted key + passphrase, wrong key →
-`SSH_AUTH_FAILED`, host-key change → `SSH_HOST_KEY_CHANGED`, exec exit codes,
-sftp write + mode, timeout behavior; key discovery on the 3 OS dir layouts
-(fixture homes).
-DoD: matrix green in CI; `hive-ssh exec uname -a` works vs Tier-2 VM. **E: 4**
+**PR 2.1 — ssh sidecar driver** (`mod.rs, keys.rs, known_hosts.rs`, sshd test
+image).
+T (Rust, CI): auth ok (file key + agent), encrypted key via `SSH_ASKPASS`,
+wrong key → `SSH_AUTH_FAILED`, `ssh-keyscan` fingerprint + host-key change →
+`SSH_HOST_KEY_CHANGED` (app-owned `UserKnownHostsFile`), exec exit codes,
+stdin upload + mode 0600, timeout behavior, missing `ssh` binary → typed
+error; key discovery on the 3 OS dir layouts (fixture homes).
+DoD: matrix green in CI; sidecar `exec uname -a` works vs Tier-2 VM. **E: 4**
 
 **PR 2.2 — Provision driver + Tauri commands** (`provision.rs`, events,
 commands `ssh_list_keys/test_connection/start_provision/resume_provision`).
@@ -646,12 +735,10 @@ mid-op → reaper marks INTERRUPTED + retry works; heartbeat staleness;
 single-op-per-kind 409.
 DoD: durable resumable ops with REST surface. **E: 3**
 
-**PR 3.2 — `/ws/setup`** (channel, subscribe/replay, PTY bridge without
-workspace guard).
-T (injectWS): subscribe+replay from seq; live tail; pty_input round-trip
-against a fake CLI; auth-rejected close 1008; hub protocol contract test
-untouched (regression gate).
-DoD: pre-project streaming works; iOS unaffected. **E: 2**
+**PR 3.2 — removed in review.** The `/ws/setup` channel was dropped: REST
+polling of the operation + log endpoints (§3.5) covers setup progress, and no
+client→server PTY input remains once Claude auth runs locally. Numbering
+kept to avoid renumbering downstream references.
 
 **PR 3.3 — Detection + installers** (`detect.ts`, 6 installers, helper calls).
 T: detect matrix via fixture PATHs; each installer vs fake CLIs (logic) and on
@@ -660,12 +747,14 @@ service PATH after install (unit env asserted); docker group/rootless per
 design flag.
 DoD: pristine VM → all installers green twice. **E: 4**
 
-**PR 3.4 — Auth-flow drivers** (3 drivers + regex sets keyed by CLI version +
-Mac-fallback endpoint).
-T: snapshot tests across every S2 transcript scenario (happy/broken/expired/
-gated/slow); gh Enter-injection case; code-expiry regenerate (max 3);
-`CLAUDE_PASTEBACK_BROKEN` → fallback surfaced; fallback endpoint validates
-token format + writes env via helper + verifies with a `claude -p` smoke call.
+**PR 3.4 — Auth-flow drivers** (codex/gh PTY drivers + regex sets keyed by
+CLI version + the claude token endpoint — primary path, wizard-captured).
+T: snapshot tests across every S2 transcript scenario (happy/expired/gated/
+slow); gh Enter-injection case; code-expiry regenerate (max 3); token
+endpoint validates format + writes env via helper + verifies with a
+`claude -p` smoke call; `authenticated` detection short-circuits
+already-logged-in CLIs; day-366 path: expired token → `AUTH_EXPIRED` in
+status/health → Reconnect re-runs the flow.
 DoD: every fixture variant → correct wizard instruction or typed error; real
 flows deferred to §12. **E: 4**
 
@@ -678,7 +767,7 @@ persistence/restore, back-navigation); component tests. **E: 3**
 provisioning screen on Tauri events, error panel + Retry). T: mocked-Tauri
 component tests per screen; scripted happy path vs Tier-2 VM. **E: 4**
 **PR 4.3 — Guided setup + QR + finish** (detection UI, stack checkboxes, auth
-screens rendering `auth_action` frames, QR render, finish summary).
+screens rendering step `action` data (§3.5), QR render, finish summary).
 T: component tests per auth scenario (driven by fake-CLI backend); full
 scripted E2E: `vm-reset` → wizard → done with fake CLIs.
 DoD: **a non-author completes the full wizard on a pristine VM without a
@@ -705,7 +794,7 @@ DoD: success and rollback paths green in one make target. **E: 3**
 ### Phase 7 — E2E + release hardening
 
 **PR 7.1 — Nightly E2E** (`e2e-nightly.yml`, `test/e2e/nightly.sh` driving
-`hive-ssh` + REST with fake CLIs on a real Hetzner VM + S3-decided tailnet).
+plain `ssh` + REST with fake CLIs on a real Hetzner VM + S3-decided tailnet).
 T: the script *is* the test; junit summary; VM always destroyed (trap).
 DoD: nightly reproduces a full "new user" install on real infra. **E: 3**
 **PR 7.2 — Docs + polish** (GETTING_STARTED rewrite around the wizard,
@@ -719,8 +808,9 @@ disk-space warning UI using existing /health metrics, fixture-drift CI job).
 
 ## 12. Manual release checklist (the non-automatable)
 
-1. Real Claude Pro/Max auth via wizard on a fresh VM — PTY path **and** Mac
-   fallback; assert subscription (not API) billing in the Claude console.
+1. Real Claude Pro/Max auth via wizard on a fresh VM — local wizard-driven
+   path **and** manual paste fallback; assert subscription (not API) billing
+   in the Claude console.
 2. Real Codex device-auth incl. the admin-gate error path.
 3. Real gh device flow incl. Enter-poll behavior on the current gh version.
 4. Brand-new Tailscale account onboarding following only wizard instructions
@@ -745,7 +835,7 @@ Join: 4.2 needs 1.x artifacts + 2.2; 4.3 needs 3.x; 7.x needs all.
 
 Contracts (§3) are frozen end of week 1 after S1/S2 land their corrections;
 both tracks code against the schemas + fake implementations from day one
-(wizard against a fixture backend, backend against the `hive-ssh` CLI).
+(wizard against a fixture backend, backend against scripted plain `ssh`).
 
 Critical path: **S2 → 0.1 → 1.1–1.3 → 2.2 → 4.2/4.3**. First full demo
 (fake CLIs, Tier-2 VM): end of Phase 4. Ship gate: Phase 6 + nightly green +
@@ -757,9 +847,9 @@ checklist §12.
 
 | Risk | Exposure | Mitigation |
 |---|---|---|
-| Claude PTY auth regresses upstream | wizard's flagship step fails | version-keyed regex sets; fixture-drift nightly job; Mac fallback is first-class (PR 3.4); CLI version pinned by installer |
+| Claude local setup-token output changes upstream | flagship auth step fails | the flow runs locally — no SSH/remote PTY in the loop; version-keyed capture patterns; fixture-drift nightly job; manual paste fallback is first-class; CLI version pinned by installer |
 | Tailscale-in-CI flaky | nightly noise | S3 decides strategy before Phase 1.4; ephemeral keys self-clean; retry-once policy on network steps only |
-| russh edge cases on user sshd configs | support tickets | v1 scope = stock Ubuntu/Debian sshd, root+key (typed errors otherwise); S4 validates before 2.1 |
+| system `ssh` output/version variance across OSes | brittle error mapping | map only coarse error classes from exit codes/stderr; version floor check at wizard start; S4 validates askpass/agent/Windows before 2.1; v1 scope = stock Ubuntu/Debian sshd, root+key (typed errors otherwise) |
 | Contract drift bash/Rust/TS | subtle integration bugs | single schema files + tri-language contract tests; `v` field bump policy |
 | Chaos matrix too slow for PR CI | devs skip it | 3 kill points on PR, full matrix nightly; container layer caching |
 | apt lock on fresh VPS (unattended-upgrades) | first-run failures in the wild | `DPkg::Lock::Timeout=300` in `apt_install` + dedicated chaos case |
