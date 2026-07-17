@@ -1,5 +1,7 @@
 import { useState } from "react";
-import { RefreshCw, Eye, EyeOff } from "lucide-react";
+import { RefreshCw, Eye, EyeOff, Server } from "lucide-react";
+import { isTauri } from "@/lib/is-tauri";
+import { openSetupWizard } from "@/hooks/useSetupWizardRequest";
 import { SettingsHeader } from "@/components/AppLayout";
 import { CenterCard } from "@/components/CenterCard";
 import { useTailscaleConfig } from "@/hooks/useTailscaleConfig";
@@ -185,6 +187,28 @@ export default function ConnectionSettings({ onRefreshConnection }: ConnectionSe
             </button>
           </div>
         </section>
+
+        {isTauri() && (
+          <section className="rounded-lg border border-border/50 bg-card/50 p-5">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h2 className="text-sm font-medium">New server</h2>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Provision a fresh VPS from scratch: Tailscale, the Hive backend, and agent
+                  CLIs — all driven from this app, no terminal needed.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={openSetupWizard}
+                className="inline-flex shrink-0 cursor-pointer items-center gap-2 rounded-md border border-border/50 px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground"
+              >
+                <Server className="h-3 w-3" />
+                Set up a new server
+              </button>
+            </div>
+          </section>
+        )}
       </div>
       </CenterCard>
     </div>

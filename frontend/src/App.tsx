@@ -23,6 +23,7 @@ import { wsTransport } from "@/lib/ws-transport";
 import { HiveToaster } from "@/components/ui/toaster";
 import { isTauri } from "@/lib/is-tauri";
 import { useServerUrl } from "@/hooks/useServerUrl";
+import { closeSetupWizard, useSetupWizardRequest } from "@/hooks/useSetupWizardRequest";
 
 const SetupWizard = lazy(() => import("@/pages/setup/SetupWizard"));
 const AutomationDetail = lazy(() => import("@/pages/AutomationDetail"));
@@ -42,8 +43,10 @@ export default function App() {
   const { serverUrl } = useServerUrl();
   // First-run gate: in the Tauri desktop shell with no server configured yet,
   // show the install wizard. Non-invasive for the web build (isTauri() is false).
+  // Existing installs reach the wizard on demand via Settings > Connection.
   const [wizardDismissed, setWizardDismissed] = useState(false);
-  const showWizard = isTauri() && !serverUrl && !wizardDismissed;
+  const wizardRequested = useSetupWizardRequest();
+  const showWizard = isTauri() && ((!serverUrl && !wizardDismissed) || wizardRequested);
 
   const { projects, loading, fetchProjects, createProjectWithWorkspace, createNewProjectWithWorkspace } = useProjects();
   const [showAddProject, setShowAddProject] = useState(false);
@@ -78,7 +81,12 @@ export default function App() {
   if (showWizard) {
     return (
       <Suspense fallback={null}>
-        <SetupWizard onComplete={() => setWizardDismissed(true)} />
+        <SetupWizard
+          onComplete={() => {
+            setWizardDismissed(true);
+            closeSetupWizard();
+          }}
+        />
       </Suspense>
     );
   }
