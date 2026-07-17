@@ -11,8 +11,9 @@ infrastructure.
 ## 1. Ground rules
 
 1. **Build order follows risk.** The four genuine unknowns (Tailscale tagged-key
-   friction, Claude PTY auth behavior, Tailscale-in-CI, russh vs stock sshd) are
-   resolved by timeboxed spikes in week 1 — before any contract is frozen.
+   friction, Claude local-auth capture, Tailscale-in-CI, system-ssh sidecar
+   portability) are resolved by timeboxed spikes in week 1 — before any
+   contract is frozen.
 2. **Everything is testable without a cloud account by default.** Real VPS +
    real tailnet appear only in the nightly E2E and the manual release checklist.
 3. **`provision.sh` is safely re-runnable at any interruption point.** This is
@@ -35,7 +36,7 @@ infrastructure.
 | Privileged helpers | root via sudoers | `/usr/lib/hive/helpers/*.sh` | fixed, argument-free wrappers (§5.6); the v1 substitute for a helper daemon |
 | `hive-updater.service` | root (oneshot) | VPS, triggered by path unit | separate cgroup → survives hive restart |
 | Agent CLIs (claude/codex/gh) + mise/uv | `hive` user | `/home/hive` | credentials live in the service user's home |
-| Tauri app + embedded SSH | user | desktop | russh; app-owned or user-selected key |
+| Tauri app + system `ssh` sidecar | user | desktop | spawns OpenSSH (present by default on macOS/Linux/Win10+); user's key/agent, or app-generated fallback key |
 
 The `hive` user model (vs. running as the login user like the manual setup)
 is what allows unit hardening. All agent credentials, mise shims, and repos
@@ -223,8 +224,9 @@ backend/src/
   utils/auth.ts                      # extended: hashed-token compare (§5.5)
 
 frontend/src-tauri/src/ssh/
-  mod.rs  keys.rs  known_hosts.rs  provision.rs
-  bin/hive-ssh.rs                    # CLI over the same crate; used by CI E2E only
+  mod.rs                             # sidecar driver: spawn system ssh/ssh-keyscan, stream output
+  keys.rs  known_hosts.rs  provision.rs
+                                     # CI E2E drives the plain `ssh` binary — no separate CLI to maintain
 
 frontend/src/pages/setup/            # wizard (state machine §9)
 frontend/src/hooks/useAuthToken.ts
@@ -235,7 +237,7 @@ deploy/                              # templates; provision steps 71 embed these
 
 test/
   images/ubuntu-systemd.Dockerfile   # Tier-1
-  images/sshd.Dockerfile             # Rust SSH integration target
+  images/sshd.Dockerfile             # ssh sidecar-driver integration target
   fixtures/fake-clis/{claude,codex,gh,tailscale}      # scenario-driven stubs (§7.4)
   fixtures/transcripts/*.txt         # recorded real-CLI output (Spike S2)
   tools/record-cli.sh                # PTY recorder used on the spike VM
@@ -453,7 +455,7 @@ make vm-reset       # multipass restore hive-test.pristine    (~5 s "new VPS")
 make vm-provision   # full provision incl. tailscale (real test tailnet key from .env.local)
 make vm-setup-steps # drive /api/setup against the VM with fake or real CLIs
 make vm-update-e2e  # Phase 6 scenario (local release server, good + broken release)
-make vm-ssh-e2e     # Rust crate integration vs the VM's stock sshd
+make vm-ssh-e2e     # ssh sidecar-driver integration vs the VM's stock sshd
 ```
 
 Snapshots make "fresh VPS" a 5-second operation — this is the everyday manual
@@ -497,8 +499,8 @@ make e2e-nightly-local          # run the nightly script against your own Hetzne
 ### 7.7 CI wiring
 
 - **PR CI (additions):** shellcheck + bats; Tier-1 provision run; chaos (3 kill
-  points); Rust ssh tests vs sshd container; vitest incl. contract tests +
-  fake-CLI driver tests; frontend tests.
+  points); ssh sidecar-driver tests vs sshd container; vitest incl. contract
+  tests + fake-CLI driver tests; frontend tests.
 - **Nightly:** full chaos matrix; Tier-3 E2E; fixture-drift job (installs
   latest real CLIs in a container, re-records `--help`/version banners, fails
   if parsers' version key is unknown → early warning of upstream changes).
@@ -529,10 +531,13 @@ per the design doc; the fallback ships either way).
 key on a GitHub runner; (b) Headscale container + client. Assert a runner ↔ VM
 tailnet connection both ways. Output: Tier-3 network choice.
 
-**S4 — russh vs stock sshd.** `hive-ssh` prototype: connect/exec/sftp/tail
-against Multipass (stock Ubuntu sshd) and a Hetzner default image, with
-ed25519 + RSA + passphrase keys. Output: confirmed auth matrix + any sshd
-config edge (e.g., `PubkeyAcceptedAlgorithms`) folded into error taxonomy.
+**S4 — system-ssh sidecar portability.** Prototype the sidecar driver: spawn
+the OS `ssh`/`ssh-keyscan` for connect/exec/stdin-upload/detached-run/
+tail-resume against Multipass (stock Ubuntu sshd) and a Hetzner default image.
+Validate: presence + version floor on macOS/Windows 10+/Linux, `SSH_ASKPASS`
+behavior from a GUI-spawned process on all three, agent-held keys (1Password),
+coarse error mapping from exit codes/stderr. Output: confirmed support matrix
+folded into the error taxonomy.
 
 ---
 
@@ -633,12 +638,14 @@ DoD: fresh VM → tailnet-only Hive, idempotent, uninstallable. **E: 3**
 
 ### Phase 2 — Tauri SSH
 
-**PR 2.1 — russh core** (`mod.rs, keys.rs, known_hosts.rs`, sshd test image).
-T (Rust, CI): auth ok (ed25519/RSA), encrypted key + passphrase, wrong key →
-`SSH_AUTH_FAILED`, host-key change → `SSH_HOST_KEY_CHANGED`, exec exit codes,
-sftp write + mode, timeout behavior; key discovery on the 3 OS dir layouts
-(fixture homes).
-DoD: matrix green in CI; `hive-ssh exec uname -a` works vs Tier-2 VM. **E: 4**
+**PR 2.1 — ssh sidecar driver** (`mod.rs, keys.rs, known_hosts.rs`, sshd test
+image).
+T (Rust, CI): auth ok (file key + agent), encrypted key via `SSH_ASKPASS`,
+wrong key → `SSH_AUTH_FAILED`, `ssh-keyscan` fingerprint + host-key change →
+`SSH_HOST_KEY_CHANGED` (app-owned `UserKnownHostsFile`), exec exit codes,
+stdin upload + mode 0600, timeout behavior, missing `ssh` binary → typed
+error; key discovery on the 3 OS dir layouts (fixture homes).
+DoD: matrix green in CI; sidecar `exec uname -a` works vs Tier-2 VM. **E: 4**
 
 **PR 2.2 — Provision driver + Tauri commands** (`provision.rs`, events,
 commands `ssh_list_keys/test_connection/start_provision/resume_provision`).
@@ -716,7 +723,7 @@ DoD: success and rollback paths green in one make target. **E: 3**
 ### Phase 7 — E2E + release hardening
 
 **PR 7.1 — Nightly E2E** (`e2e-nightly.yml`, `test/e2e/nightly.sh` driving
-`hive-ssh` + REST with fake CLIs on a real Hetzner VM + S3-decided tailnet).
+plain `ssh` + REST with fake CLIs on a real Hetzner VM + S3-decided tailnet).
 T: the script *is* the test; junit summary; VM always destroyed (trap).
 DoD: nightly reproduces a full "new user" install on real infra. **E: 3**
 **PR 7.2 — Docs + polish** (GETTING_STARTED rewrite around the wizard,
@@ -756,7 +763,7 @@ Join: 4.2 needs 1.x artifacts + 2.2; 4.3 needs 3.x; 7.x needs all.
 
 Contracts (§3) are frozen end of week 1 after S1/S2 land their corrections;
 both tracks code against the schemas + fake implementations from day one
-(wizard against a fixture backend, backend against the `hive-ssh` CLI).
+(wizard against a fixture backend, backend against scripted plain `ssh`).
 
 Critical path: **S2 → 0.1 → 1.1–1.3 → 2.2 → 4.2/4.3**. First full demo
 (fake CLIs, Tier-2 VM): end of Phase 4. Ship gate: Phase 6 + nightly green +
@@ -770,7 +777,7 @@ checklist §12.
 |---|---|---|
 | Claude PTY auth regresses upstream | wizard's flagship step fails | version-keyed regex sets; fixture-drift nightly job; Mac fallback is first-class (PR 3.4); CLI version pinned by installer |
 | Tailscale-in-CI flaky | nightly noise | S3 decides strategy before Phase 1.4; ephemeral keys self-clean; retry-once policy on network steps only |
-| russh edge cases on user sshd configs | support tickets | v1 scope = stock Ubuntu/Debian sshd, root+key (typed errors otherwise); S4 validates before 2.1 |
+| system `ssh` output/version variance across OSes | brittle error mapping | map only coarse error classes from exit codes/stderr; version floor check at wizard start; S4 validates askpass/agent/Windows before 2.1; v1 scope = stock Ubuntu/Debian sshd, root+key (typed errors otherwise) |
 | Contract drift bash/Rust/TS | subtle integration bugs | single schema files + tri-language contract tests; `v` field bump policy |
 | Chaos matrix too slow for PR CI | devs skip it | 3 kill points on PR, full matrix nightly; container layer caching |
 | apt lock on fresh VPS (unattended-upgrades) | first-run failures in the wild | `DPkg::Lock::Timeout=300` in `apt_install` + dedicated chaos case |

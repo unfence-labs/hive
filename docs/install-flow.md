@@ -27,21 +27,26 @@ documented in [GETTING_STARTED.md](../GETTING_STARTED.md) and [deploy/README.md]
 | Tag | Actor | Runs where |
 |---|---|---|
 | `[U]` | User | Mac/PC, iPhone, browser |
-| `[W]` | Hive desktop app (wizard, embedded SSH client) | user's computer |
+| `[W]` | Hive desktop app (wizard, drives the system OpenSSH client) | user's computer |
 | `[S]` | `provision.sh` (root, one-shot, idempotent) | VPS |
 | `[H]` | Hive backend (systemd service; acts as installer after handoff) | VPS |
 
 Key implementation choices for `[W]`:
 
-- SSH client is **embedded** (`russh`, pure Rust) — no dependency on a system
-  `ssh` binary, identical behavior on macOS/Linux/Windows.
+- SSH client is the **system OpenSSH binary** (`ssh`, spawned as a Tauri
+  sidecar) — present by default on macOS, Linux, and Windows 10+. This buys,
+  for free: agent-held keys (1Password, YubiKey, macOS keychain),
+  `~/.ssh/config`, and two decades of sshd compatibility. If no `ssh` binary
+  is found (rare), the wizard shows a clear error. *(Review change: an
+  embedded Rust client — russh — was originally planned; see Alternatives.)*
 - The app uses the **user's existing SSH key** — the one that has access to the
   server. The wizard auto-detects candidate keys in `~/.ssh`
   (`%USERPROFILE%\.ssh` on Windows) and offers a file picker for non-standard
-  paths. Passphrase-protected keys get an in-app prompt (decrypted in-process,
-  never persisted). The app stores only the file *path*; the private key is read
-  locally at connection time and never copied or transmitted. Supported: OpenSSH
-  format (ed25519, ECDSA, RSA); PuTTY `.ppk` is not.
+  paths. Keys held only in an agent (1Password, YubiKey, macOS keychain) work
+  natively — the system `ssh` talks to the agent; Hive never reads or copies
+  key material. Passphrase-protected key files get an in-app prompt via
+  `SSH_ASKPASS`. The app stores only the file *path*. Supported: whatever the
+  local OpenSSH supports; PuTTY `.ppk` is not.
   **Fallback for users with no SSH key:** the app generates an ed25519 keypair
   (stored `0600` in the app data dir) and shows the public key to paste into the
   provider's "SSH keys" field when creating the VPS.
@@ -69,9 +74,9 @@ flowchart TD
     end
 
     subgraph P3["3 · Install over SSH (~3 min, watched from the wizard)"]
-        C1["[W] connects via SSH (russh + the user's key)<br/>host-key trust dialog (TOFU)"]
+        C1["[W] connects via SSH (system ssh + the user's key/agent)<br/>host-key trust dialog (TOFU)"]
         C2["[W] probes OS: /etc/os-release + systemd<br/>clean refusal if unsupported"]
-        C3["[W] uploads provision.sh + secrets via SFTP<br/>(nothing in shell history or console)"]
+        C3["[W] streams provision.sh + secrets over stdin<br/>(nothing in argv, shell history, or console)"]
         C4["[S] runs DETACHED (setsid + logfile)<br/>survives app close; NDJSON progress streamed to the checklist"]
         C1 --> C2 --> C3 --> C4
     end
@@ -129,7 +134,7 @@ sequenceDiagram
     U->>W: select SSH key (passphrase prompt if encrypted)
     U->>W: paste server IP
     W->>V: SSH connect (user's key), TOFU dialog
-    W->>V: SFTP upload provision.sh + secrets
+    W->>V: stream provision.sh + secrets over stdin
     W->>V: run detached, tail NDJSON progress
     V->>T: tailscale up --auth-key (node joins tailnet)
     V->>V: install node, ufw, Hive release, systemd units
@@ -189,10 +194,10 @@ patterns are snapshot-tested (no login flow has a `--json` mode).
   pairing window, no self-signed certificate pinning, no commit-confirm rebind —
   that entire threat surface is designed out rather than mitigated.
 - **Trust chain:** the app generates the auth token locally; secrets reach the
-  server over SFTP inside SSH (never in a command line, console, or shell
-  history). The user's private key is read locally at connection time and never
-  copied or transmitted. First API contact happens over the encrypted tailnet
-  with a token the app already holds.
+  server over stdin inside SSH (never in a command line, console, or shell
+  history). The user's private key never leaves their machine — Hive does not
+  even read it; the system `ssh`/agent handles it. First API contact happens
+  over the encrypted tailnet with a token the app already holds.
 - **Host key TOFU:** first SSH connection shows the server fingerprint in a
   native dialog; accepted keys are remembered.
 - **Least privilege at runtime:** `hive.service` runs as a dedicated user with
@@ -255,11 +260,12 @@ No terminal, no shell command, no manual server configuration, no VPN setup.
 2. **Non-root servers** (AWS uses `ubuntu` + sudo): v1 targets root login
    (Hetzner/DO/OVH default); sudo support later. Hardened servers with
    `PermitRootLogin no` get a clear error and a documented fallback.
-3. **SSH key edge cases:** keys that live only in an agent (1Password, YubiKey,
-   macOS keychain) have no on-disk file the app can read — v1 does not talk to
-   agents; those users take the generated-key fallback. PuTTY `.ppk` files are
-   not supported (convert or fall back). Passphrase-protected keys are supported
-   via an in-app prompt.
+3. **SSH key edge cases:** agent-held keys (1Password, YubiKey, macOS
+   keychain) work natively through the system `ssh`. PuTTY `.ppk` files are
+   not supported (convert or use the generated-key fallback).
+   Passphrase-protected key files are supported via an in-app `SSH_ASKPASS`
+   prompt — its behavior from a GUI-spawned process is validated per-OS in
+   spike S4.
 4. **OS matrix:** Ubuntu 22.04/24.04 + Debian 12 (systemd required) at launch;
    the probe refuses anything else cleanly.
 5. **Hard dependency on Tailscale** (account required). Accepted: remote access
@@ -280,4 +286,4 @@ No terminal, no shell command, no manual server configuration, no VPN setup.
 | Provider API + cloud-init (app creates the VPS) | excellent, but adds a second account/token paste; deferred — natural v2 on top of the same script, and the basis for a future "Hive Cloud" |
 | Docker as primary distribution | fights the product: git worktrees, host PTYs, agent CLIs and their host credentials |
 | App-generated dedicated key as the default | adds a public-key paste step at the provider that key-owning users find redundant; kept as the fallback for users with no SSH key |
-| Deep SSH-agent integration (1Password, YubiKey, macOS keychain, `~/.ssh/config`) | the largest per-user variability surface; v1 reads key files only (passphrase prompt included), agent-only users take the generated-key fallback |
+| Embedded Rust SSH client (`russh`) | original choice, replaced in review: strictly less capable than the system `ssh` it ships next to (no agent-held keys — excluding 1Password/YubiKey users, common among developers — no `~/.ssh/config`), plus an entire SSH client to maintain and re-validate against sshd variants. The system OpenSSH binary is present by default on macOS/Linux/Windows 10+ and makes agent keys the happy path |
