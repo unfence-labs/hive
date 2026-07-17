@@ -293,8 +293,9 @@ No terminal, no shell command, no manual server configuration, no VPN setup.
    is the natural monetization path.
 6. **Backend work not covered here** (tracked separately): runtime-issued auth
    tokens instead of the build-time `VITE_HIVE_AUTH_TOKEN`, a backend version
-   endpoint + WS protocol version, a workspace-less WS channel for setup
-   progress, QR scanning + deep links in iOS, tagged release CI.
+   endpoint + WS protocol version, setup progress served over REST polling
+   (review decision: no new WS channel), QR scanning + deep links in iOS,
+   tagged release CI.
 
 ## Alternatives considered and rejected
 

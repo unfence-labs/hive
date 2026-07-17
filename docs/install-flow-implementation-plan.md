@@ -22,8 +22,10 @@ infrastructure.
    tests in all three languages (bash, Rust, TypeScript). After freezing,
    changing a contract requires bumping its `v` field and updating all three
    test suites in the same PR.
-5. **Nothing in this plan touches the existing hub WS protocol**, so iOS is
-   unaffected until Phase 5 (which only adds a QR scanner + Keychain move).
+5. **Nothing in this plan touches the existing hub WS protocol** — and since
+   review dropped the planned `/ws/setup` channel (§3.5), no new WS surface
+   is added at all. iOS is unaffected until Phase 5 (which only adds a QR
+   scanner + Keychain move).
 
 ---
 
@@ -153,27 +155,31 @@ interface SetupStep {
 }
 ```
 
-### 3.5 Setup WS channel (`/ws/setup`)
+### 3.5 Setup progress transport — REST polling (no new WS channel)
 
-Own mini-protocol (NOT part of `HubOutgoing` — the hub protocol and iOS stay
-untouched). Auth: same bearer/`?token=` as other WS routes.
+Review decision: with Claude auth running locally (§6.4) no client→server
+PTY input remains — gh's Enter keystroke is injected server-side — so the
+originally planned `/ws/setup` channel lost its founding use case. The
+wizard polls instead (setup steps take tens of seconds; 1–2 s latency is
+invisible):
 
-```jsonc
-// client → server
-{"type":"subscribe","operationId":"op-1a2b","sinceSeq":0}
-{"type":"pty_input","data":"<base64>"}         // for interactive auth steps
-// server → client
-{"type":"op","op":{/* SetupOperation */}}                    // on every state change
-{"type":"log","seq":17,"stepId":"install_claude","line":"..."}
-{"type":"pty_data","data":"<base64>"}
-{"type":"auth_action","stepId":"auth_codex","kind":"open_url_with_code",
- "url":"https://auth.openai.com/device","code":"ABCD-1234","expiresAt":"..."}
-{"type":"auth_action","stepId":"auth_claude","kind":"open_url","url":"https://claude.ai/oauth/..."}
+- `GET /api/setup/operations/:id` every 1–2 s while an operation runs
+- `GET /api/setup/operations/:id/log?since=<seq>` for incremental log lines
+
+Interactive data rides on the step itself:
+
+```ts
+interface SetupStep {
+  // ...as in 3.4, plus:
+  action?: { kind: "open_url" | "open_url_with_code";
+             url: string; code?: string; expiresAt?: string };
+}
 ```
 
-Reconnect: client re-subscribes with `sinceSeq`; server replays from the
-operation's `log.jsonl` then streams live (same durable-log trick as the
-provision script).
+The hub WS protocol and iOS stay untouched — no new WS surface at all. If a
+truly interactive terminal is ever needed in the wizard, the backend's
+existing session PTY/WS infrastructure is the starting point, not a bespoke
+setup channel.
 
 ### 3.6 Release artifact layout (GitHub Releases)
 
@@ -220,7 +226,6 @@ backend/src/
   services/setup/auth-flows/{claude-token,codex-device,gh-device}.ts   # claude-token: validate/write/verify (captured wizard-side)
   services/setup/runner.ts           # detached child + line-buffered capture
   services/update/updater.ts
-  ws/setup.ts                        # WS 3.5
   utils/auth.ts                      # extended: hashed-token compare (§5.5)
 
 frontend/src-tauri/src/ssh/
@@ -584,7 +589,7 @@ welcome
  → tailnet_handoff        (poll /health via tailnet; timeout → diagnostics screen:
                            is Mac on tailnet? is node visible? keep SSH available)
  → guided_setup           (sub-machine: detect → claude → stacks → codex? → gh? →
-                           verify; each step = SetupOperation via /ws/setup)
+                           verify; each step = SetupOperation polled over REST §3.5)
  → ios_pairing            (QR render; "skip")
  → done                   (summary; where things live; how updates work)
 ```
@@ -686,12 +691,10 @@ mid-op → reaper marks INTERRUPTED + retry works; heartbeat staleness;
 single-op-per-kind 409.
 DoD: durable resumable ops with REST surface. **E: 3**
 
-**PR 3.2 — `/ws/setup`** (channel, subscribe/replay, PTY bridge without
-workspace guard).
-T (injectWS): subscribe+replay from seq; live tail; pty_input round-trip
-against a fake CLI; auth-rejected close 1008; hub protocol contract test
-untouched (regression gate).
-DoD: pre-project streaming works; iOS unaffected. **E: 2**
+**PR 3.2 — removed in review.** The `/ws/setup` channel was dropped: REST
+polling of the operation + log endpoints (§3.5) covers setup progress, and no
+client→server PTY input remains once Claude auth runs locally. Numbering
+kept to avoid renumbering downstream references.
 
 **PR 3.3 — Detection + installers** (`detect.ts`, 6 installers, helper calls).
 T: detect matrix via fixture PATHs; each installer vs fake CLIs (logic) and on
@@ -720,7 +723,7 @@ persistence/restore, back-navigation); component tests. **E: 3**
 provisioning screen on Tauri events, error panel + Retry). T: mocked-Tauri
 component tests per screen; scripted happy path vs Tier-2 VM. **E: 4**
 **PR 4.3 — Guided setup + QR + finish** (detection UI, stack checkboxes, auth
-screens rendering `auth_action` frames, QR render, finish summary).
+screens rendering step `action` data (§3.5), QR render, finish summary).
 T: component tests per auth scenario (driven by fake-CLI backend); full
 scripted E2E: `vm-reset` → wizard → done with fake CLIs.
 DoD: **a non-author completes the full wizard on a pristine VM without a
