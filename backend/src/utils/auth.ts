@@ -1,4 +1,4 @@
-import { timingSafeEqual } from "node:crypto";
+import { createHash, timingSafeEqual } from "node:crypto";
 import type { FastifyReply, FastifyRequest } from "fastify";
 
 function safeEqual(left: string, right: string): boolean {
@@ -29,25 +29,60 @@ export function extractAuthToken(
   return undefined;
 }
 
+/**
+ * Auth expectation. Provisioned installs store the token hash-only (§5.5) via
+ * `expectedTokenSha256`; legacy manual installs keep the plaintext `expectedToken`.
+ * One mode per install, but both are accepted (a hash match still authorizes
+ * when only the hash is configured).
+ */
+export interface AuthExpectation {
+  expectedToken?: string;
+  /** Lowercase hex SHA-256 of the accepted token. */
+  expectedTokenSha256?: string;
+}
+
+/** Accept either a bare plaintext token (legacy callers) or a full expectation. */
+export type AuthExpectationInput = string | AuthExpectation | undefined;
+
+function normalizeExpectation(input: AuthExpectationInput): AuthExpectation {
+  if (input === undefined) return {};
+  if (typeof input === "string") return { expectedToken: input };
+  return input;
+}
+
+function sha256Hex(value: string): string {
+  return createHash("sha256").update(value).digest("hex");
+}
+
 export function isAuthorized(
   headers: Record<string, string | string[] | undefined>,
-  expectedToken?: string,
+  expectationInput?: AuthExpectationInput,
   fallbackToken?: string
 ): boolean {
-  if (!expectedToken) return true;
+  const expectation = normalizeExpectation(expectationInput);
+  const expectedToken = expectation.expectedToken;
+  const expectedTokenSha256 = expectation.expectedTokenSha256?.trim().toLowerCase();
+  // No expectation configured → open (dev/local default).
+  if (!expectedToken && !expectedTokenSha256) return true;
+
   const headerToken = extractAuthToken(headers);
   const provided = headerToken ?? fallbackToken?.trim();
   if (!provided) return false;
-  return safeEqual(provided, expectedToken);
+
+  if (expectedToken && safeEqual(provided, expectedToken)) return true;
+  if (expectedTokenSha256 && safeEqual(sha256Hex(provided), expectedTokenSha256)) return true;
+  return false;
 }
 
-export function createAuthHook(expectedToken?: string) {
+export function createAuthHook(expectationInput?: AuthExpectationInput) {
+  const expectation = normalizeExpectation(expectationInput);
+  const enabled = Boolean(expectation.expectedToken || expectation.expectedTokenSha256);
   return async (req: FastifyRequest, reply: FastifyReply): Promise<void> => {
-    if (!expectedToken) return;
+    if (!enabled) return;
     if (req.url.startsWith("/health")) return;
     // Support ?token= query param for resources loaded via <img src> / AsyncImage
     const queryToken = (req.query as Record<string, string>)?.token;
-    if (isAuthorized(req.headers, expectedToken, queryToken)) return;
+    if (isAuthorized(req.headers, expectation, queryToken)) return;
 
     reply.status(401).send({ error: "Unauthorized" });
   };

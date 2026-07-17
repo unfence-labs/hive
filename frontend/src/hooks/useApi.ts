@@ -1,4 +1,5 @@
 import { getServerUrl } from "@/hooks/useServerUrl";
+import { getAuthToken } from "@/hooks/useAuthToken";
 
 export class ApiError extends Error {
   constructor(
@@ -41,7 +42,7 @@ function errorMessageFromResponseBody(body: string, fallback: string): string {
 
 async function request<T>(url: string, options?: RequestInit): Promise<T> {
   const headers = headerRecord(options?.headers);
-  const authToken = import.meta.env.VITE_HIVE_AUTH_TOKEN?.trim();
+  const authToken = getAuthToken();
 
   if (options?.body && !hasHeader(headers, "Content-Type")) {
     headers["Content-Type"] = "application/json";

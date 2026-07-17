@@ -1,4 +1,5 @@
 import { getServerUrl } from "@/hooks/useServerUrl";
+import { getAuthToken } from "@/hooks/useAuthToken";
 import type { WsIncoming, WsOutgoing, HubOutgoing } from "@/types";
 
 export type ConnectionStatus = "connecting" | "connected" | "disconnected";
@@ -278,7 +279,7 @@ class WsTransport {
       const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
       wsHost = import.meta.env.VITE_WS_URL || `${protocol}//${window.location.host}`;
     }
-    const authToken = import.meta.env.VITE_HIVE_AUTH_TOKEN?.trim();
+    const authToken = getAuthToken();
     const query = authToken ? `?token=${encodeURIComponent(authToken)}` : "";
     const ws = new WebSocket(`${wsHost}/ws/hub${query}`);
     this.hub.ws = ws;

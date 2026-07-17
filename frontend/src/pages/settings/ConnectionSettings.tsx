@@ -1,8 +1,9 @@
 import { useState } from "react";
-import { RefreshCw } from "lucide-react";
+import { RefreshCw, Eye, EyeOff } from "lucide-react";
 import { SettingsHeader } from "@/components/AppLayout";
 import { CenterCard } from "@/components/CenterCard";
 import { useTailscaleConfig } from "@/hooks/useTailscaleConfig";
+import { useAuthToken } from "@/hooks/useAuthToken";
 import { useConnectionStatus } from "@/hooks/useConnectionStatus";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
@@ -31,10 +32,13 @@ interface ConnectionSettingsProps {
 
 export default function ConnectionSettings({ onRefreshConnection }: ConnectionSettingsProps) {
   const { ip, port, sshUser, setIp, setPort, setSshUser } = useTailscaleConfig();
+  const { authToken, setAuthToken } = useAuthToken();
   const { status, check } = useConnectionStatus();
   const [ipDraft, setIpDraft] = useState(ip);
   const [portDraft, setPortDraft] = useState(port);
   const [sshUserDraft, setSshUserDraft] = useState(sshUser);
+  const [tokenDraft, setTokenDraft] = useState(authToken);
+  const [tokenRevealed, setTokenRevealed] = useState(false);
   const [checking, setChecking] = useState(false);
 
   const save = (nextIp: string, nextPort: string) => {
@@ -45,6 +49,7 @@ export default function ConnectionSettings({ onRefreshConnection }: ConnectionSe
   const saveIp = () => save(ipDraft, port);
   const savePort = () => save(ip, portDraft);
   const saveSshUser = () => setSshUser(sshUserDraft);
+  const saveToken = () => setAuthToken(tokenDraft);
 
   const handleTest = async () => {
     setChecking(true);
@@ -132,6 +137,37 @@ export default function ConnectionSettings({ onRefreshConnection }: ConnectionSe
               />
               <p className="mt-1 text-[11px] text-muted-foreground/60">
                 Used for VS Code Remote SSH. Leave blank to use IP only.
+              </p>
+            </div>
+
+            <div>
+              <label htmlFor="auth-token" className="mb-1.5 block text-xs font-medium text-muted-foreground">
+                Auth token <span className="text-muted-foreground/60">(optional)</span>
+              </label>
+              <div className="relative">
+                <Input
+                  id="auth-token"
+                  type={tokenRevealed ? "text" : "password"}
+                  value={tokenDraft}
+                  onChange={(e) => setTokenDraft(e.target.value)}
+                  onBlur={saveToken}
+                  onKeyDown={(e) => { if (e.key === "Enter") saveToken(); }}
+                  placeholder="hive-…"
+                  autoComplete="off"
+                  spellCheck={false}
+                  className="pr-9 font-mono text-xs"
+                />
+                <button
+                  type="button"
+                  onClick={() => setTokenRevealed((v) => !v)}
+                  aria-label={tokenRevealed ? "Hide token" : "Show token"}
+                  className="absolute inset-y-0 right-0 flex items-center px-2.5 text-muted-foreground/60 transition-colors hover:text-foreground"
+                >
+                  {tokenRevealed ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                </button>
+              </div>
+              <p className="mt-1 text-[11px] text-muted-foreground/60">
+                Sent as a bearer token to the backend. Set during install; change here if you rotate it.
               </p>
             </div>
 

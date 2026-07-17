@@ -147,7 +147,7 @@ describe("ConnectionSettings", () => {
     render(<ConnectionSettings />);
 
     expect(screen.getByText("SSH User")).toBeInTheDocument();
-    expect(screen.getByText("(optional)")).toBeInTheDocument();
+    expect(screen.getAllByText("(optional)").length).toBeGreaterThan(0);
   });
 
   it("renders SSH user help text about VS Code Remote SSH", () => {

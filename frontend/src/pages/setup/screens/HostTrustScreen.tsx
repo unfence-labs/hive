@@ -1,0 +1,58 @@
+import { useState } from "react";
+import { ShieldCheck } from "lucide-react";
+import { SetupScreen } from "./SetupScreen";
+import type { ProvisionClient } from "@/lib/provision-client";
+
+interface HostTrustScreenProps {
+  client: ProvisionClient;
+  host: string;
+  fingerprint: string;
+  onContinue: () => void;
+  onBack: () => void;
+  onContinueLater: () => void;
+}
+
+/**
+ * Trust-on-first-use: show the server's host-key fingerprint and let the user
+ * accept it, which persists it to known_hosts via the ProvisionClient.
+ */
+export function HostTrustScreen({
+  client,
+  host,
+  fingerprint,
+  onContinue,
+  onBack,
+  onContinueLater,
+}: HostTrustScreenProps) {
+  const [trusting, setTrusting] = useState(false);
+
+  const handleTrust = async () => {
+    setTrusting(true);
+    try {
+      await client.trustHost(host, fingerprint);
+      onContinue();
+    } finally {
+      setTrusting(false);
+    }
+  };
+
+  return (
+    <SetupScreen
+      title="Verify your server's identity"
+      description="This is the first time you connect to this server. Confirm its SSH fingerprint below matches what your provider shows."
+      onContinue={() => void handleTrust()}
+      continueLabel={trusting ? "Trusting…" : "Trust and continue"}
+      continueDisabled={trusting}
+      onBack={onBack}
+      onContinueLater={onContinueLater}
+    >
+      <div className="rounded-lg border border-border/50 bg-card/50 p-4">
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <ShieldCheck className="h-4 w-4 text-primary" />
+          <span className="font-mono text-xs text-foreground">{host}</span>
+        </div>
+        <p className="mt-3 break-all font-mono text-xs text-foreground">{fingerprint}</p>
+      </div>
+    </SetupScreen>
+  );
+}

@@ -1,0 +1,61 @@
+// Shared setup/provision error taxonomy. Mirrored in scripts/provision/lib.sh
+// (SETUP_ERROR_CODES). A contract test asserts the two lists are identical.
+
+export const SETUP_ERROR_CODES = [
+  "UNSUPPORTED_OS",
+  "UNSUPPORTED_ARCH",
+  "SERVER_NOT_PRISTINE",
+  "EXISTING_INSTALL",
+  "APT_LOCK_TIMEOUT",
+  "APT_FAILURE",
+  "NETWORK",
+  "CHECKSUM_MISMATCH",
+  "TS_AUTHKEY_INVALID",
+  "TS_DAEMON_DOWN",
+  "UFW_FAILURE",
+  "RELEASE_DOWNLOAD_FAILED",
+  "SERVICE_START_FAILED",
+  "HEALTH_TIMEOUT",
+  "SSH_AUTH_FAILED",
+  "SSH_HOST_KEY_CHANGED",
+  "SSH_UNREACHABLE",
+  "SSH_NO_ROOT",
+  "CLAUDE_PASTEBACK_BROKEN",
+  "DEVICE_CODE_EXPIRED",
+  "CODEX_DEVICE_AUTH_DISABLED",
+  "GH_POLL_STUCK",
+  "INTERRUPTED",
+  "CONCURRENT_RUN",
+  "UNKNOWN",
+] as const;
+
+export type SetupErrorCode = (typeof SETUP_ERROR_CODES)[number];
+
+/** User-facing hint per error code (i18n-ready keys map to these defaults). */
+export const SETUP_ERROR_HINTS: Record<SetupErrorCode, string> = {
+  UNSUPPORTED_OS: "This server's OS is not supported. Use Ubuntu 22.04/24.04 or Debian 12.",
+  UNSUPPORTED_ARCH: "Only x86-64 and arm64 servers are supported.",
+  SERVER_NOT_PRISTINE: "This server already runs other services. Use a fresh server dedicated to Hive.",
+  EXISTING_INSTALL: "Hive is already installed here. Remove it first, or reconnect from Settings.",
+  APT_LOCK_TIMEOUT: "The server's package manager was busy (a background update may be running). Retry in a minute.",
+  APT_FAILURE: "A package failed to install. Open the step log for details.",
+  NETWORK: "The server could not reach the internet. Check its network and retry.",
+  CHECKSUM_MISMATCH: "A downloaded file did not match its checksum. Retry; if it persists, report it.",
+  TS_AUTHKEY_INVALID: "The Tailscale auth key was rejected. Generate a new key and paste it again.",
+  TS_DAEMON_DOWN: "The Tailscale service did not start. Retry the step.",
+  UFW_FAILURE: "The firewall could not be configured. Open the step log for details.",
+  RELEASE_DOWNLOAD_FAILED: "Downloading the Hive release failed. Check the server's network and retry.",
+  SERVICE_START_FAILED: "The Hive service failed to start. Open the step log for details.",
+  HEALTH_TIMEOUT: "Hive started but did not become healthy in time. Open the step log.",
+  SSH_AUTH_FAILED: "SSH could not authenticate. Check the selected key has access to this server.",
+  SSH_HOST_KEY_CHANGED: "This server's SSH identity changed since last time. If unexpected, do not proceed.",
+  SSH_UNREACHABLE: "Could not reach the server over SSH. Check the IP and that port 22 is open.",
+  SSH_NO_ROOT: "The SSH user cannot become root. Connect as root or a passwordless-sudo user.",
+  CLAUDE_PASTEBACK_BROKEN: "Claude sign-in could not complete on the server. Use the on-computer sign-in instead.",
+  DEVICE_CODE_EXPIRED: "The sign-in code expired. A new code has been generated.",
+  CODEX_DEVICE_AUTH_DISABLED: "Enable 'device code login' in your ChatGPT settings, then retry.",
+  GH_POLL_STUCK: "GitHub sign-in stalled. Retry the step.",
+  INTERRUPTED: "The operation was interrupted. It can be safely resumed.",
+  CONCURRENT_RUN: "Another setup operation is already running.",
+  UNKNOWN: "Something went wrong. Open the step log for details.",
+};

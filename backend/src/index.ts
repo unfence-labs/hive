@@ -25,6 +25,9 @@ import { agentSettingsRoutes } from "./api/agents-settings.js";
 import { providerUsageRoutes } from "./api/provider-usage.js";
 import { stopProviderUsagePolling } from "./services/provider-usage.js";
 import { accountRoutes } from "./api/account.js";
+import { versionRoutes, buildVersionResponse } from "./api/version.js";
+import { setupRoutes } from "./api/setup.js";
+import { reapStaleOperations } from "./services/setup/operations.js";
 import { scriptRoutes } from "./api/scripts.js";
 import { scriptWsRoutes } from "./ws/script.js";
 import { terminalWsRoutes } from "./ws/terminal.js";
@@ -261,6 +264,8 @@ function getCpuPercent(): number {
 
 export async function buildApp(opts: BuildAppOptions = {}) {
   const authToken = process.env.HIVE_AUTH_TOKEN?.trim();
+  const authTokenSha256 = process.env.HIVE_AUTH_TOKEN_SHA256?.trim();
+  const authExpectation = { expectedToken: authToken, expectedTokenSha256: authTokenSha256 };
   const rateLimitMax = parsePositiveNumber(process.env.HIVE_RATE_LIMIT_MAX, DEFAULT_RATE_LIMIT_MAX);
   const rateLimitWindowMs = parsePositiveNumber(
     process.env.HIVE_RATE_LIMIT_WINDOW_MS,
@@ -300,7 +305,7 @@ export async function buildApp(opts: BuildAppOptions = {}) {
     threshold: 1024,
   });
 
-  app.addHook("onRequest", createAuthHook(authToken));
+  app.addHook("onRequest", createAuthHook(authExpectation));
   app.addHook(
     "onRequest",
     createRateLimitHook({
@@ -320,6 +325,7 @@ export async function buildApp(opts: BuildAppOptions = {}) {
     return {
       status: "ok",
       env: process.env.NODE_ENV ?? "development",
+      version: buildVersionResponse(),
       system: {
         cpuPercent,
         memPercent: Math.round(((totalMem - freeMem) / totalMem) * 100),
@@ -351,6 +357,8 @@ export async function buildApp(opts: BuildAppOptions = {}) {
   await app.register((instance: FastifyInstance) => agentSettingsRoutes(instance));
   await app.register((instance: FastifyInstance) => providerUsageRoutes(instance));
   await app.register((instance: FastifyInstance) => accountRoutes(instance));
+  await app.register((instance: FastifyInstance) => versionRoutes(instance));
+  await app.register((instance: FastifyInstance) => setupRoutes(instance));
   await app.register((instance: FastifyInstance) => scriptRoutes(instance));
   await app.register((instance: FastifyInstance) =>
     scriptWsRoutes(instance, { authToken }),
@@ -422,6 +430,7 @@ async function main() {
   const dataDir = getDataDir();
   await ensureDataDir(dataDir);
   await reconcileStaleWorkspaces(dataDir);
+  await reapStaleOperations(dataDir);
   await initWorkspaceIndex(dataDir);
 
   const config = await loadConfig(dataDir);

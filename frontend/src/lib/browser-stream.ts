@@ -1,4 +1,5 @@
 import { getServerUrl } from "@/hooks/useServerUrl";
+import { getAuthToken } from "@/hooks/useAuthToken";
 
 export interface BrowserStreamFrame {
   src: string;
@@ -21,7 +22,7 @@ export function buildBrowserStreamUrl(streamPath: string): string {
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
     wsHost = import.meta.env.VITE_WS_URL || `${protocol}//${window.location.host}`;
   }
-  const authToken = import.meta.env.VITE_HIVE_AUTH_TOKEN?.trim();
+  const authToken = getAuthToken();
   const query = authToken ? `?token=${encodeURIComponent(authToken)}` : "";
   return `${wsHost}${streamPath}${query}`;
 }

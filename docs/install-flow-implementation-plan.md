@@ -1,10 +1,23 @@
 # Install Flow — Implementation Plan
 
-**Status: plan, nothing implemented.** Implements [docs/install-flow.md](install-flow.md)
-exactly as designed (no variants). This is the working reference for development:
-frozen contracts, per-step specs, per-PR test cases, and the feedback-loop
-infrastructure that lets every piece be validated locally before touching real
-infrastructure.
+**Status: implementation in progress on branch `install-flow-impl`.** Implements
+[docs/install-flow.md](install-flow.md) exactly as designed (no variants). This
+is the working reference for development: frozen contracts, per-step specs,
+per-PR test cases, and the feedback-loop infrastructure that lets every piece be
+validated locally before touching real infrastructure.
+
+**Landed so far (branch `install-flow-impl`):** frozen contracts
+(`shared/setup-{errors,types}.ts`, `scripts/provision/protocol.schema.json`);
+`provision.sh` framework + steps + `build.sh`; the Tier-1 Docker+systemd harness
+(`test/e2e/provision-docker.sh`, `make provision-docker[-chaos]`) — full install,
+idempotent re-run, and crash-resume all green; the backend setup engine
+(`api/version.ts`, `api/setup.ts`, `services/setup/{operations,detect,auth-flows}.ts`,
+hashed-token auth) with vitest; the frontend wizard
+(`pages/setup/`, `hooks/useAuthToken.ts`, `lib/provision-client.ts`, QR/pairing)
+with the state machine and a mock provision client. **Not yet built:** the Tauri
+Rust SSH sidecar (Phase 2 — the `ProvisionClient` Tauri impl is a stub), real CLI
+installers/auth PTY drivers (Phase 3.3/3.4 use stubs + fixtures), self-update
+runtime (Phase 6), iOS QR scanner (Phase 5), and the release CI (Phase 0.1).
 
 > **Amendments — review round 1 (2026-07-17).** Eight decisions changed from
 > the original draft after design review; each is folded into the sections
@@ -493,41 +506,58 @@ re-running the same operations.
 
 ## 7. Test & feedback-loop infrastructure
 
-### 7.1 Tier 1 — Docker + systemd (seconds; inner loop)
+### 7.1 Tier 1 — Docker + systemd (seconds; inner loop) — IMPLEMENTED
 
 `test/images/ubuntu-systemd.Dockerfile` (Ubuntu 24.04, systemd PID 1), run
 `--privileged --cgroupns=host -v /sys/fs/cgroup:/sys/fs/cgroup`. Provision runs
-with `--skip-tailscale --host 127.0.0.1` (first-class flags). Used by:
-provision iteration, installer steps, unit behavior.
+with `--skip-tailscale --skip-ufw --skip-node --host 127.0.0.1 --release-file`
+(all first-class flags). A fake release (`test/provision/fake-release/`, a tiny
+node HTTP server exposing `/health`) lets the full systemd spine — user,
+release swap, units, service, health — run offline in seconds. Driven by
+`test/e2e/provision-docker.sh` / `make provision-docker`. Used by: provision
+iteration, unit behavior, idempotency.
 
-### 7.2 Chaos/resume harness (the "re-runnable" guarantee)
+**Status:** green — full install + idempotent re-run (14 steps, second run
+all-skip) verified on this project's dev host.
 
-`test/e2e/chaos.sh`: for each step id **k** in the plan:
-1. fresh container → run with `HIVE_TEST_DIE_AFTER=k` → assert exit 137 and
-   state file shows k=ok, k+1 unstarted;
+### 7.2 Chaos/resume harness (the "re-runnable" guarantee) — IMPLEMENTED
+
+`test/e2e/provision-docker.sh chaos` / `make provision-docker-chaos`: for each
+representative kill point **k** (currently `install_release`, `write_units`,
+`enable_service`):
+1. fresh container → run with `HIVE_TEST_DIE_AFTER=k` → assert exit 137 and the
+   NDJSON shows `k` reached `ok`;
 2. re-run normally → assert `run_end ok`;
-3. diff against a clean single-run reference: same unit files (hash), same
-   versions, same `systemctl is-active`, state.json all-ok, **no step executed
-   twice with side effects** (each step's verify is also asserted).
-Also: double-run convergence (2 clean runs → second is all-skip), concurrent-run
-lock test, `--reset` test, and a mid-`apt` SIGKILL case (dpkg lock recovery via
-`dpkg --configure -a` in `apt_install`).
-PR CI runs 3 representative kill points (apt, release-swap, units); the full
-matrix runs nightly.
+3. assert the service is healthy and active after resume.
 
-### 7.3 Tier 2 — Multipass VM (1–2 min; realistic loop)
+**Status:** green — all three kill points resume to a healthy install on this
+dev host. Remaining for a later pass: full kill-point matrix, a byte-diff
+against a clean reference, concurrent-run lock test, and a mid-`apt` SIGKILL
+case (dpkg lock recovery). PR CI runs the three points; the full matrix nightly.
+
+### 7.3 Tier 2 — LXD system container (1–2 min; realistic loop)
+
+> **Constraint discovered on the dev VPS:** it is itself a KVM guest **without
+> nested virtualization** (`systemd-detect-virt` = `kvm`, no `/dev/kvm`, no
+> `vmx/svm`). Hardware VMs (Multipass, `lxc launch --vm`, KVM-accelerated QEMU)
+> **cannot run here.** The realistic tier therefore uses **LXD system
+> containers**, which need no hardware virt: systemd PID 1, a real sshd on its
+> own IP, `/dev/net/tun` passthrough for Tailscale (`security.nesting=true`),
+> and `lxc snapshot`/`restore` for a ~5 s "fresh VPS". (QEMU-TCG software
+> emulation remains available for the rare real-kernel check, ~10-30× slower.)
 
 ```
-make vm-up          # multipass launch 24.04 --name hive-test; snapshot "pristine"
-make vm-reset       # multipass restore hive-test.pristine    (~5 s "new VPS")
+make vm-up          # lxc launch ubuntu:24.04 hive-test; lxc snapshot pristine
+make vm-reset       # lxc restore hive-test pristine            (~5 s "new VPS")
 make vm-provision   # full provision incl. tailscale (real test tailnet key from .env.local)
-make vm-setup-steps # drive /api/setup against the VM with fake or real CLIs
+make vm-setup-steps # drive /api/setup against the container with fake or real CLIs
 make vm-update-e2e  # Phase 6 scenario (local release server, good + broken release)
-make vm-ssh-e2e     # ssh sidecar-driver integration vs the VM's stock sshd
+make vm-ssh-e2e     # ssh sidecar-driver integration vs the container's stock sshd
 ```
 
-Snapshots make "fresh VPS" a 5-second operation — this is the everyday manual
-loop for the wizard (`npm run tauri dev` pointed at the VM IP).
+One-time host setup: `sudo lxd init --minimal`, add the dev user to the `lxd`
+group. Snapshots make "fresh VPS" a ~5 s operation — the everyday manual loop
+for the wizard (`npm run tauri dev` pointed at the container IP).
 
 ### 7.4 Fake CLI harness (deterministic PTY tests)
 
@@ -586,7 +616,7 @@ make e2e-nightly-local          # run the nightly script against your own Hetzne
 expiry" click. Output: decision recorded in install-flow.md + the exact wizard
 deep-link URLs.
 
-**S2 — CLI transcripts.** Codex + gh on a pristine Multipass VM; claude
+**S2 — CLI transcripts.** Codex + gh on a pristine LXD container; claude
 **locally** on macOS/Windows/Linux (its capture lives in the wizard now): run
 `codex login --device-auth`, `gh auth login --web`, and local
 `claude setup-token` + `claude` first-run under `test/tools/record-cli.sh`;
@@ -601,7 +631,7 @@ tailnet connection both ways. Output: Tier-3 network choice.
 
 **S4 — system-ssh sidecar portability.** Prototype the sidecar driver: spawn
 the OS `ssh`/`ssh-keyscan` for connect/exec/stdin-upload/detached-run/
-tail-resume against Multipass (stock Ubuntu sshd) and a Hetzner default image.
+tail-resume against an LXD container (stock Ubuntu sshd) and a Hetzner default image.
 Validate: presence + version floor on macOS/Windows 10+/Linux, `SSH_ASKPASS`
 behavior from a GUI-spawned process on all three, agent-held keys (1Password),
 coarse error mapping from exit codes/stderr. Output: confirmed support matrix
@@ -695,7 +725,7 @@ the port / pre-existing ufw rules) → `SERVER_NOT_PRISTINE`; checksum-tamper �
 `CHECKSUM_MISMATCH`.
 DoD: container serves authenticated /health on 127.0.0.1. **E: 3**
 
-**PR 1.3 — Chaos harness** (`chaos.sh`, CI wiring).
+**PR 1.3 — Chaos harness** (`test/e2e/provision-docker.sh chaos`, CI wiring).
 T: §7.2 full matrix locally; 3 kill points in PR CI; dpkg-lock case.
 DoD: re-runnability is CI-enforced. **E: 2**
 

@@ -21,7 +21,10 @@ import { useActiveSessionPrewarm } from "@/hooks/useActiveSessionPrewarm";
 import { useNotificationToasts } from "@/hooks/useNotificationToasts";
 import { wsTransport } from "@/lib/ws-transport";
 import { HiveToaster } from "@/components/ui/toaster";
+import { isTauri } from "@/lib/is-tauri";
+import { useServerUrl } from "@/hooks/useServerUrl";
 
+const SetupWizard = lazy(() => import("@/pages/setup/SetupWizard"));
 const AutomationDetail = lazy(() => import("@/pages/AutomationDetail"));
 const TeamSettings = lazy(() => import("@/pages/settings/TeamSettings"));
 const PromptTemplatesSettings = lazy(() => import("@/pages/settings/PromptTemplatesSettings"));
@@ -36,6 +39,12 @@ function NotificationToastsBridge({ projects }: { projects: Project[] }) {
 }
 
 export default function App() {
+  const { serverUrl } = useServerUrl();
+  // First-run gate: in the Tauri desktop shell with no server configured yet,
+  // show the install wizard. Non-invasive for the web build (isTauri() is false).
+  const [wizardDismissed, setWizardDismissed] = useState(false);
+  const showWizard = isTauri() && !serverUrl && !wizardDismissed;
+
   const { projects, loading, fetchProjects, createProjectWithWorkspace, createNewProjectWithWorkspace } = useProjects();
   const [showAddProject, setShowAddProject] = useState(false);
   const [showAddAutomation, setShowAddAutomation] = useState(false);
@@ -65,6 +74,14 @@ export default function App() {
   useEffect(() => () => {
     wsTransport.disconnectAll();
   }, []);
+
+  if (showWizard) {
+    return (
+      <Suspense fallback={null}>
+        <SetupWizard onComplete={() => setWizardDismissed(true)} />
+      </Suspense>
+    );
+  }
 
   return (
     <BrowserRouter>
