@@ -41,6 +41,11 @@ The `hive` user model (vs. running as the login user like the manual setup)
 is what allows unit hardening. All agent credentials, mise shims, and repos
 live under `/home/hive`.
 
+Threat model: the `hive` user is **assumed hostile** — Hive's product runs LLM
+agents that execute arbitrary code as this user. Every helper and unit is
+audited against one criterion: compromise of `hive` may yield agent
+credentials and repos, never root.
+
 ---
 
 ## 3. Frozen contracts (write these first, test them everywhere)
@@ -320,7 +325,10 @@ this hardened variant. Single source: both generated from one template at
 ### 5.4 Updater units (installed in Phase 1, used in Phase 6)
 
 - `hive-updater.path`: `PathExists=/opt/hive/shared/.update-requested`
-- `hive-updater.service`: `Type=oneshot`, root; reads requested version, runs
+- `hive-updater.service`: `Type=oneshot`, root; the request file is a pure
+  trigger — its **content is ignored** (it is writable by the hostile `hive`
+  user); the updater resolves the latest release from GitHub itself and
+  refuses any version ≤ the installed one (downgrade protection), then runs
   `helpers/update-hive.sh` (§5.6)
 - `hive-rollback.service`: `Type=oneshot`, root; `mv -T` current → previous
   generation + restart + emit a marker file the API surfaces
@@ -353,6 +361,9 @@ hive ALL=(root) NOPASSWD: /usr/lib/hive/helpers/install-claude.sh, /usr/lib/hive
 
 Explicit file list, **no wildcards, never `apt-get` or `tailscale` directly**
 (GTFOBins). mise/uv/rustup run as `hive` directly — no helper needed.
+Helpers are audited for escalation by *effect*, not only argument injection:
+`install-docker.sh` sets up **rootless Docker only** — `hive` never joins the
+`docker` group (instant root equivalence for a user running agent code).
 
 ### 5.7 Uninstall
 
@@ -392,8 +403,8 @@ timeout, all run in parallel; result cached 30 s. Adds: tailscale (+
 Each installer = ordered SetupSteps with the same guard/action/verify shape as
 provision steps. Privileged actions call helpers (§5.6); user-space ones run as
 `hive` (mise shims mode + `mise trust -a`; uv installer; corepack note for
-Node ≥ 25). Docker installer ends with the rootless-vs-group decision encoded
-per the design doc.
+Node ≥ 25). Docker installer is rootless-only (review decision: the `docker`
+group is root equivalence for a user that runs arbitrary agent code).
 
 ### 6.4 Auth-flow drivers (`auth-flows/*`)
 

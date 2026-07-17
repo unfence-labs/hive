@@ -199,6 +199,14 @@ patterns are snapshot-tested (no login flow has a `--json` mode).
   `NoNewPrivileges=true`; root is only used by the one-shot provision script and
   the narrow update/restart path. No sudoers command whitelist for `apt`/
   `tailscale` (GTFOBins-style escapes make those un-whitelistable).
+- **The `hive` user is assumed hostile.** Hive's core product runs LLM agents
+  that execute arbitrary code as the service user, so compromise of `hive`
+  yields agent credentials and cloned repos by design — but must never yield
+  root: Docker is rootless-only (`docker` group membership is instant root
+  equivalence), no privileged helper may escalate through its *effect*, and
+  the root updater never consumes `hive`-writable input (it resolves the
+  latest release itself and refuses downgrades). Every helper is audited
+  against this criterion.
 - **Secrets at rest:** token in a `0600` EnvironmentFile; auth token stored
   hashed server-side; the app persists only a path reference to the user's SSH
   key (generated-key fallback: `0600` file in the app data dir); iOS token to
