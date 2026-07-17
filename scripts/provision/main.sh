@@ -44,7 +44,7 @@ uninstall() {
 STEPS=(
   probe_os probe_env apt_baseline install_node create_user
   install_tailscale tailscale_up configure_ufw
-  install_release write_secrets write_units enable_service health_check cleanup
+  install_release write_secrets write_units install_helpers enable_service health_check cleanup
 )
 
 main() {

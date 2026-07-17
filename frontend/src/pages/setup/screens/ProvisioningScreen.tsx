@@ -58,7 +58,7 @@ function StepRow({ step }: { step: ProvisionStepView }) {
   );
 }
 
-type Source = { kind: "start"; params: ProvisionParams } | { kind: "resume"; host: string };
+type Source = { kind: "start"; params: ProvisionParams } | { kind: "resume"; params: ProvisionParams };
 
 export function ProvisioningScreen({
   client,
@@ -81,7 +81,7 @@ export function ProvisioningScreen({
     const iterable =
       source.kind === "start"
         ? client.startProvision(source.params)
-        : client.resumeProvision(source.host);
+        : client.resumeProvision(source.params);
 
     (async () => {
       try {
@@ -117,7 +117,7 @@ export function ProvisioningScreen({
 
   const retry = () => {
     doneRef.current = false;
-    setSource({ kind: "resume", host: params.host });
+    setSource({ kind: "resume", params });
     setRunId((n) => n + 1);
   };
 

@@ -237,6 +237,69 @@ EOF
 
 # ---------------------------------------------------------------------------
 
+title_install_helpers() { echo "Install privileged helpers"; }
+step_install_helpers() {
+  # Root-owned, argument-fixed helpers the backend invokes via sudo. Their mere
+  # presence signals "on a provisioned server" to the backend (real-install mode).
+  install -d -m 755 /usr/lib/hive/helpers
+
+  cat >/usr/lib/hive/helpers/install-gh.sh <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+install -d -m 0755 /etc/apt/keyrings
+curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+  | tee /etc/apt/keyrings/githubcli-archive-keyring.gpg >/dev/null
+chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
+  >/etc/apt/sources.list.d/github-cli.list
+DEBIAN_FRONTEND=noninteractive apt-get update -q -o DPkg::Lock::Timeout=300
+DEBIAN_FRONTEND=noninteractive apt-get install -q -y -o DPkg::Lock::Timeout=300 gh
+EOF
+
+  cat >/usr/lib/hive/helpers/install-docker.sh <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+curl -fsSL https://get.docker.com | sh
+# Rootless for the hive user (docker group == host root; avoid it).
+apt-get install -y -o DPkg::Lock::Timeout=300 uidmap dbus-user-session || true
+loginctl enable-linger hive || true
+sudo -u hive XDG_RUNTIME_DIR=/run/user/$(id -u hive) dockerd-rootless-setuptool.sh install || true
+EOF
+
+  cat >/usr/lib/hive/helpers/write-claude-token.sh <<'EOF'
+#!/usr/bin/env bash
+# Write CLAUDE_CODE_OAUTH_TOKEN into the service env (root-owned, 0600).
+set -euo pipefail
+token="${1:-}"
+[ -n "$token" ] || { echo "no token" >&2; exit 2; }
+install -d -m 755 /etc/hive
+tmp="$(mktemp)"
+grep -v '^CLAUDE_CODE_OAUTH_TOKEN=' /etc/hive/hive.env 2>/dev/null >"$tmp" || true
+printf 'CLAUDE_CODE_OAUTH_TOKEN=%s\n' "$token" >>"$tmp"
+install -m 600 "$tmp" /etc/hive/hive.env
+rm -f "$tmp"
+systemctl restart hive || true
+EOF
+
+  cat >/usr/lib/hive/helpers/update-hive.sh <<'EOF'
+#!/usr/bin/env bash
+# Placeholder self-update entrypoint (Phase 6 wires the real swap + rollback).
+set -euo pipefail
+rm -f /opt/hive/shared/.update-requested
+echo "update-hive: not yet implemented" >&2
+EOF
+
+  chmod 755 /usr/lib/hive/helpers/*.sh
+  chown -R root:root /usr/lib/hive
+
+  # Allow the hive service user to run exactly these helpers as root.
+  cat >/etc/sudoers.d/hive <<'EOF'
+hive ALL=(root) NOPASSWD: /usr/lib/hive/helpers/install-gh.sh, /usr/lib/hive/helpers/install-docker.sh, /usr/lib/hive/helpers/write-claude-token.sh, /usr/lib/hive/helpers/update-hive.sh
+EOF
+  chmod 440 /etc/sudoers.d/hive
+  visudo -cf /etc/sudoers.d/hive >/dev/null || die UNKNOWN "sudoers validation failed"
+}
+
 title_enable_service() { echo "Start Hive"; }
 step_enable_service() {
   STEP_ERR_CODE=SERVICE_START_FAILED

@@ -5,6 +5,7 @@ import type {
   SetupOperation,
   SetupOperationKind,
   SetupStep,
+  SetupStepAction,
   SetupLogLine,
 } from "@hive/shared/setup-types";
 import type { SetupErrorCode } from "@hive/shared/setup-errors";
@@ -39,8 +40,21 @@ export type EmitFn = (args: {
   line: string;
 }) => Promise<void>;
 
+/**
+ * Extra context handed to a step alongside `emit`. Interactive steps
+ * (device-auth) use `setAction` to surface an open-url/open-url-with-code
+ * action on the persisted step so clients can render it while the step runs.
+ */
+export interface StepContext {
+  /** Persist an interactive action onto this step (device-code / OAuth URL). */
+  setAction: (action: SetupStepAction) => Promise<void>;
+}
+
 /** A step function. Resolves on success; throws (optionally a StepError) to fail. */
-export type StepFn = (emit: EmitFn) => Promise<void | Record<string, unknown>>;
+export type StepFn = (
+  emit: EmitFn,
+  ctx: StepContext,
+) => Promise<void | Record<string, unknown>>;
 
 /** A named step to run: metadata + its function. */
 export interface RunnableStep {
@@ -302,8 +316,14 @@ export async function runOperation(
         await appendLog(id, { stepId: step.id, stream, line }, dataDir);
       };
 
+      const ctx: StepContext = {
+        setAction: async (action) => {
+          await updateStep(id, step.id, { action }, dataDir);
+        },
+      };
+
       try {
-        const data = await step.fn(emit);
+        const data = await step.fn(emit, ctx);
         const lastSeq = Math.max(startSeq, (await nextSeq(dataDir, id)) - 1);
         await updateStep(
           id,

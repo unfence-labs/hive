@@ -14,9 +14,31 @@ vi.mock("../services/setup/detect.js", () => ({
 
 import { setupRoutes } from "./setup.js";
 import { getOperation } from "../services/setup/operations.js";
+import type { SetupStepDef } from "../services/setup/installers/index.js";
 
 let dataDir: string;
 let app: ReturnType<typeof Fastify>;
+
+/**
+ * Stub step registry so these REST-surface tests never shell out or hit the
+ * real installers. Each step emits a couple of lines and succeeds.
+ */
+function stubStep(title: string): SetupStepDef {
+  return {
+    title,
+    fn: async (emit) => {
+      await emit({ stream: "system", line: `${title}: starting` });
+      await emit({ stream: "stdout", line: `${title}: done` });
+    },
+  };
+}
+
+const STUB_STEPS: Record<string, SetupStepDef> = {
+  detect: stubStep("Detect tools"),
+  install_claude: stubStep("Install Claude Code"),
+  install_gh: stubStep("Install GitHub CLI"),
+  verify: stubStep("Verify installation"),
+};
 
 beforeEach(async () => {
   dataDir = await mkdtemp(join(tmpdir(), "hive-setup-api-test-"));
@@ -30,6 +52,8 @@ beforeEach(async () => {
       dataDir,
       // No-op token writer so the endpoint is testable without /etc/hive.
       claudeTokenWriter: async () => ({ persisted: false }),
+      // Stub registry keeps the REST tests hermetic (no real installers).
+      steps: STUB_STEPS,
     }),
   );
   await app.ready();
@@ -68,7 +92,7 @@ describe("POST /api/setup/run", () => {
     const res = await app.inject({
       method: "POST",
       url: "/api/setup/run",
-      payload: { steps: ["install_claude", "auth_claude"] },
+      payload: { steps: ["install_claude", "verify"] },
     });
     expect(res.statusCode).toBe(200);
     const { operationId } = res.json();
@@ -77,7 +101,7 @@ describe("POST /api/setup/run", () => {
     await waitForTerminal(operationId);
     const op = await getOperation(operationId, dataDir);
     expect(op?.status).toBe("succeeded");
-    expect(op?.steps.map((s) => s.id)).toEqual(["install_claude", "auth_claude"]);
+    expect(op?.steps.map((s) => s.id)).toEqual(["install_claude", "verify"]);
   });
 
   it("rejects an empty step list", async () => {

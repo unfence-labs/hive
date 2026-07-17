@@ -15,3 +15,8 @@ provision-docker-chaos:
 # Assert the bash error taxonomy matches shared/setup-errors.ts.
 provision-contract:
 	bash test/provision/contract.sh
+
+# Build a backend release tarball (feeds provision.sh --release-file and the
+# OrbStack dev flow via HIVE_DEV_RELEASE_TARBALL).
+release-tarball:
+	bash scripts/release/build-backend-tarball.sh $(or $(VERSION),0.0.0-dev)

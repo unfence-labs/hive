@@ -14,53 +14,25 @@ import {
   runOperation,
   findRunningOperation,
   type RunnableStep,
-  type StepFn,
 } from "../services/setup/operations.js";
 import {
   isValidClaudeToken,
   defaultClaudeTokenWriter,
   type ClaudeTokenWriter,
 } from "../services/setup/auth-flows.js";
+import {
+  SETUP_STEPS,
+  type SetupStepDef,
+} from "../services/setup/installers/index.js";
 
-/**
- * Registry of runnable setup steps. Real installers land in later PRs (§6.3);
- * for now each step emits a couple of log lines and succeeds so the engine and
- * REST surface are exercisable end to end.
- */
-interface StepDef {
-  title: string;
-  fn: StepFn;
-}
-
-function stubStep(title: string): StepDef {
-  return {
-    title,
-    fn: async (emit) => {
-      await emit({ stream: "system", line: `${title}: starting` });
-      await emit({ stream: "stdout", line: `${title}: done` });
-    },
-  };
-}
-
-const STEP_REGISTRY: Record<string, StepDef> = {
-  detect: stubStep("Detect tools"),
-  install_claude: stubStep("Install Claude Code"),
-  auth_claude: stubStep("Authenticate Claude"),
-  install_codex: stubStep("Install Codex"),
-  auth_codex: stubStep("Authenticate Codex"),
-  install_gh: stubStep("Install GitHub CLI"),
-  auth_gh: stubStep("Authenticate GitHub"),
-  install_mise: stubStep("Install mise"),
-  install_uv: stubStep("Install uv"),
-  install_docker: stubStep("Install Docker (rootless)"),
-  verify: stubStep("Verify installation"),
-};
-
-function resolveSteps(stepIds: string[]): { steps: RunnableStep[]; unknown: string[] } {
+function resolveSteps(
+  stepIds: string[],
+  registry: Record<string, SetupStepDef>,
+): { steps: RunnableStep[]; unknown: string[] } {
   const steps: RunnableStep[] = [];
   const unknown: string[] = [];
   for (const id of stepIds) {
-    const def = STEP_REGISTRY[id];
+    const def = registry[id];
     if (!def) {
       unknown.push(id);
       continue;
@@ -74,6 +46,8 @@ export interface SetupRoutesOptions {
   dataDir?: string;
   /** Injectable Claude token writer (§6.4); defaults to the env-file writer. */
   claudeTokenWriter?: ClaudeTokenWriter;
+  /** Injectable step registry; defaults to the real installer steps. */
+  steps?: Record<string, SetupStepDef>;
 }
 
 export async function setupRoutes(
@@ -82,6 +56,7 @@ export async function setupRoutes(
 ): Promise<void> {
   const dataDir = opts.dataDir ?? getDataDir();
   const claudeTokenWriter = opts.claudeTokenWriter ?? defaultClaudeTokenWriter;
+  const stepRegistry = opts.steps ?? SETUP_STEPS;
 
   app.get("/api/setup/status", async (): Promise<SetupStatus> => {
     const [detected, operations] = await Promise.all([
@@ -98,7 +73,7 @@ export async function setupRoutes(
       return reply.status(400).send({ error: "No steps provided" });
     }
 
-    const { steps, unknown } = resolveSteps(stepIds);
+    const { steps, unknown } = resolveSteps(stepIds, stepRegistry);
     if (unknown.length > 0) {
       return reply.status(400).send({ error: `Unknown steps: ${unknown.join(", ")}` });
     }
@@ -152,7 +127,7 @@ export async function setupRoutes(
 
       // Rebuild the runnable steps for this op from the registry; retry re-runs
       // from the first non-succeeded step (runOperation skips succeeded ones).
-      const { steps, unknown } = resolveSteps(op.steps.map((s) => s.id));
+      const { steps, unknown } = resolveSteps(op.steps.map((s) => s.id), stepRegistry);
       if (unknown.length > 0) {
         return reply.status(409).send({ error: `Operation references unknown steps: ${unknown.join(", ")}` });
       }

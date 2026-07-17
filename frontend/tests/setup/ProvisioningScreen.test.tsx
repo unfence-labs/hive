@@ -44,8 +44,8 @@ describe("ProvisioningScreen", () => {
 
     await userEvent.click(retry);
 
-    // Retry calls resumeProvision and the run completes.
-    await waitFor(() => expect(resumeSpy).toHaveBeenCalledWith("1.2.3.4"));
+    // Retry calls resumeProvision with the full params and the run completes.
+    await waitFor(() => expect(resumeSpy).toHaveBeenCalledWith(params));
     await waitFor(() => expect(onDone).toHaveBeenCalled());
   });
 });

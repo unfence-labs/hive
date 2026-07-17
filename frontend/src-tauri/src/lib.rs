@@ -1,3 +1,5 @@
+mod provision;
+
 use serde::Serialize;
 use std::path::Path;
 use std::process::Command;
@@ -52,7 +54,16 @@ fn open_terminal_ssh(terminal_id: String, command: String) -> Result<(), String>
 pub fn run() {
   tauri::Builder::default()
     .plugin(tauri_plugin_opener::init())
-    .invoke_handler(tauri::generate_handler![detect_terminals, open_terminal_ssh])
+    .invoke_handler(tauri::generate_handler![
+      detect_terminals,
+      open_terminal_ssh,
+      provision::provision_list_keys,
+      provision::provision_test_connection,
+      provision::provision_trust_host,
+      provision::provision_start,
+      provision::provision_resume,
+      provision::provision_claude_auth
+    ])
     .setup(|app| {
       if cfg!(debug_assertions) {
         app.handle().plugin(

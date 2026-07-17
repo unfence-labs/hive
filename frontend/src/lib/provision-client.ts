@@ -79,10 +79,11 @@ export interface ProvisionClient {
   /** Start provisioning; yields NDJSON-derived events until run_end. */
   startProvision(params: ProvisionParams): AsyncIterable<ProvisionEvent>;
   /**
-   * Re-attach to (or resume) a provision run after an error or app relaunch.
-   * Skips already-completed steps and re-runs from the first non-ok step.
+   * Resume a provision run after an error or app relaunch. provision.sh is
+   * idempotent, so this re-runs it: completed steps skip, the rest continue.
+   * The full params are re-supplied (the SSH key and token are needed again).
    */
-  resumeProvision(host: string): AsyncIterable<ProvisionEvent>;
+  resumeProvision(params: ProvisionParams): AsyncIterable<ProvisionEvent>;
   /**
    * Run `claude setup-token` locally on the user's computer, open the browser,
    * and capture the resulting CLAUDE_CODE_OAUTH_TOKEN. The wizard POSTs it to
@@ -91,19 +92,72 @@ export interface ProvisionClient {
   runLocalClaudeAuth(): Promise<{ token: string }>;
 }
 
-// ── Tauri implementation (Phase 2 — Rust side not wired yet) ─────────────────
+// ── Tauri implementation (system-ssh sidecar in Rust) ────────────────────────
 
-const PHASE_2 = "provision SSH sidecar is not wired yet (Phase 2 Tauri/Rust work)";
+/** Raw NDJSON line forwarded by the Rust sidecar (protocol §3.1). */
+interface NdjsonLine {
+  seq: number;
+  event?: "run_start" | "run_end";
+  step?: string;
+  status?: "start" | "log" | "ok" | "skip" | "error";
+  title?: string;
+  line?: string;
+  reason?: string;
+  durationMs?: number;
+  exitCode?: number;
+  errorCode?: SetupErrorCode;
+  detail?: string;
+  status_?: string;
+  runId?: string;
+  scriptVersion?: string;
+  resume?: boolean;
+  stepsPlanned?: string[];
+  data?: Record<string, unknown>;
+}
+
+/** Normalize a raw NDJSON line into the wizard's tagged ProvisionEvent union. */
+export function ndjsonToEvent(o: NdjsonLine): ProvisionEvent | null {
+  if (o.event === "run_start") {
+    return {
+      kind: "run_start",
+      seq: o.seq,
+      runId: o.runId ?? "",
+      scriptVersion: o.scriptVersion ?? "",
+      resume: o.resume ?? false,
+      stepsPlanned: o.stepsPlanned ?? [],
+    };
+  }
+  if (o.event === "run_end") {
+    return { kind: "run_end", seq: o.seq, status: (o as { status?: string }).status === "error" ? "error" : "ok" };
+  }
+  if (!o.step) return null;
+  switch (o.status) {
+    case "start":
+      return { kind: "step_start", seq: o.seq, step: o.step, title: o.title ?? o.step };
+    case "log":
+      return { kind: "step_log", seq: o.seq, step: o.step, line: o.line ?? "" };
+    case "ok":
+      return { kind: "step_ok", seq: o.seq, step: o.step, durationMs: o.durationMs, data: o.data };
+    case "skip":
+      return { kind: "step_skip", seq: o.seq, step: o.step, reason: o.reason };
+    case "error":
+      return {
+        kind: "step_error",
+        seq: o.seq,
+        step: o.step,
+        exitCode: o.exitCode,
+        errorCode: o.errorCode ?? "UNKNOWN",
+        detail: o.detail,
+      };
+    default:
+      return null;
+  }
+}
 
 /**
- * Real client backed by Tauri commands + events. The Rust commands
- * (`provision_list_keys`, `provision_test_connection`, `provision_trust_host`,
- * `provision_start`/`provision_resume` emitting `provision://event`, and
- * `provision_claude_auth`) are Phase 2 deliverables; until they exist these
- * methods throw a clear, marked error rather than silently failing.
- *
- * TODO(Phase 2): implement the Rust side and replace the throwing bodies below
- * with `invoke(...)` + an event-channel → AsyncIterable adapter.
+ * Real client backed by the Rust SSH sidecar. `provision_start`/`provision_resume`
+ * stream NDJSON over a Tauri Channel; we bridge that channel to an AsyncIterable
+ * and normalize each line via {@link ndjsonToEvent}.
  */
 export function createTauriProvisionClient(): ProvisionClient {
   async function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
@@ -111,29 +165,60 @@ export function createTauriProvisionClient(): ProvisionClient {
     return invoke<T>(cmd, args);
   }
 
+  async function* streamCommand(
+    cmd: "provision_start" | "provision_resume",
+    params: ProvisionParams,
+  ): AsyncIterable<ProvisionEvent> {
+    const { Channel } = await import("@tauri-apps/api/core");
+    const channel = new Channel<NdjsonLine>();
+    const queue: ProvisionEvent[] = [];
+    let wake: (() => void) | null = null;
+    let done = false;
+    let failure: unknown = null;
+
+    channel.onmessage = (raw) => {
+      const ev = ndjsonToEvent(raw);
+      if (ev) queue.push(ev);
+      wake?.();
+    };
+
+    const invocation = invoke<void>(cmd, { params, onEvent: channel })
+      .catch((e) => {
+        failure = e;
+      })
+      .finally(() => {
+        done = true;
+        wake?.();
+      });
+
+    while (true) {
+      while (queue.length) yield queue.shift() as ProvisionEvent;
+      if (done) break;
+      await new Promise<void>((r) => {
+        wake = r;
+      });
+    }
+    await invocation;
+    if (failure) throw new Error(String(failure));
+  }
+
   return {
     async listKeys() {
-      // TODO(Phase 2): return await invoke<SshKey[]>("provision_list_keys");
       return invoke<SshKey[]>("provision_list_keys");
     },
     async testConnection(host, keyPath) {
-      // TODO(Phase 2): return await invoke<TestConnectionResult>("provision_test_connection", { host, keyPath });
       return invoke<TestConnectionResult>("provision_test_connection", { host, keyPath });
     },
-    async trustHost(host, fingerprint) {
-      // TODO(Phase 2): await invoke("provision_trust_host", { host, fingerprint });
-      await invoke("provision_trust_host", { host, fingerprint });
+    async trustHost(host) {
+      await invoke("provision_trust_host", { host });
     },
-    startProvision() {
-      // TODO(Phase 2): bridge the Tauri `provision://event` channel to an AsyncIterable.
-      throw new Error(PHASE_2);
+    startProvision(params) {
+      return streamCommand("provision_start", params);
     },
-    resumeProvision() {
-      // TODO(Phase 2): same bridge as startProvision, with resume=true.
-      throw new Error(PHASE_2);
+    resumeProvision(params) {
+      return streamCommand("provision_resume", params);
     },
     async runLocalClaudeAuth() {
-      // TODO(Phase 2): return await invoke<{ token: string }>("provision_claude_auth");
       return invoke<{ token: string }>("provision_claude_auth");
     },
   };
