@@ -120,7 +120,7 @@ GET  /api/version
      → {"version":"0.3.0","protocolVersion":1,"commit":"abc123"}
 
 GET  /api/setup/status
-     → {"detected":{"claude":{"installed":true,"version":"2.1.53"},
+     → {"detected":{"claude":{"installed":true,"version":"2.1.53","authenticated":true},
                     "codex":{"installed":false},"gh":{...},"tailscale":{...},
                     "mise":{...},"uv":{...},"docker":{...}},
         "operations":[SetupOperation, ...]}
@@ -131,7 +131,7 @@ POST /api/setup/run           body {"steps":["install_claude","auth_claude"],"op
 GET  /api/setup/operations/:id            → SetupOperation
 GET  /api/setup/operations/:id/log?since=<seq>  → NDJSON lines (backfill)
 POST /api/setup/operations/:id/retry      → re-runs from the failed step
-POST /api/setup/auth/claude/token         body {"token":"sk-ant-oat01-..."}   // Mac-side fallback
+POST /api/setup/auth/claude/token         body {"token":"sk-ant-oat01-..."}   // PRIMARY path: token captured locally by the wizard
 POST /api/system/update                   → {"operationId":...}               // Phase 6
 ```
 
@@ -217,7 +217,7 @@ backend/src/
   services/setup/operations.ts       # durable op engine (§8, PR 3.1)
   services/setup/detect.ts
   services/setup/installers/{claude,codex,gh,mise,uv,docker}.ts
-  services/setup/auth-flows/{claude-setup-token,codex-device,gh-device}.ts
+  services/setup/auth-flows/{claude-token,codex-device,gh-device}.ts   # claude-token: validate/write/verify (captured wizard-side)
   services/setup/runner.ts           # detached child + line-buffered capture
   services/update/updater.ts
   ws/setup.ts                        # WS 3.5
@@ -406,6 +406,12 @@ timeout, all run in parallel; result cached 30 s. Adds: tailscale (+
 `status --json` state), mise, uv, docker (+ compose plugin), and per-CLI
 `latestVersion` reuse from `agents-settings.ts`.
 
+Each agent CLI probe also reports `authenticated` (gh: `gh auth status`;
+codex: `~hive/.codex/auth.json` present + parseable; claude:
+`CLAUDE_CODE_OAUTH_TOKEN` present in the service env, verified by a cheap
+`claude -p` smoke on demand). Guided setup skips auth steps already green —
+a logged-in CLI is never asked to log in again.
+
 ### 6.3 Installers
 
 Each installer = ordered SetupSteps with the same guard/action/verify shape as
@@ -416,16 +422,26 @@ group is root equivalence for a user that runs arbitrary agent code).
 
 ### 6.4 Auth-flow drivers (`auth-flows/*`)
 
-Common shape: spawn CLI in a PTY (`spawnPtyProcess`), scan output with
-**versioned regex sets keyed by CLI version** (from Spike S2 transcripts), emit
-`auth_action` frames, handle: URL lift, code lift, paste-back injection,
+Codex and gh: spawn the CLI in a PTY (`spawnPtyProcess`), scan output with
+**versioned regex sets keyed by CLI version** (from Spike S2 transcripts),
+expose `action` data on the step (§3.5), handle: URL lift, code lift,
 **gh Enter-keystroke injection** (cli/cli #12925), 15-min code expiry →
-auto-regenerate (max 3), and typed errors (`CODEX_DEVICE_AUTH_DISABLED`,
-`CLAUDE_PASTEBACK_BROKEN` → surface the Mac fallback).
-Post-auth: claude → write `CLAUDE_CODE_OAUTH_TOKEN` into `/etc/hive/hive.env`
-via helper + pre-seed `~hive/.claude.json` (`hasCompletedOnboarding`,
-per-project trust) + assert `ANTHROPIC_API_KEY` absent; codex → verify
-`~hive/.codex/auth.json` exists 0600.
+auto-regenerate (max 3), and typed errors (`CODEX_DEVICE_AUTH_DISABLED`).
+Codex post-auth: verify `~hive/.codex/auth.json` exists 0600.
+
+Claude never runs interactively on the VPS (review decision — the wizard
+captures the token locally, see design doc): `claude-token.ts` backs
+`POST /api/setup/auth/claude/token` — validate token format, write
+`CLAUDE_CODE_OAUTH_TOKEN` into `/etc/hive/hive.env` via helper, pre-seed
+`~hive/.claude.json` (`hasCompletedOnboarding`, per-project trust), assert
+`ANTHROPIC_API_KEY` absent, verify with a `claude -p` smoke call. Install
+channel: official native installer (no Anthropic apt repo exists) with
+`DISABLE_AUTOUPDATER=1` — Hive owns updates.
+
+Auth is re-entrant after install (day 366): detection exposes per-CLI
+`authenticated`, token expiry/revocation surfaces in `/api/setup/status` and
+the health payload (`AUTH_EXPIRED`), and Settings offers "Reconnect <CLI>"
+re-running the same operations.
 
 ---
 
@@ -474,7 +490,7 @@ of the real tools** (captured in Spike S2 with `test/tools/record-cli.sh`,
 which wraps the CLI in `script -q` on the VM). Scenario selection via env:
 
 ```
-FAKE_CLAUDE_SCENARIO=happy | paste_back_broken | slow_user | code_expired
+FAKE_CLAUDE_SCENARIO=happy | paste_back_broken | slow_user | code_expired   # consumed by wizard-side tests (local setup-token capture)
 FAKE_CODEX_SCENARIO=happy | device_auth_disabled | url_variant_2
 FAKE_GH_SCENARIO=happy | waits_for_enter | timeout
 ```
@@ -524,14 +540,14 @@ make e2e-nightly-local          # run the nightly script against your own Hetzne
 expiry" click. Output: decision recorded in install-flow.md + the exact wizard
 deep-link URLs.
 
-**S2 — CLI transcripts.** On a pristine Multipass VM: run
-`claude setup-token`, `claude` first-run, `codex login --device-auth`,
-`gh auth login --web` under `test/tools/record-cli.sh`; capture happy path +
-every reachable error (wrong code, expiry, codex admin-gate). Verify the
-claude paste-back state on the current CLI version (issues #42965/#48048).
-Output: `test/fixtures/transcripts/*`, parser spec per CLI+version, and a
-go/no-go on PTY-first vs Mac-fallback-first for Claude (plan assumes PTY-first
-per the design doc; the fallback ships either way).
+**S2 — CLI transcripts.** Codex + gh on a pristine Multipass VM; claude
+**locally** on macOS/Windows/Linux (its capture lives in the wizard now): run
+`codex login --device-auth`, `gh auth login --web`, and local
+`claude setup-token` + `claude` first-run under `test/tools/record-cli.sh`;
+capture happy path + every reachable error (wrong code, expiry, codex
+admin-gate, claude paste-back state on the current version — issues
+#42965/#48048). Output: `test/fixtures/transcripts/*`, parser spec per
+CLI+version.
 
 **S3 — tailnet in CI.** Throwaway workflow: (a) tailscale up with an ephemeral
 key on a GitHub runner; (b) Headscale container + client. Assert a runner ↔ VM
@@ -587,7 +603,7 @@ CHECKSUM_MISMATCH, TS_AUTHKEY_INVALID, TS_DAEMON_DOWN, UFW_FAILURE,
 RELEASE_DOWNLOAD_FAILED, SERVICE_START_FAILED, HEALTH_TIMEOUT,
 SSH_AUTH_FAILED, SSH_HOST_KEY_CHANGED, SSH_UNREACHABLE, SSH_NO_ROOT,
 CLAUDE_PASTEBACK_BROKEN, DEVICE_CODE_EXPIRED, CODEX_DEVICE_AUTH_DISABLED,
-GH_POLL_STUCK, INTERRUPTED, CONCURRENT_RUN, UNKNOWN`
+GH_POLL_STUCK, AUTH_EXPIRED, INTERRUPTED, CONCURRENT_RUN, UNKNOWN`
 
 Each code maps to a user-facing hint (i18n-ready) + a docs anchor. Contract
 test asserts bash/TS lists are identical.
@@ -684,12 +700,14 @@ service PATH after install (unit env asserted); docker group/rootless per
 design flag.
 DoD: pristine VM → all installers green twice. **E: 4**
 
-**PR 3.4 — Auth-flow drivers** (3 drivers + regex sets keyed by CLI version +
-Mac-fallback endpoint).
-T: snapshot tests across every S2 transcript scenario (happy/broken/expired/
-gated/slow); gh Enter-injection case; code-expiry regenerate (max 3);
-`CLAUDE_PASTEBACK_BROKEN` → fallback surfaced; fallback endpoint validates
-token format + writes env via helper + verifies with a `claude -p` smoke call.
+**PR 3.4 — Auth-flow drivers** (codex/gh PTY drivers + regex sets keyed by
+CLI version + the claude token endpoint — primary path, wizard-captured).
+T: snapshot tests across every S2 transcript scenario (happy/expired/gated/
+slow); gh Enter-injection case; code-expiry regenerate (max 3); token
+endpoint validates format + writes env via helper + verifies with a
+`claude -p` smoke call; `authenticated` detection short-circuits
+already-logged-in CLIs; day-366 path: expired token → `AUTH_EXPIRED` in
+status/health → Reconnect re-runs the flow.
 DoD: every fixture variant → correct wizard instruction or typed error; real
 flows deferred to §12. **E: 4**
 
@@ -743,8 +761,9 @@ disk-space warning UI using existing /health metrics, fixture-drift CI job).
 
 ## 12. Manual release checklist (the non-automatable)
 
-1. Real Claude Pro/Max auth via wizard on a fresh VM — PTY path **and** Mac
-   fallback; assert subscription (not API) billing in the Claude console.
+1. Real Claude Pro/Max auth via wizard on a fresh VM — local wizard-driven
+   path **and** manual paste fallback; assert subscription (not API) billing
+   in the Claude console.
 2. Real Codex device-auth incl. the admin-gate error path.
 3. Real gh device flow incl. Enter-poll behavior on the current gh version.
 4. Brand-new Tailscale account onboarding following only wizard instructions
@@ -781,7 +800,7 @@ checklist §12.
 
 | Risk | Exposure | Mitigation |
 |---|---|---|
-| Claude PTY auth regresses upstream | wizard's flagship step fails | version-keyed regex sets; fixture-drift nightly job; Mac fallback is first-class (PR 3.4); CLI version pinned by installer |
+| Claude local setup-token output changes upstream | flagship auth step fails | the flow runs locally — no SSH/remote PTY in the loop; version-keyed capture patterns; fixture-drift nightly job; manual paste fallback is first-class; CLI version pinned by installer |
 | Tailscale-in-CI flaky | nightly noise | S3 decides strategy before Phase 1.4; ephemeral keys self-clean; retry-once policy on network steps only |
 | system `ssh` output/version variance across OSes | brittle error mapping | map only coarse error classes from exit codes/stderr; version floor check at wizard start; S4 validates askpass/agent/Windows before 2.1; v1 scope = stock Ubuntu/Debian sshd, root+key (typed errors otherwise) |
 | Contract drift bash/Rust/TS | subtle integration bugs | single schema files + tri-language contract tests; `v` field bump policy |

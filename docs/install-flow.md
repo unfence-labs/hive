@@ -98,8 +98,8 @@ flowchart TD
     end
 
     subgraph P5["5 · Guided setup (backend = installer, resumable jobs)"]
-        E1["detect: claude / codex / gh<br/>only missing pieces are shown"]
-        E2["Claude: install CLI (apt), auth with SUBSCRIPTION:<br/>claude setup-token in a PTY → URL shown in wizard →<br/>[U] approves in browser (fallback: token generated on the Mac)"]
+        E1["detect: claude / codex / gh<br/>(installed + authenticated)<br/>only missing pieces are shown"]
+        E2["Claude: auth with SUBSCRIPTION, LOCALLY:<br/>wizard runs claude setup-token on the user's computer<br/>(downloads standalone binary if absent) → browser opens →<br/>token captured and POSTed to the backend"]
         E3["Codex (optional): codex login --device-auth<br/>URL + code shown in wizard"]
         E4["GitHub (optional, private HTTPS repos):<br/>gh device flow, one-time code in wizard"]
         E5["preflight ✓ · health ✓ · 'Your Hive is ready'"]
@@ -142,7 +142,9 @@ sequenceDiagram
     V->>H: start hive.service (tailnet-only via ufw)
     W->>H: GET /health over tailnet (token) — first API contact
     W--xV: close SSH (repair channel only)
-    W->>H: guided setup: claude / codex / gh (PTY device flows)
+    W->>W: claude setup-token runs locally, browser approval on the same machine
+    W->>H: POST captured Claude token
+    W->>H: guided setup: codex / gh device flows (VPS PTY)
     U->>H: approves OAuth pages in browser (subscription auth)
 ```
 
@@ -154,7 +156,7 @@ sequenceDiagram
 | 2 | node 22, git, ufw | script (root) | NodeSource apt / apt | ufw: default-deny, `allow in on tailscale0` |
 | 3 | Hive backend | script (root) | GitHub Release tarball, checksum-verified | `/opt/hive/releases/N`, `current` symlink, `shared/` data dir |
 | 4 | systemd units | script (root) | files | `hive.service` (dedicated user, hardened) + `hive-updater` |
-| 5 | claude CLI | backend | Anthropic apt repo | no background auto-update; Hive owns updates |
+| 5 | claude CLI | backend | official native installer (standalone binary — no Anthropic apt repo exists) | auto-updater disabled (`DISABLE_AUTOUPDATER=1`); Hive owns updates |
 | 6 | codex CLI (opt.) | backend | npm/binary release | device-auth on the VPS |
 | 7 | gh CLI (opt.) | backend | official apt repo | only needed for HTTPS cloning of private repos |
 | — | Tailscale app | user | App Store / MSI | on the Mac (step 1) and iPhone (step 6) |
@@ -184,13 +186,21 @@ sequenceDiagram
 
 | CLI | Flow | Fallback | Known pitfalls encoded in the design |
 |---|---|---|---|
-| claude | `claude setup-token` in a PTY on the VPS; wizard lifts the OAuth URL; user approves in browser; 1-year `CLAUDE_CODE_OAUTH_TOKEN` written to a `0600` EnvironmentFile | run `setup-token` on the user's computer, paste the token | paste-back over SSH has known regressions (anthropics/claude-code #42965, #48048) → fallback is mandatory. Never set `ANTHROPIC_API_KEY` alongside (it silently wins and bills API credits). Pre-seed `~/.claude.json` (onboarding + workspace trust; `--dangerously-skip-permissions` does NOT bypass the trust dialog) |
+| claude | the wizard runs `claude setup-token` **locally on the user's computer** (downloading the standalone native binary into app data if absent); the browser opens on the same machine; the wizard captures the 1-year `CLAUDE_CODE_OAUTH_TOKEN` and POSTs it to the backend, which writes it to a `0600` EnvironmentFile | manual: the user runs `setup-token` themselves and pastes the token into the wizard | running locally keeps SSH and remote PTYs out of the most fragile flow (paste-back regressions anthropics/claude-code #42965, #48048 — originally the #1 project risk). Never set `ANTHROPIC_API_KEY` alongside (it silently wins and bills API credits). Pre-seed `~/.claude.json` (onboarding + workspace trust; `--dangerously-skip-permissions` does NOT bypass the trust dialog) |
 | codex | `codex login --device-auth` in a PTY; wizard shows URL + code; tokens auto-refresh in `~/.codex/auth.json` on the VPS | SSH port-forward of the login callback | requires "Allow device code login" enabled in ChatGPT settings (detect the error, guide the user). Never copy `auth.json` between machines (single-use rotating refresh tokens) |
 | gh | device flow; wizard shows the one-time code | personal access token | the CLI does not poll until Enter is pressed (cli/cli #12925) → inject the keystroke into the PTY. Step is optional: SSH-key/public-repo users skip it |
 
-All flows run on the VPS inside a PTY owned by the backend; the wizard renders
-extracted URLs/codes and streams output. CLI versions are pinned and the scrape
-patterns are snapshot-tested (no login flow has a `--json` mode).
+Codex and gh flows run on the VPS inside a PTY owned by the backend; the
+wizard renders extracted URLs/codes. Claude never runs interactively on the
+VPS — the token is generated on the user's machine and POSTed to the backend.
+CLI versions are pinned and the scrape patterns are snapshot-tested (no login
+flow has a `--json` mode).
+
+Auth is a permanent service, not an install step: detection reports
+`authenticated` per CLI (already-logged-in binaries are never asked again),
+expiry or revocation — the Claude token lasts one year — surfaces as a
+visible health warning, and Settings offers "Reconnect" re-running the same
+flows. Day 366 is a designed path.
 
 ## Security model
 
@@ -261,9 +271,11 @@ No terminal, no shell command, no manual server configuration, no VPN setup.
 
 ## Known risks and open questions
 
-1. **Claude subscription auth on a headless box is the #1 project risk** (buggy
-   paste-back flow, no device-code mode). Prototype first; the on-computer
-   fallback must ship from day one.
+1. **Claude subscription auth was the #1 project risk** while it ran in a
+   remote PTY on the VPS (buggy paste-back, no device-code mode). Review moved
+   it local: the wizard drives `claude setup-token` on the user's machine and
+   POSTs the token — SSH and remote terminals are out of the flow. Residual
+   risk: local CLI output capture still needs version-keyed patterns.
 2. **Non-root servers** (AWS uses `ubuntu` + sudo): v1 targets root login
    (Hetzner/DO/OVH default); sudo support later. Hardened servers with
    `PermitRootLogin no` get a clear error and a documented fallback.
