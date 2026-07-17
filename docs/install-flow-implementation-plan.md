@@ -26,6 +26,12 @@ infrastructure.
    review dropped the planned `/ws/setup` channel (§3.5), no new WS surface
    is added at all. iOS is unaffected until Phase 5 (which only adds a QR
    scanner + Keychain move).
+6. **Pristine servers only.** `provision.sh` refuses servers that already run
+   other services or a manual Hive install (`probe_env` →
+   `SERVER_NOT_PRISTINE` / `EXISTING_INSTALL`) instead of half-applying
+   firewall and unit changes to an inhabited box. No automatic migration from
+   manual installs in v1 — the documented path is: back up `~/.hive`, wipe or
+   recreate the server, run the wizard, restore the data dir.
 
 ---
 
@@ -210,8 +216,10 @@ scripts/provision/
   lib.sh                    # framework: emit/run_step/state/locking/traps (§5.1)
   protocol.schema.json      # frozen contract 3.1
   steps/
-    00-probe-os.sh          10-apt-baseline.sh      20-install-node.sh
-    30-create-user.sh       40-install-tailscale.sh 41-tailscale-up.sh
+    00-probe-os.sh          01-probe-env.sh         10-apt-baseline.sh
+    20-install-node.sh
+    30-create-user.sh       40-install-tailscale.sh
+    41-tailscale-up.sh
     50-configure-ufw.sh     60-fetch-release.sh     61-install-release.sh
     70-write-secrets.sh     71-write-units.sh       72-install-helpers.sh
     80-enable-service.sh    90-health-check.sh      99-cleanup.sh
@@ -279,6 +287,7 @@ The built artifact wraps everything in `main "$@"` called on the last line
 | Step | Guard (skip if…) | Action | Verify (emit `data`) |
 |---|---|---|---|
 | `probe_os` | never skips | parse `/etc/os-release`, check systemd + arch (x64/arm64) | in matrix (Ubuntu 22.04/24.04, Debian 12) else `die UNSUPPORTED_OS` |
+| `probe_env` | never skips | refuse non-pristine servers: running Hive process or busy `HIVE_PORT` → `die EXISTING_INSTALL`; `/opt/hive` present without our state file, or pre-existing non-default ufw rules → `die SERVER_NOT_PRISTINE`. A server previously provisioned by us (state file present) passes — that's a resume, not a conflict | pristine or ours |
 | `apt_baseline` | all pkgs `dpkg -s` ok | `apt_install build-essential python3 python-is-python3 pkg-config libssl-dev unzip xz-utils jq ripgrep fd-find sqlite3 git-delta fzf tree gnupg ca-certificates ufw` + `ln -sf $(command -v fdfind) /usr/local/bin/fd` | `fd --version`, `rg --version` |
 | `install_node` | `node -v` ≥ 22 | NodeSource repo + `apt_install nodejs` | `node -v`, `npm -v` |
 | `create_user` | `id hive` exists | `useradd -m -s /bin/bash hive`; `install -d -o hive /home/hive/.hive` | home exists, owned |
@@ -612,7 +621,8 @@ CHECKSUM_MISMATCH, TS_AUTHKEY_INVALID, TS_DAEMON_DOWN, UFW_FAILURE,
 RELEASE_DOWNLOAD_FAILED, SERVICE_START_FAILED, HEALTH_TIMEOUT,
 SSH_AUTH_FAILED, SSH_HOST_KEY_CHANGED, SSH_UNREACHABLE, SSH_NO_ROOT,
 CLAUDE_PASTEBACK_BROKEN, DEVICE_CODE_EXPIRED, CODEX_DEVICE_AUTH_DISABLED,
-GH_POLL_STUCK, AUTH_EXPIRED, INTERRUPTED, CONCURRENT_RUN, UNKNOWN`
+GH_POLL_STUCK, AUTH_EXPIRED, SERVER_NOT_PRISTINE, EXISTING_INSTALL,
+INTERRUPTED, CONCURRENT_RUN, UNKNOWN`
 
 Each code maps to a user-facing hint (i18n-ready) + a docs anchor. Contract
 test asserts bash/TS lists are identical.
@@ -652,7 +662,9 @@ DoD: `make provision-docker` runs an empty-steps skeleton green. **E: 3**
 
 **PR 1.2 — Core steps** (probe→health, minus tailscale/ufw; `--release-file`).
 T: Tier-1 clean run; double-run all-skip; per-step bats guard tests; wrong-OS
-container (debian:11) → `UNSUPPORTED_OS`; checksum-tamper → `CHECKSUM_MISMATCH`.
+container (debian:11) → `UNSUPPORTED_OS`; dirty container (foreign service on
+the port / pre-existing ufw rules) → `SERVER_NOT_PRISTINE`; checksum-tamper →
+`CHECKSUM_MISMATCH`.
 DoD: container serves authenticated /health on 127.0.0.1. **E: 3**
 
 **PR 1.3 — Chaos harness** (`chaos.sh`, CI wiring).

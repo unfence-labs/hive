@@ -76,7 +76,7 @@ flowchart TD
 
     subgraph P3["3 · Install over SSH (~3 min, watched from the wizard)"]
         C1["[W] connects via SSH (system ssh + the user's key/agent)<br/>host-key trust dialog (TOFU)"]
-        C2["[W] probes OS: /etc/os-release + systemd<br/>clean refusal if unsupported"]
+        C2["[W] probes OS + pristine state<br/>clean refusal if unsupported or already occupied"]
         C3["[W] streams provision.sh + secrets over stdin<br/>(nothing in argv, shell history, or console)"]
         C4["[S] runs DETACHED (setsid + logfile)<br/>survives app close; NDJSON progress streamed to the checklist"]
         C1 --> C2 --> C3 --> C4
@@ -295,7 +295,13 @@ No terminal, no shell command, no manual server configuration, no VPN setup.
    required it in every considered design; the free tier suffices. A hosted
    relay ("Hive Connect", Nabu-Casa-style) could remove the dependency later and
    is the natural monetization path.
-6. **Backend work not covered here** (tracked separately): runtime-issued auth
+6. **Pristine servers only.** The wizard refuses servers that already run
+   other services or a manual Hive install (explicit `SERVER_NOT_PRISTINE` /
+   `EXISTING_INSTALL` errors) rather than half-applying firewall and unit
+   changes to an inhabited box. Existing manual installs keep the
+   GETTING_STARTED path; migration = documented backup/wipe/restore, no tool
+   in v1.
+7. **Backend work not covered here** (tracked separately): runtime-issued auth
    tokens instead of the build-time `VITE_HIVE_AUTH_TOKEN`, a backend version
    endpoint + WS protocol version, setup progress served over REST polling
    (review decision: no new WS channel), QR scanning + deep links in iOS,
