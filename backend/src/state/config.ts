@@ -87,7 +87,7 @@ async function readConfigFile(dataDir: string): Promise<Partial<AppConfig> | nul
     throw err;
   }
   const parsed: unknown = JSON.parse(raw);
-  if (typeof parsed !== "object" || parsed === null) {
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
     throw new Error(`${configFilePath(dataDir)} does not contain a JSON object`);
   }
   return parsed as Partial<AppConfig>;

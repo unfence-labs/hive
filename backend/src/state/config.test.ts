@@ -201,6 +201,17 @@ describe("updateConfig", () => {
     expect(raw).toBe("null");
   });
 
+  it("rejects and leaves the file untouched when config.json has an array root", async () => {
+    await writeFile(join(dataDir, "config.json"), "[]", "utf-8");
+
+    await expect(
+      updateConfig((c) => { c.defaultModelId = "claude:opus-4-8"; }, dataDir),
+    ).rejects.toThrow("does not contain a JSON object");
+
+    const raw = await readFile(join(dataDir, "config.json"), "utf-8");
+    expect(raw).toBe("[]");
+  });
+
   it("creates the file when it does not exist yet", async () => {
     await updateConfig((c) => { c.defaultModelId = "claude:opus-4-8"; }, dataDir);
 
