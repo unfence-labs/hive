@@ -7,12 +7,10 @@ import type { ChatMessage as ChatMessageType } from "@/types";
 vi.mock("@/components/chat/ThinkingBlock", () => ({
   ThinkingBlock: ({
     segments = [],
-    legacyContent,
   }: {
     segments?: ChatMessageType["reasoningSegments"];
-    legacyContent?: string;
-  }) => segments.length > 0 || legacyContent
-    ? <div data-testid="thinking-block">{segments.map((segment) => segment.content).join("") || legacyContent}</div>
+  }) => segments.length > 0
+    ? <div data-testid="thinking-block">{segments.map((segment) => segment.headline ?? segment.body).join("")}</div>
     : null,
 }));
 
@@ -61,11 +59,11 @@ describe("ChatMessage", () => {
     expect(response.compareDocumentPosition(tools) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  it("renders thinking, cancellation flag, and copy button for assistant", () => {
+  it("renders reasoning, cancellation flag, and copy button for assistant", () => {
     render(
       <ChatMessage
         message={assistantMessage({
-          thinkingContent: "reasoning",
+          reasoningSegments: [{ id: "r1", headline: "reasoning" }],
           cancelled: true,
           durationMs: 1200,
           toolCalls: [{ id: "t1", name: "Read", input: "{}" }],
@@ -76,23 +74,6 @@ describe("ChatMessage", () => {
     expect(screen.getByTestId("thinking-block")).toHaveTextContent("reasoning");
     expect(screen.getByText("(cancelled)")).toBeInTheDocument();
     expect(screen.getByTestId("copy-button")).toBeInTheDocument();
-  });
-
-  it("prefers typed reasoning segments over legacy thinking content", () => {
-    render(
-      <ChatMessage
-        message={assistantMessage({
-          reasoningSegments: [
-            { id: "r1", content: "Typed reasoning" },
-            { id: "r2" },
-          ],
-          thinkingContent: "Legacy reasoning",
-        })}
-      />,
-    );
-
-    expect(screen.getByTestId("thinking-block")).toHaveTextContent("Typed reasoning");
-    expect(screen.getByTestId("thinking-block")).not.toHaveTextContent("Legacy reasoning");
   });
 
   it("renders cancellation diagnostics when provided", () => {
@@ -304,10 +285,10 @@ describe("ChatMessage", () => {
     expect(screen.queryByText("(cancelled)")).not.toBeInTheDocument();
   });
 
-  it("does not render thinking block when typed and legacy reasoning are absent", () => {
+  it("does not render thinking block when reasoning segments are absent", () => {
     render(
       <ChatMessage
-        message={assistantMessage({ thinkingContent: undefined })}
+        message={assistantMessage({ reasoningSegments: undefined })}
       />,
     );
 

@@ -226,7 +226,15 @@ export interface ToolCall {
 
 export interface ReasoningSegment {
   id: string;
-  content?: string;
+  headline?: string;
+  body?: string;
+}
+
+/** Raw reasoning text of one provider block, persisted as the lossless source
+ *  the parsed `reasoningSegments` derive from (clients render segments only). */
+export interface ReasoningBlock {
+  id: string;
+  text: string;
 }
 
 export interface ChatMessage {
@@ -240,8 +248,7 @@ export interface ChatMessage {
   agentActivities?: AgentActivity[];
   goalCommand?: boolean;
   reasoningSegments?: ReasoningSegment[];
-  /** Legacy reasoning payload kept for messages persisted before typed segments. */
-  thinkingContent?: string;
+  reasoningBlocks?: ReasoningBlock[];
   timestamp: string;
   cancelled?: boolean;
   /** Extra diagnostics for interrupted turns (stderr summary, exit code). */
@@ -405,8 +412,9 @@ export type WsOutgoing =
   | {
       type: "thinking";
       sessionId: string;
-      text: string;
-      segmentId?: string;
+      /** Reasoning block the segments belong to; clients merge by block. */
+      blockId: string;
+      segments: ReasoningSegment[];
     }
   | { type: "tool_use"; sessionId: string; id: string; name: string; input: string; parentToolUseId?: string }
   | { type: "tool_result"; sessionId: string; toolUseId: string; output: string }
@@ -415,9 +423,7 @@ export type WsOutgoing =
       type: "stream_snapshot";
       sessionId: string;
       text: string;
-      thinking: string;
-      /** Absent only when replaying a snapshot from an older backend. */
-      reasoningSegments?: ReasoningSegment[];
+      reasoningSegments: ReasoningSegment[];
       toolCalls: ToolCall[];
       agentActivities: AgentActivity[];
       agentPlanMode: boolean;

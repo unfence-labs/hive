@@ -4,20 +4,17 @@ import Testing
 
 struct ReasoningSegmentsTests {
     @Test
-    func decodesTypedSegmentsAndPrefersThemOverLegacyThinking() throws {
-        // Legacy persisted data may still carry a `kind` field; the decoder must
-        // tolerate and ignore it.
+    func decodesStructuredThoughtsAndDropsEmptyOnes() throws {
         let data = Data("""
         {
           "id": "message-1",
           "sessionId": "session-1",
           "role": "assistant",
           "content": "Answer",
-          "thinkingContent": "Legacy reasoning",
           "reasoningSegments": [
-            { "id": "reasoning-1", "kind": "thinking", "content": "First phase" },
-            { "id": "reasoning-2", "kind": "redacted" },
-            { "id": "reasoning-3", "kind": "thinking", "content": "Second phase" }
+            { "id": "reasoning-1:0", "headline": "First phase", "body": "the body" },
+            { "id": "reasoning-1:1" },
+            { "id": "reasoning-2:0", "headline": "Second phase" }
           ],
           "timestamp": "2026-07-10T00:00:00.000Z"
         }
@@ -26,91 +23,36 @@ struct ReasoningSegmentsTests {
         let message = try JSONDecoder().decode(ChatMessage.self, from: data)
         let segments = try #require(message.reasoningSegments)
 
-        #expect(segments.map(\.id) == ["reasoning-1", "reasoning-2", "reasoning-3"])
-        #expect(segments[1].content == nil)
-        // The contentless segment has nothing to show, so it is dropped.
-        #expect(message.resolvedReasoningSegments.map(\.id) == ["reasoning-1", "reasoning-3"])
+        #expect(segments.map(\.id) == ["reasoning-1:0", "reasoning-1:1", "reasoning-2:0"])
+        #expect(segments[0].headline == "First phase")
+        #expect(segments[0].body == "the body")
+        // A thought with neither headline nor body has nothing to show, so drop it.
+        #expect(message.resolvedReasoningSegments.map(\.id) == ["reasoning-1:0", "reasoning-2:0"])
     }
 
     @Test
-    func legacyHistoryDerivesOneThinkingSegment() throws {
+    func decodesThinkingEventSegments() throws {
         let data = Data("""
-        {
-          "id": "message-1",
-          "sessionId": "session-1",
-          "role": "assistant",
-          "content": "Answer",
-          "thinkingContent": "Legacy reasoning",
-          "timestamp": "2026-07-10T00:00:00.000Z"
-        }
-        """.utf8)
-
-        let message = try JSONDecoder().decode(ChatMessage.self, from: data)
-        let segment = try #require(message.resolvedReasoningSegments.first)
-
-        #expect(message.reasoningSegments == nil)
-        #expect(segment.id == "legacy-thinking")
-        #expect(segment.content == "Legacy reasoning")
-    }
-
-    @Test
-    func hidesContentlessThinkingSegments() throws {
-        let data = Data("""
-        {
-          "id": "message-1",
-          "sessionId": "session-1",
-          "role": "assistant",
-          "content": "Answer",
-          "reasoningSegments": [
-            { "id": "reasoning-1", "content": "" },
-            { "id": "reasoning-2" },
-            { "id": "reasoning-3", "kind": "redacted" },
-            { "id": "reasoning-4", "content": "Visible" }
-          ],
-          "timestamp": "2026-07-10T00:00:00.000Z"
-        }
-        """.utf8)
-
-        let message = try JSONDecoder().decode(ChatMessage.self, from: data)
-
-        #expect(message.resolvedReasoningSegments.map(\.id) == ["reasoning-4"])
-    }
-
-    @Test
-    func decodesTypedAndLegacyThinkingEvents() throws {
-        let typedData = Data("""
         {
           "type": "thinking",
           "sessionId": "session-1",
-          "text": "Inspecting",
-          "segmentId": "reasoning-1"
-        }
-        """.utf8)
-        let legacyData = Data("""
-        {
-          "type": "thinking",
-          "sessionId": "session-1",
-          "text": "Legacy"
+          "blockId": "reasoning-1",
+          "segments": [
+            { "id": "reasoning-1:0", "headline": "Inspecting", "body": "the repo" }
+          ]
         }
         """.utf8)
 
-        let typed = try JSONDecoder().decode(WsOutgoing.self, from: typedData)
-        let legacy = try JSONDecoder().decode(WsOutgoing.self, from: legacyData)
-
-        guard case .thinking(let sessionId, let text, let segmentId) = typed else {
-            Issue.record("Expected typed thinking event")
+        let event = try JSONDecoder().decode(WsOutgoing.self, from: data)
+        guard case .thinking(let sessionId, let blockId, let segments) = event else {
+            Issue.record("Expected thinking event")
             return
         }
         #expect(sessionId == "session-1")
-        #expect(text == "Inspecting")
-        #expect(segmentId == "reasoning-1")
-
-        guard case .thinking(_, let legacyText, let legacySegmentId) = legacy else {
-            Issue.record("Expected legacy thinking event")
-            return
-        }
-        #expect(legacyText == "Legacy")
-        #expect(legacySegmentId == nil)
+        #expect(blockId == "reasoning-1")
+        #expect(segments.map(\.id) == ["reasoning-1:0"])
+        #expect(segments[0].headline == "Inspecting")
+        #expect(segments[0].body == "the repo")
     }
 
     @Test
@@ -120,10 +62,9 @@ struct ReasoningSegmentsTests {
           "type": "stream_snapshot",
           "sessionId": "session-1",
           "text": "",
-          "thinking": "Legacy aggregate",
           "reasoningSegments": [
-            { "id": "reasoning-1", "content": "Canonical" },
-            { "id": "reasoning-2" }
+            { "id": "reasoning-1:0", "headline": "Canonical" },
+            { "id": "reasoning-2:0" }
           ],
           "toolCalls": [],
           "agentActivities": [],
@@ -132,46 +73,50 @@ struct ReasoningSegmentsTests {
         """.utf8)
 
         let event = try JSONDecoder().decode(WsOutgoing.self, from: data)
-
-        guard case .streamSnapshot(_, _, let legacyThinking, _, _, _, _, let segments) = event else {
+        guard case .streamSnapshot(_, _, _, _, _, _, let segments) = event else {
             Issue.record("Expected stream snapshot")
             return
         }
-        #expect(legacyThinking == "Legacy aggregate")
-        #expect(segments.map(\.id) == ["reasoning-1", "reasoning-2"])
-        #expect(segments[1].content == nil)
+        #expect(segments.map(\.id) == ["reasoning-1:0", "reasoning-2:0"])
+        #expect(segments[0].headline == "Canonical")
     }
 
     @Test @MainActor
-    func bufferedDeltasUpsertBySegmentId() {
+    func thinkingEventMergesLiveReasoningSegmentsByBlock() {
         let store = makeStreamingStore()
 
-        store.handle(.thinking(sessionId: "session-1", text: "First ", segmentId: "reasoning-1"))
-        store.handle(.thinking(sessionId: "session-1", text: "phase", segmentId: "reasoning-1"))
-        store.handle(.thinking(sessionId: "session-1", text: "Second phase", segmentId: "reasoning-2"))
+        store.handle(.thinking(sessionId: "session-1", blockId: "reasoning-1", segments: [
+            ReasoningSegment(id: "reasoning-1:0", headline: nil, body: "First"),
+        ]))
+        store.handle(.thinking(sessionId: "session-1", blockId: "reasoning-1", segments: [
+            ReasoningSegment(id: "reasoning-1:0", headline: nil, body: "First phase"),
+        ]))
+        store.handle(.thinking(sessionId: "session-1", blockId: "reasoning-2", segments: [
+            ReasoningSegment(id: "reasoning-2:0", headline: "Second phase", body: nil),
+        ]))
 
         #expect(store.reasoningSegments.isEmpty)
         store.flushStreamingDeltas()
 
-        #expect(store.reasoningSegments.map(\.id) == ["reasoning-1", "reasoning-2"])
-        #expect(store.reasoningSegments[0].content == "First phase")
-        #expect(store.reasoningSegments[1].content == "Second phase")
-        #expect(store.currentThinking.isEmpty)
+        #expect(store.reasoningSegments.map(\.id) == ["reasoning-1:0", "reasoning-2:0"])
+        #expect(store.reasoningSegments[0].body == "First phase")
+        #expect(store.reasoningSegments[1].headline == "Second phase")
     }
 
     @Test @MainActor
     func snapshotReplacesPendingDeltasWithCanonicalSegments() {
         let store = makeStreamingStore()
-        store.handle(.thinking(sessionId: "session-1", text: "stale", segmentId: "stale-segment"))
+        store.handle(.thinking(sessionId: "session-1", blockId: "stale", segments: [
+            ReasoningSegment(id: "stale:0", headline: nil, body: "stale"),
+        ]))
 
         let canonical = [
-            ReasoningSegment(id: "reasoning-1", content: "Canonical"),
-            ReasoningSegment(id: "reasoning-2", content: nil)
+            ReasoningSegment(id: "reasoning-1:0", headline: "Canonical", body: nil),
+            ReasoningSegment(id: "reasoning-2:0", headline: nil, body: nil),
         ]
         store.handle(.streamSnapshot(
             sessionId: "session-1",
             text: "",
-            thinking: "",
             toolCalls: [],
             agentActivities: [],
             agentPlanMode: false,
@@ -184,10 +129,11 @@ struct ReasoningSegmentsTests {
     }
 
     @Test @MainActor
-    func doneFinalizesAndCachesTypedSegments() throws {
+    func doneFinalizesAndCachesSegments() throws {
         let store = makeStreamingStore()
-        store.handle(.thinking(sessionId: "session-1", text: "Reasoning", segmentId: "reasoning-1"))
-        store.handle(.thinking(sessionId: "session-1", text: "", segmentId: "reasoning-2"))
+        store.handle(.thinking(sessionId: "session-1", blockId: "reasoning-1", segments: [
+            ReasoningSegment(id: "reasoning-1:0", headline: "Reasoning", body: nil),
+        ]))
 
         store.handle(.done(
             sessionId: "session-1",
@@ -201,9 +147,8 @@ struct ReasoningSegmentsTests {
 
         let message = try #require(store.messages.last)
         let segments = try #require(message.reasoningSegments)
-        #expect(segments.map(\.id) == ["reasoning-1", "reasoning-2"])
-        #expect(segments[1].content == nil)
-        #expect(message.thinkingContent == nil)
+        #expect(segments.map(\.id) == ["reasoning-1:0"])
+        #expect(segments[0].headline == "Reasoning")
         #expect(store.cachedMessages(for: "session-1")?.last?.reasoningSegments == segments)
         #expect(store.sessionStreams["session-1"] == nil)
     }

@@ -1,30 +1,22 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { ReactNode } from "react";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { ThinkingBlock } from "@/components/chat/ThinkingBlock";
 
-vi.mock("@/components/ai-elements/message", () => ({
-  MessageResponse: ({ children }: { children: ReactNode }) => <div>{children}</div>,
-}));
-
 describe("ThinkingBlock", () => {
-  it("renders typed phases in one accessible disclosure and drops redacted ones", async () => {
+  it("renders parsed thoughts in one accessible disclosure", async () => {
     const user = userEvent.setup();
     render(
       <ThinkingBlock
         segments={[
-          { id: "visible-1", content: "Inspecting the repository" },
-          { id: "hidden-1" },
-          { id: "visible-2", content: "Checking the tests" },
+          { id: "t-1", headline: "Inspecting the repository" },
+          { id: "t-2", body: "Checking the tests" },
         ]}
       />,
     );
 
     const trigger = screen.getByRole("button", { name: /Reasoning/ });
     expect(trigger).toHaveAttribute("aria-expanded", "false");
-    expect(trigger).not.toHaveTextContent("phase");
-    expect(trigger).not.toHaveTextContent("hidden");
     expect(screen.queryByText("Inspecting the repository")).not.toBeInTheDocument();
 
     await user.click(trigger);
@@ -37,56 +29,35 @@ describe("ThinkingBlock", () => {
     );
   });
 
-  it("uses legacy content only when typed segments are absent", async () => {
+  it("renders a headline and its body on the same line", async () => {
     const user = userEvent.setup();
-    const { rerender } = render(<ThinkingBlock legacyContent="Legacy reasoning" />);
-
-    await user.click(screen.getByRole("button", { name: /Reasoning/ }));
-    expect(screen.getByText("Legacy reasoning")).toBeInTheDocument();
-
-    rerender(
+    render(
       <ThinkingBlock
-        segments={[{ id: "typed", content: "Typed reasoning" }]}
-        legacyContent="Legacy reasoning"
+        segments={[{ id: "t-1", headline: "Verifying branch", body: "Checking the diff is current" }]}
       />,
     );
 
-    expect(screen.getByText("Typed reasoning")).toBeInTheDocument();
-    expect(screen.queryByText("Legacy reasoning")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /Reasoning/ }));
+
+    expect(screen.getByText("Verifying branch")).toBeInTheDocument();
+    expect(screen.getByText("Checking the diff is current")).toBeInTheDocument();
   });
 
-  it("hides contentless thinking phases entirely", async () => {
-    const user = userEvent.setup();
+  it("drops thoughts with neither headline nor body, and renders nothing when all are empty", () => {
     const { container, rerender } = render(
-      <ThinkingBlock
-        segments={[
-          { id: "missing" },
-          { id: "empty", content: "" },
-        ]}
-      />,
+      <ThinkingBlock segments={[{ id: "empty-1" }, { id: "empty-2" }]} />,
     );
 
     expect(container).toBeEmptyDOMElement();
 
-    rerender(
-      <ThinkingBlock
-        segments={[
-          { id: "missing" },
-          { id: "visible", content: "Real thought" },
-        ]}
-      />,
-    );
-
-    await user.click(screen.getByRole("button", { name: /Reasoning/ }));
-
-    expect(screen.getByText("Real thought")).toBeInTheDocument();
-    expect(screen.queryByText("Reasoning content unavailable")).not.toBeInTheDocument();
+    rerender(<ThinkingBlock segments={[{ id: "empty-1" }, { id: "real", headline: "Real thought" }]} />);
+    expect(screen.getByRole("button", { name: /Reasoning/ })).toBeInTheDocument();
   });
 
   it("stays collapsed and labels the header 'Reasoning…' while streaming", () => {
     render(
       <ThinkingBlock
-        segments={[{ id: "streaming", content: "A long in-progress thought" }]}
+        segments={[{ id: "s", headline: "A long in-progress thought" }]}
         streaming
       />,
     );
@@ -99,15 +70,10 @@ describe("ThinkingBlock", () => {
   });
 
   it("shows a bare 'Reasoning' label at rest", () => {
-    render(
-      <ThinkingBlock
-        segments={[{ id: "visible-1", content: "Only thinking here" }]}
-      />,
-    );
+    render(<ThinkingBlock segments={[{ id: "t-1", headline: "Only thinking here" }]} />);
 
     const trigger = screen.getByRole("button", { name: /Reasoning/ });
     expect(trigger).toHaveTextContent("Reasoning");
     expect(trigger).not.toHaveTextContent("Reasoning…");
-    expect(trigger).not.toHaveTextContent("phase");
   });
 });

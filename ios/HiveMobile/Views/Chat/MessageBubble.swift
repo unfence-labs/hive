@@ -706,17 +706,13 @@ private struct ReasoningDisclosure: View {
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("Reasoning")
             .accessibilityValue(isExpanded ? "expanded" : "collapsed")
-            .accessibilityHint(isExpanded ? "Collapses the reasoning phases." : "Expands the reasoning phases.")
+            .accessibilityHint(isExpanded ? "Collapses the reasoning." : "Expands the reasoning.")
 
             if isExpanded {
                 ToolContentPanel {
-                    VStack(alignment: .leading, spacing: 0) {
-                        ForEach(Array(segments.enumerated()), id: \.element.id) { index, segment in
-                            ReasoningPhaseContent(segment: segment, phase: index + 1)
-                            if index < segments.count - 1 {
-                                Divider()
-                                    .overlay(WhisperColor.separator)
-                            }
+                    VStack(alignment: .leading, spacing: 3) {
+                        ForEach(segments) { thought in
+                            ReasoningThoughtRow(thought: thought)
                         }
                     }
                 }
@@ -725,33 +721,36 @@ private struct ReasoningDisclosure: View {
     }
 }
 
-/// Render reasoning content as inline markdown so Codex summary headlines
-/// (`**headline**`) and emphasis match the web renderer, while the base mono
-/// font keeps the compact "raw reasoning" look. Inline-only parsing preserves
-/// the paragraph whitespace between summary parts.
-private func reasoningMarkdown(_ text: String) -> AttributedString {
-    (try? AttributedString(
-        markdown: text,
-        options: AttributedString.MarkdownParsingOptions(
-            interpretedSyntax: .inlineOnlyPreservingWhitespace
-        )
-    )) ?? AttributedString(text)
-}
+/// One compact log line: a discreet middot marker, the headline in the primary
+/// text color, and the body dimmed. Mirrors the web compact reasoning view.
+private struct ReasoningThoughtRow: View {
+    let thought: ReasoningSegment
 
-private struct ReasoningPhaseContent: View {
-    let segment: ReasoningSegment
-    let phase: Int
+    private var line: Text {
+        var result = Text("")
+        if let headline = thought.headline {
+            result = result + Text(headline).foregroundColor(WhisperColor.text)
+        }
+        if thought.headline != nil, thought.body != nil {
+            result = result + Text(" — ").foregroundColor(WhisperColor.textMuted)
+        }
+        if let body = thought.body {
+            result = result + Text(body).foregroundColor(WhisperColor.textSecondary)
+        }
+        return result
+    }
 
     var body: some View {
-        Text(reasoningMarkdown(segment.content ?? ""))
-            .font(WhisperFont.mono(11))
-            .foregroundStyle(WhisperColor.textSecondary)
-            .lineSpacing(2)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .textSelection(.enabled)
-            .padding(.vertical, 8)
-            .accessibilityElement(children: .combine)
-            .accessibilityLabel("Reasoning phase \(phase)")
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text("·")
+                .foregroundStyle(WhisperColor.textMuted)
+            line
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .textSelection(.enabled)
+        }
+        .font(WhisperFont.mono(11))
+        .lineSpacing(2)
+        .accessibilityElement(children: .combine)
     }
 }
 
@@ -1195,7 +1194,7 @@ extension Theme {
                 content: "Can you fix the login bug in #auth.ts? Ask @claude-code if needed",
                 images: nil,
                 fileMentions: [FileMention(displayName: "auth.ts", relativePath: "src/utils/auth.ts")],
-                toolCalls: nil, thinkingContent: nil,
+                toolCalls: nil,
                 timestamp: "2026-02-17T12:00:00.000Z", cancelled: nil, durationMs: nil
             ))
             MessageBubble(message: ChatMessage(
@@ -1228,13 +1227,17 @@ extension Theme {
                     ToolCall(id: "t3", name: "Bash", input: "{\"command\":\"swift build\"}", output: "Build complete! (0.45s)", parentToolUseId: nil),
                     ToolCall(id: "t4", name: "Grep", input: "{\"pattern\":\"loginError\",\"path\":\"/src/auth.swift\"}", output: "src/auth.swift:42: case loginError\nsrc/auth.swift:88: throw loginError", parentToolUseId: nil),
                 ],
-                thinkingContent: "The user wants me to fix a login bug. Let me look at the auth module.",
+                reasoningSegments: [ReasoningSegment(
+                    id: "r1",
+                    headline: "Locating the login bug",
+                    body: "The user wants me to fix a login bug. Let me look at the auth module."
+                )],
                 timestamp: "2026-02-17T12:00:05.000Z", cancelled: nil, durationMs: 3200
             ))
             MessageBubble(message: ChatMessage(
                 id: "3", sessionId: "s1", role: .assistant,
                 content: "This was cancelled midway.",
-                images: nil, toolCalls: nil, thinkingContent: nil,
+                images: nil, toolCalls: nil,
                 timestamp: "2026-02-17T12:01:00.000Z", cancelled: true, durationMs: 1500
             ))
         }

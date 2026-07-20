@@ -14,7 +14,6 @@ struct ConversationStoreSessionTests {
                 content: "Hello",
                 images: nil,
                 toolCalls: nil,
-                thinkingContent: nil,
                 timestamp: "2026-01-01T00:00:00.000Z",
                 cancelled: nil,
                 durationMs: nil
@@ -66,7 +65,6 @@ struct ConversationStoreSessionTests {
                 content: "Hello",
                 images: nil,
                 toolCalls: nil,
-                thinkingContent: nil,
                 timestamp: "2026-01-01T00:00:00.000Z",
                 cancelled: nil,
                 durationMs: nil
@@ -111,7 +109,6 @@ struct ConversationStoreSessionTests {
                 content: "Hello",
                 images: nil,
                 toolCalls: nil,
-                thinkingContent: nil,
                 timestamp: "2026-01-01T00:00:00.000Z",
                 cancelled: nil,
                 durationMs: nil
@@ -145,7 +142,6 @@ struct ConversationStoreSessionTests {
                 content: "Hello",
                 images: nil,
                 toolCalls: nil,
-                thinkingContent: nil,
                 timestamp: "2026-01-01T00:00:00.000Z",
                 cancelled: nil,
                 durationMs: nil
@@ -209,13 +205,14 @@ struct ConversationStoreSessionTests {
             lockedProvider: nil
         ))
         store.handle(.textDelta(sessionId: "session-1", text: "Before "))
-        store.handle(.thinking(sessionId: "session-1", text: "old thinking"))
+        store.handle(.thinking(sessionId: "session-1", blockId: "old", segments: [
+            ReasoningSegment(id: "old:0", headline: nil, body: "old thinking"),
+        ]))
         store.flushStreamingDeltas()
 
         store.handle(.streamSnapshot(
             sessionId: "session-1",
             text: "Before after",
-            thinking: "Canonical thinking",
             toolCalls: [
                 ToolCall(
                     id: "tool-1",
@@ -232,12 +229,13 @@ struct ConversationStoreSessionTests {
                 ))
             ],
             agentPlanMode: true,
-            streamingStartedAt: 1_700_000_002_000.0
+            streamingStartedAt: 1_700_000_002_000.0,
+            reasoningSegments: [ReasoningSegment(id: "canonical:0", headline: "Canonical thinking", body: nil)]
         ))
 
         #expect(store.isStreaming == true)
         #expect(store.currentText == "Before after")
-        #expect(store.currentThinking == "Canonical thinking")
+        #expect(store.reasoningSegments.map(\.headline) == ["Canonical thinking"])
         #expect(store.activeToolCalls.first?.id == "tool-1")
         #expect(store.activeToolCalls.first?.output == "file contents")
         #expect(store.activeAgentActivities.count == 1)
@@ -251,7 +249,6 @@ struct ConversationStoreSessionTests {
           "type": "stream_snapshot",
           "sessionId": "session-1",
           "text": "Hello",
-          "thinking": "Reasoning",
           "toolCalls": [
             { "id": "tool-1", "name": "Read", "input": "{}", "output": "done" }
           ],
@@ -269,7 +266,7 @@ struct ConversationStoreSessionTests {
 
         let event = try JSONDecoder().decode(WsOutgoing.self, from: json)
 
-        guard case .streamSnapshot(let sessionId, let text, let thinking, let toolCalls,
+        guard case .streamSnapshot(let sessionId, let text, let toolCalls,
                                    let activities, let agentPlanMode, let startedAt,
                                    let reasoningSegments) = event else {
             Issue.record("Expected stream snapshot")
@@ -277,7 +274,6 @@ struct ConversationStoreSessionTests {
         }
         #expect(sessionId == "session-1")
         #expect(text == "Hello")
-        #expect(thinking == "Reasoning")
         #expect(toolCalls.first?.output == "done")
         #expect(activities.count == 1)
         #expect(agentPlanMode == true)
@@ -293,7 +289,6 @@ struct ConversationStoreSessionTests {
         store.handle(.streamSnapshot(
             sessionId: "session-1",
             text: "Recovered mid-turn",
-            thinking: "",
             toolCalls: [],
             agentActivities: [],
             agentPlanMode: false,
@@ -318,7 +313,6 @@ struct ConversationStoreSessionTests {
         store.handle(.streamSnapshot(
             sessionId: "session-B",
             text: "Background streaming",
-            thinking: "",
             toolCalls: [],
             agentActivities: [],
             agentPlanMode: false,
@@ -353,17 +347,17 @@ struct ConversationStoreSessionTests {
         store.handle(.streamSnapshot(
             sessionId: "session-B",
             text: "partial delta and more",
-            thinking: "Reasoning",
             toolCalls: [
                 ToolCall(id: "tool-1", name: "Read", input: "{}", output: "ok", parentToolUseId: nil)
             ],
             agentActivities: [],
             agentPlanMode: false,
-            streamingStartedAt: 1_700_000_002_000.0
+            streamingStartedAt: 1_700_000_002_000.0,
+            reasoningSegments: [ReasoningSegment(id: "r:0", headline: "Reasoning", body: nil)]
         ))
 
         #expect(store.currentText == "partial delta and more")
-        #expect(store.currentThinking == "Reasoning")
+        #expect(store.reasoningSegments.map(\.headline) == ["Reasoning"])
         #expect(store.activeToolCalls.first?.output == "ok")
         #expect(store.isStreaming == true)
     }
@@ -410,7 +404,6 @@ struct ConversationStoreSessionTests {
         store.handle(.streamSnapshot(
             sessionId: "session-1",
             text: "In progress before reconnect, now continued",
-            thinking: "",
             toolCalls: [
                 ToolCall(id: "tool-1", name: "Read", input: "{}", output: "ok", parentToolUseId: nil)
             ],
@@ -463,7 +456,6 @@ struct ConversationStoreSessionTests {
                 content: "Question",
                 images: nil,
                 toolCalls: nil,
-                thinkingContent: nil,
                 timestamp: "2026-01-01T00:00:00.000Z",
                 cancelled: nil,
                 durationMs: nil
@@ -475,7 +467,6 @@ struct ConversationStoreSessionTests {
                 content: "Half-finished answer, now complete",
                 images: nil,
                 toolCalls: nil,
-                thinkingContent: nil,
                 timestamp: "2026-01-01T00:00:01.000Z",
                 cancelled: nil,
                 durationMs: nil
@@ -519,7 +510,6 @@ struct ConversationStoreSessionTests {
                 toolCalls: [
                     ToolCall(id: "ask-1", name: "AskUserQuestion", input: "{}", output: nil, parentToolUseId: nil)
                 ],
-                thinkingContent: nil,
                 timestamp: "2026-01-01T00:00:01.000Z",
                 cancelled: nil,
                 durationMs: nil
@@ -558,7 +548,6 @@ struct ConversationStoreSessionTests {
                 content: "Earlier turn",
                 images: nil,
                 toolCalls: nil,
-                thinkingContent: nil,
                 timestamp: "2026-01-01T00:00:00.000Z",
                 cancelled: nil,
                 durationMs: nil
@@ -585,7 +574,6 @@ struct ConversationStoreSessionTests {
                 content: "Hello from A",
                 images: nil,
                 toolCalls: nil,
-                thinkingContent: nil,
                 timestamp: "2026-01-01T00:00:00.000Z",
                 cancelled: nil,
                 durationMs: nil
@@ -620,7 +608,6 @@ struct ConversationStoreSessionTests {
                 content: "Hello",
                 images: nil,
                 toolCalls: nil,
-                thinkingContent: nil,
                 timestamp: "2026-01-01T00:00:00.000Z",
                 cancelled: nil,
                 durationMs: nil
@@ -646,7 +633,6 @@ struct ConversationStoreSessionTests {
             content: "New question",
             images: nil,
             toolCalls: nil,
-            thinkingContent: nil,
             timestamp: "2026-01-01T00:00:00.000Z",
             cancelled: nil,
             durationMs: nil
@@ -852,7 +838,6 @@ struct ConversationStoreSessionTests {
                 content: "Hello",
                 images: nil,
                 toolCalls: nil,
-                thinkingContent: nil,
                 timestamp: "2026-01-01T00:00:00.000Z",
                 cancelled: nil,
                 durationMs: nil

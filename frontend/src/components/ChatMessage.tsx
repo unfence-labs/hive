@@ -79,7 +79,6 @@ const ChatMessage = memo(function ChatMessage({
     const hasAssistantContent = Boolean(
       message.content ||
       message.reasoningSegments?.length ||
-      message.thinkingContent ||
       message.toolCalls?.length ||
       inlineAgentActivities.length ||
       message.cancelled,
@@ -139,10 +138,7 @@ const ChatMessage = memo(function ChatMessage({
         </div>
       ) : (
         <div className="max-w-[85%] text-sm leading-relaxed text-foreground">
-          <ThinkingBlock
-            segments={message.reasoningSegments}
-            legacyContent={message.thinkingContent}
-          />
+          <ThinkingBlock segments={message.reasoningSegments} />
           {message.content && (
             <div className="prose-sm" data-find-content="">
               <MessageResponse>{message.content}</MessageResponse>

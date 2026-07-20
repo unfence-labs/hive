@@ -27,7 +27,6 @@ function baseProps(overrides: Partial<ConversationPaneProps> = {}): Conversation
     onDeleteSession: vi.fn(),
     messages: [],
     currentStreamingText: "",
-    currentThinking: "",
     currentReasoningSegments: [],
     activeToolCalls: [],
     activeAgentActivities: [],

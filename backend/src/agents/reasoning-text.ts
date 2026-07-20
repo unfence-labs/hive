@@ -17,11 +17,6 @@ export function stripReasoningSeparators(text: string): string {
   return text.replace(SEPARATOR, "\n\n");
 }
 
-/** Normalize finalized reasoning content: strip separators, trim the tail. */
-export function cleanReasoningText(text: string): string {
-  return stripReasoningSeparators(text).trimEnd();
-}
-
 /**
  * Split streamed reasoning text into an emittable head and a tail to hold
  * back until the next delta disambiguates it (a partial separator completes

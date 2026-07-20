@@ -7,7 +7,7 @@ struct MessageClipboardTextTests {
         ChatMessage(
             id: "m1", sessionId: "s1", role: .assistant,
             content: content,
-            images: nil, toolCalls: nil, thinkingContent: nil,
+            images: nil, toolCalls: nil,
             timestamp: "2026-07-06T12:00:00.000Z", cancelled: nil, durationMs: nil
         )
     }

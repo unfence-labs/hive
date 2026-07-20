@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import {
-  cleanReasoningText,
   splitPendingSeparatorTail,
   stripReasoningSeparators,
 } from "./reasoning-text.js";
@@ -10,13 +9,6 @@ describe("stripReasoningSeparators", () => {
     expect(stripReasoningSeparators("**First**\n\n<!-- -->\n\nSecond")).toBe("**First**\n\nSecond");
     expect(stripReasoningSeparators("a <!-- --> b")).toBe("a\n\nb");
     expect(stripReasoningSeparators("no marker")).toBe("no marker");
-  });
-});
-
-describe("cleanReasoningText", () => {
-  it("strips separators and trailing whitespace", () => {
-    expect(cleanReasoningText("**Headline**\n\n<!-- -->")).toBe("**Headline**");
-    expect(cleanReasoningText("<!-- -->")).toBe("");
   });
 });
 

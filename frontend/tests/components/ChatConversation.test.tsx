@@ -74,14 +74,12 @@ vi.mock("@/components/ai-elements/message", () => ({
 vi.mock("@/components/chat/ThinkingBlock", () => ({
   ThinkingBlock: ({
     segments = [],
-    legacyContent,
     streaming,
   }: {
     segments?: ChatMessage["reasoningSegments"];
-    legacyContent?: string;
     streaming?: boolean;
-  }) => segments.length > 0 || legacyContent
-    ? <div data-testid="thinking-block" data-streaming={String(Boolean(streaming))}>{segments.map((segment) => segment.content).join("") || legacyContent}</div>
+  }) => segments.length > 0
+    ? <div data-testid="thinking-block" data-streaming={String(Boolean(streaming))}>{segments.map((segment) => segment.headline ?? segment.body).join("")}</div>
     : null,
 }));
 
@@ -94,7 +92,6 @@ const baseConversationProps: ComponentProps<typeof ChatConversation> = {
   isStreaming: false,
   streamingStartedAt: null,
   currentStreamingText: "",
-  currentThinking: "",
   currentReasoningSegments: [],
   activeToolCalls: [],
   activeAgentActivities: [],
@@ -115,22 +112,13 @@ describe("ChatConversation live reasoning", () => {
     renderConversation({
       isStreaming: true,
       currentReasoningSegments: [
-        { id: "reasoning-1", content: "Inspecting files" },
+        { id: "reasoning-1", headline: "Inspecting files" },
         { id: "hidden-1" },
       ],
     });
 
     expect(screen.getByTestId("thinking-block")).toHaveTextContent("Inspecting files");
     expect(screen.getByTestId("thinking-block")).toHaveAttribute("data-streaming", "true");
-  });
-
-  it("keeps the legacy live thinking path as a fallback", () => {
-    renderConversation({
-      isStreaming: true,
-      currentThinking: "Legacy thought",
-    });
-
-    expect(screen.getByTestId("thinking-block")).toHaveTextContent("Legacy thought");
   });
 });
 

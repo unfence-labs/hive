@@ -59,7 +59,6 @@ export interface ConversationPaneProps {
   isHistoryError?: boolean;
   streamingStartedAt?: number | null;
   currentStreamingText: string;
-  currentThinking: string;
   currentReasoningSegments: ReasoningSegment[];
   activeToolCalls: ToolCall[];
   activeAgentActivities: AgentActivity[];
@@ -127,7 +126,6 @@ export function ConversationPane({
   isHistoryError,
   streamingStartedAt,
   currentStreamingText,
-  currentThinking,
   currentReasoningSegments,
   activeToolCalls,
   activeAgentActivities,
@@ -195,7 +193,6 @@ export function ConversationPane({
               isStreaming={isStreaming}
               streamingStartedAt={streamingStartedAt}
               currentStreamingText={currentStreamingText}
-              currentThinking={currentThinking}
               currentReasoningSegments={currentReasoningSegments}
               activeToolCalls={activeToolCalls}
               activeAgentActivities={activeAgentActivities}

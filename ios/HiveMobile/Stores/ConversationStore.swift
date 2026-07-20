@@ -6,7 +6,6 @@ import Observation
 @Observable
 final class SessionStreamState {
     var currentText = ""
-    var currentThinking = ""
     var reasoningSegments: [ReasoningSegment] = []
     var activeToolCalls: [ToolCall] = []
     var activeAgentActivities: [AgentActivity] = []
@@ -89,8 +88,9 @@ final class ConversationStore {
 
     private let streamFlushInterval: TimeInterval?
     @ObservationIgnored private var pendingTextBySession: [String: String] = [:]
-    @ObservationIgnored private var pendingThinkingBySession: [String: String] = [:]
-    @ObservationIgnored private var pendingReasoningBySession: [String: [ReasoningSegment]] = [:]
+    // Latest parsed thoughts per reasoning block, coalesced while buffered so a
+    // flush applies one merge per block regardless of how many deltas arrived.
+    @ObservationIgnored private var pendingReasoningBySession: [String: [(blockId: String, segments: [ReasoningSegment])]] = [:]
     @ObservationIgnored private var flushTask: Task<Void, Never>?
 
     /// `nil` disables the scheduled auto-flush (tests flush manually).
@@ -113,7 +113,6 @@ final class ConversationStore {
     var isStreaming: Bool { activeStream?.isStreaming ?? false }
     var streamingStartedAt: Date? { activeStream?.streamingStartedAt }
     var currentText: String { activeStream?.currentText ?? "" }
-    var currentThinking: String { activeStream?.currentThinking ?? "" }
     var reasoningSegments: [ReasoningSegment] { activeStream?.reasoningSegments ?? [] }
     var activeToolCalls: [ToolCall] { activeStream?.activeToolCalls ?? [] }
     var activeAgentActivities: [AgentActivity] { activeStream?.activeAgentActivities ?? [] }
@@ -179,22 +178,36 @@ final class ConversationStore {
     func flushStreamingDeltas() {
         flushTask?.cancel()
         flushTask = nil
-        guard !pendingTextBySession.isEmpty || !pendingThinkingBySession.isEmpty
-            || !pendingReasoningBySession.isEmpty else { return }
+        guard !pendingTextBySession.isEmpty || !pendingReasoningBySession.isEmpty else { return }
         for (sid, text) in pendingTextBySession {
             sessionStreams[sid]?.currentText += text
         }
-        for (sid, text) in pendingThinkingBySession {
-            sessionStreams[sid]?.currentThinking += text
-        }
-        for (sid, segments) in pendingReasoningBySession {
-            for segment in segments {
-                upsertReasoningSegment(segment, for: sid)
+        // The backend sends the parsed thoughts for one block per update;
+        // apply the buffered latest state of each block in arrival order.
+        for (sid, blocks) in pendingReasoningBySession {
+            guard let stream = sessionStreams[sid] else { continue }
+            for block in blocks {
+                stream.reasoningSegments = Self.mergeReasoningBlock(
+                    stream.reasoningSegments, blockId: block.blockId, segments: block.segments
+                )
             }
         }
         pendingTextBySession = [:]
-        pendingThinkingBySession = [:]
         pendingReasoningBySession = [:]
+    }
+
+    /// Replace the contiguous run of segments belonging to a reasoning block
+    /// (segment ids are `blockId:index`), or append when the block is new.
+    static func mergeReasoningBlock(
+        _ existing: [ReasoningSegment], blockId: String, segments: [ReasoningSegment]
+    ) -> [ReasoningSegment] {
+        let prefix = "\(blockId):"
+        guard let start = existing.firstIndex(where: { $0.id.hasPrefix(prefix) }) else {
+            return segments.isEmpty ? existing : existing + segments
+        }
+        var end = start
+        while end < existing.count, existing[end].id.hasPrefix(prefix) { end += 1 }
+        return Array(existing[..<start]) + segments + Array(existing[end...])
     }
 
     private func scheduleStreamFlush() {
@@ -220,18 +233,15 @@ final class ConversationStore {
             pendingTextBySession[sid, default: ""] += text
             scheduleStreamFlush()
 
-        case .thinking(let sid, let text, let segmentId):
+        case .thinking(let sid, let blockId, let segments):
             guard sessionStreams[sid] != nil else { return }
-            if let segmentId {
-                var pending = pendingReasoningBySession[sid] ?? []
-                mergeReasoningSegment(ReasoningSegment(
-                    id: segmentId,
-                    content: text.isEmpty ? nil : text
-                ), into: &pending)
-                pendingReasoningBySession[sid] = pending
+            var pending = pendingReasoningBySession[sid] ?? []
+            if let idx = pending.firstIndex(where: { $0.blockId == blockId }) {
+                pending[idx].segments = segments
             } else {
-                pendingThinkingBySession[sid, default: ""] += text
+                pending.append((blockId: blockId, segments: segments))
             }
+            pendingReasoningBySession[sid] = pending
             scheduleStreamFlush()
 
         case .toolUse(let sid, let id, let name, let input, let parentToolUseId):
@@ -259,15 +269,13 @@ final class ConversationStore {
         case .agentActivity(let sid, let activity):
             upsertAgentActivity(activity, for: sid)
 
-        case .streamSnapshot(let sid, let text, let thinking, let toolCalls,
+        case .streamSnapshot(let sid, let text, let toolCalls,
                              let agentActivities, let agentPlanMode, let startedAt,
                              let reasoningSegments):
             pendingTextBySession.removeValue(forKey: sid)
-            pendingThinkingBySession.removeValue(forKey: sid)
             pendingReasoningBySession.removeValue(forKey: sid)
             let stream = sessionStreams[sid] ?? SessionStreamState()
             stream.currentText = text
-            stream.currentThinking = thinking
             stream.reasoningSegments = reasoningSegments
             stream.activeToolCalls = toolCalls
             stream.activeAgentActivities = agentActivities
@@ -330,7 +338,7 @@ final class ConversationStore {
                 id: UUID().uuidString, sessionId: "", role: .assistant,
                 content: "Error: \(message)", images: nil, toolCalls: nil,
                 agentActivities: nil,
-                thinkingContent: nil, timestamp: Self.outgoingTimestampFormatter.string(from: Date()),
+                timestamp: Self.outgoingTimestampFormatter.string(from: Date()),
                 cancelled: nil, durationMs: nil
             ))
 
@@ -357,7 +365,7 @@ final class ConversationStore {
                 } else if let stream = sessionStreams[sid] {
                     let wasStreaming = stream.isStreaming
                     // Session stopped streaming. Clean up if no content.
-                    if stream.currentText.isEmpty && stream.currentThinking.isEmpty
+                    if stream.currentText.isEmpty
                         && stream.reasoningSegments.isEmpty
                         && stream.activeToolCalls.isEmpty && stream.activeAgentActivities.isEmpty
                         && stream.pendingToolInputs.isEmpty {
@@ -397,10 +405,8 @@ final class ConversationStore {
             sessionId = sessionId ?? sid
             ensureStream(for: sid)
             pendingTextBySession.removeValue(forKey: sid)
-            pendingThinkingBySession.removeValue(forKey: sid)
             pendingReasoningBySession.removeValue(forKey: sid)
             sessionStreams[sid]?.currentText = ""
-            sessionStreams[sid]?.currentThinking = ""
             sessionStreams[sid]?.reasoningSegments = []
             sessionStreams[sid]?.activeToolCalls = []
             sessionStreams[sid]?.activeAgentActivities = []
@@ -607,7 +613,7 @@ final class ConversationStore {
         let localId = "local-\(UUID().uuidString)"
         let message = ChatMessage(
             id: localId, sessionId: sid, role: .user, content: content,
-            images: images, fileMentions: fileMentions, toolCalls: nil, thinkingContent: nil,
+            images: images, fileMentions: fileMentions, toolCalls: nil,
             timestamp: Self.timestamp(), cancelled: nil, durationMs: nil
         )
         userSendStates[localId] = .sending
@@ -719,7 +725,6 @@ final class ConversationStore {
     func removeSessionState(_ removedSessionId: String, fallbackSessionId: String?) {
         sessionStreams.removeValue(forKey: removedSessionId)
         pendingTextBySession.removeValue(forKey: removedSessionId)
-        pendingThinkingBySession.removeValue(forKey: removedSessionId)
         pendingReasoningBySession.removeValue(forKey: removedSessionId)
         historyTokenBySession.removeValue(forKey: removedSessionId)
         historyLoadFailedSessionIds.remove(removedSessionId)
@@ -815,23 +820,6 @@ final class ConversationStore {
         }
     }
 
-    private func upsertReasoningSegment(_ delta: ReasoningSegment, for sid: String) {
-        guard let stream = sessionStreams[sid] else { return }
-        mergeReasoningSegment(delta, into: &stream.reasoningSegments)
-    }
-
-    private func mergeReasoningSegment(_ delta: ReasoningSegment, into segments: inout [ReasoningSegment]) {
-        if let index = segments.firstIndex(where: { $0.id == delta.id }) {
-            let existing = segments[index]
-            segments[index] = ReasoningSegment(
-                id: delta.id,
-                content: (existing.content ?? "") + (delta.content ?? "")
-            )
-        } else {
-            segments.append(delta)
-        }
-    }
-
     private func hasTerminalAssistantMessage(for sid: String) -> Bool {
         for message in messages.reversed() {
             if !message.sessionId.isEmpty && message.sessionId != sid {
@@ -850,7 +838,7 @@ final class ConversationStore {
 
         let isActive = sid == sessionId
         let hasContent = !stream.currentText.isEmpty || !stream.activeToolCalls.isEmpty
-            || !stream.activeAgentActivities.isEmpty || !stream.currentThinking.isEmpty
+            || !stream.activeAgentActivities.isEmpty
             || !stream.reasoningSegments.isEmpty
 
         // Remove the stream slot before appending the finalized message so the
@@ -874,7 +862,6 @@ final class ConversationStore {
                     images: nil,
                     toolCalls: stream.activeToolCalls.isEmpty ? nil : stream.activeToolCalls,
                     agentActivities: stream.activeAgentActivities.isEmpty ? nil : stream.activeAgentActivities,
-                    thinkingContent: stream.currentThinking.isEmpty ? nil : stream.currentThinking,
                     reasoningSegments: stream.reasoningSegments.isEmpty ? nil : stream.reasoningSegments,
                     timestamp: Self.outgoingTimestampFormatter.string(from: Date()),
                     cancelled: cancelled ? true : nil,
@@ -892,7 +879,7 @@ final class ConversationStore {
                     sessionId: sid,
                     role: .assistant,
                     content: "",
-                    images: nil, toolCalls: nil, thinkingContent: nil,
+                    images: nil, toolCalls: nil,
                     timestamp: Self.outgoingTimestampFormatter.string(from: Date()),
                     cancelled: true, errorDetail: errorDetail,
                     durationMs: nil

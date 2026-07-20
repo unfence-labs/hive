@@ -96,7 +96,6 @@ struct ConversationStoreAgentActivityTests {
             content: "hello",
             images: nil,
             toolCalls: nil,
-            thinkingContent: nil,
             timestamp: "2026-02-12T00:00:00.000Z",
             cancelled: nil,
             durationMs: nil
@@ -118,7 +117,9 @@ struct ConversationStoreAgentActivityTests {
         #expect(store.messages.last?.content == "Done")
 
         store.handle(.textDelta(sessionId: "session-1", text: " late text"))
-        store.handle(.thinking(sessionId: "session-1", text: "late thinking"))
+        store.handle(.thinking(sessionId: "session-1", blockId: "late", segments: [
+            ReasoningSegment(id: "late:0", headline: nil, body: "late thinking"),
+        ]))
         store.handle(.toolUse(
             sessionId: "session-1",
             id: "late-tool",
@@ -150,7 +151,7 @@ struct ConversationStoreAgentActivityTests {
 
         #expect(store.isStreaming == false)
         #expect(store.currentText.isEmpty)
-        #expect(store.currentThinking.isEmpty)
+        #expect(store.reasoningSegments.isEmpty)
         #expect(store.activeToolCalls.isEmpty)
         #expect(store.activeAgentActivities.isEmpty)
         #expect(store.pendingToolInputs.isEmpty)

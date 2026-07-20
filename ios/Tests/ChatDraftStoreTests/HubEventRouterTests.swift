@@ -181,7 +181,6 @@ struct HubEventRouterTests {
             event: .streamSnapshot(
                 sessionId: "s1",
                 text: "",
-                thinking: "",
                 toolCalls: [],
                 agentActivities: [],
                 agentPlanMode: false,

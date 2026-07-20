@@ -18,7 +18,6 @@ export interface PendingToolInput {
 
 interface SessionStreamState {
   currentText: string;
-  currentThinking: string;
   currentReasoningSegments: ReasoningSegment[];
   activeToolCalls: ToolCall[];
   activeAgentActivities: AgentActivity[];
@@ -30,7 +29,6 @@ interface SessionStreamState {
 
 const emptyStreamState: SessionStreamState = {
   currentText: "",
-  currentThinking: "",
   currentReasoningSegments: [],
   activeToolCalls: [],
   activeAgentActivities: [],
@@ -73,6 +71,21 @@ const initialState: ConversationState = {
   sessionId: undefined,
   switchCounter: 0,
 };
+
+// Replace the contiguous run of segments belonging to a reasoning block
+// (segment ids are `${blockId}:${index}`), or append when the block is new.
+function mergeReasoningBlock(
+  existing: ReasoningSegment[],
+  blockId: string,
+  segments: ReasoningSegment[],
+): ReasoningSegment[] {
+  const prefix = `${blockId}:`;
+  const start = existing.findIndex((segment) => segment.id.startsWith(prefix));
+  if (start === -1) return segments.length > 0 ? [...existing, ...segments] : existing;
+  let end = start;
+  while (end < existing.length && existing[end].id.startsWith(prefix)) end++;
+  return [...existing.slice(0, start), ...segments, ...existing.slice(end)];
+}
 
 function parseToolInput(input: string): unknown {
   try {
@@ -131,7 +144,6 @@ function lastMessageIsTerminalAssistant(messages: ChatMessage[], sid: string): b
 function streamHasRecoverableState(stream: SessionStreamState): boolean {
   return stream.isStreaming ||
     stream.currentText.length > 0 ||
-    stream.currentThinking.length > 0 ||
     stream.currentReasoningSegments.length > 0 ||
     stream.activeToolCalls.length > 0 ||
     stream.activeAgentActivities.length > 0 ||
@@ -140,7 +152,6 @@ function streamHasRecoverableState(stream: SessionStreamState): boolean {
 
 function streamHasVisibleState(stream: SessionStreamState): boolean {
   return stream.currentText.length > 0 ||
-    stream.currentThinking.length > 0 ||
     stream.currentReasoningSegments.length > 0 ||
     stream.activeToolCalls.length > 0 ||
     stream.activeAgentActivities.length > 0 ||
@@ -156,16 +167,15 @@ function buildFinalizedMessage(
   const hasOutput = stream.currentText.length > 0 || stream.activeToolCalls.length > 0;
   const toolCalls = stream.activeToolCalls.length > 0 ? stream.activeToolCalls : undefined;
   const agentActivities = stream.activeAgentActivities.length > 0 ? stream.activeAgentActivities : undefined;
-  const thinkingContent = stream.currentThinking || undefined;
   const reasoningSegments = stream.currentReasoningSegments.length > 0
     ? stream.currentReasoningSegments
     : undefined;
 
   if (msg.type === "cancelled") {
     const hasActivity = stream.activeAgentActivities.length > 0;
-    const hasThinking = stream.currentThinking.length > 0 || stream.currentReasoningSegments.length > 0;
+    const hasReasoning = stream.currentReasoningSegments.length > 0;
     // Ignore a stale cancelled with no accumulated data.
-    if (!stream.isStreaming && !hasOutput && !hasActivity && !hasThinking) return null;
+    if (!stream.isStreaming && !hasOutput && !hasActivity && !hasReasoning) return null;
     return {
       id: newMessageId(),
       sessionId: sid,
@@ -174,7 +184,6 @@ function buildFinalizedMessage(
       toolCalls,
       agentActivities,
       reasoningSegments,
-      thinkingContent,
       timestamp: new Date().toISOString(),
       cancelled: true,
     };
@@ -188,7 +197,6 @@ function buildFinalizedMessage(
     toolCalls,
     agentActivities,
     reasoningSegments,
-    thinkingContent,
     timestamp: new Date().toISOString(),
     durationMs: msg.durationMs,
     inputTokens: msg.inputTokens,
@@ -231,23 +239,6 @@ function upsertActivity(activities: AgentActivity[], activity: AgentActivity): A
   return activities.map((item, itemIndex) => itemIndex === index ? activity : item);
 }
 
-function appendReasoningDelta(
-  segments: ReasoningSegment[],
-  id: string,
-  text: string,
-): ReasoningSegment[] {
-  const index = segments.findIndex((segment) => segment.id === id);
-  if (index < 0) {
-    return [...segments, { id, content: text }];
-  }
-
-  return segments.map((segment, segmentIndex) =>
-    segmentIndex === index
-      ? { id, content: (segment.content ?? "") + text }
-      : segment,
-  );
-}
-
 function reducer(state: ConversationState, action: Action): ConversationState {
   switch (action.type) {
     case "user_message": {
@@ -264,7 +255,6 @@ function reducer(state: ConversationState, action: Action): ConversationState {
             isStreaming: true,
             streamingStartedAt: stream.streamingStartedAt ?? Date.now(),
             currentText: "",
-            currentThinking: "",
             currentReasoningSegments: [],
             activeToolCalls: [],
             activeAgentActivities: [],
@@ -289,16 +279,15 @@ function reducer(state: ConversationState, action: Action): ConversationState {
       if (!sid) return state;
       const stream = state.sessionStreams[sid];
       if (!stream) return state;
-      if (action.segmentId) {
-        return updateStream(state, sid, {
-          currentReasoningSegments: appendReasoningDelta(
-            stream.currentReasoningSegments,
-            action.segmentId,
-            action.text,
-          ),
-        });
-      }
-      return updateStream(state, sid, { currentThinking: stream.currentThinking + action.text });
+      // The backend parses reasoning into structured thoughts and sends the
+      // parsed list for the one block the delta touched; merge by block.
+      return updateStream(state, sid, {
+        currentReasoningSegments: mergeReasoningBlock(
+          stream.currentReasoningSegments,
+          action.blockId,
+          action.segments,
+        ),
+      });
     }
 
     case "tool_use": {
@@ -347,8 +336,7 @@ function reducer(state: ConversationState, action: Action): ConversationState {
           [sid]: {
             ...existing,
             currentText: action.text,
-            currentThinking: action.thinking,
-            currentReasoningSegments: action.reasoningSegments ?? [],
+            currentReasoningSegments: action.reasoningSegments,
             activeToolCalls: action.toolCalls,
             activeAgentActivities: action.agentActivities,
             isStreaming: true,
@@ -375,9 +363,9 @@ function reducer(state: ConversationState, action: Action): ConversationState {
       if (!stream) return state;
       const hasOutput = stream.currentText.length > 0 || stream.activeToolCalls.length > 0;
       const hasActivity = stream.activeAgentActivities.length > 0;
-      const hasThinking = stream.currentThinking.length > 0 || stream.currentReasoningSegments.length > 0;
+      const hasReasoning = stream.currentReasoningSegments.length > 0;
       // Ignore stale cancelled events when there's no stream data.
-      if (!stream.isStreaming && !hasOutput && !hasActivity && !hasThinking) return state;
+      if (!stream.isStreaming && !hasOutput && !hasActivity && !hasReasoning) return state;
       return { ...state, sessionStreams: deleteStream(state, sid) };
     }
 
@@ -411,7 +399,6 @@ function reducer(state: ConversationState, action: Action): ConversationState {
         } else if (stream) {
           if (
             !stream.currentText &&
-            !stream.currentThinking &&
             stream.currentReasoningSegments.length === 0 &&
             stream.activeToolCalls.length === 0 &&
             stream.activeAgentActivities.length === 0 &&
@@ -834,7 +821,6 @@ export function useConversation(workspaceId: string | undefined) {
     streamingStartedAt: activeStream?.streamingStartedAt ?? null,
     workspaceStatus: state.workspaceStatus,
     currentStreamingText: activeStream?.currentText ?? "",
-    currentThinking: activeStream?.currentThinking ?? "",
     currentReasoningSegments: activeStream?.currentReasoningSegments ?? [],
     activeToolCalls: activeStream?.activeToolCalls ?? [],
     activeAgentActivities: activeStream?.activeAgentActivities ?? [],

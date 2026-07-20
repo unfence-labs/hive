@@ -2862,12 +2862,12 @@ describe("ConversationSession", () => {
     expect(thinkingMsgs[0]).toEqual({
       type: "thinking",
       sessionId: "sess-thinking",
-      text: "Hmm, let me think...",
-      segmentId: "reasoning:msg-1:0",
+      blockId: "reasoning:msg-1:0",
+      segments: [{ id: "reasoning:msg-1:0:0", body: "Hmm, let me think..." }],
     });
   });
 
-  it("retains separate live reasoning phases and drops redacted blocks in snapshots", () => {
+  it("streams per-block parsed reasoning and drops redacted blocks", () => {
     const session = createSession({ sessionId: "reasoning-segments-live" });
     const messages: WsOutgoing[] = [];
     session.on("message", (msg) => messages.push(msg));
@@ -2884,25 +2884,18 @@ describe("ConversationSession", () => {
       { type: "thinking", thinking: "Check clients" },
     ]));
 
-    expect(messages.filter((msg) => msg.type === "thinking")).toEqual([
-      expect.objectContaining({
-        text: "Inspect ",
-        segmentId: "reasoning:reasoning-1:0",
-      }),
-      expect.objectContaining({
-        text: "state",
-        segmentId: "reasoning:reasoning-1:0",
-      }),
-      expect.objectContaining({
-        text: "Check clients",
-        segmentId: "reasoning:reasoning-2:0",
-      }),
+    const thinkingMsgs = messages.filter((msg) => msg.type === "thinking");
+    // Each delta re-emits only the parsed thoughts of the block it touched;
+    // clients merge by blockId.
+    expect(thinkingMsgs.map((msg) => msg.type === "thinking" ? [msg.blockId, msg.segments] : [])).toEqual([
+      ["reasoning:reasoning-1:0", [{ id: "reasoning:reasoning-1:0:0", body: "Inspect" }]],
+      ["reasoning:reasoning-1:0", [{ id: "reasoning:reasoning-1:0:0", body: "Inspect state" }]],
+      ["reasoning:reasoning-2:0", [{ id: "reasoning:reasoning-2:0:0", body: "Check clients" }]],
     ]);
     expect(session.getStreamingSnapshot()).toMatchObject({
-      thinking: "Inspect stateCheck clients",
       reasoningSegments: [
-        { id: "reasoning:reasoning-1:0", content: "Inspect state" },
-        { id: "reasoning:reasoning-2:0", content: "Check clients" },
+        { id: "reasoning:reasoning-1:0:0", body: "Inspect state" },
+        { id: "reasoning:reasoning-2:0:0", body: "Check clients" },
       ],
     });
   });
@@ -3803,15 +3796,18 @@ describe("ConversationSession", () => {
     const raw = await readFile(messagesPath, "utf-8");
     const lines = raw.split("\n").filter(Boolean);
     const assistantMsg = JSON.parse(lines[1]);
-    expect(assistantMsg.thinkingContent).toBe("Deep thought");
     expect(assistantMsg.reasoningSegments).toEqual([{
+      id: "reasoning:msg-1:0:0",
+      body: "Deep thought",
+    }]);
+    expect(assistantMsg.reasoningBlocks).toEqual([{
       id: "reasoning:msg-1:0",
-      content: "Deep thought",
+      text: "Deep thought",
     }]);
     expect(assistantMsg.content).toBe("The answer");
   });
 
-  it("persists multiple reasoning segments while preserving legacy thinking content", async () => {
+  it("persists multiple reasoning segments parsed into thoughts", async () => {
     const session = createSession({ sessionId: "reasoning-segments-persist" });
 
     session.sendMessage("Think in phases");
@@ -3834,10 +3830,9 @@ describe("ConversationSession", () => {
     const raw = await readFile(messagesPath, "utf-8");
     const lines = raw.split("\n").filter(Boolean);
     const assistantMsg = JSON.parse(lines[1]);
-    expect(assistantMsg.thinkingContent).toBe("First phaseSecond phase");
     expect(assistantMsg.reasoningSegments).toEqual([
-      { id: "reasoning:reasoning-1:0", content: "First phase" },
-      { id: "reasoning:reasoning-2:0", content: "Second phase" },
+      { id: "reasoning:reasoning-1:0:0", body: "First phase" },
+      { id: "reasoning:reasoning-2:0:0", body: "Second phase" },
     ]);
   });
 
@@ -3872,10 +3867,14 @@ describe("ConversationSession", () => {
     const lines = raw.split("\n").filter(Boolean);
     const assistantMsg = JSON.parse(lines[1]);
     expect(assistantMsg.reasoningSegments).toEqual([
-      { id: "reasoning:reasoning-1:0", content: "**First part**\n\nSecond part" },
-      { id: "reasoning:reasoning-2:0", content: "**Headline only**" },
+      { id: "reasoning:reasoning-1:0:0", headline: "First part", body: "Second part" },
+      { id: "reasoning:reasoning-2:0:0", headline: "Headline only" },
     ]);
-    expect(assistantMsg.thinkingContent).toBe("**First part**\n\nSecond part**Headline only**");
+    // The raw block text is persisted losslessly, separators included.
+    expect(assistantMsg.reasoningBlocks).toEqual([
+      { id: "reasoning:reasoning-1:0", text: "**First part**\n\n<!-- -->\n\nSecond part" },
+      { id: "reasoning:reasoning-2:0", text: "**Headline only**\n\n<!-- -->" },
+    ]);
   });
 
   it("persists tool calls in assistant message", async () => {

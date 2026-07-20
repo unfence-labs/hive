@@ -1794,33 +1794,7 @@ describe("useConversation", () => {
 
   // ── Additional coverage tests ───────────────────────────────────────
 
-  it("accumulates thinking content from multiple thinking events", async () => {
-    const { __wsMock } = await getWsMock();
-    const { result } = renderConversation("ws-1");
-
-    act(() => {
-      __wsMock.emit("ws-1", {
-        type: "user_message",
-        message: {
-          id: "u1",
-          sessionId: "sess-1",
-          role: "user",
-          content: "think",
-          timestamp: "2026-02-12T00:00:00.000Z",
-        },
-      });
-    });
-
-    act(() => {
-      __wsMock.emit("ws-1", { type: "thinking", text: "First " });
-      __wsMock.emit("ws-1", { type: "thinking", text: "second" });
-    });
-
-    expect(result.current.currentThinking).toBe("First second");
-    expect(result.current.currentReasoningSegments).toEqual([]);
-  });
-
-  it("upserts typed reasoning deltas by segment id", async () => {
+  it("merges live reasoning segments by block on each thinking event", async () => {
     const { __wsMock } = await getWsMock();
     const { result } = renderConversation("ws-1");
 
@@ -1841,62 +1815,30 @@ describe("useConversation", () => {
       __wsMock.emit("ws-1", {
         type: "thinking",
         sessionId: "sess-1",
-        segmentId: "reasoning-1",
-        text: "First ",
+        blockId: "reasoning-1",
+        segments: [{ id: "reasoning-1:0", body: "First" }],
       });
       __wsMock.emit("ws-1", {
         type: "thinking",
         sessionId: "sess-1",
-        segmentId: "reasoning-1",
-        text: "phase",
+        blockId: "reasoning-1",
+        segments: [{ id: "reasoning-1:0", body: "First phase" }],
       });
       __wsMock.emit("ws-1", {
         type: "thinking",
         sessionId: "sess-1",
-        segmentId: "reasoning-2",
-        text: "Second phase",
+        blockId: "reasoning-2",
+        segments: [{ id: "reasoning-2:0", headline: "Second phase" }],
       });
     });
 
     expect(result.current.currentReasoningSegments).toEqual([
-      { id: "reasoning-1", content: "First phase" },
-      { id: "reasoning-2", content: "Second phase" },
+      { id: "reasoning-1:0", body: "First phase" },
+      { id: "reasoning-2:0", headline: "Second phase" },
     ]);
-    expect(result.current.currentThinking).toBe("");
   });
 
-  it("persists thinking content in finalized assistant message on done", async () => {
-    const { __wsMock } = await getWsMock();
-    const { result } = renderConversation("ws-1");
-
-    act(() => {
-      __wsMock.emit("ws-1", {
-        type: "user_message",
-        message: {
-          id: "u1",
-          sessionId: "sess-1",
-          role: "user",
-          content: "think",
-          timestamp: "2026-02-12T00:00:00.000Z",
-        },
-      });
-    });
-
-    act(() => {
-      __wsMock.emit("ws-1", { type: "thinking", text: "Deep thought" });
-      __wsMock.emit("ws-1", { type: "text_delta", text: "Answer" });
-    });
-    // Finalization reads the stream slot via stateRef — emit done after a flush.
-    act(() => {
-      __wsMock.emit("ws-1", { type: "done", sessionId: "sess-1" });
-    });
-
-    const assistant = result.current.messages.at(-1);
-    expect(assistant?.thinkingContent).toBe("Deep thought");
-    expect(assistant?.content).toBe("Answer");
-  });
-
-  it("persists typed reasoning segments in the optimistic finalized message", async () => {
+  it("persists reasoning segments in the optimistic finalized message on done", async () => {
     const { __wsMock } = await getWsMock();
     const { result } = renderConversation("ws-1");
 
@@ -1916,8 +1858,8 @@ describe("useConversation", () => {
       __wsMock.emit("ws-1", {
         type: "thinking",
         sessionId: "sess-1",
-        segmentId: "reasoning-1",
-        text: "Visible thought",
+        blockId: "reasoning-1",
+        segments: [{ id: "reasoning-1:0", headline: "Visible thought" }],
       });
       __wsMock.emit("ws-1", { type: "text_delta", sessionId: "sess-1", text: "Answer" });
     });
@@ -1927,9 +1869,8 @@ describe("useConversation", () => {
 
     const assistant = result.current.messages.at(-1);
     expect(assistant?.reasoningSegments).toEqual([
-      { id: "reasoning-1", content: "Visible thought" },
+      { id: "reasoning-1:0", headline: "Visible thought" },
     ]);
-    expect(assistant?.thinkingContent).toBeUndefined();
     expect(assistant?.content).toBe("Answer");
   });
 
@@ -2362,9 +2303,8 @@ describe("useConversation", () => {
         type: "stream_snapshot",
         sessionId: "sess-1",
         text: "Before after",
-        thinking: "Canonical thinking",
         reasoningSegments: [
-          { id: "reasoning-1", content: "Canonical visible reasoning" },
+          { id: "reasoning-1:0", headline: "Canonical visible reasoning" },
         ],
         toolCalls: [{
           id: "tool-1",
@@ -2386,9 +2326,8 @@ describe("useConversation", () => {
 
     expect(result.current.sessionId).toBe("sess-1");
     expect(result.current.currentStreamingText).toBe("Before after");
-    expect(result.current.currentThinking).toBe("Canonical thinking");
     expect(result.current.currentReasoningSegments).toEqual([
-      { id: "reasoning-1", content: "Canonical visible reasoning" },
+      { id: "reasoning-1:0", headline: "Canonical visible reasoning" },
     ]);
     expect(result.current.activeToolCalls).toEqual([
       expect.objectContaining({ id: "tool-1", output: "file contents" }),
@@ -2517,7 +2456,7 @@ describe("useConversation", () => {
 
     act(() => {
       __wsMock.emit("ws-1", { type: "text_delta", sessionId: "sess-1", text: " late text" });
-      __wsMock.emit("ws-1", { type: "thinking", sessionId: "sess-1", text: "late thinking" });
+      __wsMock.emit("ws-1", { type: "thinking", sessionId: "sess-1", blockId: "late", segments: [{ id: "late:0", body: "late thinking" }] });
       __wsMock.emit("ws-1", {
         type: "tool_use",
         sessionId: "sess-1",
@@ -2549,7 +2488,7 @@ describe("useConversation", () => {
     expect(result.current.isStreaming).toBe(false);
     expect(result.current.streamingStartedAt).toBeNull();
     expect(result.current.currentStreamingText).toBe("");
-    expect(result.current.currentThinking).toBe("");
+    expect(result.current.currentReasoningSegments).toEqual([]);
     expect(result.current.activeToolCalls).toEqual([]);
     expect(result.current.activeAgentActivities).toEqual([]);
     expect(result.current.pendingToolInputs).toEqual([]);
@@ -3109,7 +3048,7 @@ describe("useConversation", () => {
           type: "stream_snapshot",
           sessionId: "sess-1",
           text: "Hello world",
-          thinking: "",
+          reasoningSegments: [],
           toolCalls: [],
           agentActivities: [],
           agentPlanMode: false,

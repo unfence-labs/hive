@@ -33,7 +33,6 @@ interface ChatConversationProps {
   isStreaming: boolean;
   streamingStartedAt?: number | null;
   currentStreamingText: string;
-  currentThinking: string;
   currentReasoningSegments: ReasoningSegment[];
   activeToolCalls: ToolCall[];
   activeAgentActivities: AgentActivity[];
@@ -68,7 +67,6 @@ export default function ChatConversation({
   isStreaming,
   streamingStartedAt,
   currentStreamingText,
-  currentThinking,
   currentReasoningSegments,
   activeToolCalls,
   activeAgentActivities = [],
@@ -265,12 +263,11 @@ export default function ChatConversation({
         })}
 
         {/* Live streaming content */}
-        {isStreaming && (currentStreamingText || currentReasoningSegments.length > 0 || currentThinking || activeToolCalls.length > 0 || activeInlineAgentActivities.length > 0) && (
+        {isStreaming && (currentStreamingText || currentReasoningSegments.length > 0 || activeToolCalls.length > 0 || activeInlineAgentActivities.length > 0) && (
           <div className="flex w-full justify-start">
             <div className="max-w-[85%] text-sm leading-relaxed text-foreground">
               <ThinkingBlock
                 segments={currentReasoningSegments}
-                legacyContent={currentThinking}
                 streaming
               />
               {currentStreamingText && (

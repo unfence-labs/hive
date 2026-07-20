@@ -1,36 +1,25 @@
 import { memo, useId, useState } from "react";
 import { ChevronRightIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { MessageResponse } from "@/components/ai-elements/message";
-import { ContentPanel } from "@/components/chat/ContentPanel";
+import { ContentPanel, ContentPanelBody } from "@/components/chat/ContentPanel";
 import type { ReasoningSegment } from "@/types";
 
 interface ThinkingBlockProps {
   segments?: ReasoningSegment[];
-  legacyContent?: string;
   streaming?: boolean;
 }
 
-const LEGACY_SEGMENT_ID = "legacy-reasoning";
-
 export const ThinkingBlock = memo(function ThinkingBlock({
   segments = [],
-  legacyContent,
   streaming = false,
 }: ThinkingBlockProps) {
   const [open, setOpen] = useState(false);
   const panelId = useId();
-  const sourceSegments: ReasoningSegment[] = segments.length > 0
-    ? segments
-    : legacyContent
-      ? [{ id: LEGACY_SEGMENT_ID, content: legacyContent }]
-      : [];
-  // Claude 5 family models emit signature-only thinking blocks, and providers
-  // may redact reasoning entirely; either way a contentless segment has nothing
-  // to show, so we drop it. A block left with no segments renders nothing.
-  const displaySegments = sourceSegments.filter((segment) => segment.content?.trim());
+  // The backend already parses reasoning into structured thoughts; a thought
+  // with neither headline nor body has nothing to show.
+  const thoughts = segments.filter((thought) => thought.headline || thought.body);
 
-  if (displaySegments.length === 0) return null;
+  if (thoughts.length === 0) return null;
 
   return (
     <div className="my-0.5">
@@ -48,12 +37,21 @@ export const ThinkingBlock = memo(function ThinkingBlock({
         <span className="shrink-0">{streaming ? "Reasoning…" : "Reasoning"}</span>
       </button>
       {open && (
-        <ContentPanel id={panelId} className="divide-y divide-border/60" aria-live="off">
-          {displaySegments.map((segment) => (
-            <div key={segment.id} className="px-3 py-2.5 text-muted-foreground">
-              <MessageResponse isAnimating={streaming}>{segment.content ?? ""}</MessageResponse>
-            </div>
-          ))}
+        <ContentPanel id={panelId} aria-live="off">
+          <ContentPanelBody className="font-mono text-[11px] leading-normal">
+            {thoughts.map((thought) => (
+              <div key={thought.id} className="flex gap-2 py-0.5">
+                <span aria-hidden="true" className="shrink-0 select-none text-muted-foreground/70">
+                  ·
+                </span>
+                <span className="min-w-0">
+                  {thought.headline && <span className="text-foreground">{thought.headline}</span>}
+                  {thought.headline && thought.body && <span className="text-muted-foreground"> — </span>}
+                  {thought.body && <span className="text-muted-foreground">{thought.body}</span>}
+                </span>
+              </div>
+            ))}
+          </ContentPanelBody>
         </ContentPanel>
       )}
     </div>

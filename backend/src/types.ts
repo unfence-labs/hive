@@ -213,7 +213,18 @@ export interface ToolCall {
 
 export interface ReasoningSegment {
   id: string;
-  content?: string;
+  headline?: string;
+  body?: string;
+}
+
+/** Raw reasoning text of one provider block. Persisted alongside the parsed
+ *  `reasoningSegments` on purpose (not a duplication to clean up): clients render
+ *  segments, while the raw block is the lossless source kept so a future run can
+ *  re-parse history and diff it against the stored segments to verify the parser.
+ */
+export interface ReasoningBlock {
+  id: string;
+  text: string;
 }
 
 export interface ChatMessage {
@@ -226,8 +237,8 @@ export interface ChatMessage {
   toolCalls?: ToolCall[];
   agentActivities?: AgentActivity[];
   goalCommand?: boolean;
-  thinkingContent?: string;
   reasoningSegments?: ReasoningSegment[];
+  reasoningBlocks?: ReasoningBlock[];
   timestamp: string;
   cancelled?: boolean;
   /** Extra diagnostics for interrupted turns (stderr summary, exit code). */
@@ -415,8 +426,9 @@ export type WsOutgoing =
   | {
       type: "thinking";
       sessionId: string;
-      text: string;
-      segmentId?: string;
+      /** Reasoning block the segments belong to; clients merge by block. */
+      blockId: string;
+      segments: ReasoningSegment[];
     }
   | { type: "tool_use"; sessionId: string; id: string; name: string; input: string; parentToolUseId?: string }
   | { type: "tool_result"; sessionId: string; toolUseId: string; output: string }
@@ -425,7 +437,6 @@ export type WsOutgoing =
       type: "stream_snapshot";
       sessionId: string;
       text: string;
-      thinking: string;
       reasoningSegments: ReasoningSegment[];
       toolCalls: ToolCall[];
       agentActivities: AgentActivity[];

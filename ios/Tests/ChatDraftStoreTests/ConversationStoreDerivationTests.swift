@@ -17,7 +17,6 @@ struct ConversationStoreDerivationTests {
             content: content,
             images: nil,
             toolCalls: toolCalls,
-            thinkingContent: nil,
             timestamp: "2026-01-01T00:00:00.000Z",
             cancelled: nil,
             durationMs: nil
@@ -44,7 +43,7 @@ struct ConversationStoreDerivationTests {
             output: nil, exitCode: 0, durationMs: nil
         ))))
         store.handle(.streamSnapshot(
-            sessionId: "session-2", text: "background", thinking: "",
+            sessionId: "session-2", text: "background",
             toolCalls: [], agentActivities: [], agentPlanMode: false, streamingStartedAt: nil
         ))
         #expect(store.derivationRunCount == base)
@@ -115,7 +114,6 @@ extension ConversationStoreDerivationTests {
                 id: "m1", sessionId: "s1", role: .assistant, content: "done",
                 images: nil,
                 toolCalls: [ToolCall(id: "t0", name: "TaskCreate", input: "{\"subject\":\"Old\"}", output: "Task #1 created", parentToolUseId: nil)],
-                thinkingContent: nil,
                 timestamp: "2026-07-08T09:00:00.000Z", cancelled: nil, durationMs: nil
             )
         ], for: "s1")

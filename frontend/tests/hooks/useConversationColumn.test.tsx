@@ -50,7 +50,6 @@ function makeConversation(overrides: Record<string, unknown> = {}) {
     streamingStartedAt: null,
     workspaceStatus: "idle",
     currentStreamingText: "",
-    currentThinking: "",
     currentReasoningSegments: [],
     activeToolCalls: [],
     activeAgentActivities: [],

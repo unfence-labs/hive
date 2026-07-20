@@ -119,11 +119,11 @@ enum WsIncoming: Encodable {
 
 enum WsOutgoing: Decodable {
     case textDelta(sessionId: String, text: String)
-    case thinking(sessionId: String, text: String, segmentId: String? = nil)
+    case thinking(sessionId: String, blockId: String, segments: [ReasoningSegment])
     case toolUse(sessionId: String, id: String, name: String, input: String, parentToolUseId: String?)
     case toolResult(sessionId: String, toolUseId: String, output: String)
     case agentActivity(sessionId: String, activity: AgentActivity)
-    case streamSnapshot(sessionId: String, text: String, thinking: String, toolCalls: [ToolCall],
+    case streamSnapshot(sessionId: String, text: String, toolCalls: [ToolCall],
                         agentActivities: [AgentActivity], agentPlanMode: Bool,
                         streamingStartedAt: Double?, reasoningSegments: [ReasoningSegment] = [])
     case toolInputRequired(sessionId: String, requestId: String, toolName: String, toolUseId: String, input: String)
@@ -142,9 +142,9 @@ enum WsOutgoing: Decodable {
     case unknown(type: String)
 
     private enum CodingKeys: String, CodingKey {
-        case type, sessionId, text, id, name, input, output, segmentId
+        case type, sessionId, text, id, name, input, output, segments, blockId
         case activity
-        case thinking, reasoningSegments, toolCalls, agentActivities, agentPlanMode
+        case reasoningSegments, toolCalls, agentActivities, agentPlanMode
         case parentToolUseId, toolUseId, requestId, toolName
         case durationMs, inputTokens, outputTokens, contextUsedTokens, contextWindowTokens, pendingToolName
         case errorDetail, userInitiated
@@ -167,8 +167,8 @@ enum WsOutgoing: Decodable {
         case "thinking":
             self = .thinking(
                 sessionId: try container.decode(String.self, forKey: .sessionId),
-                text: try container.decode(String.self, forKey: .text),
-                segmentId: try container.decodeIfPresent(String.self, forKey: .segmentId)
+                blockId: try container.decode(String.self, forKey: .blockId),
+                segments: try container.decodeIfPresent([ReasoningSegment].self, forKey: .segments) ?? []
             )
         case "tool_use":
             self = .toolUse(
@@ -193,7 +193,6 @@ enum WsOutgoing: Decodable {
             self = .streamSnapshot(
                 sessionId: try container.decode(String.self, forKey: .sessionId),
                 text: try container.decodeIfPresent(String.self, forKey: .text) ?? "",
-                thinking: try container.decodeIfPresent(String.self, forKey: .thinking) ?? "",
                 toolCalls: try container.decodeIfPresent([ToolCall].self, forKey: .toolCalls) ?? [],
                 agentActivities: try container.decodeIfPresent([AgentActivity].self, forKey: .agentActivities) ?? [],
                 agentPlanMode: try container.decodeIfPresent(Bool.self, forKey: .agentPlanMode) ?? false,
