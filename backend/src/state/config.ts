@@ -51,35 +51,59 @@ function configFilePath(dataDir: string): string {
   return join(dataDir, "config.json");
 }
 
-export async function loadConfig(dataDir = getDataDir()): Promise<AppConfig> {
-  try {
-    const raw = await readFile(configFilePath(dataDir), "utf-8");
-    const parsed = JSON.parse(raw) as Partial<AppConfig>;
-    const apns = parsed.notifications?.apns;
-    return {
-      notifications: {
-        telegram: {
-          enabled: parsed.notifications?.telegram?.enabled ?? DEFAULT_CONFIG.notifications.telegram.enabled,
-          botToken: parsed.notifications?.telegram?.botToken ?? DEFAULT_CONFIG.notifications.telegram.botToken,
-          chatId: parsed.notifications?.telegram?.chatId ?? DEFAULT_CONFIG.notifications.telegram.chatId,
-        },
-        apns: {
-          enabled: apns?.enabled ?? DEFAULT_APNS.enabled,
-          teamId: apns?.teamId ?? DEFAULT_APNS.teamId,
-          keyId: apns?.keyId ?? DEFAULT_APNS.keyId,
-          keyContent: apns?.keyContent ?? DEFAULT_APNS.keyContent,
-          bundleId: apns?.bundleId ?? DEFAULT_APNS.bundleId,
-          sandbox: apns?.sandbox ?? DEFAULT_APNS.sandbox,
-          deviceTokens: apns?.deviceTokens ?? DEFAULT_APNS.deviceTokens,
-        },
+function withDefaults(parsed: Partial<AppConfig>): AppConfig {
+  const apns = parsed.notifications?.apns;
+  return {
+    notifications: {
+      telegram: {
+        enabled: parsed.notifications?.telegram?.enabled ?? DEFAULT_CONFIG.notifications.telegram.enabled,
+        botToken: parsed.notifications?.telegram?.botToken ?? DEFAULT_CONFIG.notifications.telegram.botToken,
+        chatId: parsed.notifications?.telegram?.chatId ?? DEFAULT_CONFIG.notifications.telegram.chatId,
       },
-      defaultModelId: typeof parsed.defaultModelId === "string" && parsed.defaultModelId
-        ? parsed.defaultModelId
-        : undefined,
-    };
-  } catch {
-    return structuredClone(DEFAULT_CONFIG);
+      apns: {
+        enabled: apns?.enabled ?? DEFAULT_APNS.enabled,
+        teamId: apns?.teamId ?? DEFAULT_APNS.teamId,
+        keyId: apns?.keyId ?? DEFAULT_APNS.keyId,
+        keyContent: apns?.keyContent ?? DEFAULT_APNS.keyContent,
+        bundleId: apns?.bundleId ?? DEFAULT_APNS.bundleId,
+        sandbox: apns?.sandbox ?? DEFAULT_APNS.sandbox,
+        deviceTokens: apns?.deviceTokens ?? [],
+      },
+    },
+    defaultModelId: typeof parsed.defaultModelId === "string" && parsed.defaultModelId
+      ? parsed.defaultModelId
+      : undefined,
+  };
+}
+
+/** Read and parse config.json. Returns null when the file does not exist
+ *  (first run); throws when it exists but cannot be read or parsed. */
+async function readConfigFile(dataDir: string): Promise<Partial<AppConfig> | null> {
+  let raw: string;
+  try {
+    raw = await readFile(configFilePath(dataDir), "utf-8");
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return null;
+    throw err;
   }
+  const parsed: unknown = JSON.parse(raw);
+  if (typeof parsed !== "object" || parsed === null) {
+    throw new Error(`${configFilePath(dataDir)} does not contain a JSON object`);
+  }
+  return parsed as Partial<AppConfig>;
+}
+
+export async function loadConfig(dataDir = getDataDir()): Promise<AppConfig> {
+  let parsed: Partial<AppConfig> | null;
+  try {
+    parsed = await readConfigFile(dataDir);
+  } catch (err) {
+    // Degrade reads to defaults so the server keeps running, but never persist
+    // this fallback — updateConfig re-reads strictly before writing.
+    console.error("[config] failed to read config.json, using defaults:", err);
+    parsed = null;
+  }
+  return parsed ? withDefaults(parsed) : structuredClone(DEFAULT_CONFIG);
 }
 
 export async function saveConfig(config: AppConfig, dataDir = getDataDir()): Promise<void> {
@@ -100,7 +124,10 @@ export function updateConfig(
   dataDir = getDataDir(),
 ): Promise<AppConfig> {
   const task = updateQueue.then(async () => {
-    const config = await loadConfig(dataDir);
+    // Strict read: if config.json exists but is unreadable or corrupt, fail the
+    // update instead of silently overwriting saved settings with defaults.
+    const parsed = await readConfigFile(dataDir);
+    const config = parsed ? withDefaults(parsed) : structuredClone(DEFAULT_CONFIG);
     mutate(config);
     await saveConfig(config, dataDir);
     return config;

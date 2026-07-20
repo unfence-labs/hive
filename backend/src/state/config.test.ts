@@ -178,4 +178,33 @@ describe("updateConfig", () => {
     const loaded = await loadConfig(dataDir);
     expect(loaded.defaultModelId).toBe("claude:opus-4-8");
   });
+
+  it("rejects and leaves the file untouched when config.json is corrupt", async () => {
+    await writeFile(join(dataDir, "config.json"), "{invalid", "utf-8");
+
+    await expect(
+      updateConfig((c) => { c.defaultModelId = "claude:opus-4-8"; }, dataDir),
+    ).rejects.toThrow();
+
+    const raw = await readFile(join(dataDir, "config.json"), "utf-8");
+    expect(raw).toBe("{invalid");
+  });
+
+  it("rejects when config.json is not a JSON object", async () => {
+    await writeFile(join(dataDir, "config.json"), "null", "utf-8");
+
+    await expect(
+      updateConfig((c) => { c.defaultModelId = "claude:opus-4-8"; }, dataDir),
+    ).rejects.toThrow("does not contain a JSON object");
+
+    const raw = await readFile(join(dataDir, "config.json"), "utf-8");
+    expect(raw).toBe("null");
+  });
+
+  it("creates the file when it does not exist yet", async () => {
+    await updateConfig((c) => { c.defaultModelId = "claude:opus-4-8"; }, dataDir);
+
+    const loaded = await loadConfig(dataDir);
+    expect(loaded.defaultModelId).toBe("claude:opus-4-8");
+  });
 });
