@@ -2,7 +2,9 @@
 # Hive provision framework: NDJSON emit, resumable step state, locking, traps.
 # Sourced by the built provision.sh. See docs/install-flow-implementation-plan.md 5.1.
 
-set -euo pipefail
+# -E (errtrace) is required: without it the ERR trap does not fire inside
+# functions, so a failing step would kill the run with no typed error event.
+set -Eeuo pipefail
 
 SCRIPT_VERSION="${SCRIPT_VERSION:-0.0.0-dev}"
 
@@ -137,7 +139,13 @@ run_step() {
 
   if [ "$(step_status "$id")" = "ok" ]; then
     if ! declare -f "guard_$id" >/dev/null 2>&1 || guard_$id; then
-      emit_step "$id" skip '"reason":"already-satisfied"'
+      # skipdata_<id> lets a skipped step still report data the client needs
+      # (e.g. tailscale_up's tailnet IP on a resume).
+      if declare -f "skipdata_$id" >/dev/null 2>&1; then
+        emit_step "$id" skip "$(printf '"reason":"already-satisfied","data":%s' "$(skipdata_$id)")"
+      else
+        emit_step "$id" skip '"reason":"already-satisfied"'
+      fi
       return 0
     fi
   fi

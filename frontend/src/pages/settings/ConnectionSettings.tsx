@@ -7,6 +7,7 @@ import { CenterCard } from "@/components/CenterCard";
 import { useTailscaleConfig } from "@/hooks/useTailscaleConfig";
 import { useAuthToken } from "@/hooks/useAuthToken";
 import { useConnectionStatus } from "@/hooks/useConnectionStatus";
+import ServerToolsSettings from "@/pages/settings/ServerToolsSettings";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 
@@ -209,6 +210,8 @@ export default function ConnectionSettings({ onRefreshConnection }: ConnectionSe
             </div>
           </section>
         )}
+
+        <ServerToolsSettings />
       </div>
       </CenterCard>
     </div>

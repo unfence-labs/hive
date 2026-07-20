@@ -51,7 +51,7 @@ export const SETUP_ERROR_HINTS: Record<SetupErrorCode, string> = {
   SSH_HOST_KEY_CHANGED: "This server's SSH identity changed since last time. If unexpected, do not proceed.",
   SSH_UNREACHABLE: "Could not reach the server over SSH. Check the IP and that port 22 is open.",
   SSH_NO_ROOT: "The SSH user cannot become root. Connect as root or a passwordless-sudo user.",
-  CLAUDE_PASTEBACK_BROKEN: "Claude sign-in could not complete on the server. Use the on-computer sign-in instead.",
+  CLAUDE_PASTEBACK_BROKEN: "Claude sign-in did not return a token. Run 'claude setup-token' in a terminal and paste the token instead.",
   DEVICE_CODE_EXPIRED: "The sign-in code expired. A new code has been generated.",
   CODEX_DEVICE_AUTH_DISABLED: "Enable 'device code login' in your ChatGPT settings, then retry.",
   GH_POLL_STUCK: "GitHub sign-in stalled. Retry the step.",

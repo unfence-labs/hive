@@ -64,7 +64,7 @@ describe("SetupWizard", () => {
     const continueBtn = screen.getByRole("button", { name: "Continue" });
     expect(continueBtn).toBeDisabled();
 
-    await userEvent.type(screen.getByLabelText("Tailscale auth key"), "tskey-auth-abc123");
+    await userEvent.type(screen.getByLabelText("Tailscale auth key"), "tskey-auth-abc123CNTRL-s3cr3t");
     await waitFor(() => expect(continueBtn).toBeEnabled());
   });
 });

@@ -8,11 +8,20 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 VERSION="${1:-0.0.0-dev}"
-ARCH="${2:-$(case "$(uname -m)" in x86_64) echo x64;; aarch64|arm64) echo arm64;; esac)}"
+# No case-in-command-substitution and ASCII only below: macOS ships bash 3.2,
+# whose parser chokes on both.
+ARCH="${2:-}"
+if [ -z "$ARCH" ]; then
+  case "$(uname -m)" in
+    x86_64) ARCH=x64 ;;
+    aarch64|arm64) ARCH=arm64 ;;
+    *) echo "unsupported arch: $(uname -m)" >&2; exit 2 ;;
+  esac
+fi
 OUT_DIR="${OUT_DIR:-$ROOT/dist-release}"
 NAME="hive-backend-$VERSION-linux-$ARCH"
 
-echo "Building $NAME…"
+echo "Building $NAME..."
 mkdir -p "$OUT_DIR"
 staging="$(mktemp -d)"
 trap 'rm -rf "$staging"' EXIT
@@ -30,9 +39,17 @@ cp "$ROOT/backend/package.json" "$staging/pkg/package.json"
 mkdir -p "$staging/pkg/node_modules/@hive/shared"
 cp -r "$ROOT/shared/dist" "$staging/pkg/node_modules/@hive/shared/dist"
 cp "$ROOT/shared/package.json" "$staging/pkg/node_modules/@hive/shared/package.json"
-( cd "$staging/pkg" && npm install --omit=dev --no-audit --no-fund >/dev/null 2>&1 )
+# Target linux so platform-selected optional deps (sharp's @img/*) match the
+# server even when building on macOS. node-pty has no linux prebuild in its
+# npm package; provision.sh rebuilds it on the server when it cannot load.
+( cd "$staging/pkg" && npm install --omit=dev --no-audit --no-fund \
+    --os=linux --cpu="$ARCH" --libc=glibc >/dev/null 2>&1 )
 
 tar -czf "$OUT_DIR/$NAME.tar.gz" -C "$staging/pkg" .
-( cd "$OUT_DIR" && sha256sum "$NAME.tar.gz" > "$NAME.tar.gz.sha256" )
-echo "→ $OUT_DIR/$NAME.tar.gz"
+if command -v sha256sum >/dev/null 2>&1; then
+  ( cd "$OUT_DIR" && sha256sum "$NAME.tar.gz" > "$NAME.tar.gz.sha256" )
+else
+  ( cd "$OUT_DIR" && shasum -a 256 "$NAME.tar.gz" > "$NAME.tar.gz.sha256" )
+fi
+echo "-> $OUT_DIR/$NAME.tar.gz"
 cat "$OUT_DIR/$NAME.tar.gz.sha256"

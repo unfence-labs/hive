@@ -17,6 +17,7 @@ describe("ProvisioningScreen", () => {
         onDone={onDone}
         onBack={() => {}}
         onContinueLater={() => {}}
+        onStartOver={() => {}}
       />,
     );
     // Steps from the happy scenario appear.
@@ -35,6 +36,7 @@ describe("ProvisioningScreen", () => {
         onDone={onDone}
         onBack={() => {}}
         onContinueLater={() => {}}
+        onStartOver={() => {}}
       />,
     );
 

@@ -14,6 +14,12 @@ export interface ProvisionProgress {
   steps: ProvisionStepView[];
   status: "running" | "succeeded" | "failed";
   error?: { code: SetupErrorCode; step: string; detail?: string };
+  /**
+   * Tailnet IP reported by the tailscale_up step (fresh run or resume skip).
+   * The wizard switches to it after provisioning: with UFW in tailnet mode the
+   * backend is only reachable over the tailnet.
+   */
+  tailnetIp?: string;
 }
 
 export function initialProgress(): ProvisionProgress {
@@ -47,6 +53,15 @@ function upsert(
   return next;
 }
 
+function tailnetIpFrom(
+  event: { step: string; data?: Record<string, unknown> },
+  current: string | undefined,
+): string | undefined {
+  if (event.step !== "tailscale_up") return current;
+  const ip = event.data?.tailnetIp;
+  return typeof ip === "string" && ip.length > 0 ? ip : current;
+}
+
 /** Fold one ProvisionEvent into the progress view (pure). */
 export function applyProvisionEvent(
   state: ProvisionProgress,
@@ -75,9 +90,17 @@ export function applyProvisionEvent(
     case "step_log":
       return { ...state, steps: upsert(state.steps, event.step, { lastLine: event.line }) };
     case "step_ok":
-      return { ...state, steps: upsert(state.steps, event.step, { status: "succeeded" }) };
+      return {
+        ...state,
+        steps: upsert(state.steps, event.step, { status: "succeeded" }),
+        tailnetIp: tailnetIpFrom(event, state.tailnetIp),
+      };
     case "step_skip":
-      return { ...state, steps: upsert(state.steps, event.step, { status: "skipped" }) };
+      return {
+        ...state,
+        steps: upsert(state.steps, event.step, { status: "skipped" }),
+        tailnetIp: tailnetIpFrom(event, state.tailnetIp),
+      };
     case "step_error":
       return {
         ...state,

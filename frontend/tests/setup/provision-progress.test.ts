@@ -53,4 +53,28 @@ describe("provision progress reducer", () => {
     expect(state.steps.find((s) => s.id === "a")?.status).toBe("skipped");
     expect(state.status).toBe("succeeded");
   });
+
+  it("captures the tailnet IP from tailscale_up, on ok and on resume skip", () => {
+    const fresh = fold([
+      { kind: "run_start", seq: 0, runId: "r", scriptVersion: "1", resume: false, stepsPlanned: ["tailscale_up"] },
+      { kind: "step_start", seq: 1, step: "tailscale_up", title: "Join" },
+      { kind: "step_ok", seq: 2, step: "tailscale_up", data: { tailnetIp: "100.1.2.3" } },
+      { kind: "run_end", seq: 3, status: "ok" },
+    ]);
+    expect(fresh.tailnetIp).toBe("100.1.2.3");
+
+    const resumed = fold([
+      { kind: "run_start", seq: 0, runId: "r", scriptVersion: "1", resume: true, stepsPlanned: ["tailscale_up"] },
+      { kind: "step_skip", seq: 1, step: "tailscale_up", reason: "already-satisfied", data: { tailnetIp: "100.1.2.3" } },
+      { kind: "run_end", seq: 2, status: "ok" },
+    ]);
+    expect(resumed.tailnetIp).toBe("100.1.2.3");
+
+    const local = fold([
+      { kind: "run_start", seq: 0, runId: "r", scriptVersion: "1", resume: true, stepsPlanned: ["tailscale_up"] },
+      { kind: "step_skip", seq: 1, step: "tailscale_up", reason: "already-satisfied", data: {} },
+      { kind: "run_end", seq: 2, status: "ok" },
+    ]);
+    expect(local.tailnetIp).toBeUndefined();
+  });
 });

@@ -64,6 +64,15 @@ export function SetupWizard({ client: injectedClient, onComplete }: SetupWizardP
     // State is already persisted; hand control back to the app.
     onComplete?.();
   }, [onComplete]);
+  const startOver = useCallback(() => {
+    if (
+      window.confirm(
+        "Start the setup over from the beginning? This install's progress is discarded (the Tailscale key and SSH key choice are kept).",
+      )
+    ) {
+      dispatch({ type: "reset" });
+    }
+  }, []);
   const fail = useCallback(
     (code: SetupErrorCode, logExcerpt?: string) => dispatch({ type: "fail", error: { code, logExcerpt } }),
     [],
@@ -175,8 +184,9 @@ export function SetupWizard({ client: injectedClient, onComplete }: SetupWizardP
             authToken: inputs.authToken ?? "",
             port: DEFAULT_PORT,
           }}
-          onDone={() => advance()}
+          onDone={(tailnetIp) => advance(tailnetIp ? { serverIp: tailnetIp } : undefined)}
           onBack={back}
+          onStartOver={startOver}
           onContinueLater={continueLater}
         />
       );

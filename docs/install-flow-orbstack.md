@@ -15,8 +15,15 @@ system libraries are needed on a Mac.
 The v1 flow connects as **root** (the Hetzner/DO/OVH default). OrbStack machines
 log in as your user, so enable root key login for the test:
 
+Note: use the 24.04 image — `probe_os` rejects non-LTS releases — and install
+openssh-server first: OrbStack machines do not ship a running sshd (its own
+`ssh orb` path goes through a host-side proxy, not port 22 in the VM).
+
 ```bash
 orb create ubuntu:24.04 hive-test
+orb -m hive-test sudo bash -c '
+  apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq openssh-server &&
+  systemctl enable --now ssh'
 orb -m hive-test sudo bash -c '
   mkdir -p /root/.ssh &&
   cp ~/'"$USER"'/.ssh/authorized_keys /root/.ssh/authorized_keys 2>/dev/null || true'

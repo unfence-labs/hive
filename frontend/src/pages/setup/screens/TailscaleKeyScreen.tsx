@@ -10,9 +10,13 @@ interface TailscaleKeyScreenProps {
   onContinueLater: () => void;
 }
 
-/** Tagged auth keys look like `tskey-auth-…`. */
+/**
+ * Full auth keys are `tskey-auth-<id>-<secret>`. Requiring both segments
+ * catches the classic mistake of pasting the key ID from the keys list
+ * instead of the full secret (shown only once at creation).
+ */
 export function isValidTailscaleKey(value: string): boolean {
-  return /^tskey-auth-[A-Za-z0-9-]+$/.test(value.trim());
+  return /^tskey-auth-[A-Za-z0-9]+-[A-Za-z0-9]+$/.test(value.trim());
 }
 
 export function TailscaleKeyScreen({
@@ -57,7 +61,9 @@ export function TailscaleKeyScreen({
       />
       {value && !valid && (
         <p className="mt-2 text-xs text-destructive">
-          That does not look like a Tailscale auth key (expected <code>tskey-auth-…</code>).
+          That does not look like a full Tailscale auth key (expected{" "}
+          <code>tskey-auth-&lt;id&gt;-&lt;secret&gt;</code>). Paste the complete key shown once
+          when it was generated — not the key ID from the list.
         </p>
       )}
     </SetupScreen>

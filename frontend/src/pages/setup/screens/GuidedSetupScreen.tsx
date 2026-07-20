@@ -32,7 +32,7 @@ interface GuidedSetupScreenProps {
 type StackTool = "mise" | "uv" | "docker";
 type Language = "python" | "rust" | "java" | "go";
 
-const DETECTED_LABELS: Partial<Record<DetectableTool, string>> = {
+export const DETECTED_LABELS: Partial<Record<DetectableTool, string>> = {
   claude: "Claude",
   codex: "Codex",
   gh: "GitHub CLI",
@@ -43,7 +43,7 @@ const DETECTED_LABELS: Partial<Record<DetectableTool, string>> = {
   docker: "Docker",
 };
 
-function DetectionRow({ tool, detection }: { tool: DetectableTool; detection: ToolDetection }) {
+export function DetectionRow({ tool, detection }: { tool: DetectableTool; detection: ToolDetection }) {
   const label = DETECTED_LABELS[tool] ?? tool;
   return (
     <div className="flex items-center gap-2 py-1 text-xs">
@@ -78,7 +78,7 @@ function stepAction(step: SetupOperation["steps"][number]): StepAction | undefin
 }
 
 /** Renders an open_url / open_url_with_code action from an operation step (§3.5). */
-function OperationActions({ op }: { op: SetupOperation }) {
+export function OperationActions({ op }: { op: SetupOperation }) {
   const actionable = op.steps
     .map((step) => ({ step, action: stepAction(step) }))
     .filter((e): e is { step: SetupOperation["steps"][number]; action: StepAction } => !!e.action);
@@ -123,6 +123,7 @@ export function GuidedSetupScreen({
   const [language, setLanguage] = useState<Language>("python");
   const [claudeBusy, setClaudeBusy] = useState(false);
   const [claudeDone, setClaudeDone] = useState(false);
+  const [manualToken, setManualToken] = useState("");
   const [activeOp, setActiveOp] = useState<SetupOperation | null>(null);
 
   const setupApi = useMemo(
@@ -133,8 +134,12 @@ export function GuidedSetupScreen({
   const refreshStatus = useCallback(async () => {
     try {
       setStatus(await setupApi.getStatus());
-    } catch {
-      setError({ state: "guided_setup", code: "UNKNOWN" });
+    } catch (e) {
+      setError({
+        state: "guided_setup",
+        code: "UNKNOWN",
+        logExcerpt: e instanceof Error ? e.message : String(e),
+      });
     }
   }, [setupApi]);
 
@@ -153,8 +158,31 @@ export function GuidedSetupScreen({
       await setupApi.submitClaudeToken(token);
       setClaudeDone(true);
       await refreshStatus();
-    } catch {
-      setError({ state: "guided_setup", code: "CLAUDE_PASTEBACK_BROKEN" });
+    } catch (e) {
+      setError({
+        state: "guided_setup",
+        code: "CLAUDE_PASTEBACK_BROKEN",
+        logExcerpt: e instanceof Error ? e.message : String(e),
+      });
+    } finally {
+      setClaudeBusy(false);
+    }
+  };
+
+  const submitManualToken = async () => {
+    setClaudeBusy(true);
+    setError(null);
+    try {
+      await setupApi.submitClaudeToken(manualToken.trim());
+      setManualToken("");
+      setClaudeDone(true);
+      await refreshStatus();
+    } catch (e) {
+      setError({
+        state: "guided_setup",
+        code: "UNKNOWN",
+        logExcerpt: e instanceof Error ? e.message : String(e),
+      });
     } finally {
       setClaudeBusy(false);
     }
@@ -190,9 +218,19 @@ export function GuidedSetupScreen({
       onContinueLater={onContinueLater}
     >
       {status === null ? (
-        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-          <Spinner className="h-4 w-4" /> Detecting tools…
-        </div>
+        error ? (
+          <ErrorPanel
+            error={error}
+            onRetry={() => {
+              setError(null);
+              void refreshStatus();
+            }}
+          />
+        ) : (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Spinner className="h-4 w-4" /> Detecting tools…
+          </div>
+        )
       ) : (
         <div className="space-y-6">
           <section className="rounded-lg border border-border/50 bg-card/50 p-4">
@@ -215,9 +253,31 @@ export function GuidedSetupScreen({
                 <CheckCircle2 className="h-4 w-4" /> Claude connected
               </div>
             ) : (
-              <Button size="sm" onClick={() => void runClaudeAuth()} disabled={claudeBusy}>
-                {claudeBusy ? "Waiting for browser…" : "Sign in on this computer"}
-              </Button>
+              <div>
+                <Button size="sm" onClick={() => void runClaudeAuth()} disabled={claudeBusy}>
+                  {claudeBusy ? "Waiting for browser…" : "Sign in on this computer"}
+                </Button>
+                <p className="mb-1 mt-3 text-xs text-muted-foreground">
+                  Or run <code>claude setup-token</code> in a terminal and paste the token here:
+                </p>
+                <div className="flex gap-2">
+                  <input
+                    type="password"
+                    value={manualToken}
+                    onChange={(e) => setManualToken(e.target.value)}
+                    placeholder="sk-ant-oat01-…"
+                    className="min-w-0 flex-1 rounded border border-border/50 bg-background px-2 py-1 font-mono text-xs"
+                  />
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={claudeBusy || !manualToken.trim().startsWith("sk-ant-oat01-")}
+                    onClick={() => void submitManualToken()}
+                  >
+                    Submit
+                  </Button>
+                </div>
+              </div>
             )}
           </section>
 

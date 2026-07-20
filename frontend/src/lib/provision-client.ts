@@ -53,7 +53,7 @@ export type ProvisionEvent =
   | { kind: "step_start"; seq: number; step: string; title: string }
   | { kind: "step_log"; seq: number; step: string; line: string; stream?: "stdout" | "stderr" }
   | { kind: "step_ok"; seq: number; step: string; durationMs?: number; data?: Record<string, unknown> }
-  | { kind: "step_skip"; seq: number; step: string; reason?: string }
+  | { kind: "step_skip"; seq: number; step: string; reason?: string; data?: Record<string, unknown> }
   | {
       kind: "step_error";
       seq: number;
@@ -139,7 +139,7 @@ export function ndjsonToEvent(o: NdjsonLine): ProvisionEvent | null {
     case "ok":
       return { kind: "step_ok", seq: o.seq, step: o.step, durationMs: o.durationMs, data: o.data };
     case "skip":
-      return { kind: "step_skip", seq: o.seq, step: o.step, reason: o.reason };
+      return { kind: "step_skip", seq: o.seq, step: o.step, reason: o.reason, data: o.data };
     case "error":
       return {
         kind: "step_error",

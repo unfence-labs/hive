@@ -7,7 +7,7 @@
 #   OPT_HOST OPT_PORT OPT_RELEASE_FILE OPT_APT_BASELINE
 
 APT_BASELINE_DEFAULT="build-essential python3 python-is-python3 pkg-config libssl-dev \
-unzip xz-utils jq ripgrep fd-find sqlite3 git-delta fzf tree gnupg ca-certificates ufw"
+git unzip xz-utils jq ripgrep fd-find sqlite3 git-delta fzf tree gnupg ca-certificates ufw"
 
 HIVE_HOME="/home/hive"
 HIVE_DATA_DIR="$HIVE_HOME/.hive"
@@ -104,6 +104,14 @@ step_install_tailscale() {
 }
 
 title_tailscale_up() { echo "Join the Tailscale network"; }
+
+# On resume the step is skipped but the wizard still needs the tailnet IP to
+# target the backend (UFW only opens the tailscale0 interface in tailnet mode).
+skipdata_tailscale_up() {
+  local ip; ip="$(tailscale ip -4 2>/dev/null | head -1)"
+  if [ -n "$ip" ]; then printf '{"tailnetIp":"%s"}' "$ip"; else printf '{}'; fi
+}
+
 guard_tailscale_up() {
   [ "$OPT_SKIP_TAILSCALE" = 1 ] || \
     { command -v tailscale >/dev/null 2>&1 && tailscale status >/dev/null 2>&1; }
@@ -112,7 +120,12 @@ step_tailscale_up() {
   [ "$OPT_SKIP_TAILSCALE" = 1 ] && { STEP_DATA='{"skipped":true}'; return 0; }
   [ -n "${TS_AUTHKEY:-}" ] || die TS_AUTHKEY_INVALID "TS_AUTHKEY not provided"
   STEP_ERR_CODE=TS_AUTHKEY_INVALID
-  tailscale up --auth-key="$TS_AUTHKEY" --hostname=hive || die TS_AUTHKEY_INVALID "tailscale up failed"
+  # Capture stderr so the control plane's reason (expired, revoked, bad tag,
+  # key ID pasted instead of the full secret) reaches the error panel.
+  local ts_err
+  if ! ts_err="$(tailscale up --auth-key="$TS_AUTHKEY" --hostname=hive 2>&1)"; then
+    die TS_AUTHKEY_INVALID "tailscale up: ${ts_err:0:300}"
+  fi
   STEP_ERR_CODE=""
   local ip; ip="$(tailscale ip -4 2>/dev/null | head -1)"
   [ -n "$ip" ] || die TS_DAEMON_DOWN "no tailnet IP assigned"
@@ -123,13 +136,30 @@ step_tailscale_up() {
 # ---------------------------------------------------------------------------
 
 title_configure_ufw() { echo "Configure the firewall"; }
+
+# Re-run when the expected inbound rule is missing — e.g. a resume after the
+# rules changed between script versions or modes.
+guard_configure_ufw() {
+  [ "$OPT_SKIP_UFW" = 1 ] && return 0
+  if [ "$OPT_SKIP_TAILSCALE" = 1 ]; then
+    ufw status | grep -Eq "^$OPT_PORT/tcp[[:space:]]+ALLOW"
+  else
+    ufw status | grep -q "on tailscale0"
+  fi
+}
+
 step_configure_ufw() {
   [ "$OPT_SKIP_UFW" = 1 ] && { STEP_DATA='{"skipped":true}'; return 0; }
   STEP_ERR_CODE=UFW_FAILURE
   ufw --force default deny incoming
   ufw --force default allow outgoing
   ufw allow ssh
-  [ "$OPT_SKIP_TAILSCALE" = 1 ] || ufw allow in on tailscale0
+  if [ "$OPT_SKIP_TAILSCALE" = 1 ]; then
+    # No tailnet: the wizard connects to the backend on its LAN/VM IP.
+    ufw allow "$OPT_PORT/tcp"
+  else
+    ufw allow in on tailscale0
+  fi
   ufw --force enable
   STEP_ERR_CODE=""
 }
@@ -158,6 +188,11 @@ step_install_release() {
     tarball="$OPT_RELEASE_FILE"
     [ -f "$tarball" ] || die RELEASE_DOWNLOAD_FAILED "release file not found: $tarball"
   else
+    # A dev script version has no published GitHub release; downloading would
+    # 404. Reaching this branch means the app was started without
+    # HIVE_DEV_RELEASE_TARBALL, so the sidecar never passed --release-file.
+    [ "$HIVE_VERSION" != "0.0.0-dev" ] || die RELEASE_DOWNLOAD_FAILED \
+      "dev build without --release-file: launch the app with HIVE_DEV_RELEASE_TARBALL set"
     local arch_tag; case "$(uname -m)" in x86_64) arch_tag=x64;; aarch64) arch_tag=arm64;; esac
     tarball="$HIVE_VAR_DIR/hive-backend.tar.gz"
     STEP_ERR_CODE=RELEASE_DOWNLOAD_FAILED
@@ -170,6 +205,18 @@ step_install_release() {
   rm -rf "$rel"; install -d -o hive -g hive "$rel"
   tar -xzf "$tarball" -C "$rel"
   sha256sum "$tarball" | cut -d' ' -f1 >"$rel/.tarball.sha256"
+  # A dev tarball built on macOS ships darwin node-pty binaries (sharp's linux
+  # binaries are selected at tarball build time). Rebuild in place when the
+  # module cannot load; the apt baseline provides the gyp toolchain. Verify
+  # both natives here so a broken release fails loudly instead of surfacing
+  # as HEALTH_TIMEOUT from a crash-looping service.
+  if ! node -e "require('$rel/node_modules/node-pty')" 2>/dev/null; then
+    run_logged install_release bash -c "cd '$rel' && npm rebuild node-pty"
+    node -e "require('$rel/node_modules/node-pty')" 2>/dev/null \
+      || die UNKNOWN "node-pty does not load after rebuild"
+  fi
+  node -e "require('$rel/node_modules/sharp')" 2>/dev/null \
+    || die UNKNOWN "sharp linux binaries are missing from the release"
   chown -R hive:hive "$rel"
   ln -sfn "$rel" "$HIVE_OPT/release.tmp"
   mv -Tf "$HIVE_OPT/release.tmp" "$HIVE_OPT/current"
@@ -180,12 +227,13 @@ step_install_release() {
 # ---------------------------------------------------------------------------
 
 title_write_secrets() { echo "Write service configuration"; }
-step_write_secrets() {
-  install -d -m 755 /etc/hive
+
+# The lines this step owns in /etc/hive/hive.env. write-claude-token.sh later
+# appends CLAUDE_CODE_OAUTH_TOKEN to the same file; that line is not ours.
+hive_env_base() {
   local host="$OPT_HOST"
   [ -n "${RESOLVED_HOST:-}" ] && [ "$OPT_SKIP_TAILSCALE" != 1 ] && host="0.0.0.0"
-  umask 077
-  cat >/etc/hive/hive.env <<EOF
+  cat <<EOF
 NODE_ENV=production
 HOST=$host
 PORT=$OPT_PORT
@@ -193,7 +241,27 @@ DATA_DIR=$HIVE_DATA_DIR
 HIVE_AUTH_TOKEN_SHA256=${HIVE_AUTH_TOKEN_SHA256:-}
 PATH=/home/hive/.local/share/mise/shims:/home/hive/.local/bin:/usr/local/bin:/usr/bin:/bin
 EOF
-  chmod 600 /etc/hive/hive.env
+}
+
+# Re-run when any owned line drifted — e.g. the wizard regenerated the auth
+# token between runs; a skipped rewrite would leave the server rejecting the
+# new token with 401s.
+guard_write_secrets() {
+  hive_env_base | while IFS= read -r line; do
+    grep -qxF "$line" /etc/hive/hive.env 2>/dev/null || exit 1
+  done
+}
+
+step_write_secrets() {
+  install -d -m 755 /etc/hive
+  local tmp; tmp="$(mktemp)"
+  hive_env_base >"$tmp"
+  grep '^CLAUDE_CODE_OAUTH_TOKEN=' /etc/hive/hive.env 2>/dev/null >>"$tmp" || true
+  install -m 600 "$tmp" /etc/hive/hive.env
+  rm -f "$tmp"
+  # On a drift re-run the service is already up with stale env; restart it.
+  # No-op on first install (the unit does not exist yet).
+  systemctl try-restart hive 2>/dev/null || true
 }
 
 # ---------------------------------------------------------------------------

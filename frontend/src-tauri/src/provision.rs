@@ -225,6 +225,26 @@ pub async fn provision_trust_host(host: String) -> Result<(), String> {
 
 // ── start / resume provision ─────────────────────────────────────────────────
 
+/// Locally built dev release tarball, if any. HIVE_DEV_RELEASE_TARBALL wins;
+/// debug builds fall back to dist-release/ in the repo (make release-tarball)
+/// so `npm run tauri dev` works without remembering the env var.
+fn dev_release_tarball() -> Option<String> {
+    if let Ok(p) = std::env::var("HIVE_DEV_RELEASE_TARBALL") {
+        return Some(p);
+    }
+    if cfg!(debug_assertions) {
+        let arch = if cfg!(target_arch = "aarch64") { "arm64" } else { "x64" };
+        let p = format!(
+            "{}/../../dist-release/hive-backend-0.0.0-dev-linux-{arch}.tar.gz",
+            env!("CARGO_MANIFEST_DIR")
+        );
+        if std::path::Path::new(&p).exists() {
+            return Some(p);
+        }
+    }
+    None
+}
+
 fn provision_args(params: &ProvisionParams) -> Vec<String> {
     let port = params.port.unwrap_or(3000);
     let mut args = vec!["--port".to_string(), port.to_string()];
@@ -240,7 +260,7 @@ fn provision_args(params: &ProvisionParams) -> Vec<String> {
     }
     // Dev convenience: install a locally-built backend tarball instead of a
     // GitHub release. The Rust side scps it and adds --release-file.
-    if std::env::var("HIVE_DEV_RELEASE_TARBALL").is_ok() {
+    if dev_release_tarball().is_some() {
         args.push("--release-file".into());
         args.push("/var/lib/hive/hive-backend.tar.gz".into());
     }
@@ -269,9 +289,9 @@ fn shell_single_quote(s: &str) -> String {
     s.replace('\'', "")
 }
 
-/// scp a dev release tarball to the server when HIVE_DEV_RELEASE_TARBALL is set.
+/// scp a dev release tarball to the server when one is configured or found.
 fn maybe_upload_release(params: &ProvisionParams) -> Result<(), String> {
-    let Ok(tarball) = std::env::var("HIVE_DEV_RELEASE_TARBALL") else { return Ok(()) };
+    let Some(tarball) = dev_release_tarball() else { return Ok(()) };
     // Ensure /var/lib/hive exists, then scp the tarball into it.
     let mkdir = Command::new("ssh")
         .args(ssh_common_args(&params.key_path))
@@ -385,12 +405,34 @@ pub struct ClaudeAuthResult {
     token: String,
 }
 
+/// `claude` usually lives in a shell-profile PATH entry (~/.local/bin, brew),
+/// which GUI-launched apps do not inherit. Probe PATH, then known locations.
+fn claude_binary() -> Option<std::path::PathBuf> {
+    if let Ok(path) = std::env::var("PATH") {
+        for dir in std::env::split_paths(&path) {
+            let p = dir.join("claude");
+            if p.is_file() {
+                return Some(p);
+            }
+        }
+    }
+    let home = dirs::home_dir()?;
+    let candidates = [
+        home.join(".local/bin/claude"),
+        home.join(".claude/local/claude"),
+        std::path::PathBuf::from("/opt/homebrew/bin/claude"),
+        std::path::PathBuf::from("/usr/local/bin/claude"),
+    ];
+    candidates.into_iter().find(|c| c.is_file())
+}
+
 #[tauri::command]
 pub async fn provision_claude_auth() -> Result<ClaudeAuthResult, String> {
     tauri::async_runtime::spawn_blocking(|| {
         // Run `claude setup-token` locally; it opens the browser and prints a
         // one-year CLAUDE_CODE_OAUTH_TOKEN (sk-ant-oat01-…). Capture it.
-        let out = Command::new("claude")
+        let bin = claude_binary().ok_or_else(|| "CLAUDE_CLI_MISSING".to_string())?;
+        let out = Command::new(bin)
             .arg("setup-token")
             .output()
             .map_err(|_| "CLAUDE_CLI_MISSING".to_string())?;

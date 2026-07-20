@@ -107,7 +107,15 @@ export function reduce(current: SetupMachineState, action: SetupAction): SetupMa
     case "clearError":
       return { ...current, error: null };
     case "reset":
-      return initialMachineState();
+      // Machine-level preferences survive a start-over; anything tied to the
+      // target server (IP, fingerprint, auth token) must not.
+      return {
+        ...initialMachineState(),
+        inputs: {
+          tailscaleAuthKey: current.inputs.tailscaleAuthKey,
+          sshKeyPath: current.inputs.sshKeyPath,
+        },
+      };
     default:
       return current;
   }

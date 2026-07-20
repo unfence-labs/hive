@@ -1,6 +1,7 @@
 import { useEffect, useReducer, useRef, useState } from "react";
 import { CheckIcon, CircleIcon, XCircleIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
 import { SetupScreen } from "./SetupScreen";
 import { ErrorPanel } from "./ErrorPanel";
 import {
@@ -16,9 +17,12 @@ import type { SetupError } from "@/pages/setup/machine";
 interface ProvisioningScreenProps {
   client: ProvisionClient;
   params: ProvisionParams;
-  onDone: () => void;
+  /** tailnetIp is set when the server joined a tailnet — the wizard should target it. */
+  onDone: (tailnetIp?: string) => void;
   onBack: () => void;
   onContinueLater: () => void;
+  /** Abandon this install and restart the wizard from the beginning. */
+  onStartOver: () => void;
 }
 
 /** Reuses TaskTracker's status-icon language for the provision checklist. */
@@ -66,6 +70,7 @@ export function ProvisioningScreen({
   onDone,
   onBack,
   onContinueLater,
+  onStartOver,
 }: ProvisioningScreenProps) {
   const [progress, dispatch] = useReducer(
     (state: ProvisionProgress, event: ProvisionEvent) => applyProvisionEvent(state, event),
@@ -111,9 +116,9 @@ export function ProvisioningScreen({
   useEffect(() => {
     if (progress.status === "succeeded" && !doneRef.current) {
       doneRef.current = true;
-      onDone();
+      onDone(progress.tailnetIp);
     }
-  }, [progress.status, onDone]);
+  }, [progress.status, progress.tailnetIp, onDone]);
 
   const retry = () => {
     doneRef.current = false;
@@ -135,6 +140,16 @@ export function ProvisioningScreen({
       description="This runs over SSH and continues even if you close the app. It takes a few minutes."
       onBack={progress.status === "failed" ? onBack : undefined}
       onContinueLater={onContinueLater}
+      footer={
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={onStartOver}
+          className="text-muted-foreground"
+        >
+          Start over
+        </Button>
+      }
     >
       <div className="rounded-lg border border-border/50 bg-card/50 p-4">
         {progress.steps.length === 0 ? (

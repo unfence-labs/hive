@@ -41,9 +41,13 @@ uninstall() {
   echo "Hive removed. Data preserved at $HIVE_DATA_DIR" >&2
 }
 
+# Tailscale joins the tailnet right after the probes: `tailscale up` is the
+# first real use of the auth key (there is no way to pre-validate one without
+# consuming it), so a dead key must fail in seconds — before the slow apt/node
+# steps. Steps are name-keyed, so resume across this reordering is safe.
 STEPS=(
-  probe_os probe_env apt_baseline install_node create_user
-  install_tailscale tailscale_up configure_ufw
+  probe_os probe_env install_tailscale tailscale_up
+  apt_baseline install_node create_user configure_ufw
   install_release write_secrets write_units install_helpers enable_service health_check cleanup
 )
 

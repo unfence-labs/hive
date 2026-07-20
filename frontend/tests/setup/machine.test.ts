@@ -89,6 +89,27 @@ describe("setup machine", () => {
     expect(r).toEqual(initialMachineState());
   });
 
+  it("reset keeps machine-level preferences but drops server-specific inputs", () => {
+    let s = initialMachineState();
+    s = reduce(s, {
+      type: "advance",
+      inputs: {
+        tailscaleAuthKey: "tskey-auth-x",
+        sshKeyPath: "/home/u/.ssh/id_ed25519",
+        serverIp: "1.1.1.1",
+        hostFingerprint: "SHA256:abc",
+        authToken: "hive_secret",
+      },
+    });
+    const r = reduce(s, { type: "reset" });
+    expect(r.state).toBe("welcome");
+    expect(r.inputs.tailscaleAuthKey).toBe("tskey-auth-x");
+    expect(r.inputs.sshKeyPath).toBe("/home/u/.ssh/id_ed25519");
+    expect(r.inputs.serverIp).toBeUndefined();
+    expect(r.inputs.hostFingerprint).toBeUndefined();
+    expect(r.inputs.authToken).toBeUndefined();
+  });
+
   describe("persistence", () => {
     it("saves and restores state across reload", () => {
       let s = initialMachineState();
