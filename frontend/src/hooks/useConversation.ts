@@ -234,22 +234,18 @@ function upsertActivity(activities: AgentActivity[], activity: AgentActivity): A
 function appendReasoningDelta(
   segments: ReasoningSegment[],
   id: string,
-  kind: ReasoningSegment["kind"],
   text: string,
 ): ReasoningSegment[] {
   const index = segments.findIndex((segment) => segment.id === id);
   if (index < 0) {
-    return [
-      ...segments,
-      kind === "redacted" ? { id, kind } : { id, kind, content: text },
-    ];
+    return [...segments, { id, content: text }];
   }
 
-  return segments.map((segment, segmentIndex) => {
-    if (segmentIndex !== index) return segment;
-    if (kind === "redacted") return { id, kind };
-    return { id, kind, content: (segment.content ?? "") + text };
-  });
+  return segments.map((segment, segmentIndex) =>
+    segmentIndex === index
+      ? { id, content: (segment.content ?? "") + text }
+      : segment,
+  );
 }
 
 function reducer(state: ConversationState, action: Action): ConversationState {
@@ -298,7 +294,6 @@ function reducer(state: ConversationState, action: Action): ConversationState {
           currentReasoningSegments: appendReasoningDelta(
             stream.currentReasoningSegments,
             action.segmentId,
-            action.kind ?? "thinking",
             action.text,
           ),
         });

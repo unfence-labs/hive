@@ -478,7 +478,6 @@ describe("WS /ws/hub", () => {
       thinking: "Inspecting state",
       reasoningSegments: [{
         id: "reasoning:provider-item-1:0",
-        kind: "thinking",
         content: "Inspecting state",
       }],
       agentActivities: [{
@@ -510,7 +509,6 @@ describe("WS /ws/hub", () => {
       thinking: "Inspecting state",
       reasoningSegments: [{
         id: "reasoning:provider-item-1:0",
-        kind: "thinking",
         content: "Inspecting state",
       }],
       toolCalls: snapshot.toolCalls,

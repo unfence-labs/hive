@@ -2864,11 +2864,10 @@ describe("ConversationSession", () => {
       sessionId: "sess-thinking",
       text: "Hmm, let me think...",
       segmentId: "reasoning:msg-1:0",
-      kind: "thinking",
     });
   });
 
-  it("retains separate live reasoning phases and redacted semantics in snapshots", () => {
+  it("retains separate live reasoning phases and drops redacted blocks in snapshots", () => {
     const session = createSession({ sessionId: "reasoning-segments-live" });
     const messages: WsOutgoing[] = [];
     session.on("message", (msg) => messages.push(msg));
@@ -2889,30 +2888,21 @@ describe("ConversationSession", () => {
       expect.objectContaining({
         text: "Inspect ",
         segmentId: "reasoning:reasoning-1:0",
-        kind: "thinking",
-      }),
-      expect.objectContaining({
-        text: "[redacted]\n",
-        segmentId: "reasoning:reasoning-1:1",
-        kind: "redacted",
       }),
       expect.objectContaining({
         text: "state",
         segmentId: "reasoning:reasoning-1:0",
-        kind: "thinking",
       }),
       expect.objectContaining({
         text: "Check clients",
         segmentId: "reasoning:reasoning-2:0",
-        kind: "thinking",
       }),
     ]);
     expect(session.getStreamingSnapshot()).toMatchObject({
-      thinking: "Inspect [redacted]\nstateCheck clients",
+      thinking: "Inspect stateCheck clients",
       reasoningSegments: [
-        { id: "reasoning:reasoning-1:0", kind: "thinking", content: "Inspect state" },
-        { id: "reasoning:reasoning-1:1", kind: "redacted" },
-        { id: "reasoning:reasoning-2:0", kind: "thinking", content: "Check clients" },
+        { id: "reasoning:reasoning-1:0", content: "Inspect state" },
+        { id: "reasoning:reasoning-2:0", content: "Check clients" },
       ],
     });
   });
@@ -3816,7 +3806,6 @@ describe("ConversationSession", () => {
     expect(assistantMsg.thinkingContent).toBe("Deep thought");
     expect(assistantMsg.reasoningSegments).toEqual([{
       id: "reasoning:msg-1:0",
-      kind: "thinking",
       content: "Deep thought",
     }]);
     expect(assistantMsg.content).toBe("The answer");
@@ -3845,11 +3834,10 @@ describe("ConversationSession", () => {
     const raw = await readFile(messagesPath, "utf-8");
     const lines = raw.split("\n").filter(Boolean);
     const assistantMsg = JSON.parse(lines[1]);
-    expect(assistantMsg.thinkingContent).toBe("First [redacted]\nphaseSecond phase");
+    expect(assistantMsg.thinkingContent).toBe("First phaseSecond phase");
     expect(assistantMsg.reasoningSegments).toEqual([
-      { id: "reasoning:reasoning-1:0", kind: "thinking", content: "First phase" },
-      { id: "reasoning:reasoning-1:1", kind: "redacted" },
-      { id: "reasoning:reasoning-2:0", kind: "thinking", content: "Second phase" },
+      { id: "reasoning:reasoning-1:0", content: "First phase" },
+      { id: "reasoning:reasoning-2:0", content: "Second phase" },
     ]);
   });
 
@@ -3884,8 +3872,8 @@ describe("ConversationSession", () => {
     const lines = raw.split("\n").filter(Boolean);
     const assistantMsg = JSON.parse(lines[1]);
     expect(assistantMsg.reasoningSegments).toEqual([
-      { id: "reasoning:reasoning-1:0", kind: "thinking", content: "**First part**\n\nSecond part" },
-      { id: "reasoning:reasoning-2:0", kind: "thinking", content: "**Headline only**" },
+      { id: "reasoning:reasoning-1:0", content: "**First part**\n\nSecond part" },
+      { id: "reasoning:reasoning-2:0", content: "**Headline only**" },
     ]);
     expect(assistantMsg.thinkingContent).toBe("**First part**\n\nSecond part**Headline only**");
   });

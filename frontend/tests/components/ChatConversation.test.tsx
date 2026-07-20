@@ -115,8 +115,8 @@ describe("ChatConversation live reasoning", () => {
     renderConversation({
       isStreaming: true,
       currentReasoningSegments: [
-        { id: "reasoning-1", kind: "thinking", content: "Inspecting files" },
-        { id: "hidden-1", kind: "redacted" },
+        { id: "reasoning-1", content: "Inspecting files" },
+        { id: "hidden-1" },
       ],
     });
 

@@ -48,10 +48,7 @@ struct MessageBubble: View, Equatable {
             VStack(alignment: message.role == .user ? .trailing : .leading, spacing: 6) {
                 let reasoning = reasoningSegments
                 if message.role == .assistant, !reasoning.isEmpty {
-                    ReasoningDisclosure(
-                        segments: reasoning,
-                        streaming: message.id == "streaming"
-                    )
+                    ReasoningDisclosure(segments: reasoning)
                 }
 
                 messageContent
@@ -688,20 +685,8 @@ private func getOutputSummary(_ tool: ToolCall) -> String? {
 
 private struct ReasoningDisclosure: View {
     let segments: [ReasoningSegment]
-    let streaming: Bool
 
     @State private var isExpanded = false
-
-    private var summary: String? {
-        if streaming { return "Thinking…" }
-        let hiddenCount = segments.filter { $0.kind == .redacted }.count
-        return hiddenCount > 0 ? "\(hiddenCount) hidden" : nil
-    }
-
-    private var accessibilityValue: String {
-        let progress = streaming ? "Thinking" : (summary ?? "Reasoning")
-        return "\(progress), \(isExpanded ? "expanded" : "collapsed")"
-    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -710,10 +695,7 @@ private struct ReasoningDisclosure: View {
             } label: {
                 ChatActivityRowLabel(
                     icon: "brain",
-                    label: "Reasoning",
-                    summary: isExpanded ? nil : summary,
-                    isExpanded: isExpanded,
-                    executing: streaming
+                    label: "Reasoning"
                 )
                 .frame(minHeight: 44)
                 .contentShape(Rectangle())
@@ -721,7 +703,7 @@ private struct ReasoningDisclosure: View {
             .buttonStyle(.plain)
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("Reasoning")
-            .accessibilityValue(accessibilityValue)
+            .accessibilityValue(isExpanded ? "expanded" : "collapsed")
             .accessibilityHint(isExpanded ? "Collapses the reasoning phases." : "Expands the reasoning phases.")
 
             if isExpanded {
@@ -759,33 +741,15 @@ private struct ReasoningPhaseContent: View {
     let phase: Int
 
     var body: some View {
-        Group {
-            switch segment.kind {
-            case .thinking:
-                Text(reasoningMarkdown(segment.content ?? ""))
-                    .font(WhisperFont.mono(11))
-                    .foregroundStyle(WhisperColor.textSecondary)
-                    .lineSpacing(2)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .textSelection(.enabled)
-                    .padding(.vertical, 8)
-                    .accessibilityElement(children: .combine)
-                    .accessibilityLabel("Reasoning phase \(phase)")
-            case .redacted:
-                HStack(spacing: 8) {
-                    Image(systemName: "eye.slash")
-                        .font(.system(size: 11))
-                        .foregroundStyle(WhisperColor.textMuted)
-                    Text("Reasoning hidden by provider")
-                        .font(WhisperFont.mono(11))
-                        .foregroundStyle(WhisperColor.textMuted)
-                }
-                .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-                .accessibilityElement(children: .ignore)
-                .accessibilityLabel("Reasoning phase \(phase) hidden by provider")
-                .accessibilityValue("The provider did not expose this reasoning content.")
-            }
-        }
+        Text(reasoningMarkdown(segment.content ?? ""))
+            .font(WhisperFont.mono(11))
+            .foregroundStyle(WhisperColor.textSecondary)
+            .lineSpacing(2)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .textSelection(.enabled)
+            .padding(.vertical, 8)
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("Reasoning phase \(phase)")
     }
 }
 

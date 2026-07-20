@@ -288,13 +288,7 @@ struct ToolCall: Codable, Equatable, Identifiable {
 }
 
 struct ReasoningSegment: Codable, Equatable, Identifiable {
-    enum Kind: String, Codable, Equatable {
-        case thinking
-        case redacted
-    }
-
     let id: String
-    let kind: Kind
     let content: String?
 }
 
@@ -420,15 +414,15 @@ extension ChatMessage {
         if let reasoningSegments, !reasoningSegments.isEmpty {
             source = reasoningSegments
         } else if let thinkingContent, !thinkingContent.isEmpty {
-            source = [ReasoningSegment(id: "legacy-thinking", kind: .thinking, content: thinkingContent)]
+            source = [ReasoningSegment(id: "legacy-thinking", content: thinkingContent)]
         } else {
             return []
         }
-        // Claude 5 family models emit signature-only thinking blocks; contentless
-        // segments (including ones already persisted) have nothing to show.
+        // Claude 5 family models emit signature-only thinking blocks, and providers
+        // may redact reasoning entirely; either way a contentless segment has
+        // nothing to show, so we drop it.
         return source.filter { segment in
-            segment.kind == .redacted
-                || segment.content?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+            segment.content?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
         }
     }
 }

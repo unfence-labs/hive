@@ -5,6 +5,8 @@ import Testing
 struct ReasoningSegmentsTests {
     @Test
     func decodesTypedSegmentsAndPrefersThemOverLegacyThinking() throws {
+        // Legacy persisted data may still carry a `kind` field; the decoder must
+        // tolerate and ignore it.
         let data = Data("""
         {
           "id": "message-1",
@@ -25,9 +27,9 @@ struct ReasoningSegmentsTests {
         let segments = try #require(message.reasoningSegments)
 
         #expect(segments.map(\.id) == ["reasoning-1", "reasoning-2", "reasoning-3"])
-        #expect(segments.map(\.kind) == [.thinking, .redacted, .thinking])
         #expect(segments[1].content == nil)
-        #expect(message.resolvedReasoningSegments == segments)
+        // The contentless segment has nothing to show, so it is dropped.
+        #expect(message.resolvedReasoningSegments.map(\.id) == ["reasoning-1", "reasoning-3"])
     }
 
     @Test
@@ -48,7 +50,6 @@ struct ReasoningSegmentsTests {
 
         #expect(message.reasoningSegments == nil)
         #expect(segment.id == "legacy-thinking")
-        #expect(segment.kind == .thinking)
         #expect(segment.content == "Legacy reasoning")
     }
 
@@ -61,10 +62,10 @@ struct ReasoningSegmentsTests {
           "role": "assistant",
           "content": "Answer",
           "reasoningSegments": [
-            { "id": "reasoning-1", "kind": "thinking", "content": "" },
-            { "id": "reasoning-2", "kind": "thinking" },
+            { "id": "reasoning-1", "content": "" },
+            { "id": "reasoning-2" },
             { "id": "reasoning-3", "kind": "redacted" },
-            { "id": "reasoning-4", "kind": "thinking", "content": "Visible" }
+            { "id": "reasoning-4", "content": "Visible" }
           ],
           "timestamp": "2026-07-10T00:00:00.000Z"
         }
@@ -72,7 +73,7 @@ struct ReasoningSegmentsTests {
 
         let message = try JSONDecoder().decode(ChatMessage.self, from: data)
 
-        #expect(message.resolvedReasoningSegments.map(\.id) == ["reasoning-3", "reasoning-4"])
+        #expect(message.resolvedReasoningSegments.map(\.id) == ["reasoning-4"])
     }
 
     @Test
@@ -82,8 +83,7 @@ struct ReasoningSegmentsTests {
           "type": "thinking",
           "sessionId": "session-1",
           "text": "Inspecting",
-          "segmentId": "reasoning-1",
-          "kind": "thinking"
+          "segmentId": "reasoning-1"
         }
         """.utf8)
         let legacyData = Data("""
@@ -97,22 +97,20 @@ struct ReasoningSegmentsTests {
         let typed = try JSONDecoder().decode(WsOutgoing.self, from: typedData)
         let legacy = try JSONDecoder().decode(WsOutgoing.self, from: legacyData)
 
-        guard case .thinking(let sessionId, let text, let segmentId, let kind) = typed else {
+        guard case .thinking(let sessionId, let text, let segmentId) = typed else {
             Issue.record("Expected typed thinking event")
             return
         }
         #expect(sessionId == "session-1")
         #expect(text == "Inspecting")
         #expect(segmentId == "reasoning-1")
-        #expect(kind == .thinking)
 
-        guard case .thinking(_, let legacyText, let legacySegmentId, let legacyKind) = legacy else {
+        guard case .thinking(_, let legacyText, let legacySegmentId) = legacy else {
             Issue.record("Expected legacy thinking event")
             return
         }
         #expect(legacyText == "Legacy")
         #expect(legacySegmentId == nil)
-        #expect(legacyKind == nil)
     }
 
     @Test
@@ -124,8 +122,8 @@ struct ReasoningSegmentsTests {
           "text": "",
           "thinking": "Legacy aggregate",
           "reasoningSegments": [
-            { "id": "reasoning-1", "kind": "thinking", "content": "Canonical" },
-            { "id": "reasoning-2", "kind": "redacted" }
+            { "id": "reasoning-1", "content": "Canonical" },
+            { "id": "reasoning-2" }
           ],
           "toolCalls": [],
           "agentActivities": [],
@@ -140,53 +138,35 @@ struct ReasoningSegmentsTests {
             return
         }
         #expect(legacyThinking == "Legacy aggregate")
-        #expect(segments.map(\.kind) == [.thinking, .redacted])
+        #expect(segments.map(\.id) == ["reasoning-1", "reasoning-2"])
         #expect(segments[1].content == nil)
     }
 
     @Test @MainActor
-    func bufferedDeltasUpsertBySegmentIdAndRetainRedactedPhases() {
+    func bufferedDeltasUpsertBySegmentId() {
         let store = makeStreamingStore()
 
-        store.handle(.thinking(
-            sessionId: "session-1", text: "First ",
-            segmentId: "reasoning-1", kind: .thinking
-        ))
-        store.handle(.thinking(
-            sessionId: "session-1", text: "phase",
-            segmentId: "reasoning-1", kind: .thinking
-        ))
-        store.handle(.thinking(
-            sessionId: "session-1", text: "provider payload",
-            segmentId: "reasoning-2", kind: .redacted
-        ))
-        store.handle(.thinking(
-            sessionId: "session-1", text: "Second phase",
-            segmentId: "reasoning-3", kind: .thinking
-        ))
+        store.handle(.thinking(sessionId: "session-1", text: "First ", segmentId: "reasoning-1"))
+        store.handle(.thinking(sessionId: "session-1", text: "phase", segmentId: "reasoning-1"))
+        store.handle(.thinking(sessionId: "session-1", text: "Second phase", segmentId: "reasoning-2"))
 
         #expect(store.reasoningSegments.isEmpty)
         store.flushStreamingDeltas()
 
-        #expect(store.reasoningSegments.map(\.id) == ["reasoning-1", "reasoning-2", "reasoning-3"])
+        #expect(store.reasoningSegments.map(\.id) == ["reasoning-1", "reasoning-2"])
         #expect(store.reasoningSegments[0].content == "First phase")
-        #expect(store.reasoningSegments[1].kind == .redacted)
-        #expect(store.reasoningSegments[1].content == nil)
-        #expect(store.reasoningSegments[2].content == "Second phase")
+        #expect(store.reasoningSegments[1].content == "Second phase")
         #expect(store.currentThinking.isEmpty)
     }
 
     @Test @MainActor
     func snapshotReplacesPendingDeltasWithCanonicalSegments() {
         let store = makeStreamingStore()
-        store.handle(.thinking(
-            sessionId: "session-1", text: "stale",
-            segmentId: "stale-segment", kind: .thinking
-        ))
+        store.handle(.thinking(sessionId: "session-1", text: "stale", segmentId: "stale-segment"))
 
         let canonical = [
-            ReasoningSegment(id: "reasoning-1", kind: .thinking, content: "Canonical"),
-            ReasoningSegment(id: "reasoning-2", kind: .redacted, content: nil)
+            ReasoningSegment(id: "reasoning-1", content: "Canonical"),
+            ReasoningSegment(id: "reasoning-2", content: nil)
         ]
         store.handle(.streamSnapshot(
             sessionId: "session-1",
@@ -206,14 +186,8 @@ struct ReasoningSegmentsTests {
     @Test @MainActor
     func doneFinalizesAndCachesTypedSegments() throws {
         let store = makeStreamingStore()
-        store.handle(.thinking(
-            sessionId: "session-1", text: "Reasoning",
-            segmentId: "reasoning-1", kind: .thinking
-        ))
-        store.handle(.thinking(
-            sessionId: "session-1", text: "",
-            segmentId: "reasoning-2", kind: .redacted
-        ))
+        store.handle(.thinking(sessionId: "session-1", text: "Reasoning", segmentId: "reasoning-1"))
+        store.handle(.thinking(sessionId: "session-1", text: "", segmentId: "reasoning-2"))
 
         store.handle(.done(
             sessionId: "session-1",
@@ -227,7 +201,8 @@ struct ReasoningSegmentsTests {
 
         let message = try #require(store.messages.last)
         let segments = try #require(message.reasoningSegments)
-        #expect(segments.map(\.kind) == [.thinking, .redacted])
+        #expect(segments.map(\.id) == ["reasoning-1", "reasoning-2"])
+        #expect(segments[1].content == nil)
         #expect(message.thinkingContent == nil)
         #expect(store.cachedMessages(for: "session-1")?.last?.reasoningSegments == segments)
         #expect(store.sessionStreams["session-1"] == nil)

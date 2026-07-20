@@ -175,7 +175,7 @@ function cleanReasoningSegments(segments: ReasoningSegment[]): ReasoningSegment[
     .map((segment) => segment.content === undefined
       ? segment
       : { ...segment, content: cleanReasoningText(segment.content) })
-    .filter((segment) => segment.kind === "redacted" || segment.content);
+    .filter((segment) => segment.content);
 }
 
 function cloneAgentActivity(activity: AgentActivity): AgentActivity {
@@ -1073,13 +1073,12 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
         break;
       case "thinking_delta":
         this._streamThinking += event.text;
-        this.upsertReasoningSegment(event.segmentId, "thinking", event.text);
+        this.upsertReasoningSegment(event.segmentId, event.text);
         this.emit("message", {
           type: "thinking",
           sessionId: this.sessionId,
           text: event.text,
           segmentId: event.segmentId,
-          kind: "thinking",
         });
         break;
       case "tool_started":
@@ -1100,17 +1099,6 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
           sessionId: this.sessionId,
           active: this._agentPlanMode,
         } as WsOutgoing);
-        break;
-      case "redacted_thinking":
-        this._streamThinking += event.text;
-        this.upsertReasoningSegment(event.segmentId, "redacted");
-        this.emit("message", {
-          type: "thinking",
-          sessionId: this.sessionId,
-          text: event.text,
-          segmentId: event.segmentId,
-          kind: "redacted",
-        });
         break;
       case "usage_updated":
         return { inputTokens: event.inputTokens, outputTokens: event.outputTokens };
@@ -1145,17 +1133,13 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
     return undefined;
   }
 
-  private upsertReasoningSegment(
-    id: string,
-    kind: ReasoningSegment["kind"],
-    content?: string,
-  ): void {
+  private upsertReasoningSegment(id: string, content?: string): void {
     const segment = this._streamReasoningSegments.find((item) => item.id === id);
     if (segment) {
       if (content) segment.content = (segment.content ?? "") + content;
       return;
     }
-    this._streamReasoningSegments.push({ id, kind, ...(content ? { content } : {}) });
+    this._streamReasoningSegments.push({ id, ...(content ? { content } : {}) });
   }
 
   private upsertToolCall(id: string, name: string, input: string, parentToolUseId?: string): void {

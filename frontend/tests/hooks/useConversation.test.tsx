@@ -1820,7 +1820,7 @@ describe("useConversation", () => {
     expect(result.current.currentReasoningSegments).toEqual([]);
   });
 
-  it("upserts typed reasoning deltas by segment id and retains redacted phases", async () => {
+  it("upserts typed reasoning deltas by segment id", async () => {
     const { __wsMock } = await getWsMock();
     const { result } = renderConversation("ws-1");
 
@@ -1842,36 +1842,25 @@ describe("useConversation", () => {
         type: "thinking",
         sessionId: "sess-1",
         segmentId: "reasoning-1",
-        kind: "thinking",
         text: "First ",
       });
       __wsMock.emit("ws-1", {
         type: "thinking",
         sessionId: "sess-1",
-        segmentId: "hidden-1",
-        kind: "redacted",
-        text: "must not be exposed",
-      });
-      __wsMock.emit("ws-1", {
-        type: "thinking",
-        sessionId: "sess-1",
         segmentId: "reasoning-1",
-        kind: "thinking",
         text: "phase",
       });
       __wsMock.emit("ws-1", {
         type: "thinking",
         sessionId: "sess-1",
         segmentId: "reasoning-2",
-        kind: "thinking",
         text: "Second phase",
       });
     });
 
     expect(result.current.currentReasoningSegments).toEqual([
-      { id: "reasoning-1", kind: "thinking", content: "First phase" },
-      { id: "hidden-1", kind: "redacted" },
-      { id: "reasoning-2", kind: "thinking", content: "Second phase" },
+      { id: "reasoning-1", content: "First phase" },
+      { id: "reasoning-2", content: "Second phase" },
     ]);
     expect(result.current.currentThinking).toBe("");
   });
@@ -1928,15 +1917,7 @@ describe("useConversation", () => {
         type: "thinking",
         sessionId: "sess-1",
         segmentId: "reasoning-1",
-        kind: "thinking",
         text: "Visible thought",
-      });
-      __wsMock.emit("ws-1", {
-        type: "thinking",
-        sessionId: "sess-1",
-        segmentId: "hidden-1",
-        kind: "redacted",
-        text: "",
       });
       __wsMock.emit("ws-1", { type: "text_delta", sessionId: "sess-1", text: "Answer" });
     });
@@ -1946,8 +1927,7 @@ describe("useConversation", () => {
 
     const assistant = result.current.messages.at(-1);
     expect(assistant?.reasoningSegments).toEqual([
-      { id: "reasoning-1", kind: "thinking", content: "Visible thought" },
-      { id: "hidden-1", kind: "redacted" },
+      { id: "reasoning-1", content: "Visible thought" },
     ]);
     expect(assistant?.thinkingContent).toBeUndefined();
     expect(assistant?.content).toBe("Answer");
@@ -2384,8 +2364,7 @@ describe("useConversation", () => {
         text: "Before after",
         thinking: "Canonical thinking",
         reasoningSegments: [
-          { id: "reasoning-1", kind: "thinking", content: "Canonical visible reasoning" },
-          { id: "hidden-1", kind: "redacted" },
+          { id: "reasoning-1", content: "Canonical visible reasoning" },
         ],
         toolCalls: [{
           id: "tool-1",
@@ -2409,8 +2388,7 @@ describe("useConversation", () => {
     expect(result.current.currentStreamingText).toBe("Before after");
     expect(result.current.currentThinking).toBe("Canonical thinking");
     expect(result.current.currentReasoningSegments).toEqual([
-      { id: "reasoning-1", kind: "thinking", content: "Canonical visible reasoning" },
-      { id: "hidden-1", kind: "redacted" },
+      { id: "reasoning-1", content: "Canonical visible reasoning" },
     ]);
     expect(result.current.activeToolCalls).toEqual([
       expect.objectContaining({ id: "tool-1", output: "file contents" }),

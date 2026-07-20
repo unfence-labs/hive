@@ -220,15 +220,13 @@ final class ConversationStore {
             pendingTextBySession[sid, default: ""] += text
             scheduleStreamFlush()
 
-        case .thinking(let sid, let text, let segmentId, let kind):
+        case .thinking(let sid, let text, let segmentId):
             guard sessionStreams[sid] != nil else { return }
             if let segmentId {
-                let segmentKind = kind ?? .thinking
                 var pending = pendingReasoningBySession[sid] ?? []
                 mergeReasoningSegment(ReasoningSegment(
                     id: segmentId,
-                    kind: segmentKind,
-                    content: segmentKind == .redacted || text.isEmpty ? nil : text
+                    content: text.isEmpty ? nil : text
                 ), into: &pending)
                 pendingReasoningBySession[sid] = pending
             } else {
@@ -825,16 +823,9 @@ final class ConversationStore {
     private func mergeReasoningSegment(_ delta: ReasoningSegment, into segments: inout [ReasoningSegment]) {
         if let index = segments.firstIndex(where: { $0.id == delta.id }) {
             let existing = segments[index]
-            let content: String?
-            if delta.kind == .redacted {
-                content = nil
-            } else {
-                content = (existing.content ?? "") + (delta.content ?? "")
-            }
             segments[index] = ReasoningSegment(
                 id: delta.id,
-                kind: delta.kind,
-                content: content
+                content: (existing.content ?? "") + (delta.content ?? "")
             )
         } else {
             segments.append(delta)

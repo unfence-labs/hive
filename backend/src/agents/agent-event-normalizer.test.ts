@@ -72,7 +72,7 @@ describe("AgentEventNormalizer", () => {
     ]);
   });
 
-  it("assigns stable identities and semantic kinds to reasoning blocks", () => {
+  it("assigns stable identities to reasoning blocks and drops redacted ones", () => {
     const normalizer = new AgentEventNormalizer();
 
     const firstEvents = normalizer.handleAssistant(assistant([
@@ -91,11 +91,6 @@ describe("AgentEventNormalizer", () => {
         type: "thinking_delta",
         segmentId: "reasoning:provider-message-1:0",
         text: "First ",
-      },
-      {
-        type: "redacted_thinking",
-        segmentId: "reasoning:provider-message-1:1",
-        text: "[redacted]\n",
       },
     ]);
     expect(continuedEvents).toEqual([{

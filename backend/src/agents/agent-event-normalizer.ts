@@ -17,7 +17,6 @@ type ServerResultBlock = Extract<ContentBlock,
 export type NormalizedAgentEvent =
   | { type: "text_delta"; text: string }
   | { type: "thinking_delta"; segmentId: string; text: string }
-  | { type: "redacted_thinking"; segmentId: string; text: string }
   | { type: "tool_started"; id: string; name: string; rawName: string; input: string; parentToolUseId?: string }
   | { type: "tool_updated"; id: string; input: string }
   | { type: "tool_completed"; id: string; output: string }
@@ -144,7 +143,7 @@ export class AgentEventNormalizer {
           break;
         }
         case "redacted_thinking":
-          events.push({ type: "redacted_thinking", segmentId: reasoningSegmentId, text: "[redacted]\n" });
+          // Providers may encrypt reasoning; there is nothing to show, so drop it.
           break;
         case "web_search_tool_result":
         case "web_fetch_tool_result":

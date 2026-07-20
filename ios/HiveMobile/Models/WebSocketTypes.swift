@@ -119,7 +119,7 @@ enum WsIncoming: Encodable {
 
 enum WsOutgoing: Decodable {
     case textDelta(sessionId: String, text: String)
-    case thinking(sessionId: String, text: String, segmentId: String? = nil, kind: ReasoningSegment.Kind? = nil)
+    case thinking(sessionId: String, text: String, segmentId: String? = nil)
     case toolUse(sessionId: String, id: String, name: String, input: String, parentToolUseId: String?)
     case toolResult(sessionId: String, toolUseId: String, output: String)
     case agentActivity(sessionId: String, activity: AgentActivity)
@@ -142,7 +142,7 @@ enum WsOutgoing: Decodable {
     case unknown(type: String)
 
     private enum CodingKeys: String, CodingKey {
-        case type, sessionId, text, id, name, input, output, segmentId, kind
+        case type, sessionId, text, id, name, input, output, segmentId
         case activity
         case thinking, reasoningSegments, toolCalls, agentActivities, agentPlanMode
         case parentToolUseId, toolUseId, requestId, toolName
@@ -168,8 +168,7 @@ enum WsOutgoing: Decodable {
             self = .thinking(
                 sessionId: try container.decode(String.self, forKey: .sessionId),
                 text: try container.decode(String.self, forKey: .text),
-                segmentId: try container.decodeIfPresent(String.self, forKey: .segmentId),
-                kind: try container.decodeIfPresent(ReasoningSegment.Kind.self, forKey: .kind)
+                segmentId: try container.decodeIfPresent(String.self, forKey: .segmentId)
             )
         case "tool_use":
             self = .toolUse(

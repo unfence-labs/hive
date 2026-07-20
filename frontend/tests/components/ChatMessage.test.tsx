@@ -83,8 +83,8 @@ describe("ChatMessage", () => {
       <ChatMessage
         message={assistantMessage({
           reasoningSegments: [
-            { id: "r1", kind: "thinking", content: "Typed reasoning" },
-            { id: "r2", kind: "redacted" },
+            { id: "r1", content: "Typed reasoning" },
+            { id: "r2" },
           ],
           thinkingContent: "Legacy reasoning",
         })}

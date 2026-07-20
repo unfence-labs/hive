@@ -213,7 +213,6 @@ export interface ToolCall {
 
 export interface ReasoningSegment {
   id: string;
-  kind: "thinking" | "redacted";
   content?: string;
 }
 
@@ -418,7 +417,6 @@ export type WsOutgoing =
       sessionId: string;
       text: string;
       segmentId?: string;
-      kind?: ReasoningSegment["kind"];
     }
   | { type: "tool_use"; sessionId: string; id: string; name: string; input: string; parentToolUseId?: string }
   | { type: "tool_result"; sessionId: string; toolUseId: string; output: string }
