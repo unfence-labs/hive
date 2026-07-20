@@ -83,7 +83,7 @@ describe("ThinkingBlock", () => {
     expect(screen.queryByText("Reasoning content unavailable")).not.toBeInTheDocument();
   });
 
-  it("stays collapsed with a bare Reasoning label while streaming", () => {
+  it("stays collapsed and labels the header 'Reasoning…' while streaming", () => {
     render(
       <ThinkingBlock
         segments={[{ id: "streaming", content: "A long in-progress thought" }]}
@@ -94,11 +94,11 @@ describe("ThinkingBlock", () => {
     const trigger = screen.getByRole("button", { name: /Reasoning/ });
     expect(trigger).toHaveAttribute("aria-expanded", "false");
     expect(trigger).toHaveClass("cursor-pointer");
-    expect(trigger).not.toHaveTextContent("Thinking");
+    expect(trigger).toHaveTextContent("Reasoning…");
     expect(screen.queryByText("A long in-progress thought")).not.toBeInTheDocument();
   });
 
-  it("shows a bare Reasoning label at rest with no hidden phases", () => {
+  it("shows a bare 'Reasoning' label at rest", () => {
     render(
       <ThinkingBlock
         segments={[{ id: "visible-1", content: "Only thinking here" }]}
@@ -106,7 +106,8 @@ describe("ThinkingBlock", () => {
     );
 
     const trigger = screen.getByRole("button", { name: /Reasoning/ });
+    expect(trigger).toHaveTextContent("Reasoning");
+    expect(trigger).not.toHaveTextContent("Reasoning…");
     expect(trigger).not.toHaveTextContent("phase");
-    expect(trigger).not.toHaveTextContent("hidden");
   });
 });

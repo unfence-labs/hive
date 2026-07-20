@@ -1,5 +1,6 @@
 import { memo, useId, useState } from "react";
-import { BrainIcon } from "lucide-react";
+import { ChevronRightIcon } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { MessageResponse } from "@/components/ai-elements/message";
 import { ContentPanel } from "@/components/chat/ContentPanel";
 import type { ReasoningSegment } from "@/types";
@@ -35,13 +36,16 @@ export const ThinkingBlock = memo(function ThinkingBlock({
     <div className="my-0.5">
       <button
         type="button"
-        className="inline-flex min-h-8 max-w-full cursor-pointer items-center gap-2 rounded-md py-1 pr-2.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-field hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
+        className="inline-flex max-w-full cursor-pointer items-center gap-2 rounded-md py-1 pr-2.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-field hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
         aria-expanded={open}
         aria-controls={panelId}
         onClick={() => setOpen((current) => !current)}
       >
-        <BrainIcon className="size-3.5 shrink-0" />
-        <span className="shrink-0">Reasoning</span>
+        <ChevronRightIcon
+          className={cn("size-3.5 shrink-0 transition-transform", open && "rotate-90")}
+          aria-hidden="true"
+        />
+        <span className="shrink-0">{streaming ? "Reasoning…" : "Reasoning"}</span>
       </button>
       {open && (
         <ContentPanel id={panelId} className="divide-y divide-border/60" aria-live="off">

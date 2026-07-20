@@ -48,7 +48,10 @@ struct MessageBubble: View, Equatable {
             VStack(alignment: message.role == .user ? .trailing : .leading, spacing: 6) {
                 let reasoning = reasoningSegments
                 if message.role == .assistant, !reasoning.isEmpty {
-                    ReasoningDisclosure(segments: reasoning)
+                    ReasoningDisclosure(
+                        segments: reasoning,
+                        streaming: message.id == "streaming"
+                    )
                 }
 
                 messageContent
@@ -685,6 +688,7 @@ private func getOutputSummary(_ tool: ToolCall) -> String? {
 
 private struct ReasoningDisclosure: View {
     let segments: [ReasoningSegment]
+    let streaming: Bool
 
     @State private var isExpanded = false
 
@@ -694,11 +698,9 @@ private struct ReasoningDisclosure: View {
                 withoutAnimation { isExpanded.toggle() }
             } label: {
                 ChatActivityRowLabel(
-                    icon: "brain",
-                    label: "Reasoning"
+                    label: streaming ? "Reasoning…" : "Reasoning",
+                    isExpanded: isExpanded
                 )
-                .frame(minHeight: 44)
-                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .accessibilityElement(children: .ignore)
