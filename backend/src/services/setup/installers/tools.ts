@@ -2,6 +2,7 @@ import type { DetectableTool } from "@hive/shared/setup-types";
 import { StepError } from "../operations.js";
 import type { EmitFn } from "../operations.js";
 import { detectTools } from "../detect.js";
+import { detectAvailableProviders } from "../../../agents/providers/registry.js";
 import {
   type InstallerDeps,
   type CommandResult,
@@ -88,6 +89,9 @@ export function makeInstallerStep(
       );
     }
     await emit({ stream: "stdout", line: `${spec.tool} verified` });
+    // The provider catalog is probed once at boot — before guided setup
+    // installs the agent CLIs. Re-probe so models appear without a restart.
+    await detectAvailableProviders();
     return data;
   };
 }
@@ -178,46 +182,6 @@ export function installDockerStep(depsOverride?: InstallerDeps) {
   );
 }
 
-/** mise: user-space installer via mise.run, then ensure shims are set up. */
-export function installMiseStep(depsOverride?: InstallerDeps) {
-  return makeInstallerStep(
-    {
-      tool: "mise",
-      title: "Install mise",
-      run: async (emit, deps) => {
-        await installUserSpace(
-          emit,
-          deps,
-          "curl -fsSL https://mise.run | sh",
-          "mise",
-        );
-        await emit({ stream: "system", line: "mise: ensuring shims" });
-        const shims = await deps.run("$HOME/.local/bin/mise reshim || mise reshim || true");
-        if (shims.stdout.trim()) await emit({ stream: "stdout", line: shims.stdout.trim() });
-      },
-    },
-    depsOverride,
-  );
-}
-
-/** uv: user-space Astral installer. */
-export function installUvStep(depsOverride?: InstallerDeps) {
-  return makeInstallerStep(
-    {
-      tool: "uv",
-      title: "Install uv",
-      run: (emit, deps) =>
-        installUserSpace(
-          emit,
-          deps,
-          "curl -LsSf https://astral.sh/uv/install.sh | sh",
-          "uv",
-        ),
-    },
-    depsOverride,
-  );
-}
-
 /** Claude Code: official native installer to ~/.local/bin (user-space). */
 export function installClaudeStep(depsOverride?: InstallerDeps) {
   return makeInstallerStep(
@@ -237,7 +201,8 @@ export function installClaudeStep(depsOverride?: InstallerDeps) {
   );
 }
 
-/** Codex CLI: npm global install. */
+/** Codex CLI: npm install into the user prefix (the service user cannot write
+ * the system-wide npm prefix, and ~/.local/bin is already on the service PATH). */
 export function installCodexStep(depsOverride?: InstallerDeps) {
   return makeInstallerStep(
     {
@@ -247,7 +212,7 @@ export function installCodexStep(depsOverride?: InstallerDeps) {
         installUserSpace(
           emit,
           deps,
-          "npm install -g @openai/codex",
+          'npm install -g --prefix "$HOME/.local" @openai/codex',
           "Codex",
         ),
     },

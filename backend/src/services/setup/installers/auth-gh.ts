@@ -1,18 +1,18 @@
 import { homedir } from "node:os";
+import { execFile as execFileCb } from "node:child_process";
+import { promisify } from "node:util";
 import { StepError } from "../operations.js";
 import type { EmitFn, StepContext } from "../operations.js";
 import { detectTools } from "../detect.js";
 import {
   parseDeviceCode,
   parseDeviceUrl,
-  isGhLoggedIn,
   isDeviceCodeExpired,
 } from "./auth-parsers.js";
 import {
   drivePtyAuth,
-  defaultSpawnPty,
+  defaultSpawnPipe,
   type SpawnPty,
-  type PtyHandle,
 } from "./pty-auth.js";
 
 const GH_LOGIN_COMMAND =
@@ -24,17 +24,25 @@ export interface GhAuthOptions {
   command?: string;
   cwd?: string;
   timeoutMs?: number;
+  /** Injectable for tests; defaults to running `gh auth setup-git`. */
+  setupGit?: () => Promise<void>;
+}
+
+async function defaultSetupGit(): Promise<void> {
+  await promisify(execFileCb)("gh", ["auth", "setup-git", "-h", "github.com"]);
 }
 
 /**
- * `auth_gh` step: drives `gh auth login --web` in a PTY (§6.3).
+ * `auth_gh` step: drives `gh auth login --web` WITHOUT a TTY (§6.3).
+ *
+ * Pipe mode is deliberate: with a TTY gh renders interactive prompts (git
+ * credentials question, cursor-position queries) that stall a bare PTY, while
+ * without one it prints the one-time code immediately and polls on its own.
  *
  * - Guard: skip if gh already reports authenticated.
  * - Parse the one-time code (`First copy your one-time code: XXXX-XXXX`) and the
  *   device URL (`https://github.com/login/device`); surface them as an
  *   `open_url_with_code` action.
- * - CRITICAL: gh will not begin polling until the user presses Enter in the tty
- *   (cli/cli#12925), so we inject an Enter keystroke once the code is shown.
  * - Success -> ok; expiry/stall -> DEVICE_CODE_EXPIRED / GH_POLL_STUCK.
  */
 export function ghAuthStep(options: GhAuthOptions = {}) {
@@ -51,12 +59,11 @@ export function ghAuthStep(options: GhAuthOptions = {}) {
       });
     }
 
-    const spawn = options.spawn ?? defaultSpawnPty;
+    const spawn = options.spawn ?? defaultSpawnPipe;
     const command = options.command ?? GH_LOGIN_COMMAND;
     const cwd = options.cwd ?? homedir();
     const timeoutMs = options.timeoutMs ?? 180_000;
 
-    let enterInjected = false;
     let actionSurfaced = false;
     let sawExpiry = false;
 
@@ -67,7 +74,7 @@ export function ghAuthStep(options: GhAuthOptions = {}) {
       command,
       cwd,
       timeoutMs,
-      onChunk: async (buffer, handle: PtyHandle) => {
+      onChunk: async (buffer) => {
         if (!actionSurfaced) {
           const code = parseDeviceCode(buffer);
           const url = parseDeviceUrl(buffer);
@@ -78,22 +85,31 @@ export function ghAuthStep(options: GhAuthOptions = {}) {
               stream: "system",
               line: `Open ${url} and enter code ${code}`,
             });
-            // CRITICAL: gh waits for Enter before it starts polling.
-            if (!enterInjected) {
-              enterInjected = true;
-              handle.write("\r");
-              await emit({ stream: "system", line: "Injected Enter to begin polling" });
-            }
           }
         }
         if (isDeviceCodeExpired(buffer)) sawExpiry = true;
-        if (isGhLoggedIn(buffer)) return "success";
+        // No early-success on output: gh prints "Authentication complete"
+        // BEFORE persisting credentials, and killing it then loses the login.
+        // gh exits on its own right after storing; exit 0 is the signal.
         return undefined;
       },
     });
 
-    if (result.reason === "chunk-success") {
+    if (result.reason === "exit" && result.exitCode === 0) {
       await emit({ stream: "stdout", line: "GitHub sign-in complete" });
+      // The non-interactive login skips gh's setup-git prompt, so wire the git
+      // credential helper explicitly — HTTPS clones of private repos need it.
+      try {
+        await (options.setupGit ?? defaultSetupGit)();
+        await emit({ stream: "stdout", line: "Configured git to authenticate via gh" });
+      } catch (e) {
+        await emit({
+          stream: "stderr",
+          line: `gh auth setup-git failed (clones of private repos may prompt): ${e instanceof Error ? e.message : String(e)}`,
+        });
+      }
+      // Refresh the detection cache so the next /status shows authenticated.
+      await detectTools({ force: true });
       return { authenticated: true };
     }
 

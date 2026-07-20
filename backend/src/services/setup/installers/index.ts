@@ -5,8 +5,6 @@ import { detectTools } from "../detect.js";
 import {
   installGhStep,
   installDockerStep,
-  installMiseStep,
-  installUvStep,
   installClaudeStep,
   installCodexStep,
 } from "./tools.js";
@@ -45,7 +43,7 @@ function verifyStep(): StepFn {
   return async (emit: EmitFn) => {
     await emit({ stream: "system", line: "Verifying installation" });
     const detected = await detectTools({ force: true });
-    const required = ["claude", "codex", "gh", "mise", "uv", "docker"] as const;
+    const required = ["gh", "docker"] as const;
     const missing = required.filter((t) => detected[t]?.installed !== true);
     for (const tool of required) {
       const ok = detected[tool]?.installed === true;
@@ -80,8 +78,6 @@ export function buildSetupSteps(opts: {
     install_codex: { title: "Install Codex", fn: installCodexStep(deps) },
     auth_codex: { title: "Authenticate Codex", fn: codexAuthStep() },
     install_claude: { title: "Install Claude Code", fn: installClaudeStep(deps) },
-    install_mise: { title: "Install mise", fn: installMiseStep(deps) },
-    install_uv: { title: "Install uv", fn: installUvStep(deps) },
     install_docker: { title: "Install Docker (rootless)", fn: installDockerStep(deps) },
     verify: { title: "Verify installation", fn: verifyStep() },
   };

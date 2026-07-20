@@ -38,6 +38,16 @@ interface AddProjectDialogProps {
 // Must match backend REPO_NAME_RE in backend/src/utils/github.ts
 const REPO_NAME_RE = /^[a-z0-9][a-z0-9._-]*$/;
 
+/**
+ * The server authenticates GitHub over HTTPS (gh credential helper) and has no
+ * SSH keys, so scp-style `git@host:path` URLs are normalized to https.
+ */
+export function normalizeRepoUrl(input: string): string {
+  const trimmed = input.trim();
+  const m = trimmed.match(/^git@([^:/]+):(.+)$/);
+  return m ? `https://${m[1]}/${m[2]}` : trimmed;
+}
+
 export default function AddProjectDialog({
   open,
   onOpenChange,
@@ -101,7 +111,7 @@ export default function AddProjectDialog({
     try {
       let result: { id: string; warning?: string } | void;
       if (mode === "clone") {
-        result = await onClone(url.trim());
+        result = await onClone(normalizeRepoUrl(url));
       } else if (mode === "brain") {
         if (brain.exists) {
           onOpenChange(false);
@@ -192,7 +202,7 @@ export default function AddProjectDialog({
           {mode === "clone" ? (
             /* ── Clone form ──────────────────────────────────────── */
             <Input
-              placeholder="git@github.com:user/repo.git"
+              placeholder="https://github.com/user/repo.git"
               value={url}
               onChange={(e) => setUrl(e.target.value)}
               disabled={loading}

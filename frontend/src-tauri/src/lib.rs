@@ -54,6 +54,7 @@ fn open_terminal_ssh(terminal_id: String, command: String) -> Result<(), String>
 pub fn run() {
   tauri::Builder::default()
     .plugin(tauri_plugin_opener::init())
+    .manage(provision::ClaudeAuthState::default())
     .invoke_handler(tauri::generate_handler![
       detect_terminals,
       open_terminal_ssh,
@@ -62,7 +63,10 @@ pub fn run() {
       provision::provision_trust_host,
       provision::provision_start,
       provision::provision_resume,
-      provision::provision_claude_auth
+      provision::claude_auth_start,
+      provision::claude_auth_code,
+      provision::claude_auth_poll,
+      provision::claude_auth_cancel
     ])
     .setup(|app| {
       if cfg!(debug_assertions) {

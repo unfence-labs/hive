@@ -1,7 +1,10 @@
-import { useState } from "react";
-import { RefreshCw, Eye, EyeOff, Server } from "lucide-react";
+import { useMemo, useState } from "react";
+import { RefreshCw, Eye, EyeOff, Server, ArrowUpCircle, CheckCircle2 } from "lucide-react";
 import { isTauri } from "@/lib/is-tauri";
 import { openSetupWizard } from "@/hooks/useSetupWizardRequest";
+import { loadSshConnection } from "@/lib/ssh-connection";
+import { createProvisionClient } from "@/lib/provision-client";
+import { ProvisioningScreen } from "@/pages/setup/screens/ProvisioningScreen";
 import { SettingsHeader } from "@/components/AppLayout";
 import { CenterCard } from "@/components/CenterCard";
 import { useTailscaleConfig } from "@/hooks/useTailscaleConfig";
@@ -43,6 +46,10 @@ export default function ConnectionSettings({ onRefreshConnection }: ConnectionSe
   const [tokenDraft, setTokenDraft] = useState(authToken);
   const [tokenRevealed, setTokenRevealed] = useState(false);
   const [checking, setChecking] = useState(false);
+  const [updating, setUpdating] = useState(false);
+  const [updated, setUpdated] = useState(false);
+  const sshConn = useMemo(() => loadSshConnection(), []);
+  const provisionClient = useMemo(() => createProvisionClient(), []);
 
   const save = (nextIp: string, nextPort: string) => {
     setIp(nextIp);
@@ -189,6 +196,36 @@ export default function ConnectionSettings({ onRefreshConnection }: ConnectionSe
           </div>
         </section>
 
+        {isTauri() && sshConn && (
+          <section className="rounded-lg border border-border/50 bg-card/50 p-5">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h2 className="text-sm font-medium">Server update</h2>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Push the Hive backend bundled with this app to{" "}
+                  <span className="font-mono">{sshConn.user ? `${sshConn.user}@` : ""}{sshConn.host}</span>{" "}
+                  over SSH. Already up-to-date steps are skipped.
+                </p>
+                {updated && (
+                  <p className="mt-2 inline-flex items-center gap-1.5 text-xs text-success-foreground">
+                    <CheckCircle2 className="h-3.5 w-3.5" /> Server updated
+                  </p>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={() => { setUpdated(false); setUpdating(true); }}
+                disabled={!authToken}
+                title={authToken ? undefined : "Set the auth token first — the update rewrites it on the server"}
+                className="inline-flex shrink-0 cursor-pointer items-center gap-2 rounded-md border border-border/50 px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <ArrowUpCircle className="h-3 w-3" />
+                Update server
+              </button>
+            </div>
+          </section>
+        )}
+
         {isTauri() && (
           <section className="rounded-lg border border-border/50 bg-card/50 p-5">
             <div className="flex items-start justify-between gap-4">
@@ -214,6 +251,32 @@ export default function ConnectionSettings({ onRefreshConnection }: ConnectionSe
         <ServerToolsSettings />
       </div>
       </CenterCard>
+
+      {updating && sshConn && (
+        <div className="fixed inset-0 z-50 flex flex-col bg-background">
+          <div className="h-10 shrink-0" data-tauri-drag-region />
+          <div className="min-h-0 flex-1 overflow-auto">
+          <ProvisioningScreen
+            client={provisionClient}
+            params={{
+              host: sshConn.host,
+              user: sshConn.user,
+              keyPath: sshConn.keyPath,
+              tailscaleAuthKey: "",
+              skipTailscale: !sshConn.tailnet,
+              authToken,
+              port: Number(port) || 3000,
+            }}
+            title="Updating Hive on your server"
+            description="Pushes the backend bundled with this app over SSH. Steps already up to date are skipped."
+            onDone={() => { setUpdating(false); setUpdated(true); }}
+            onBack={() => setUpdating(false)}
+            onContinueLater={() => setUpdating(false)}
+            onStartOver={() => setUpdating(false)}
+          />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

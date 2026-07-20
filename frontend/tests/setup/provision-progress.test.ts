@@ -42,6 +42,29 @@ describe("provision progress reducer", () => {
     expect(state.steps.find((s) => s.id === "b")?.status).toBe("failed");
   });
 
+  it("surfaces an SSH-level error carried on run_end when no step_error was emitted", () => {
+    const state = fold([
+      { kind: "run_end", seq: -1, status: "error", errorCode: "SSH_AUTH_FAILED", detail: "Permission denied (publickey)." },
+    ]);
+    expect(state.status).toBe("failed");
+    expect(state.error).toEqual({
+      code: "SSH_AUTH_FAILED",
+      step: "provision",
+      detail: "Permission denied (publickey).",
+    });
+  });
+
+  it("keeps the first, most specific error over later generic ones", () => {
+    const state = fold([
+      { kind: "run_start", seq: 0, runId: "r", scriptVersion: "1", resume: false, stepsPlanned: ["a"] },
+      { kind: "step_start", seq: 1, step: "a", title: "A" },
+      { kind: "step_error", seq: 2, step: "a", errorCode: "TS_AUTHKEY_INVALID", detail: "bad key" },
+      { kind: "step_error", seq: -1, step: "provision", errorCode: "UNKNOWN", detail: "stream failed" },
+      { kind: "run_end", seq: 3, status: "error", errorCode: "SSH_UNREACHABLE" },
+    ]);
+    expect(state.error).toEqual({ code: "TS_AUTHKEY_INVALID", step: "a", detail: "bad key" });
+  });
+
   it("handles skipped steps on resume", () => {
     const state = fold([
       { kind: "run_start", seq: 0, runId: "r", scriptVersion: "1", resume: true, stepsPlanned: ["a", "b"] },

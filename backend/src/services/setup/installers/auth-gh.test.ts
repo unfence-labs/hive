@@ -43,12 +43,13 @@ describe("ghAuthStep", () => {
     await expect(ghAuthStep({ spawn })(emit, ctx)).rejects.toBeInstanceOf(StepError);
   });
 
-  it("parses code + url, surfaces the action, injects Enter, and succeeds", async () => {
+  it("parses code + url, surfaces the action, sets up git, and succeeds", async () => {
     mocks.detectTools.mockResolvedValue({ gh: { installed: true, authenticated: false } });
-    const { spawn, writes } = makeFakePty("gh-auth-success.sh");
+    const { spawn } = makeFakePty("gh-auth-success.sh");
     const { ctx, actions } = makeCtx();
+    const setupGit = vi.fn(async () => {});
 
-    const result = await ghAuthStep({ spawn, timeoutMs: 5000 })(emit, ctx);
+    const result = await ghAuthStep({ spawn, timeoutMs: 5000, setupGit })(emit, ctx);
 
     expect(result).toMatchObject({ authenticated: true });
     expect(actions).toHaveLength(1);
@@ -57,8 +58,7 @@ describe("ghAuthStep", () => {
       url: "https://github.com/login/device",
       code: "AB12-CD34",
     });
-    // CRITICAL: Enter must be injected so gh starts polling (cli/cli#12925).
-    expect(writes).toContain("\r");
+    expect(setupGit).toHaveBeenCalledOnce();
   });
 
   it("maps expiry to DEVICE_CODE_EXPIRED", async () => {

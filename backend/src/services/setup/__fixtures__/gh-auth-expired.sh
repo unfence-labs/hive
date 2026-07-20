@@ -1,11 +1,9 @@
 #!/usr/bin/env bash
-# Hand-authored replay of gh device-code expiry. NOT captured from real gh.
+# Replay of gh device-code expiry without a TTY.
 set -eu
 
-echo "! First copy your one-time code: WXYZ-9876"                       # (assumption)
-echo "- Press Enter to open https://github.com/login/device in your browser..."  # (assumption)
-read -r _ignored || true
-echo "- Waiting for authentication..."                                  # (assumption)
+echo "! First copy your one-time code: WXYZ-9876"
+echo "Open this URL to continue in your web browser: https://github.com/login/device"
 sleep 0.05
-echo "X The one-time code has expired. Please run the command again."   # (assumption: expiry wording)
+echo "X The one-time code has expired. Please run the command again."
 exit 1

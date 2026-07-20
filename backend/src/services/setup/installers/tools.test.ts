@@ -6,8 +6,6 @@ vi.mock("../detect.js", () => ({ detectTools: mocks.detectTools }));
 import {
   installGhStep,
   installDockerStep,
-  installMiseStep,
-  installUvStep,
   installClaudeStep,
   installCodexStep,
 } from "./tools.js";
@@ -54,24 +52,15 @@ function detectInstalledAfterFirst(tool: string) {
 
 describe("guard: already installed", () => {
   it("skips install when detect reports installed", async () => {
-    mocks.detectTools.mockResolvedValue({ uv: { installed: true } });
+    mocks.detectTools.mockResolvedValue({ claude: { installed: true } });
     const d = deps();
-    const result = await installUvStep(d)(emit);
+    const result = await installClaudeStep(d)(emit);
     expect(result).toMatchObject({ skipped: true });
     expect(d.run).not.toHaveBeenCalled();
   });
 });
 
 describe("user-space installers run + verify", () => {
-  it("uv installs then verifies", async () => {
-    detectInstalledAfterFirst("uv");
-    const d = deps();
-    const result = await installUvStep(d)(emit);
-    expect(result).toBeUndefined();
-    expect(d.run).toHaveBeenCalledOnce();
-    expect(runCalls(d.run)[0][0]).toContain("astral.sh/uv");
-  });
-
   it("claude installs with DISABLE_AUTOUPDATER", async () => {
     detectInstalledAfterFirst("claude");
     const d = deps();
@@ -81,28 +70,19 @@ describe("user-space installers run + verify", () => {
     expect(call[1]?.env).toMatchObject({ DISABLE_AUTOUPDATER: "1" });
   });
 
-  it("codex uses npm global install", async () => {
+  it("codex installs into the user npm prefix", async () => {
     detectInstalledAfterFirst("codex");
     const d = deps();
     await installCodexStep(d)(emit);
-    expect(runCalls(d.run)[0][0]).toContain("npm install -g @openai/codex");
-  });
-
-  it("mise installs and reshims", async () => {
-    detectInstalledAfterFirst("mise");
-    const d = deps();
-    await installMiseStep(d)(emit);
-    const calls = runCalls(d.run);
-    expect(calls[0][0]).toContain("mise.run");
-    expect(calls.some((c) => c[0].includes("reshim"))).toBe(true);
+    expect(runCalls(d.run)[0][0]).toContain('npm install -g --prefix "$HOME/.local" @openai/codex');
   });
 
   it("fails with NETWORK when the install command exits non-zero", async () => {
-    mocks.detectTools.mockResolvedValue({ uv: { installed: false } });
+    mocks.detectTools.mockResolvedValue({ claude: { installed: false } });
     const d = deps({
       run: vi.fn(async () => ({ stdout: "", stderr: "curl: could not resolve host", exitCode: 6 })),
     });
-    await expect(installUvStep(d)(emit)).rejects.toMatchObject({ code: "NETWORK" });
+    await expect(installClaudeStep(d)(emit)).rejects.toMatchObject({ code: "NETWORK" });
   });
 });
 

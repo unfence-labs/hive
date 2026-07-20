@@ -72,7 +72,7 @@ describe("AddProjectDialog", () => {
 
     renderDialog({ onClone, onOpenChange });
 
-    await user.type(screen.getByPlaceholderText("git@github.com:user/repo.git"), "https://github.com/acme/repo.git");
+    await user.type(screen.getByPlaceholderText("https://github.com/user/repo.git"), "https://github.com/acme/repo.git");
     await user.click(screen.getByRole("button", { name: "Add" }));
 
     await waitFor(() => {
@@ -81,13 +81,29 @@ describe("AddProjectDialog", () => {
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 
+  it("normalizes scp-style git URLs to https before cloning", async () => {
+    const user = userEvent.setup();
+    const onClone = vi.fn().mockResolvedValue(undefined);
+    renderDialog({ onClone, onOpenChange: vi.fn() });
+
+    await user.type(
+      screen.getByPlaceholderText("https://github.com/user/repo.git"),
+      "git@github.com:acme/repo.git",
+    );
+    await user.click(screen.getByRole("button", { name: "Add" }));
+
+    await waitFor(() => {
+      expect(onClone).toHaveBeenCalledWith("https://github.com/acme/repo.git");
+    });
+  });
+
   it("shows error when submit fails", async () => {
     const user = userEvent.setup();
     const onClone = vi.fn().mockRejectedValue(new Error("Clone failed"));
 
     renderDialog({ onClone });
 
-    await user.type(screen.getByPlaceholderText("git@github.com:user/repo.git"), "https://github.com/acme/repo.git");
+    await user.type(screen.getByPlaceholderText("https://github.com/user/repo.git"), "https://github.com/acme/repo.git");
     await user.click(screen.getByRole("button", { name: "Add" }));
 
     expect(await screen.findByText("Clone failed")).toBeInTheDocument();

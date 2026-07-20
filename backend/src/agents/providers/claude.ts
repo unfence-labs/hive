@@ -99,6 +99,12 @@ export class ClaudeProvider implements AgentProvider {
       // lost on `--resume`. See HARNESS_SCHEDULING_TOOLS and the README backlog.
       CLAUDE_CODE_DISABLE_CRON: "1",
       CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1",
+      // buildWorkspaceEnv strips every CLAUDE_CODE_* var from agent children;
+      // re-inject the OAuth token the guided setup persisted, or the spawned
+      // CLI runs unauthenticated even though the backend is.
+      ...(process.env.CLAUDE_CODE_OAUTH_TOKEN
+        ? { CLAUDE_CODE_OAUTH_TOKEN: process.env.CLAUDE_CODE_OAUTH_TOKEN }
+        : {}),
     };
   }
 

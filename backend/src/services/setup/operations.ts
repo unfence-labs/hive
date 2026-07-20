@@ -251,13 +251,23 @@ async function patchOperation(
   return next;
 }
 
-/** Return the id of a currently-running op of the given kind, if any. */
+/**
+ * Return the id of a running op of this kind whose steps overlap `stepIds`.
+ * Ops touching disjoint steps run in parallel (a gh device-flow sign-in must
+ * not block a Claude install); only same-step overlap conflicts.
+ */
 export async function findRunningOperation(
   kind: SetupOperationKind,
+  stepIds: string[],
   dataDir: string = getDataDir(),
 ): Promise<string | null> {
   const ops = await listOperations(dataDir);
-  const running = ops.find((o) => o.kind === kind && o.status === "running");
+  const running = ops.find(
+    (o) =>
+      o.kind === kind &&
+      o.status === "running" &&
+      o.steps.some((s) => stepIds.includes(s.id)),
+  );
   return running?.id ?? null;
 }
 
@@ -266,8 +276,8 @@ export async function findRunningOperation(
  * `succeeded` are skipped. Heartbeats every ~5s while running. On the first
  * failing step, remaining steps stay pending and the op is marked `failed`.
  *
- * Enforces one running op per kind: throws {@link ConcurrentOperationError} if
- * another op of the same kind is already running.
+ * Throws {@link ConcurrentOperationError} if another running op of the same
+ * kind touches any of the same steps.
  */
 export async function runOperation(
   id: string,
@@ -277,7 +287,7 @@ export async function runOperation(
   const op = await getOperation(id, dataDir);
   if (!op) throw new Error(`Operation ${id} not found`);
 
-  const otherRunning = await findRunningOperation(op.kind, dataDir);
+  const otherRunning = await findRunningOperation(op.kind, steps.map((s) => s.id), dataDir);
   if (otherRunning && otherRunning !== id) {
     throw new ConcurrentOperationError(op.kind, otherRunning);
   }
@@ -385,21 +395,19 @@ function toStepError(err: unknown): StepError {
 }
 
 /**
- * Boot reaper (§6.1): any op left `running` with a stale heartbeat is marked
- * `failed`, and its running step gets error code INTERRUPTED. Idempotent.
+ * Boot reaper (§6.1): runners live in-process, so at boot ANY op still
+ * `running` is orphaned — even with a fresh heartbeat (a restart seconds after
+ * the last beat used to leave zombies that blocked same-step retries forever).
+ * Marks the op `failed` and its running step INTERRUPTED. Idempotent.
  * Returns the ids of operations that were reaped.
  */
 export async function reapStaleOperations(
   dataDir: string = getDataDir(),
-  now: number = Date.now(),
 ): Promise<string[]> {
   const ops = await listOperations(dataDir);
   const reaped: string[] = [];
   for (const op of ops) {
     if (op.status !== "running") continue;
-    const heartbeatMs = Date.parse(op.heartbeatAt);
-    const stale = Number.isNaN(heartbeatMs) || now - heartbeatMs > STALE_HEARTBEAT_MS;
-    if (!stale) continue;
 
     for (const step of op.steps) {
       if (step.status === "running") {

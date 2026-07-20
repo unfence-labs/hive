@@ -78,9 +78,9 @@ export async function setupRoutes(
       return reply.status(400).send({ error: `Unknown steps: ${unknown.join(", ")}` });
     }
 
-    const running = await findRunningOperation("guided-setup", dataDir);
+    const running = await findRunningOperation("guided-setup", stepIds, dataDir);
     if (running) {
-      return reply.status(409).send({ error: "Another setup operation is already running", operationId: running });
+      return reply.status(409).send({ error: "This step is already running", operationId: running });
     }
 
     const op = await createOperation(
@@ -132,9 +132,9 @@ export async function setupRoutes(
         return reply.status(409).send({ error: `Operation references unknown steps: ${unknown.join(", ")}` });
       }
 
-      const running = await findRunningOperation(op.kind, dataDir);
+      const running = await findRunningOperation(op.kind, op.steps.map((s) => s.id), dataDir);
       if (running && running !== op.id) {
-        return reply.status(409).send({ error: "Another setup operation is already running", operationId: running });
+        return reply.status(409).send({ error: "This step is already running", operationId: running });
       }
 
       void runOperation(op.id, steps, dataDir).catch((err) => {

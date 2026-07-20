@@ -143,7 +143,7 @@ describe("runOperation", () => {
     expect(result.steps[1].attempts).toBe(2); // retried
   });
 
-  it("enforces one running op per kind", async () => {
+  it("rejects a second op touching the same step", async () => {
     const first = await createOperation("guided-setup", steps("a"), dataDir);
     // Leave `first` in running state without finishing.
     await runOperationLeaveRunning(first.id, dataDir);
@@ -152,6 +152,15 @@ describe("runOperation", () => {
     await expect(runOperation(second.id, [okStep("a")], dataDir)).rejects.toBeInstanceOf(
       ConcurrentOperationError,
     );
+  });
+
+  it("allows concurrent ops on disjoint steps", async () => {
+    const first = await createOperation("guided-setup", steps("a"), dataDir);
+    await runOperationLeaveRunning(first.id, dataDir);
+
+    const second = await createOperation("guided-setup", steps("b"), dataDir);
+    const result = await runOperation(second.id, [okStep("b")], dataDir);
+    expect(result.status).toBe("succeeded");
   });
 });
 
@@ -231,12 +240,12 @@ describe("reapStaleOperations", () => {
     expect(after?.steps[1].status).toBe("pending");
   });
 
-  it("leaves a fresh running op alone", async () => {
+  it("reaps a running op even with a fresh heartbeat (runners never survive boot)", async () => {
     const op = await createOperation("guided-setup", steps("a"), dataDir);
     await runOperationLeaveRunning(op.id, dataDir);
     const reaped = await reapStaleOperations(dataDir);
-    expect(reaped).toEqual([]);
-    expect((await getOperation(op.id, dataDir))?.status).toBe("running");
+    expect(reaped).toEqual([op.id]);
+    expect((await getOperation(op.id, dataDir))?.status).toBe("failed");
   });
 
   it("after reaping, the op can be resumed and succeed", async () => {
@@ -255,7 +264,7 @@ describe("reapStaleOperations", () => {
     );
 
     await reapStaleOperations(dataDir);
-    expect(await findRunningOperation("guided-setup", dataDir)).toBeNull();
+    expect(await findRunningOperation("guided-setup", ["a", "b"], dataDir)).toBeNull();
 
     const result = await runOperation(op.id, [okStep("a"), okStep("b")], dataDir);
     expect(result.status).toBe("succeeded");

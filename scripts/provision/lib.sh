@@ -126,8 +126,11 @@ fail() {
 die() { fail "$1" "$2" "${3:-1}"; }   # typed failure from within a step
 
 on_err() {
+  # Include the exact failing command and line so unexpected failures are
+  # debuggable from the error panel alone.
   local rc=$?
-  fail "${STEP_ERR_CODE:-UNKNOWN}" "step ${CURRENT_STEP:-?} failed (rc=$rc)" "$rc"
+  fail "${STEP_ERR_CODE:-UNKNOWN}" \
+    "step ${CURRENT_STEP:-?} failed (rc=$rc) at line ${BASH_LINENO[0]:-?}: ${BASH_COMMAND:-?}" "$rc"
 }
 
 # --- Step runner ---

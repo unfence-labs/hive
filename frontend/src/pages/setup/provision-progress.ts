@@ -106,12 +106,21 @@ export function applyProvisionEvent(
         ...state,
         steps: upsert(state.steps, event.step, { status: "failed", lastLine: event.detail }),
         status: "failed",
-        error: { code: event.errorCode, step: event.step, detail: event.detail },
+        // Keep the first error: it is the most specific (a later synthetic or
+        // stream-level error must not clobber it).
+        error: state.error ?? { code: event.errorCode, step: event.step, detail: event.detail },
       };
     case "run_end":
       return {
         ...state,
-        status: event.status === "ok" ? "succeeded" : state.status === "failed" ? "failed" : "failed",
+        status: event.status === "ok" ? "succeeded" : "failed",
+        error:
+          event.status === "ok"
+            ? state.error
+            : state.error ??
+              (event.errorCode
+                ? { code: event.errorCode, step: "provision", detail: event.detail }
+                : undefined),
       };
     default:
       return state;

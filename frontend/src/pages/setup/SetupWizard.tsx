@@ -9,6 +9,7 @@ import {
 import type { SetupErrorCode } from "@hive/shared/setup-errors";
 import type { PairingPayload } from "@hive/shared/setup-types";
 import { createProvisionClient, type ProvisionClient } from "@/lib/provision-client";
+import { saveSshConnection } from "@/lib/ssh-connection";
 import { useServerUrl } from "@/hooks/useServerUrl";
 import { useAuthToken } from "@/hooks/useAuthToken";
 
@@ -95,9 +96,18 @@ export function SetupWizard({ client: injectedClient, onComplete }: SetupWizardP
     // Commit the runtime connection details to the app's stores.
     if (inputs.serverIp) setServerUrl(`http://${inputs.serverIp}:${DEFAULT_PORT}`);
     if (inputs.authToken) setAuthToken(inputs.authToken);
+    // Keep the SSH details so Settings > Connection can push backend updates later.
+    if (inputs.serverIp && inputs.sshKeyPath) {
+      saveSshConnection({
+        host: inputs.serverIp,
+        keyPath: inputs.sshKeyPath,
+        user: inputs.sshUser,
+        tailnet: Boolean(inputs.tailscaleAuthKey),
+      });
+    }
     clearMachineState();
     onComplete?.();
-  }, [inputs.serverIp, inputs.authToken, setServerUrl, setAuthToken, onComplete]);
+  }, [inputs, setServerUrl, setAuthToken, onComplete]);
 
   const pairingPayload: PairingPayload = {
     v: 1,
@@ -153,8 +163,8 @@ export function SetupWizard({ client: injectedClient, onComplete }: SetupWizardP
         <ServerIpScreen
           client={client}
           keyPath={inputs.sshKeyPath ?? ""}
-          initialValue={inputs.serverIp}
-          onContinue={(serverIp, hostFingerprint) => advance({ serverIp, hostFingerprint })}
+          initialValue={inputs.sshUser && inputs.serverIp ? `${inputs.sshUser}@${inputs.serverIp}` : inputs.serverIp}
+          onContinue={(serverIp, hostFingerprint, sshUser) => advance({ serverIp, hostFingerprint, sshUser })}
           onBack={back}
           onContinueLater={continueLater}
           onError={fail}
@@ -179,6 +189,7 @@ export function SetupWizard({ client: injectedClient, onComplete }: SetupWizardP
           client={client}
           params={{
             host: inputs.serverIp ?? "",
+            user: inputs.sshUser,
             keyPath: inputs.sshKeyPath ?? "",
             tailscaleAuthKey: inputs.tailscaleAuthKey ?? "",
             authToken: inputs.authToken ?? "",
@@ -231,15 +242,20 @@ export function SetupWizard({ client: injectedClient, onComplete }: SetupWizardP
   }
 
   return (
-    <div className="fixed inset-0 z-50 overflow-auto bg-background">
-      {/* Global error panel: rendered above the current screen when a step fails
-          outside the provisioning screen's own inline panel. */}
-      {error && error.state !== "provisioning" && (
-        <div className="mx-auto max-w-xl px-6 pt-6">
-          <ErrorPanel error={error} onDismiss={() => dispatch({ type: "clearError" })} />
-        </div>
-      )}
-      {screen}
+    <div className="fixed inset-0 z-50 flex flex-col bg-background">
+      {/* Draggable strip: the window titlebar is overlaid, so the fullscreen
+          wizard must provide its own drag region. */}
+      <div className="h-10 shrink-0" data-tauri-drag-region />
+      <div className="min-h-0 flex-1 overflow-auto">
+        {/* Global error panel: rendered above the current screen when a step fails
+            outside the provisioning screen's own inline panel. */}
+        {error && error.state !== "provisioning" && (
+          <div className="mx-auto max-w-xl px-6 pt-6">
+            <ErrorPanel error={error} onDismiss={() => dispatch({ type: "clearError" })} />
+          </div>
+        )}
+        {screen}
+      </div>
     </div>
   );
 }

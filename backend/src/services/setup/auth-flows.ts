@@ -58,6 +58,10 @@ export function makeClaudeTokenWriter(
       );
       return { persisted: false };
     }
+    // Adopt the token in-process so detection and future agents see it now —
+    // the env file feeds future restarts. Restarting the service here instead
+    // would kill in-flight requests and any running auth operation.
+    process.env.CLAUDE_CODE_OAUTH_TOKEN = token;
     return { persisted: true };
   };
 }

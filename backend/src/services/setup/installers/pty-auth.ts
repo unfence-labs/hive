@@ -1,3 +1,4 @@
+import { spawn as spawnChild } from "node:child_process";
 import { spawnPtyProcess, type PtyProcess } from "../../pty-process.js";
 import { nanoid } from "nanoid";
 
@@ -44,6 +45,52 @@ export function wrapPtyProcess(proc: PtyProcess): PtyHandle {
 
 export const defaultSpawnPty: SpawnPty = (command, cwd) =>
   wrapPtyProcess(spawnPtyProcess(command, cwd));
+
+/**
+ * Plain pipe spawn (no PTY) for CLIs that behave better without a TTY: gh
+ * prints the device code immediately and starts polling, instead of blocking
+ * on interactive prompts and cursor-position queries a bare PTY never answers.
+ */
+export const defaultSpawnPipe: SpawnPty = (command, cwd) => {
+  const child = spawnChild("bash", ["-lc", command], {
+    cwd,
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  const dataCbs = new Set<(chunk: string) => void>();
+  const exitCbs = new Set<(code: number) => void>();
+  let exitCode: number | undefined;
+  const forward = (d: Buffer) => {
+    const text = d.toString("utf8");
+    for (const cb of dataCbs) cb(text);
+  };
+  child.stdout?.on("data", forward);
+  child.stderr?.on("data", forward);
+  child.on("close", (code) => {
+    exitCode = code ?? 1;
+    for (const cb of exitCbs) cb(exitCode);
+  });
+  return {
+    onData: (cb) => {
+      dataCbs.add(cb);
+      return () => dataCbs.delete(cb);
+    },
+    onExit: (cb) => {
+      exitCbs.add(cb);
+      if (exitCode !== undefined) cb(exitCode);
+      return () => exitCbs.delete(cb);
+    },
+    write: () => {
+      /* no stdin in pipe mode */
+    },
+    kill: () => {
+      try {
+        child.kill();
+      } catch {
+        /* already gone */
+      }
+    },
+  };
+};
 
 /**
  * Drive a PTY-based device-auth flow. Accumulates output, invokes `onChunk` for

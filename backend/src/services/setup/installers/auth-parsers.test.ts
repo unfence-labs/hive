@@ -4,7 +4,6 @@ import {
   parseDeviceCode,
   parseDeviceUrl,
   parseDeviceAuth,
-  isGhLoggedIn,
   isCodexLoggedIn,
   isCodexDeviceAuthDisabled,
   isDeviceCodeExpired,
@@ -72,12 +71,6 @@ describe("parseDeviceAuth", () => {
 });
 
 describe("success/error signals", () => {
-  it("detects gh logged in", () => {
-    expect(isGhLoggedIn("✓ Logged in as octocat")).toBe(true);
-    expect(isGhLoggedIn("Authentication complete.")).toBe(true);
-    expect(isGhLoggedIn("Waiting...")).toBe(false);
-  });
-
   it("detects codex logged in", () => {
     expect(isCodexLoggedIn("Successfully logged in to ChatGPT.")).toBe(true);
     expect(isCodexLoggedIn("Logged in")).toBe(true);

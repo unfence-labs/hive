@@ -91,8 +91,10 @@ export function codexAuthStep(options: CodexAuthOptions = {}) {
       );
     }
 
-    if (result.reason === "chunk-success") {
+    if (result.reason === "chunk-success" || (result.reason === "exit" && result.exitCode === 0)) {
       await emit({ stream: "stdout", line: "Codex sign-in complete" });
+      // Refresh the detection cache so the next /status shows authenticated.
+      await detectTools({ force: true });
       return { authenticated: true };
     }
 

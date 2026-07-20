@@ -69,16 +69,6 @@ export function parseDeviceAuth(text: string): ParsedDeviceAuth {
 
 // --- Success / error signals ---
 
-/** gh prints this (or similar) once the device flow completes. */
-export function isGhLoggedIn(text: string): boolean {
-  const clean = stripAnsi(text);
-  return (
-    /Logged in as /i.test(clean) ||
-    /Authentication complete/i.test(clean) ||
-    /✓\s+Logged in/i.test(clean)
-  );
-}
-
 /** codex prints a success line and/or writes auth.json. */
 export function isCodexLoggedIn(text: string): boolean {
   const clean = stripAnsi(text);

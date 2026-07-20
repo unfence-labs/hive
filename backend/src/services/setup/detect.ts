@@ -32,8 +32,6 @@ const PROBES: ProbeSpec[] = [
   { tool: "gh", command: "gh", versionArgs: ["--version"] },
   { tool: "tailscale", command: "tailscale", versionArgs: ["version"] },
   { tool: "node", command: "node", versionArgs: ["--version"] },
-  { tool: "mise", command: "mise", versionArgs: ["--version"] },
-  { tool: "uv", command: "uv", versionArgs: ["--version"] },
   { tool: "docker", command: "docker", versionArgs: ["--version"] },
 ];
 

@@ -74,8 +74,6 @@ export type DetectableTool =
   | "gh"
   | "tailscale"
   | "node"
-  | "mise"
-  | "uv"
   | "docker";
 
 export interface ToolDetection {

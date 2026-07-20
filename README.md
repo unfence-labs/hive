@@ -313,6 +313,10 @@ Run the narrowest relevant checks during development, then the root checks befor
 - Profile long reasoning streams and, if they show meaningful CPU or WebSocket overhead, avoid reparsing and retransmitting the full accumulated reasoning block on every delta.
 - Support Claude Code session-scoped scheduling (`/loop` dynamic mode, `ScheduleWakeup`, `Monitor`, `CronCreate/List/Delete`) and background-task tools (`run_in_background` Bash/Agent). These depend on a persistent, idle harness process that fires wakeups between turns and listens for `task_notification` `system` events — neither exists in Hive's one-shot `claude --print` per-turn model. These tools are currently suppressed at the provider (`--disallowedTools` plus `CLAUDE_CODE_DISABLE_CRON=1` and `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1`) so the model stays synchronous; `CLAUDE_CODE_ENABLE_TASKS=true` keeps synchronous subagents working. Full support requires a per-session scheduler that persists wakeups, re-invokes `claude --resume -p` at the deadline, forwards `task_notification` to the UI, and surfaces background tasks — likely reusing the automation-scheduler timer infrastructure.
 
+**Install & updates**
+- Wire release CI to build the linux backend tarballs (x64 + arm64) into `dist-release/` before `tauri build`, so shipped apps bundle the backend they push over SSH (client-push distribution; no public GitHub release needed).
+- Implement the server-side updater (`update-hive.sh` swap + rollback) once public releases exist.
+
 **Automation**
 - Add GitHub event automations with webhook validation, PR/issue context enrichment, prompt variables, and GitHub comment/review output.
 - Add script automations that run configured commands and capture output for notifications.

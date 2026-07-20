@@ -30,7 +30,7 @@ export function ErrorPanel({ error, onRetry, onDismiss, retrying }: ErrorPanelPr
           </div>
           <p className="mt-1 text-muted-foreground">{hint}</p>
           {error.logExcerpt && (
-            <pre className="mt-2 max-h-32 overflow-auto rounded bg-muted/50 p-2 font-mono text-[11px] text-muted-foreground">
+            <pre className="mt-2 max-h-32 overflow-auto whitespace-pre-wrap break-words rounded bg-muted/50 p-2 font-mono text-[11px] text-muted-foreground">
               {error.logExcerpt}
             </pre>
           )}

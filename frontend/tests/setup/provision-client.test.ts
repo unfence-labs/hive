@@ -42,11 +42,6 @@ describe("mock provision client", () => {
     expect(await client.testConnection("h", "k")).toEqual({ fingerprint: "SHA256:mock-fingerprint" });
   });
 
-  it("runs local claude auth returning a token", async () => {
-    const client = createMockProvisionClient("happy");
-    expect((await client.runLocalClaudeAuth()).token).toMatch(/^sk-ant-oat01-/);
-  });
-
   it("accepts a custom script", async () => {
     const client = createMockProvisionClient({
       events: [
@@ -71,6 +66,12 @@ describe("ndjsonToEvent (Rust sidecar → wizard normalization)", () => {
       kind: "run_end",
       status: "ok",
     });
+  });
+
+  it("keeps errorCode and detail on an SSH-level run_end error", () => {
+    expect(
+      ndjsonToEvent({ seq: -1, event: "run_end", status: "error", errorCode: "SSH_AUTH_FAILED", detail: "denied" }),
+    ).toMatchObject({ kind: "run_end", status: "error", errorCode: "SSH_AUTH_FAILED", detail: "denied" });
   });
 
   it("maps step lifecycle statuses", () => {

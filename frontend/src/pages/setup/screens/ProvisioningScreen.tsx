@@ -23,6 +23,9 @@ interface ProvisioningScreenProps {
   onContinueLater: () => void;
   /** Abandon this install and restart the wizard from the beginning. */
   onStartOver: () => void;
+  /** Override the install copy (e.g. for a server update run). */
+  title?: string;
+  description?: string;
 }
 
 /** Reuses TaskTracker's status-icon language for the provision checklist. */
@@ -71,6 +74,8 @@ export function ProvisioningScreen({
   onBack,
   onContinueLater,
   onStartOver,
+  title = "Installing Hive on your server",
+  description = "This runs over SSH and continues even if you close the app. It takes a few minutes.",
 }: ProvisioningScreenProps) {
   const [progress, dispatch] = useReducer(
     (state: ProvisionProgress, event: ProvisionEvent) => applyProvisionEvent(state, event),
@@ -94,14 +99,14 @@ export function ProvisioningScreen({
           if (cancelled) return;
           dispatch(event);
         }
-      } catch {
+      } catch (e) {
         if (!cancelled) {
           dispatch({
             kind: "step_error",
             seq: -1,
             step: "provision",
             errorCode: "UNKNOWN",
-            detail: "The provision stream failed.",
+            detail: e instanceof Error ? e.message : String(e),
           });
         }
       }
@@ -136,8 +141,8 @@ export function ProvisioningScreen({
 
   return (
     <SetupScreen
-      title="Installing Hive on your server"
-      description="This runs over SSH and continues even if you close the app. It takes a few minutes."
+      title={title}
+      description={description}
       onBack={progress.status === "failed" ? onBack : undefined}
       onContinueLater={onContinueLater}
       footer={

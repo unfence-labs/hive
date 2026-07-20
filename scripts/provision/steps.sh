@@ -118,6 +118,14 @@ guard_tailscale_up() {
 }
 step_tailscale_up() {
   [ "$OPT_SKIP_TAILSCALE" = 1 ] && { STEP_DATA='{"skipped":true}'; return 0; }
+  # Already joined (resume or client-pushed update): reuse the tailnet IP, no key needed.
+  # `|| true`: on a fresh server tailscale ip exits non-zero, which set -e must not kill.
+  local existing_ip; existing_ip="$(tailscale ip -4 2>/dev/null | head -1 || true)"
+  if [ -n "$existing_ip" ]; then
+    RESOLVED_HOST="$existing_ip"
+    STEP_DATA="$(printf '{"tailnetIp":"%s"}' "$existing_ip")"
+    return 0
+  fi
   [ -n "${TS_AUTHKEY:-}" ] || die TS_AUTHKEY_INVALID "TS_AUTHKEY not provided"
   STEP_ERR_CODE=TS_AUTHKEY_INVALID
   # Capture stderr so the control plane's reason (expired, revoked, bad tag,
@@ -192,7 +200,7 @@ step_install_release() {
     # 404. Reaching this branch means the app was started without
     # HIVE_DEV_RELEASE_TARBALL, so the sidecar never passed --release-file.
     [ "$HIVE_VERSION" != "0.0.0-dev" ] || die RELEASE_DOWNLOAD_FAILED \
-      "dev build without --release-file: launch the app with HIVE_DEV_RELEASE_TARBALL set"
+      "dev build has no downloadable release: run 'make release-tarball' in the repo, then Retry (or set HIVE_DEV_RELEASE_TARBALL to a tarball path before launching the app)"
     local arch_tag; case "$(uname -m)" in x86_64) arch_tag=x64;; aarch64) arch_tag=arm64;; esac
     tarball="$HIVE_VAR_DIR/hive-backend.tar.gz"
     STEP_ERR_CODE=RELEASE_DOWNLOAD_FAILED
@@ -239,7 +247,7 @@ HOST=$host
 PORT=$OPT_PORT
 DATA_DIR=$HIVE_DATA_DIR
 HIVE_AUTH_TOKEN_SHA256=${HIVE_AUTH_TOKEN_SHA256:-}
-PATH=/home/hive/.local/share/mise/shims:/home/hive/.local/bin:/usr/local/bin:/usr/bin:/bin
+PATH=/home/hive/.local/bin:/usr/local/bin:/usr/bin:/bin
 EOF
 }
 
@@ -347,6 +355,8 @@ EOF
   cat >/usr/lib/hive/helpers/write-claude-token.sh <<'EOF'
 #!/usr/bin/env bash
 # Write CLAUDE_CODE_OAUTH_TOKEN into the service env (root-owned, 0600).
+# No service restart: the backend adopts the token in-process; a restart here
+# would kill the caller's HTTP response and any running auth operation.
 set -euo pipefail
 token="${1:-}"
 [ -n "$token" ] || { echo "no token" >&2; exit 2; }
@@ -356,7 +366,6 @@ grep -v '^CLAUDE_CODE_OAUTH_TOKEN=' /etc/hive/hive.env 2>/dev/null >"$tmp" || tr
 printf 'CLAUDE_CODE_OAUTH_TOKEN=%s\n' "$token" >>"$tmp"
 install -m 600 "$tmp" /etc/hive/hive.env
 rm -f "$tmp"
-systemctl restart hive || true
 EOF
 
   cat >/usr/lib/hive/helpers/update-hive.sh <<'EOF'
@@ -376,6 +385,14 @@ hive ALL=(root) NOPASSWD: /usr/lib/hive/helpers/install-gh.sh, /usr/lib/hive/hel
 EOF
   chmod 440 /etc/sudoers.d/hive
   visudo -cf /etc/sudoers.d/hive >/dev/null || die UNKNOWN "sudoers validation failed"
+}
+
+title_install_dev_tools() { echo "Install GitHub CLI and Docker"; }
+step_install_dev_tools() {
+  STEP_ERR_CODE=APT_FAILURE
+  command -v gh >/dev/null 2>&1 || run_logged install_dev_tools bash /usr/lib/hive/helpers/install-gh.sh
+  command -v docker >/dev/null 2>&1 || run_logged install_dev_tools bash /usr/lib/hive/helpers/install-docker.sh
+  STEP_ERR_CODE=""
 }
 
 title_enable_service() { echo "Start Hive"; }
