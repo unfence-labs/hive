@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createHash } from "node:crypto";
-import { createAuthHook, extractAuthToken, isAuthorized } from "./auth.js";
+import { createAuthHook, extractAuthToken, isAllowedHostHeader, isAuthorized } from "./auth.js";
 
 function bearer(token: string): Record<string, string> {
   return { authorization: `Bearer ${token}` };
@@ -207,5 +207,25 @@ describe("createAuthHook", () => {
       reply as never,
     );
     expect(statusCode).toBe(401);
+  });
+});
+
+describe("isAllowedHostHeader", () => {
+  it("allows IP literals, localhost, and MagicDNS names", () => {
+    expect(isAllowedHostHeader("100.74.156.118:3000")).toBe(true);
+    expect(isAllowedHostHeader("192.168.1.10")).toBe(true);
+    expect(isAllowedHostHeader("localhost:3000")).toBe(true);
+    expect(isAllowedHostHeader("[::1]:3000")).toBe(true);
+    expect(isAllowedHostHeader("hive.tailnet-abc.ts.net:3000")).toBe(true);
+  });
+
+  it("rejects arbitrary domains (DNS rebinding) and missing hosts", () => {
+    expect(isAllowedHostHeader("evil.example.com:3000")).toBe(false);
+    expect(isAllowedHostHeader("attacker.io")).toBe(false);
+    expect(isAllowedHostHeader(undefined)).toBe(false);
+  });
+
+  it("honors the explicit allowlist", () => {
+    expect(isAllowedHostHeader("hive.mydomain.dev", ["hive.mydomain.dev"])).toBe(true);
   });
 });

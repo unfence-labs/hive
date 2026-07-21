@@ -1,7 +1,7 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { SetupWizard, generateAuthToken } from "@/pages/setup/SetupWizard";
+import { SetupWizard } from "@/pages/setup/SetupWizard";
 import { createMockProvisionClient } from "@/lib/provision-client";
 import { SETUP_STATE_STORAGE_KEY, loadMachineState } from "@/pages/setup/machine";
 
@@ -14,12 +14,6 @@ afterEach(() => {
 });
 
 describe("SetupWizard", () => {
-  it("generates a URL-safe auth token", () => {
-    const t = generateAuthToken();
-    expect(t).toMatch(/^hive_[0-9a-f]{64}$/);
-    expect(generateAuthToken()).not.toBe(t);
-  });
-
   it("advances from welcome and persists progress", async () => {
     const client = createMockProvisionClient("happy");
     render(<SetupWizard client={client} />);

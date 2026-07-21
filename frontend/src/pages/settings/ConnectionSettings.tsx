@@ -215,9 +215,7 @@ export default function ConnectionSettings({ onRefreshConnection }: ConnectionSe
               <button
                 type="button"
                 onClick={() => { setUpdated(false); setUpdating(true); }}
-                disabled={!authToken}
-                title={authToken ? undefined : "Set the auth token first — the update rewrites it on the server"}
-                className="inline-flex shrink-0 cursor-pointer items-center gap-2 rounded-md border border-border/50 px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+                className="inline-flex shrink-0 cursor-pointer items-center gap-2 rounded-md border border-border/50 px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground"
               >
                 <ArrowUpCircle className="h-3 w-3" />
                 Update server

@@ -29,15 +29,6 @@ import { ErrorPanel } from "./screens/ErrorPanel";
 
 const DEFAULT_PORT = 3000;
 
-/** Generate a URL-safe HIVE_AUTH_TOKEN locally, before install (§ security model). */
-export function generateAuthToken(): string {
-  const bytes = new Uint8Array(32);
-  crypto.getRandomValues(bytes);
-  let str = "";
-  for (const b of bytes) str += b.toString(16).padStart(2, "0");
-  return `hive_${str}`;
-}
-
 interface SetupWizardProps {
   /** Injectable for tests; defaults to the runtime-appropriate client. */
   client?: ProvisionClient;
@@ -81,21 +72,17 @@ export function SetupWizard({ client: injectedClient, onComplete }: SetupWizardP
 
   const { state, inputs, error } = machine;
 
-  // Ensure an auth token exists once we start collecting server details.
-  useEffect(() => {
-    if (state === "tailscale_key" && !inputs.authToken) {
-      dispatch({ type: "setInputs", inputs: { authToken: generateAuthToken() } });
-    }
-  }, [state, inputs.authToken]);
-
   const serverBaseUrl = inputs.serverIp
     ? `http://${inputs.serverIp}:${DEFAULT_PORT}`
     : "";
 
   const finish = useCallback(() => {
     // Commit the runtime connection details to the app's stores.
+    // v1 installs are token-less (network access = tailnet or LAN, plus the
+    // backend's host-header guard); clear any token left from a previous
+    // connection so requests don't send a stale bearer.
     if (inputs.serverIp) setServerUrl(`http://${inputs.serverIp}:${DEFAULT_PORT}`);
-    if (inputs.authToken) setAuthToken(inputs.authToken);
+    setAuthToken("");
     // Keep the SSH details so Settings > Connection can push backend updates later.
     if (inputs.serverIp && inputs.sshKeyPath) {
       saveSshConnection({
@@ -113,7 +100,7 @@ export function SetupWizard({ client: injectedClient, onComplete }: SetupWizardP
     v: 1,
     host: inputs.serverIp ?? "",
     port: DEFAULT_PORT,
-    token: inputs.authToken ?? "",
+    token: "",
     name: "Hive",
   };
 
@@ -192,7 +179,7 @@ export function SetupWizard({ client: injectedClient, onComplete }: SetupWizardP
             user: inputs.sshUser,
             keyPath: inputs.sshKeyPath ?? "",
             tailscaleAuthKey: inputs.tailscaleAuthKey ?? "",
-            authToken: inputs.authToken ?? "",
+            authToken: "",
             port: DEFAULT_PORT,
           }}
           onDone={(tailnetIp) => advance(tailnetIp ? { serverIp: tailnetIp } : undefined)}
@@ -217,7 +204,7 @@ export function SetupWizard({ client: injectedClient, onComplete }: SetupWizardP
         <GuidedSetupScreen
           client={client}
           baseUrl={serverBaseUrl}
-          authToken={inputs.authToken ?? ""}
+          authToken=""
           onContinue={() => advance()}
           onBack={back}
           onContinueLater={continueLater}

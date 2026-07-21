@@ -37,6 +37,7 @@ pub struct ProvisionParams {
     key_path: String,
     #[serde(default)]
     tailscale_auth_key: String,
+    #[serde(default)]
     auth_token: String,
     #[serde(default)]
     port: Option<u16>,
@@ -320,13 +321,17 @@ fn provision_args(params: &ProvisionParams, has_tarball: bool) -> Vec<String> {
 }
 
 fn env_prelude(params: &ProvisionParams) -> String {
-    let hash = {
-        let mut h = Sha256::new();
-        h.update(params.auth_token.as_bytes());
-        hex(&h.finalize())
-    };
     let mut s = String::new();
-    s.push_str(&format!("export HIVE_AUTH_TOKEN_SHA256='{hash}'\n"));
+    // v1 installs are token-less; the hash is only provisioned when a token is
+    // explicitly supplied (legacy / future v2 flows).
+    if !params.auth_token.trim().is_empty() {
+        let hash = {
+            let mut h = Sha256::new();
+            h.update(params.auth_token.as_bytes());
+            hex(&h.finalize())
+        };
+        s.push_str(&format!("export HIVE_AUTH_TOKEN_SHA256='{hash}'\n"));
+    }
     if !params.tailscale_auth_key.trim().is_empty() {
         s.push_str(&format!("export TS_AUTHKEY='{}'\n", shell_single_quote(&params.tailscale_auth_key)));
     }

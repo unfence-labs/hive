@@ -14,7 +14,7 @@ import { completionRoutes } from "./api/completions.js";
 import { modelRoutes } from "./api/models.js";
 import { sessionRoutes } from "./api/agents.js";
 import { streamRoutes } from "./ws/stream.js";
-import { createAuthHook } from "./utils/auth.js";
+import { createAuthHook, createHostGuardHook } from "./utils/auth.js";
 import { createRateLimitHook } from "./utils/rate-limit.js";
 import { parsePositiveNumber } from "./utils/env.js";
 import { ensureDataDir, getDataDir, loadAllProjects, saveProject } from "./state/state.js";
@@ -305,6 +305,11 @@ export async function buildApp(opts: BuildAppOptions = {}) {
     threshold: 1024,
   });
 
+  const allowedHosts = (process.env.HIVE_ALLOWED_HOSTS ?? "")
+    .split(",")
+    .map((h) => h.trim().toLowerCase())
+    .filter(Boolean);
+  app.addHook("onRequest", createHostGuardHook(allowedHosts));
   app.addHook("onRequest", createAuthHook(authExpectation));
   app.addHook(
     "onRequest",

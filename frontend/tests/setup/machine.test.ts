@@ -98,7 +98,6 @@ describe("setup machine", () => {
         sshKeyPath: "/home/u/.ssh/id_ed25519",
         serverIp: "1.1.1.1",
         hostFingerprint: "SHA256:abc",
-        authToken: "hive_secret",
       },
     });
     const r = reduce(s, { type: "reset" });
@@ -107,7 +106,6 @@ describe("setup machine", () => {
     expect(r.inputs.sshKeyPath).toBe("/home/u/.ssh/id_ed25519");
     expect(r.inputs.serverIp).toBeUndefined();
     expect(r.inputs.hostFingerprint).toBeUndefined();
-    expect(r.inputs.authToken).toBeUndefined();
   });
 
   describe("persistence", () => {

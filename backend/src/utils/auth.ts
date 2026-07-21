@@ -74,6 +74,43 @@ export function isAuthorized(
   return false;
 }
 
+/**
+ * Host-header allowlist (anti DNS-rebinding). Token-less installs rely on
+ * network reachability (tailnet/LAN); a malicious website resolving its own
+ * domain to the backend's IP would carry that domain in the Host header, so
+ * only IP literals, localhost, Tailscale MagicDNS names, and explicitly
+ * allowed hosts (HIVE_ALLOWED_HOSTS, comma-separated) are accepted.
+ */
+export function isAllowedHostHeader(
+  rawHost: string | undefined,
+  extraAllowed: readonly string[] = [],
+): boolean {
+  if (!rawHost) return false;
+  let host = rawHost.trim().toLowerCase();
+  if (host.startsWith("[")) {
+    const end = host.indexOf("]");
+    if (end === -1) return false;
+    host = host.slice(1, end);
+  } else {
+    const colon = host.lastIndexOf(":");
+    if (colon !== -1 && !host.slice(0, colon).includes(":")) {
+      host = host.slice(0, colon);
+    }
+  }
+  if (host === "localhost" || host === "127.0.0.1" || host === "::1") return true;
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(host)) return true;
+  if (host.includes(":") && /^[0-9a-f:]+$/.test(host)) return true;
+  if (host.endsWith(".ts.net")) return true;
+  return extraAllowed.includes(host);
+}
+
+export function createHostGuardHook(extraAllowed: readonly string[] = []) {
+  return async (req: FastifyRequest, reply: FastifyReply): Promise<void> => {
+    if (isAllowedHostHeader(headerString(req.headers.host), extraAllowed)) return;
+    reply.status(403).send({ error: "Forbidden host" });
+  };
+}
+
 export function createAuthHook(expectationInput?: AuthExpectationInput) {
   const expectation = normalizeExpectation(expectationInput);
   const enabled = Boolean(expectation.expectedToken || expectation.expectedTokenSha256);
