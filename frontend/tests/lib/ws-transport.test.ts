@@ -104,25 +104,32 @@ describe("wsTransport", () => {
     expect(syncs).toEqual([["ws-1"]]);
   });
 
-  it("requestBootstrap resends sync_workspaces with forceBootstrap on an open socket", () => {
+  it("requestStreamSnapshots sends a single workspace-scoped envelope, not a forced sync", () => {
     wsTransport.connect("ws-1");
     wsTransport.connect("ws-2");
     const socket = MockWebSocket.instances[0]!;
     socket.open();
+    const sentBeforeRequest = socket.sent.length;
 
-    wsTransport.requestBootstrap();
+    wsTransport.requestStreamSnapshots("ws-2");
 
-    const parsed = socket.sent.map((s) => JSON.parse(s) as Record<string, unknown>);
-    const forced = parsed.filter((m) => m.type === "sync_workspaces" && m.forceBootstrap === true);
-    expect(forced).toHaveLength(1);
-    expect(forced[0]!.workspaceIds).toEqual(expect.arrayContaining(["ws-1", "ws-2"]));
+    const newEnvelopes = socket.sent
+      .slice(sentBeforeRequest)
+      .map((s) => JSON.parse(s) as Record<string, unknown>);
+    expect(newEnvelopes).toEqual([
+      { workspaceId: "ws-2", event: { type: "request_stream_snapshots" } },
+    ]);
+
+    const forced = newEnvelopes.filter((m) => m.type === "sync_workspaces" && m.forceBootstrap === true);
+    expect(forced).toHaveLength(0);
+    expect(newEnvelopes.some((m) => m.workspaceId === "ws-1")).toBe(false);
   });
 
-  it("requestBootstrap is a no-op while the socket is not open (connect bootstrap covers it)", () => {
+  it("requestStreamSnapshots is a no-op while the socket is not open (connect bootstrap covers it)", () => {
     wsTransport.connect("ws-1");
     const socket = MockWebSocket.instances[0]!;
 
-    wsTransport.requestBootstrap();
+    wsTransport.requestStreamSnapshots("ws-1");
     expect(socket.sent).toHaveLength(0);
 
     socket.open();

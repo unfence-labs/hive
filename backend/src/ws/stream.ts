@@ -351,29 +351,40 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
 
   // ── Workspace bootstrap (sent to one hub socket on subscribe) ─────
 
-  const sendWorkspaceBootstrap = async (hub: HubSocket, wsId: string, channel: WorkspaceChannel): Promise<void> => {
-    const sendStreamingBootstraps = (primarySessionId?: string): void => {
-      for (const streamingId of getStreamingSessionIds(wsId)) {
-        if (streamingId === primarySessionId) continue;
-        const streamingSession = getSessionById(wsId, streamingId);
-        if (streamingSession) {
-          attachSessionListeners(wsId, channel, streamingSession);
-        }
-        sendToHub(hub, wsId, {
-          type: "status",
-          status: "busy",
-          sessionId: streamingId,
-          streaming: true,
-          ...(streamingSession?.streamingStartedAt
-            ? { streamingStartedAt: streamingSession.streamingStartedAt }
-            : {}),
-        });
-        if (streamingSession) {
-          sendStreamingSnapshot(hub, wsId, streamingSession);
-        }
+  /**
+   * Replay live status + full snapshot for every currently streaming session in
+   * one workspace (excluding `primarySessionId`, already covered by the caller's
+   * own bootstrap). Shared by full workspace bootstrap and the narrower
+   * `request_stream_snapshots` recovery path.
+   */
+  const sendStreamingBootstraps = (
+    hub: HubSocket,
+    wsId: string,
+    channel: WorkspaceChannel,
+    primarySessionId?: string,
+  ): void => {
+    for (const streamingId of getStreamingSessionIds(wsId)) {
+      if (streamingId === primarySessionId) continue;
+      const streamingSession = getSessionById(wsId, streamingId);
+      if (streamingSession) {
+        attachSessionListeners(wsId, channel, streamingSession);
       }
-    };
+      sendToHub(hub, wsId, {
+        type: "status",
+        status: "busy",
+        sessionId: streamingId,
+        streaming: true,
+        ...(streamingSession?.streamingStartedAt
+          ? { streamingStartedAt: streamingSession.streamingStartedAt }
+          : {}),
+      });
+      if (streamingSession) {
+        sendStreamingSnapshot(hub, wsId, streamingSession);
+      }
+    }
+  };
 
+  const sendWorkspaceBootstrap = async (hub: HubSocket, wsId: string, channel: WorkspaceChannel): Promise<void> => {
     const session = getSession(wsId);
     const sessionIsDefaultCandidate = session
       ? isLoadedDefaultSessionCandidate(wsId, session)
@@ -385,7 +396,7 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
     if (session && (sessionIsDefaultCandidate || !defaultSessionId)) {
       attachSessionListeners(wsId, channel, session);
       await sendSessionBootstrap(hub, wsId, session);
-      sendStreamingBootstraps(session.sessionId);
+      sendStreamingBootstraps(hub, wsId, channel, session.sessionId);
     } else {
       // The in-memory active session is empty/idle, so we steer a fresh client
       // to a different default chat. Still attach the active chat session's
@@ -402,7 +413,7 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
         // sent — a streaming default must not be announced as idle first.
         attachSessionListeners(wsId, channel, defaultSession);
         await sendSessionBootstrap(hub, wsId, defaultSession);
-        sendStreamingBootstraps(defaultSession.sessionId);
+        sendStreamingBootstraps(hub, wsId, channel, defaultSession.sessionId);
       } else {
         // No default-worthy chat is loaded in memory. Tell the client which
         // session to open (persisted active / most-recent non-empty chat) so a
@@ -414,7 +425,7 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
           streaming: false,
           ...(defaultSessionId ? { sessionId: defaultSessionId } : {}),
         });
-        sendStreamingBootstraps();
+        sendStreamingBootstraps(hub, wsId, channel);
       }
     }
 
@@ -720,6 +731,14 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
         } catch (err: unknown) {
           sendToHub(hub, wsId, { type: "error", message: errorMessage(err, "Failed to respond to tool input") });
         }
+        break;
+      }
+      case "request_stream_snapshots": {
+        // Narrow web-view recovery path: replay every currently streaming
+        // session's live status + snapshot for this workspace only. Unlike
+        // forceBootstrap, this never touches subscriptions, focus, or PR
+        // interest, and never re-runs the full workspace bootstrap.
+        sendStreamingBootstraps(hub, wsId, channel);
         break;
       }
     }

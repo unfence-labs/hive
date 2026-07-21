@@ -69,7 +69,7 @@ vi.mock("@/lib/ws-transport", () => {
       statusListeners.clear();
     }),
     send: vi.fn(() => true),
-    requestBootstrap: vi.fn(),
+    requestStreamSnapshots: vi.fn(),
     onMessage: vi.fn((workspaceId: string, handler: (msg: WsOutgoing) => void) => {
       getSet(messageHandlers, workspaceId).add(handler);
       for (const msg of replayMessages.get(workspaceId) ?? []) {
@@ -111,7 +111,7 @@ vi.mock("@/lib/ws-transport", () => {
       wsTransport.syncWorkspaces.mockClear();
       wsTransport.disconnectAll.mockClear();
       wsTransport.send.mockClear();
-      wsTransport.requestBootstrap.mockClear();
+      wsTransport.requestStreamSnapshots.mockClear();
       wsTransport.onMessage.mockClear();
       wsTransport.clearCachedData.mockClear();
     },
@@ -124,7 +124,7 @@ vi.mock("@/lib/ws-transport", () => {
     sendMock: wsTransport.send,
     connectMock: wsTransport.connect,
     disconnectMock: wsTransport.disconnect,
-    requestBootstrapMock: wsTransport.requestBootstrap,
+    requestStreamSnapshotsMock: wsTransport.requestStreamSnapshots,
   };
 
   return { wsTransport, __wsMock };
@@ -140,7 +140,7 @@ const getWsMock = async () =>
       sendMock: ReturnType<typeof vi.fn>;
       connectMock: ReturnType<typeof vi.fn>;
       disconnectMock: ReturnType<typeof vi.fn>;
-      requestBootstrapMock: ReturnType<typeof vi.fn>;
+      requestStreamSnapshotsMock: ReturnType<typeof vi.fn>;
     };
   };
 
@@ -211,18 +211,20 @@ describe("useConversation", () => {
     expect(__wsMock.disconnectMock).not.toHaveBeenCalled();
   });
 
-  it("requests a bootstrap replay on mount so a mid-stream turn is recovered", async () => {
+  it("requests a targeted stream-snapshot replay for the mounted workspace so a mid-stream turn is recovered", async () => {
     const { __wsMock } = await getWsMock();
     const { rerender } = renderConversation("ws-1");
 
     // Frames streamed while this view was unmounted are unrecoverable (the
     // app-level cache hooks consume them), so mounting must ask the backend
-    // to replay the streaming snapshot.
-    expect(__wsMock.requestBootstrapMock).toHaveBeenCalledTimes(1);
+    // to replay the streaming snapshot -- scoped to just the opened workspace.
+    expect(__wsMock.requestStreamSnapshotsMock).toHaveBeenCalledTimes(1);
+    expect(__wsMock.requestStreamSnapshotsMock).toHaveBeenNthCalledWith(1, "ws-1");
 
     rerender({ wsId: "ws-2" });
 
-    expect(__wsMock.requestBootstrapMock).toHaveBeenCalledTimes(2);
+    expect(__wsMock.requestStreamSnapshotsMock).toHaveBeenCalledTimes(2);
+    expect(__wsMock.requestStreamSnapshotsMock).toHaveBeenNthCalledWith(2, "ws-2");
   });
 
   it("applies a stream_snapshot arriving after mount to the live stream state", async () => {

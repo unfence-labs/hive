@@ -401,7 +401,8 @@ export type WsIncoming =
   | { type: "switch_session"; sessionId: string }
   | { type: "user_message"; content: string; images?: ImageAttachment[]; fileMentions?: FileMention[]; options?: MessageOptions; sessionId?: string }
   | { type: "stop"; sessionId?: string }
-  | { type: "tool_input_response"; requestId: string; toolName: string; result: ToolInputResult; sessionId?: string };
+  | { type: "tool_input_response"; requestId: string; toolName: string; result: ToolInputResult; sessionId?: string }
+  | { type: "request_stream_snapshots" };
 
 /** Backend -> Frontend */
 export type WsOutgoing =
