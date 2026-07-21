@@ -72,7 +72,15 @@ vi.mock("@/components/ai-elements/message", () => ({
 }));
 
 vi.mock("@/components/chat/ThinkingBlock", () => ({
-  ThinkingBlock: ({ content }: { content: string }) => <div data-testid="thinking-block">{content}</div>,
+  ThinkingBlock: ({
+    segments = [],
+    streaming,
+  }: {
+    segments?: ChatMessage["reasoningSegments"];
+    streaming?: boolean;
+  }) => segments.length > 0
+    ? <div data-testid="thinking-block" data-streaming={String(Boolean(streaming))}>{segments.map((segment) => segment.headline ?? segment.body).join("")}</div>
+    : null,
 }));
 
 vi.mock("@/components/chat/ToolCallList", () => ({
@@ -84,7 +92,7 @@ const baseConversationProps: ComponentProps<typeof ChatConversation> = {
   isStreaming: false,
   streamingStartedAt: null,
   currentStreamingText: "",
-  currentThinking: "",
+  currentReasoningSegments: [],
   activeToolCalls: [],
   activeAgentActivities: [],
   switchCounter: 0,
@@ -98,6 +106,21 @@ function renderConversation(props?: Partial<ComponentProps<typeof ChatConversati
     />,
   );
 }
+
+describe("ChatConversation live reasoning", () => {
+  it("renders typed live reasoning even before answer text arrives", () => {
+    renderConversation({
+      isStreaming: true,
+      currentReasoningSegments: [
+        { id: "reasoning-1", headline: "Inspecting files" },
+        { id: "hidden-1" },
+      ],
+    });
+
+    expect(screen.getByTestId("thinking-block")).toHaveTextContent("Inspecting files");
+    expect(screen.getByTestId("thinking-block")).toHaveAttribute("data-streaming", "true");
+  });
+});
 
 describe("ChatConversation empty states", () => {
   it("renders the workspace welcome state when metadata is available", () => {

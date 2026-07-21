@@ -37,13 +37,21 @@ struct MessageBubble: View, Equatable {
         visibleAgentActivities(message.agentActivities ?? [])
     }
 
+    private var reasoningSegments: [ReasoningSegment] {
+        message.resolvedReasoningSegments
+    }
+
     var body: some View {
         HStack(alignment: .top, spacing: 0) {
             if message.role == .user { Spacer(minLength: 60) }
 
             VStack(alignment: message.role == .user ? .trailing : .leading, spacing: 6) {
-                if let thinking = message.thinkingContent, !thinking.isEmpty {
-                    WhisperThinkingBlock(content: thinking)
+                let reasoning = reasoningSegments
+                if message.role == .assistant, !reasoning.isEmpty {
+                    ReasoningDisclosure(
+                        segments: reasoning,
+                        streaming: message.id == "streaming"
+                    )
                 }
 
                 messageContent
@@ -676,36 +684,73 @@ private func getOutputSummary(_ tool: ToolCall) -> String? {
     return nil
 }
 
-// MARK: - Whisper Thinking Block
+// MARK: - Reasoning
 
-private struct WhisperThinkingBlock: View {
-    let content: String
+private struct ReasoningDisclosure: View {
+    let segments: [ReasoningSegment]
+    let streaming: Bool
+
     @State private var isExpanded = false
-
-    private var preview: String {
-        let first = content.prefix(40).replacingOccurrences(of: "\n", with: " ")
-        return content.count > 40 ? first + "..." : String(first)
-    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Button {
                 withoutAnimation { isExpanded.toggle() }
             } label: {
-                ChatActivityRowLabel(icon: "brain", label: "Thinking", detail: isExpanded ? nil : preview)
+                ChatActivityRowLabel(
+                    label: streaming ? "Reasoning…" : "Reasoning",
+                    isExpanded: isExpanded
+                )
             }
             .buttonStyle(.plain)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Reasoning")
+            .accessibilityValue(isExpanded ? "expanded" : "collapsed")
+            .accessibilityHint(isExpanded ? "Collapses the reasoning." : "Expands the reasoning.")
 
             if isExpanded {
                 ToolContentPanel {
-                    Text(content)
-                        .font(WhisperFont.mono(11))
-                        .foregroundStyle(WhisperColor.textSecondary)
-                        .lineSpacing(2)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                    VStack(alignment: .leading, spacing: 3) {
+                        ForEach(segments) { thought in
+                            ReasoningThoughtRow(thought: thought)
+                        }
+                    }
                 }
             }
         }
+    }
+}
+
+/// One compact log line: a discreet middot marker, the headline in the primary
+/// text color, and the body dimmed. Mirrors the web compact reasoning view.
+private struct ReasoningThoughtRow: View {
+    let thought: ReasoningSegment
+
+    private var line: Text {
+        var result = Text("")
+        if let headline = thought.headline {
+            result = result + Text(headline).foregroundColor(WhisperColor.text)
+        }
+        if thought.headline != nil, thought.body != nil {
+            result = result + Text(" — ").foregroundColor(WhisperColor.textMuted)
+        }
+        if let body = thought.body {
+            result = result + Text(body).foregroundColor(WhisperColor.textSecondary)
+        }
+        return result
+    }
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text("·")
+                .foregroundStyle(WhisperColor.textMuted)
+            line
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .textSelection(.enabled)
+        }
+        .font(WhisperFont.mono(11))
+        .lineSpacing(2)
+        .accessibilityElement(children: .combine)
     }
 }
 
@@ -1149,7 +1194,7 @@ extension Theme {
                 content: "Can you fix the login bug in #auth.ts? Ask @claude-code if needed",
                 images: nil,
                 fileMentions: [FileMention(displayName: "auth.ts", relativePath: "src/utils/auth.ts")],
-                toolCalls: nil, thinkingContent: nil,
+                toolCalls: nil,
                 timestamp: "2026-02-17T12:00:00.000Z", cancelled: nil, durationMs: nil
             ))
             MessageBubble(message: ChatMessage(
@@ -1182,13 +1227,17 @@ extension Theme {
                     ToolCall(id: "t3", name: "Bash", input: "{\"command\":\"swift build\"}", output: "Build complete! (0.45s)", parentToolUseId: nil),
                     ToolCall(id: "t4", name: "Grep", input: "{\"pattern\":\"loginError\",\"path\":\"/src/auth.swift\"}", output: "src/auth.swift:42: case loginError\nsrc/auth.swift:88: throw loginError", parentToolUseId: nil),
                 ],
-                thinkingContent: "The user wants me to fix a login bug. Let me look at the auth module.",
+                reasoningSegments: [ReasoningSegment(
+                    id: "r1",
+                    headline: "Locating the login bug",
+                    body: "The user wants me to fix a login bug. Let me look at the auth module."
+                )],
                 timestamp: "2026-02-17T12:00:05.000Z", cancelled: nil, durationMs: 3200
             ))
             MessageBubble(message: ChatMessage(
                 id: "3", sessionId: "s1", role: .assistant,
                 content: "This was cancelled midway.",
-                images: nil, toolCalls: nil, thinkingContent: nil,
+                images: nil, toolCalls: nil,
                 timestamp: "2026-02-17T12:01:00.000Z", cancelled: true, durationMs: 1500
             ))
         }

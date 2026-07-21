@@ -1,83 +1,56 @@
-import { memo, useState, useEffect, useRef } from "react";
-import { BrainIcon } from "lucide-react";
+import { memo, useId, useState } from "react";
+import { ChevronRightIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { MessageResponse } from "@/components/ai-elements/message";
 import { ContentPanel, ContentPanelBody } from "@/components/chat/ContentPanel";
+import type { ReasoningSegment } from "@/types";
 
 interface ThinkingBlockProps {
-  content: string;
-  defaultOpen?: boolean;
+  segments?: ReasoningSegment[];
   streaming?: boolean;
 }
 
 export const ThinkingBlock = memo(function ThinkingBlock({
-  content,
-  defaultOpen = false,
+  segments = [],
   streaming = false,
 }: ThinkingBlockProps) {
-  const [open, setOpen] = useState(defaultOpen);
-  const [duration, setDuration] = useState(0);
-  const startTimeRef = useRef<number | null>(null);
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [open, setOpen] = useState(false);
+  const panelId = useId();
+  // The backend already parses reasoning into structured thoughts; a thought
+  // with neither headline nor body has nothing to show.
+  const thoughts = segments.filter((thought) => thought.headline || thought.body);
 
-  useEffect(() => {
-    if (streaming) {
-      startTimeRef.current = Date.now();
-      setOpen(true);
-      intervalRef.current = setInterval(() => {
-        if (startTimeRef.current) {
-          setDuration(Math.floor((Date.now() - startTimeRef.current) / 1000));
-        }
-      }, 100);
-    } else {
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current);
-        intervalRef.current = null;
-      }
-      if (startTimeRef.current) {
-        setDuration(Math.floor((Date.now() - startTimeRef.current) / 1000));
-        startTimeRef.current = null;
-      }
-      const closeTimer = setTimeout(() => setOpen(false), 300);
-      return () => clearTimeout(closeTimer);
-    }
-    return () => {
-      if (intervalRef.current) clearInterval(intervalRef.current);
-    };
-  }, [streaming]);
-
-  if (!content) return null;
-
-  const label = streaming
-    ? "Thinking..."
-    : duration > 0
-      ? `Thought for ${duration}s`
-      : "Thinking";
-
-  const preview = content.split("\n")[0].slice(0, 60);
+  if (thoughts.length === 0) return null;
 
   return (
     <div className="my-0.5">
       <button
         type="button"
-        className={cn(
-          "inline-flex w-fit max-w-full items-center gap-2 rounded-md py-1 pr-2.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-field hover:text-foreground",
-          streaming && "animate-shimmer",
-        )}
-        onClick={() => setOpen(!open)}
+        className="inline-flex max-w-full cursor-pointer items-center gap-2 rounded-md py-1 pr-2.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-field hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
+        aria-expanded={open}
+        aria-controls={panelId}
+        onClick={() => setOpen((current) => !current)}
       >
-        <BrainIcon className="size-3.5 shrink-0" />
-        <span className="shrink-0">{label}</span>
-        {!open && preview && (
-          <code className="truncate rounded bg-field px-1.5 py-0.5 font-mono text-xs text-muted-foreground">
-            {preview}{content.length > 60 ? "..." : ""}
-          </code>
-        )}
+        <ChevronRightIcon
+          className={cn("size-3.5 shrink-0 transition-transform", open && "rotate-90")}
+          aria-hidden="true"
+        />
+        <span className="shrink-0">{streaming ? "Reasoning…" : "Reasoning"}</span>
       </button>
       {open && (
-        <ContentPanel>
-          <ContentPanelBody className="text-muted-foreground">
-            <MessageResponse isAnimating={streaming}>{content}</MessageResponse>
+        <ContentPanel id={panelId} aria-live="off">
+          <ContentPanelBody className="font-mono text-[11px] leading-normal">
+            {thoughts.map((thought) => (
+              <div key={thought.id} className="flex gap-2 py-0.5">
+                <span aria-hidden="true" className="shrink-0 select-none text-muted-foreground/70">
+                  ·
+                </span>
+                <span className="min-w-0">
+                  {thought.headline && <span className="text-foreground">{thought.headline}</span>}
+                  {thought.headline && thought.body && <span className="text-muted-foreground"> — </span>}
+                  {thought.body && <span className="text-muted-foreground">{thought.body}</span>}
+                </span>
+              </div>
+            ))}
           </ContentPanelBody>
         </ContentPanel>
       )}

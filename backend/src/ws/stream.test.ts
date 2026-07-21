@@ -475,6 +475,10 @@ describe("WS /ws/hub", () => {
     if (!snapshot) throw new Error("Expected a streaming snapshot");
     vi.spyOn(session, "getStreamingSnapshot").mockReturnValue({
       ...snapshot,
+      reasoningSegments: [{
+        id: "reasoning:provider-item-1:0",
+        headline: "Inspecting state",
+      }],
       agentActivities: [{
         id: "cmd-bootstrap",
         kind: "command_execution",
@@ -501,7 +505,10 @@ describe("WS /ws/hub", () => {
       type: "stream_snapshot",
       sessionId: session.sessionId,
       text: snapshot.text,
-      thinking: snapshot.thinking,
+      reasoningSegments: [{
+        id: "reasoning:provider-item-1:0",
+        headline: "Inspecting state",
+      }],
       toolCalls: snapshot.toolCalls,
       agentActivities: [{
         id: "cmd-bootstrap",

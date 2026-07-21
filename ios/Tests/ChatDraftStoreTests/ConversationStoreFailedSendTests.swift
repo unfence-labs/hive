@@ -18,7 +18,7 @@ struct ConversationStoreFailedSendTests {
     private func serverEcho(_ content: String, session: String) -> WsOutgoing {
         .userMessage(message: ChatMessage(
             id: "srv-1", sessionId: session, role: .user, content: content,
-            images: nil, toolCalls: nil, thinkingContent: nil,
+            images: nil, toolCalls: nil,
             timestamp: "2026-07-08T10:00:00.000Z", cancelled: nil, durationMs: nil
         ))
     }
@@ -74,7 +74,7 @@ struct ConversationStoreFailedSendTests {
         store.applyFetchedHistory([
             ChatMessage(
                 id: "m1", sessionId: "s1", role: .user, content: "earlier",
-                images: nil, toolCalls: nil, thinkingContent: nil,
+                images: nil, toolCalls: nil,
                 timestamp: "2026-07-08T09:00:00.000Z", cancelled: nil, durationMs: nil
             )
         ], for: "s1")
@@ -94,7 +94,7 @@ struct ConversationStoreFailedSendTests {
         store.applyFetchedHistory([
             ChatMessage(
                 id: "srv-9", sessionId: "s1", role: .user, content: "made it",
-                images: nil, toolCalls: nil, thinkingContent: nil,
+                images: nil, toolCalls: nil,
                 timestamp: "2026-07-08T09:00:00.000Z", cancelled: nil, durationMs: nil
             )
         ], for: "s1")
@@ -110,7 +110,7 @@ struct ConversationStoreFailedSendTests {
         store.applyFetchedHistory([
             ChatMessage(
                 id: "m1", sessionId: "s1", role: .user, content: "ok",
-                images: nil, toolCalls: nil, thinkingContent: nil,
+                images: nil, toolCalls: nil,
                 timestamp: "2026-07-08T09:00:00.000Z", cancelled: nil, durationMs: nil
             )
         ], for: "s1")
@@ -121,7 +121,7 @@ struct ConversationStoreFailedSendTests {
         store.applyFetchedHistory([
             ChatMessage(
                 id: "m1", sessionId: "s1", role: .user, content: "ok",
-                images: nil, toolCalls: nil, thinkingContent: nil,
+                images: nil, toolCalls: nil,
                 timestamp: "2026-07-08T09:00:00.000Z", cancelled: nil, durationMs: nil
             )
         ], for: "s1")
@@ -137,7 +137,7 @@ struct ConversationStoreFailedSendTests {
         store.applyFetchedHistory([
             ChatMessage(
                 id: "m1", sessionId: "s1", role: .user, content: "ok",
-                images: nil, toolCalls: nil, thinkingContent: nil,
+                images: nil, toolCalls: nil,
                 timestamp: "2026-07-08T09:00:00.000Z", cancelled: nil, durationMs: nil
             )
         ], for: "s1")
@@ -148,12 +148,12 @@ struct ConversationStoreFailedSendTests {
         store.applyFetchedHistory([
             ChatMessage(
                 id: "m1", sessionId: "s1", role: .user, content: "ok",
-                images: nil, toolCalls: nil, thinkingContent: nil,
+                images: nil, toolCalls: nil,
                 timestamp: "2026-07-08T09:00:00.000Z", cancelled: nil, durationMs: nil
             ),
             ChatMessage(
                 id: "srv-2", sessionId: "s1", role: .user, content: "ok",
-                images: nil, toolCalls: nil, thinkingContent: nil,
+                images: nil, toolCalls: nil,
                 timestamp: "2026-07-08T10:00:00.000Z", cancelled: nil, durationMs: nil
             )
         ], for: "s1")

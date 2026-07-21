@@ -163,7 +163,7 @@ export default function WorkspaceView() {
     isStreaming,
     streamingStartedAt,
     currentStreamingText,
-    currentThinking,
+    currentReasoningSegments,
     activeToolCalls,
     activeAgentActivities,
     pendingToolInputs,
@@ -480,7 +480,7 @@ export default function WorkspaceView() {
             isHistoryError={isHistoryError}
             streamingStartedAt={streamingStartedAt}
             currentStreamingText={currentStreamingText}
-            currentThinking={currentThinking}
+            currentReasoningSegments={currentReasoningSegments}
             activeToolCalls={activeToolCalls}
             activeAgentActivities={activeAgentActivities}
             pendingToolInputs={pendingToolInputs}

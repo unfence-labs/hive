@@ -125,7 +125,7 @@ export default function BrainView() {
     isStreaming,
     streamingStartedAt,
     currentStreamingText,
-    currentThinking,
+    currentReasoningSegments,
     activeToolCalls,
     activeAgentActivities,
     pendingToolInputs,
@@ -372,7 +372,7 @@ export default function BrainView() {
               isHistoryError={isHistoryError}
               streamingStartedAt={streamingStartedAt}
               currentStreamingText={currentStreamingText}
-              currentThinking={currentThinking}
+              currentReasoningSegments={currentReasoningSegments}
               activeToolCalls={activeToolCalls}
               activeAgentActivities={activeAgentActivities}
               pendingToolInputs={pendingToolInputs}

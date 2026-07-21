@@ -7,6 +7,7 @@ import {
   type AgentActivityCommandAction,
 } from "@hive/shared/agent-activity";
 import { appendBoundedAgentOutput, boundAgentOutput } from "../bounded-output.js";
+import { splitPendingSeparatorTail, stripReasoningSeparators } from "../reasoning-text.js";
 import type { NormalizedAgentEvent } from "../agent-event-normalizer.js";
 import type { StreamParserEvent } from "../stream-parser.js";
 import type { ThinkingLevel } from "./types.js";
@@ -247,6 +248,9 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
   private fileChanges = new Map<string, FileUpdateChange[]>();
   private emittedAgentText = new Set<string>();
   private emittedReasoningText = new Set<string>();
+  // Held-back streamed reasoning tails that may still complete into a
+  // `<!-- -->` separator; by construction they never carry visible content.
+  private pendingThinkingTailByItem = new Map<string, string>();
   private emittedDiagnostics = new Set<string>();
   private completedToolIds = new Set<string>();
   private completedTurnIds = new Set<string>();
@@ -306,6 +310,7 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
       cwd: options.cwd,
       approvalPolicy: "never",
       sandboxPolicy: { type: options.readOnly ? "readOnly" : "dangerFullAccess" },
+      summary: "auto",
       ...(options.model ? { model: options.model } : {}),
       ...(options.thinkingLevel ? { effort: options.thinkingLevel } : {}),
     });
@@ -518,6 +523,7 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
     this.fileChanges.clear();
     this.emittedAgentText.clear();
     this.emittedReasoningText.clear();
+    this.pendingThinkingTailByItem.clear();
     this.emittedDiagnostics.clear();
     this.completedToolIds.clear();
     this.pendingCollabReplays.clear();
@@ -642,6 +648,8 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
         break;
       case "item/agentMessage/delta":
         this.emitTextDelta(asString(data?.itemId), asString(data?.delta));
+        break;
+      case "item/reasoning/summaryPartAdded":
         break;
       case "item/reasoning/textDelta":
       case "item/reasoning/summaryTextDelta":
@@ -827,6 +835,9 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
         if (phase === "completed" && thinking && !this.emittedReasoningText.has(reasoningItem.id)) {
           this.emitThinkingDelta(reasoningItem.id, thinking);
         }
+        // A tail still held back at item completion is whitespace or a dangling
+        // partial separator (never visible content) — drop it.
+        if (phase === "completed") this.pendingThinkingTailByItem.delete(reasoningItem.id);
         break;
       }
       case "plan": {
@@ -1367,13 +1378,21 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
 
   private emitThinkingDelta(itemId: string | undefined, delta: string | undefined): void {
     if (!delta) return;
+    // Codex streams `<!-- -->` summary part separators token-split across
+    // deltas; hold back a tail that could still become one so every delta
+    // leaving the backend is already clean (see reasoning-text.ts).
+    const key = itemId ?? "";
+    const pending = this.pendingThinkingTailByItem.get(key) ?? "";
+    const { emit, hold } = splitPendingSeparatorTail(stripReasoningSeparators(pending + delta));
+    this.pendingThinkingTailByItem.set(key, hold);
+    if (!emit) return;
     if (itemId) this.emittedReasoningText.add(itemId);
     this.emit("assistant", {
       type: "assistant",
       message: {
         id: itemId ?? `codex-thinking-${Date.now()}`,
         role: "assistant",
-        content: [{ type: "thinking", thinking: delta }],
+        content: [{ type: "thinking", thinking: emit }],
       },
     });
   }

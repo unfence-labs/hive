@@ -287,6 +287,19 @@ struct ToolCall: Codable, Equatable, Identifiable {
     }
 }
 
+struct ReasoningSegment: Codable, Equatable, Identifiable {
+    let id: String
+    let headline: String?
+    let body: String?
+}
+
+/// Raw reasoning text of one provider block, persisted as the lossless source
+/// the parsed `reasoningSegments` derive from (clients render segments only).
+struct ReasoningBlock: Codable, Equatable, Identifiable {
+    let id: String
+    let text: String
+}
+
 struct ChatMessage: Codable, Equatable, Identifiable {
     let id: String
     let sessionId: String
@@ -297,7 +310,8 @@ struct ChatMessage: Codable, Equatable, Identifiable {
     let toolCalls: [ToolCall]?
     let agentActivities: [AgentActivity]?
     let goalCommand: Bool?
-    let thinkingContent: String?
+    let reasoningSegments: [ReasoningSegment]?
+    let reasoningBlocks: [ReasoningBlock]?
     let timestamp: String
     let cancelled: Bool?
     let errorDetail: String?
@@ -311,7 +325,8 @@ struct ChatMessage: Codable, Equatable, Identifiable {
          images: [ImageAttachment]?, fileMentions: [FileMention]? = nil,
          toolCalls: [ToolCall]?, agentActivities: [AgentActivity]? = nil,
          goalCommand: Bool? = nil,
-         thinkingContent: String?,
+         reasoningSegments: [ReasoningSegment]? = nil,
+         reasoningBlocks: [ReasoningBlock]? = nil,
          timestamp: String, cancelled: Bool?, errorDetail: String? = nil,
          durationMs: Int?,
          inputTokens: Int? = nil, outputTokens: Int? = nil,
@@ -325,7 +340,8 @@ struct ChatMessage: Codable, Equatable, Identifiable {
         self.toolCalls = toolCalls
         self.agentActivities = agentActivities
         self.goalCommand = goalCommand
-        self.thinkingContent = thinkingContent
+        self.reasoningSegments = reasoningSegments
+        self.reasoningBlocks = reasoningBlocks
         self.timestamp = timestamp
         self.cancelled = cancelled
         self.errorDetail = errorDetail
@@ -347,7 +363,8 @@ struct ChatMessage: Codable, Equatable, Identifiable {
         toolCalls = try container.decodeIfPresent([ToolCall].self, forKey: .toolCalls)
         agentActivities = try container.decodeIfPresent([AgentActivity].self, forKey: .agentActivities)
         goalCommand = try container.decodeIfPresent(Bool.self, forKey: .goalCommand)
-        thinkingContent = try container.decodeIfPresent(String.self, forKey: .thinkingContent)
+        reasoningSegments = try container.decodeIfPresent([ReasoningSegment].self, forKey: .reasoningSegments)
+        reasoningBlocks = try container.decodeIfPresent([ReasoningBlock].self, forKey: .reasoningBlocks)
         timestamp = try container.decode(String.self, forKey: .timestamp)
         cancelled = try container.decodeIfPresent(Bool.self, forKey: .cancelled)
         errorDetail = try container.decodeIfPresent(String.self, forKey: .errorDetail)
@@ -392,13 +409,22 @@ struct ChatMessage: Codable, Equatable, Identifiable {
     private enum CodingKeys: String, CodingKey {
         case id, sessionId, role, content, images, fileMentions, toolCalls, agentActivities
         case goalCommand
-        case thinkingContent, timestamp, cancelled, errorDetail, durationMs
+        case reasoningSegments, reasoningBlocks, timestamp, cancelled, errorDetail, durationMs
         case inputTokens, outputTokens, contextUsedTokens, contextWindowTokens
     }
 }
 
 extension ChatMessage {
     var clipboardText: String { content }
+
+    /// Reasoning thoughts to display. The backend already parses reasoning into
+    /// structured thoughts; a thought with no non-empty headline or body has
+    /// nothing to show, so we drop it (matching the web truthiness filter).
+    var resolvedReasoningSegments: [ReasoningSegment] {
+        (reasoningSegments ?? []).filter {
+            !($0.headline ?? "").isEmpty || !($0.body ?? "").isEmpty
+        }
+    }
 }
 
 // MARK: - Diff

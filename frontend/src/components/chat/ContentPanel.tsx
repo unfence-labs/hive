@@ -1,14 +1,16 @@
-import type { ReactNode } from "react";
+import type { HTMLAttributes, ReactNode } from "react";
 import { cn } from "@/lib/utils";
 
-interface ContentPanelProps {
+interface ContentPanelProps extends HTMLAttributes<HTMLDivElement> {
   children: ReactNode;
-  className?: string;
 }
 
-export function ContentPanel({ children, className }: ContentPanelProps) {
+export function ContentPanel({ children, className, ...props }: ContentPanelProps) {
   return (
-    <div className={cn("mt-1.5 mb-3 overflow-hidden rounded-lg border border-border/60 bg-field text-xs", className)}>
+    <div
+      className={cn("mt-1.5 mb-3 overflow-hidden rounded-lg border border-border/60 bg-field text-xs", className)}
+      {...props}
+    >
       {children}
     </div>
   );

@@ -17,7 +17,7 @@ import { WorkspaceWelcome } from "@/components/WorkspaceWelcome";
 import { formatElapsed } from "@/lib/time";
 import { getFallbackInteractiveAssistantIndex, hasExitPlanModeTool } from "@/lib/plan-state";
 import { Trash2Icon } from "lucide-react";
-import type { AgentActivity, ChatMessage as ChatMessageType, QueuedMessage, ToolCall, QuestionAnswer } from "@/types";
+import type { AgentActivity, ChatMessage as ChatMessageType, QueuedMessage, ReasoningSegment, ToolCall, QuestionAnswer } from "@/types";
 import type { PendingToolInput } from "@/hooks/useConversation";
 import type { PlanStatus } from "@/components/chat/PlanProposal";
 
@@ -33,7 +33,7 @@ interface ChatConversationProps {
   isStreaming: boolean;
   streamingStartedAt?: number | null;
   currentStreamingText: string;
-  currentThinking: string;
+  currentReasoningSegments: ReasoningSegment[];
   activeToolCalls: ToolCall[];
   activeAgentActivities: AgentActivity[];
   pendingToolInputs?: PendingToolInput[];
@@ -67,7 +67,7 @@ export default function ChatConversation({
   isStreaming,
   streamingStartedAt,
   currentStreamingText,
-  currentThinking,
+  currentReasoningSegments,
   activeToolCalls,
   activeAgentActivities = [],
   pendingToolInputs = [],
@@ -263,12 +263,13 @@ export default function ChatConversation({
         })}
 
         {/* Live streaming content */}
-        {isStreaming && (currentStreamingText || currentThinking || activeToolCalls.length > 0 || activeInlineAgentActivities.length > 0) && (
+        {isStreaming && (currentStreamingText || currentReasoningSegments.length > 0 || activeToolCalls.length > 0 || activeInlineAgentActivities.length > 0) && (
           <div className="flex w-full justify-start">
             <div className="max-w-[85%] text-sm leading-relaxed text-foreground">
-              {currentThinking && (
-                <ThinkingBlock content={currentThinking} defaultOpen streaming />
-              )}
+              <ThinkingBlock
+                segments={currentReasoningSegments}
+                streaming
+              />
               {currentStreamingText && (
                 <div className="prose-sm" data-find-content="">
                   <MessageResponse isAnimating>{currentStreamingText}</MessageResponse>

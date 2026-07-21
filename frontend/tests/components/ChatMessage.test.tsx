@@ -5,7 +5,13 @@ import ChatMessage from "@/components/ChatMessage";
 import type { ChatMessage as ChatMessageType } from "@/types";
 
 vi.mock("@/components/chat/ThinkingBlock", () => ({
-  ThinkingBlock: ({ content }: { content: string }) => <div data-testid="thinking-block">{content}</div>,
+  ThinkingBlock: ({
+    segments = [],
+  }: {
+    segments?: ChatMessageType["reasoningSegments"];
+  }) => segments.length > 0
+    ? <div data-testid="thinking-block">{segments.map((segment) => segment.headline ?? segment.body).join("")}</div>
+    : null,
 }));
 
 vi.mock("@/components/chat/ToolCallList", () => ({
@@ -53,11 +59,11 @@ describe("ChatMessage", () => {
     expect(response.compareDocumentPosition(tools) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  it("renders thinking, cancellation flag, and copy button for assistant", () => {
+  it("renders reasoning, cancellation flag, and copy button for assistant", () => {
     render(
       <ChatMessage
         message={assistantMessage({
-          thinkingContent: "reasoning",
+          reasoningSegments: [{ id: "r1", headline: "reasoning" }],
           cancelled: true,
           durationMs: 1200,
           toolCalls: [{ id: "t1", name: "Read", input: "{}" }],
@@ -279,10 +285,10 @@ describe("ChatMessage", () => {
     expect(screen.queryByText("(cancelled)")).not.toBeInTheDocument();
   });
 
-  it("does not render thinking block when thinkingContent is absent", () => {
+  it("does not render thinking block when reasoning segments are absent", () => {
     render(
       <ChatMessage
-        message={assistantMessage({ thinkingContent: undefined })}
+        message={assistantMessage({ reasoningSegments: undefined })}
       />,
     );
 

@@ -214,7 +214,7 @@ struct ChatView: View {
                     .onChange(of: store.currentText) {
                         scrollToBottomIfNeeded(proxy)
                     }
-                    .onChange(of: store.currentThinking) {
+                    .onChange(of: store.reasoningSegments) {
                         scrollToBottomIfNeeded(proxy)
                     }
                     .onChange(of: store.activeToolCalls.count) {
@@ -488,8 +488,9 @@ struct ChatView: View {
 
     private var streamingMessage: ChatMessage? {
         guard store.isStreaming else { return nil }
-        let hasContent = !store.currentText.isEmpty || !store.currentThinking.isEmpty
-            || !store.activeToolCalls.isEmpty || !store.activeAgentActivities.isEmpty
+        let hasContent = !store.currentText.isEmpty
+            || !store.reasoningSegments.isEmpty || !store.activeToolCalls.isEmpty
+            || !store.activeAgentActivities.isEmpty
         guard hasContent else { return nil }
 
         return ChatMessage(
@@ -500,7 +501,7 @@ struct ChatView: View {
             images: nil,
             toolCalls: store.activeToolCalls.isEmpty ? nil : store.activeToolCalls,
             agentActivities: store.activeAgentActivities.isEmpty ? nil : store.activeAgentActivities,
-            thinkingContent: store.currentThinking.isEmpty ? nil : store.currentThinking,
+            reasoningSegments: store.reasoningSegments.isEmpty ? nil : store.reasoningSegments,
             timestamp: store.streamingStartedAt.map(ConversationStore.timestamp(from:)) ?? "",
             cancelled: nil,
             durationMs: nil

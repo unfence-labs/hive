@@ -10,7 +10,6 @@ struct HubActivityMarkingTests {
             content: "Hello",
             images: nil,
             toolCalls: nil,
-            thinkingContent: nil,
             timestamp: "2026-01-01T00:00:00.000Z",
             cancelled: nil,
             durationMs: nil
@@ -20,7 +19,7 @@ struct HubActivityMarkingTests {
     @Test
     func perTokenAndSidebandEventsAreIgnored() {
         #expect(hubActivityMarking(for: .textDelta(sessionId: "s", text: "x")) == .ignore)
-        #expect(hubActivityMarking(for: .thinking(sessionId: "s", text: "x")) == .ignore)
+        #expect(hubActivityMarking(for: .thinking(sessionId: "s", blockId: "b", segments: [])) == .ignore)
         #expect(hubActivityMarking(for: .branchInfo(info: BranchInfo(
             name: "main", lastSyncedAt: "2026-01-01T00:00:00.000Z"
         ))) == .ignore)
@@ -31,7 +30,7 @@ struct HubActivityMarkingTests {
         #expect(hubActivityMarking(for: .scriptStatus(scriptType: "setup", state: "running", exitCode: nil)) == .ignore)
         #expect(hubActivityMarking(for: .planModeChanged(sessionId: "s", active: true)) == .ignore)
         #expect(hubActivityMarking(for: .streamSnapshot(
-            sessionId: "s", text: "", thinking: "", toolCalls: [],
+            sessionId: "s", text: "", toolCalls: [],
             agentActivities: [], agentPlanMode: false, streamingStartedAt: nil
         )) == .ignore)
     }

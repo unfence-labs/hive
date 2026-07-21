@@ -6,6 +6,7 @@ import { workspaceFileRawPath } from "@hive/shared/workspace-files";
 import { nanoid } from "nanoid";
 import sharp from "sharp";
 import { AgentEventNormalizer, type NormalizedAgentEvent } from "./agent-event-normalizer.js";
+import { parseReasoningThoughts } from "./reasoning-thoughts.js";
 import { appendBoundedAgentOutput, boundAgentOutput } from "./bounded-output.js";
 import type { CodexGoalResult, CodexGoalSetParams, CodexGoalStatus } from "./providers/codex-app-server.js";
 import { resolveProvider } from "./providers/registry.js";
@@ -21,6 +22,7 @@ import type {
   FileMention,
   ImageAttachment,
   MessageOptions,
+  ReasoningSegment,
   SessionKind,
   ToolCall,
   ToolInputResult,
@@ -260,7 +262,10 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
 
   // In-progress streaming accumulators (instance-level for snapshot access)
   private _streamText = "";
-  private _streamThinking = "";
+  // Raw reasoning text accumulated per provider block; parsed into structured
+  // thoughts on demand (per changed block on each delta, all blocks for
+  // snapshots and turn finalization).
+  private _streamReasoningRaw = new Map<string, string>();
   private _streamToolCalls: ToolCall[] = [];
   private _streamAgentActivities: AgentActivity[] = [];
   private _agentPlanMode = false;
@@ -330,11 +335,11 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
   /** Return a snapshot of in-progress streaming content.
    *  Returns null when the session is not streaming. Used by WS bootstrap to replay
    *  accumulated state to late-connecting clients. */
-  getStreamingSnapshot(): { text: string; thinking: string; toolCalls: ToolCall[]; agentActivities: AgentActivity[]; agentPlanMode: boolean } | null {
+  getStreamingSnapshot(): { text: string; reasoningSegments: ReasoningSegment[]; toolCalls: ToolCall[]; agentActivities: AgentActivity[]; agentPlanMode: boolean } | null {
     if (this._status !== "streaming") return null;
     return {
       text: this._streamText,
-      thinking: this._streamThinking,
+      reasoningSegments: this.deriveReasoningSegments(),
       toolCalls: this._streamToolCalls.map(tc => ({ ...tc })),
       agentActivities: this._streamAgentActivities.map(cloneAgentActivity),
       agentPlanMode: this._agentPlanMode,
@@ -562,7 +567,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
 
   private resetStreamAccumulators(): void {
     this._streamText = "";
-    this._streamThinking = "";
+    this._streamReasoningRaw = new Map();
     this._streamToolCalls = [];
     this._streamAgentActivities = [];
     this._agentPlanMode = false;
@@ -1053,10 +1058,20 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
         this._streamText += event.text;
         this.emit("message", { type: "text_delta", sessionId: this.sessionId, text: event.text });
         break;
-      case "thinking_delta":
-        this._streamThinking += event.text;
-        this.emit("message", { type: "thinking", sessionId: this.sessionId, text: event.text });
+      case "thinking_delta": {
+        const raw = (this._streamReasoningRaw.get(event.segmentId) ?? "") + event.text;
+        this._streamReasoningRaw.set(event.segmentId, raw);
+        // Re-parse and emit only the block this delta touched; clients merge
+        // by blockId so per-delta frames stay proportional to the active block
+        // instead of the whole accumulated reasoning.
+        this.emit("message", {
+          type: "thinking",
+          sessionId: this.sessionId,
+          blockId: event.segmentId,
+          segments: parseReasoningThoughts(raw, event.segmentId),
+        });
         break;
+      }
       case "tool_started":
         this.upsertToolCall(event.id, event.name, event.input, event.parentToolUseId);
         break;
@@ -1075,9 +1090,6 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
           sessionId: this.sessionId,
           active: this._agentPlanMode,
         } as WsOutgoing);
-        break;
-      case "redacted_thinking":
-        this._streamThinking += event.text;
         break;
       case "usage_updated":
         return { inputTokens: event.inputTokens, outputTokens: event.outputTokens };
@@ -1110,6 +1122,13 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
         break;
     }
     return undefined;
+  }
+
+  /** Parse every accumulated reasoning block into structured thoughts. */
+  private deriveReasoningSegments(): ReasoningSegment[] {
+    return [...this._streamReasoningRaw.entries()].flatMap(([blockId, raw]) =>
+      parseReasoningThoughts(raw, blockId),
+    );
   }
 
   private upsertToolCall(id: string, name: string, input: string, parentToolUseId?: string): void {
@@ -1503,7 +1522,9 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
     // before resetting, so the deferred persist below still sees this turn's
     // content even though new arrays are installed synchronously.
     const streamText = this._streamText;
-    const streamThinking = this._streamThinking;
+    const streamReasoningSegments = this.deriveReasoningSegments();
+    const streamReasoningBlocks = [...this._streamReasoningRaw.entries()]
+      .map(([id, text]) => ({ id, text }));
     const streamToolCalls = this._streamToolCalls;
     const streamAgentActivities = this._streamAgentActivities;
     const pendingImageAttachments = this.pendingImageAttachments;
@@ -1535,7 +1556,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
           streamText ||
           streamToolCalls.length > 0 ||
           streamAgentActivities.length > 0 ||
-          streamThinking ||
+          streamReasoningSegments.length > 0 ||
           shouldSurfaceCancelled
         ) {
           const assistantMsg: ChatMessage = {
@@ -1547,7 +1568,8 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
             agentActivities: streamAgentActivities.length > 0
               ? streamAgentActivities.map(cloneAgentActivity)
               : undefined,
-            thinkingContent: streamThinking || undefined,
+            reasoningSegments: streamReasoningSegments.length > 0 ? streamReasoningSegments : undefined,
+            reasoningBlocks: streamReasoningBlocks.length > 0 ? streamReasoningBlocks : undefined,
             timestamp: new Date().toISOString(),
             cancelled: shouldSurfaceCancelled || undefined,
             errorDetail: cancellationErrorDetail,

@@ -24,7 +24,7 @@ struct ConversationStoreStreamingBufferTests {
     }
 
     @Test @MainActor
-    func interleavedTextAndThinkingDeltasLandInTheirOwnBuffers() {
+    func interleavedTextAndReasoningDeltasLandInTheirOwnBuffers() {
         let store = ConversationStore(streamFlushInterval: nil)
         store.handle(.status(
             status: .busy,
@@ -35,15 +35,20 @@ struct ConversationStoreStreamingBufferTests {
         ))
 
         store.handle(.textDelta(sessionId: "session-1", text: "Hello"))
-        store.handle(.thinking(sessionId: "session-1", text: "Consider"))
+        store.handle(.thinking(sessionId: "session-1", blockId: "r", segments: [
+            ReasoningSegment(id: "r:0", headline: nil, body: "Consider"),
+        ]))
         store.handle(.textDelta(sessionId: "session-1", text: " world"))
-        store.handle(.thinking(sessionId: "session-1", text: " options"))
+        // Buffered updates for the same block coalesce: the latest state wins.
+        store.handle(.thinking(sessionId: "session-1", blockId: "r", segments: [
+            ReasoningSegment(id: "r:0", headline: nil, body: "Consider options"),
+        ]))
         #expect(store.currentText == "")
-        #expect(store.currentThinking == "")
+        #expect(store.reasoningSegments.isEmpty)
 
         store.flushStreamingDeltas()
         #expect(store.currentText == "Hello world")
-        #expect(store.currentThinking == "Consider options")
+        #expect(store.reasoningSegments.map(\.body) == ["Consider options"])
     }
 
     @Test @MainActor
@@ -78,7 +83,9 @@ struct ConversationStoreStreamingBufferTests {
         let store = ConversationStore(streamFlushInterval: nil)
 
         store.handle(.textDelta(sessionId: "ghost", text: "x"))
-        store.handle(.thinking(sessionId: "ghost", text: "y"))
+        store.handle(.thinking(sessionId: "ghost", blockId: "g", segments: [
+            ReasoningSegment(id: "g:0", headline: nil, body: "y"),
+        ]))
         store.flushStreamingDeltas()
 
         #expect(store.sessionStreams["ghost"] == nil)
@@ -96,20 +103,22 @@ struct ConversationStoreStreamingBufferTests {
         ))
 
         store.handle(.textDelta(sessionId: "session-1", text: "buffered tail"))
-        store.handle(.thinking(sessionId: "session-1", text: "buffered thinking"))
+        store.handle(.thinking(sessionId: "session-1", blockId: "b", segments: [
+            ReasoningSegment(id: "b:0", headline: nil, body: "buffered thinking"),
+        ]))
         store.handle(.streamSnapshot(
             sessionId: "session-1",
             text: "canonical",
-            thinking: "canonical thinking",
             toolCalls: [],
             agentActivities: [],
             agentPlanMode: false,
-            streamingStartedAt: nil
+            streamingStartedAt: nil,
+            reasoningSegments: [ReasoningSegment(id: "c:0", headline: "canonical thinking", body: nil)]
         ))
         store.flushStreamingDeltas()
 
         #expect(store.currentText == "canonical")
-        #expect(store.currentThinking == "canonical thinking")
+        #expect(store.reasoningSegments.map(\.headline) == ["canonical thinking"])
     }
 
     @Test @MainActor
@@ -153,12 +162,14 @@ struct ConversationStoreStreamingBufferTests {
         ))
 
         store.handle(.textDelta(sessionId: "session-1", text: "auto"))
-        store.handle(.thinking(sessionId: "session-1", text: "thought"))
+        store.handle(.thinking(sessionId: "session-1", blockId: "r", segments: [
+            ReasoningSegment(id: "r:0", headline: nil, body: "thought"),
+        ]))
         #expect(store.currentText == "")
 
         try await waitUntil { store.currentText == "auto" }
         #expect(store.currentText == "auto")
-        #expect(store.currentThinking == "thought")
+        #expect(store.reasoningSegments.map(\.body) == ["thought"])
     }
 
     @Test @MainActor

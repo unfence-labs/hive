@@ -30,7 +30,7 @@ Hive is a control plane for AI coding agents. It manages your projects as **bare
 Run Hive as a **local web app**, a **Tauri desktop app** (pointed at a local or remote backend), or a **native SwiftUI iOS client** — all speaking the same REST and WebSocket protocols.
 
 - 🧠 **Multi-agent** — run Claude and Codex sessions side by side, with provider-aware model selection and per-session provider locking.
-- 🌳 **Isolated by design** — every workspace is its own worktree and branch; up to 4 concurrent sessions per workspace.
+- 🌳 **Isolated by design** — every workspace is its own worktree and branch; up to 6 concurrent sessions per workspace.
 - 📡 **Live streaming** — assistant text, thinking, tool calls, file changes, diffs, tasks, plans, and images stream over a single multiplexed WebSocket hub.
 - 🤖 **Automation** — reusable Team agents plus cron-scheduled runs with full run history and notifications.
 - 📱 **Everywhere** — desktop, web, and iOS from one backend, with push notifications and Tailscale-friendly remote access.
@@ -308,9 +308,9 @@ Run the narrowest relevant checks during development, then the root checks befor
 - Add manual workspace rename/alias support.
 
 **Provider & protocol polish**
-- Visually distinguish `redacted_thinking` from normal thinking blocks.
 - Harden Codex App Server resume verification after process loss or forced interruption.
 - Continue promoting useful Codex App Server diagnostics into richer UI when a product surface is clear.
+- Profile long reasoning streams and, if they show meaningful CPU or WebSocket overhead, avoid reparsing and retransmitting the full accumulated reasoning block on every delta.
 - Support Claude Code session-scoped scheduling (`/loop` dynamic mode, `ScheduleWakeup`, `Monitor`, `CronCreate/List/Delete`) and background-task tools (`run_in_background` Bash/Agent). These depend on a persistent, idle harness process that fires wakeups between turns and listens for `task_notification` `system` events — neither exists in Hive's one-shot `claude --print` per-turn model. These tools are currently suppressed at the provider (`--disallowedTools` plus `CLAUDE_CODE_DISABLE_CRON=1` and `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1`) so the model stays synchronous; `CLAUDE_CODE_ENABLE_TASKS=true` keeps synchronous subagents working. Full support requires a per-session scheduler that persists wakeups, re-invokes `claude --resume -p` at the deadline, forwards `task_notification` to the UI, and surfaces background tasks — likely reusing the automation-scheduler timer infrastructure.
 
 **Automation**

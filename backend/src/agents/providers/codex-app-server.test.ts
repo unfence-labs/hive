@@ -167,6 +167,7 @@ describe("CodexAppServerSession request handling", () => {
     const turnStart = writes.find((w) => w.method === "turn/start");
     expect((threadStart?.params as { sandbox?: string }).sandbox).toBe("danger-full-access");
     expect((turnStart?.params as { sandboxPolicy?: { type?: string } }).sandboxPolicy?.type).toBe("dangerFullAccess");
+    expect((turnStart?.params as { summary?: string }).summary).toBe("auto");
   });
 
   it("uses the read-only sandbox on thread/start and turn/start when readOnly", async () => {
@@ -1571,6 +1572,85 @@ describe("CodexAppServerSession normalized events", () => {
         status: "completed",
         result: undefined,
       }),
+    ]);
+  });
+
+  it("preserves Codex reasoning item identities across streamed deltas", async () => {
+    const proc = createMockProcess();
+    mockSpawn.mockReturnValue(proc);
+    const session = new CodexAppServerSession();
+    const assistantEvents: Array<{ message: { id: string; content: unknown[] } }> = [];
+    const diagnostics: unknown[] = [];
+    session.on("assistant", (event) => assistantEvents.push(event as never));
+    session.on("agent_event", (event) => diagnostics.push(event));
+    await initializeSession(session, proc);
+
+    proc._stdout.push(JSON.stringify({
+      method: "item/reasoning/summaryPartAdded",
+      params: { itemId: "reasoning-item-1" },
+    }) + "\n");
+    proc._stdout.push(JSON.stringify({
+      method: "item/reasoning/summaryTextDelta",
+      params: { itemId: "reasoning-item-1", delta: "Inspect " },
+    }) + "\n");
+    proc._stdout.push(JSON.stringify({
+      method: "item/reasoning/textDelta",
+      params: { itemId: "reasoning-item-1", delta: "state" },
+    }) + "\n");
+    proc._stdout.push(JSON.stringify({
+      method: "item/reasoning/summaryTextDelta",
+      params: { itemId: "reasoning-item-2", delta: "Check clients" },
+    }) + "\n");
+
+    expect(assistantEvents.map((event) => event.message.id)).toEqual([
+      "reasoning-item-1",
+      "reasoning-item-1",
+      "reasoning-item-2",
+    ]);
+    // Trailing whitespace is held back by the separator filter and re-emitted
+    // with the next delta; accumulated content is unchanged.
+    expect(assistantEvents.map((event) => event.message.content)).toEqual([
+      [{ type: "thinking", thinking: "Inspect" }],
+      [{ type: "thinking", thinking: " state" }],
+      [{ type: "thinking", thinking: "Check clients" }],
+    ]);
+    expect(diagnostics).toEqual([]);
+  });
+
+  it("strips summary part separators from streamed reasoning deltas", async () => {
+    const proc = createMockProcess();
+    mockSpawn.mockReturnValue(proc);
+    const session = new CodexAppServerSession();
+    const assistantEvents: Array<{ message: { content: unknown[] } }> = [];
+    session.on("assistant", (event) => assistantEvents.push(event as never));
+    await initializeSession(session, proc);
+
+    // OpenAI streams the `<!-- -->` part separator token-split across deltas.
+    proc._stdout.push(JSON.stringify({
+      method: "item/reasoning/summaryTextDelta",
+      params: { itemId: "reasoning-item-1", delta: "**First part**" },
+    }) + "\n");
+    proc._stdout.push(JSON.stringify({
+      method: "item/reasoning/summaryTextDelta",
+      params: { itemId: "reasoning-item-1", delta: "\n\n<!-" },
+    }) + "\n");
+    proc._stdout.push(JSON.stringify({
+      method: "item/reasoning/summaryTextDelta",
+      params: { itemId: "reasoning-item-1", delta: "- -->\n\nSecond part" },
+    }) + "\n");
+    // A trailing separator (and the tail still held at completion) never emits.
+    proc._stdout.push(JSON.stringify({
+      method: "item/reasoning/summaryTextDelta",
+      params: { itemId: "reasoning-item-1", delta: "\n\n<!-- -->" },
+    }) + "\n");
+    proc._stdout.push(JSON.stringify({
+      method: "item/completed",
+      params: { threadId: "thread-1", item: { id: "reasoning-item-1", type: "reasoning" } },
+    }) + "\n");
+
+    expect(assistantEvents.map((event) => event.message.content)).toEqual([
+      [{ type: "thinking", thinking: "**First part**" }],
+      [{ type: "thinking", thinking: "\n\nSecond part" }],
     ]);
   });
 

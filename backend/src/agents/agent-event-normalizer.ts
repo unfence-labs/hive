@@ -16,8 +16,7 @@ type ServerResultBlock = Extract<ContentBlock,
 
 export type NormalizedAgentEvent =
   | { type: "text_delta"; text: string }
-  | { type: "thinking_delta"; text: string }
-  | { type: "redacted_thinking"; text: string }
+  | { type: "thinking_delta"; segmentId: string; text: string }
   | { type: "tool_started"; id: string; name: string; rawName: string; input: string; parentToolUseId?: string }
   | { type: "tool_updated"; id: string; input: string }
   | { type: "tool_completed"; id: string; output: string }
@@ -102,13 +101,19 @@ export class AgentEventNormalizer {
     // run in parallel, so we read it directly — no heuristic stack to mis-attribute.
     const messageParentToolUseId = data.parent_tool_use_id ?? undefined;
 
-    for (const block of data.message.content) {
+    for (const [blockIndex, block] of data.message.content.entries()) {
+      const reasoningSegmentId = `reasoning:${data.message.id}:${blockIndex}`;
       switch (block.type) {
         case "text":
           events.push({ type: "text_delta", text: block.text });
           break;
         case "thinking":
-          events.push({ type: "thinking_delta", text: block.thinking });
+          // Claude 5 family models return signature-only thinking blocks whose
+          // text is always empty; skip them so clients never receive a
+          // contentless reasoning segment.
+          if (block.thinking) {
+            events.push({ type: "thinking_delta", segmentId: reasoningSegmentId, text: block.thinking });
+          }
           break;
         case "tool_use":
         case "server_tool_use":
@@ -138,7 +143,7 @@ export class AgentEventNormalizer {
           break;
         }
         case "redacted_thinking":
-          events.push({ type: "redacted_thinking", text: "[redacted]\n" });
+          // Providers may encrypt reasoning; there is nothing to show, so drop it.
           break;
         case "web_search_tool_result":
         case "web_fetch_tool_result":

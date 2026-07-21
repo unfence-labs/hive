@@ -99,7 +99,7 @@ function emptyConversation() {
     streamingStartedAt: null,
     workspaceStatus: "idle",
     currentStreamingText: "",
-    currentThinking: "",
+    currentReasoningSegments: [],
     activeToolCalls: [],
     activeAgentActivities: [],
     pendingToolInputs: [],

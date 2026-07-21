@@ -6,12 +6,13 @@ function assistant(
   content: Extract<CliJsonLine, { type: "assistant" }>["message"]["content"],
   usage?: Extract<CliJsonLine, { type: "assistant" }>["message"]["usage"],
   envelope?: { parent_tool_use_id?: string | null },
+  messageId = "msg-1",
 ): Extract<CliJsonLine, { type: "assistant" }> {
   return {
     type: "assistant",
     ...(envelope ?? {}),
     message: {
-      id: "msg-1",
+      id: messageId,
       role: "assistant",
       content,
       usage,
@@ -69,6 +70,50 @@ describe("AgentEventNormalizer", () => {
     expect(events).toEqual([
       { type: "tool_updated", id: "tool-1", input: JSON.stringify({ file_path: "b.ts" }, null, 2) },
     ]);
+  });
+
+  it("assigns stable identities to reasoning blocks and drops redacted ones", () => {
+    const normalizer = new AgentEventNormalizer();
+
+    const firstEvents = normalizer.handleAssistant(assistant([
+      { type: "thinking", thinking: "First " },
+      { type: "redacted_thinking", data: "encrypted" },
+    ], undefined, undefined, "provider-message-1"));
+    const continuedEvents = normalizer.handleAssistant(assistant([
+      { type: "thinking", thinking: "phase" },
+    ], undefined, undefined, "provider-message-1"));
+    const separateEvents = normalizer.handleAssistant(assistant([
+      { type: "thinking", thinking: "Second phase" },
+    ], undefined, undefined, "provider-message-2"));
+
+    expect(firstEvents).toEqual([
+      {
+        type: "thinking_delta",
+        segmentId: "reasoning:provider-message-1:0",
+        text: "First ",
+      },
+    ]);
+    expect(continuedEvents).toEqual([{
+      type: "thinking_delta",
+      segmentId: "reasoning:provider-message-1:0",
+      text: "phase",
+    }]);
+    expect(separateEvents).toEqual([{
+      type: "thinking_delta",
+      segmentId: "reasoning:provider-message-2:0",
+      text: "Second phase",
+    }]);
+  });
+
+  it("skips signature-only thinking blocks with empty text", () => {
+    const normalizer = new AgentEventNormalizer();
+
+    const events = normalizer.handleAssistant(assistant([
+      { type: "thinking", thinking: "" },
+      { type: "text", text: "Answer" },
+    ]));
+
+    expect(events).toEqual([{ type: "text_delta", text: "Answer" }]);
   });
 
   it("nests a subagent's tool under its parent via the native parent_tool_use_id", () => {

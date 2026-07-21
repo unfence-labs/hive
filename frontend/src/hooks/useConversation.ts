@@ -1,6 +1,6 @@
 import { useEffect, useCallback, useReducer, useRef, useSyncExternalStore } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import type { AgentActivity, ChatMessage, FileMention, ImageAttachment, MessageOptions, ToolCall, WsOutgoing, QuestionAnswer, QuestionInput } from "@/types";
+import type { AgentActivity, ChatMessage, FileMention, ImageAttachment, MessageOptions, ReasoningSegment, ToolCall, WsOutgoing, QuestionAnswer, QuestionInput } from "@/types";
 import { wsTransport } from "@/lib/ws-transport";
 import {
   useSessionMessages,
@@ -18,7 +18,7 @@ export interface PendingToolInput {
 
 interface SessionStreamState {
   currentText: string;
-  currentThinking: string;
+  currentReasoningSegments: ReasoningSegment[];
   activeToolCalls: ToolCall[];
   activeAgentActivities: AgentActivity[];
   isStreaming: boolean;
@@ -29,7 +29,7 @@ interface SessionStreamState {
 
 const emptyStreamState: SessionStreamState = {
   currentText: "",
-  currentThinking: "",
+  currentReasoningSegments: [],
   activeToolCalls: [],
   activeAgentActivities: [],
   isStreaming: false,
@@ -71,6 +71,21 @@ const initialState: ConversationState = {
   sessionId: undefined,
   switchCounter: 0,
 };
+
+// Replace the contiguous run of segments belonging to a reasoning block
+// (segment ids are `${blockId}:${index}`), or append when the block is new.
+function mergeReasoningBlock(
+  existing: ReasoningSegment[],
+  blockId: string,
+  segments: ReasoningSegment[],
+): ReasoningSegment[] {
+  const prefix = `${blockId}:`;
+  const start = existing.findIndex((segment) => segment.id.startsWith(prefix));
+  if (start === -1) return segments.length > 0 ? [...existing, ...segments] : existing;
+  let end = start;
+  while (end < existing.length && existing[end].id.startsWith(prefix)) end++;
+  return [...existing.slice(0, start), ...segments, ...existing.slice(end)];
+}
 
 function parseToolInput(input: string): unknown {
   try {
@@ -129,7 +144,7 @@ function lastMessageIsTerminalAssistant(messages: ChatMessage[], sid: string): b
 function streamHasRecoverableState(stream: SessionStreamState): boolean {
   return stream.isStreaming ||
     stream.currentText.length > 0 ||
-    stream.currentThinking.length > 0 ||
+    stream.currentReasoningSegments.length > 0 ||
     stream.activeToolCalls.length > 0 ||
     stream.activeAgentActivities.length > 0 ||
     stream.pendingToolInputs.length > 0;
@@ -137,7 +152,7 @@ function streamHasRecoverableState(stream: SessionStreamState): boolean {
 
 function streamHasVisibleState(stream: SessionStreamState): boolean {
   return stream.currentText.length > 0 ||
-    stream.currentThinking.length > 0 ||
+    stream.currentReasoningSegments.length > 0 ||
     stream.activeToolCalls.length > 0 ||
     stream.activeAgentActivities.length > 0 ||
     stream.pendingToolInputs.length > 0;
@@ -152,13 +167,15 @@ function buildFinalizedMessage(
   const hasOutput = stream.currentText.length > 0 || stream.activeToolCalls.length > 0;
   const toolCalls = stream.activeToolCalls.length > 0 ? stream.activeToolCalls : undefined;
   const agentActivities = stream.activeAgentActivities.length > 0 ? stream.activeAgentActivities : undefined;
-  const thinkingContent = stream.currentThinking || undefined;
+  const reasoningSegments = stream.currentReasoningSegments.length > 0
+    ? stream.currentReasoningSegments
+    : undefined;
 
   if (msg.type === "cancelled") {
     const hasActivity = stream.activeAgentActivities.length > 0;
-    const hasThinking = stream.currentThinking.length > 0;
+    const hasReasoning = stream.currentReasoningSegments.length > 0;
     // Ignore a stale cancelled with no accumulated data.
-    if (!stream.isStreaming && !hasOutput && !hasActivity && !hasThinking) return null;
+    if (!stream.isStreaming && !hasOutput && !hasActivity && !hasReasoning) return null;
     return {
       id: newMessageId(),
       sessionId: sid,
@@ -166,7 +183,7 @@ function buildFinalizedMessage(
       content: hasOutput ? stream.currentText : CANCELLED_NO_OUTPUT_MESSAGE,
       toolCalls,
       agentActivities,
-      thinkingContent,
+      reasoningSegments,
       timestamp: new Date().toISOString(),
       cancelled: true,
     };
@@ -179,7 +196,7 @@ function buildFinalizedMessage(
     content: stream.currentText,
     toolCalls,
     agentActivities,
-    thinkingContent,
+    reasoningSegments,
     timestamp: new Date().toISOString(),
     durationMs: msg.durationMs,
     inputTokens: msg.inputTokens,
@@ -238,7 +255,7 @@ function reducer(state: ConversationState, action: Action): ConversationState {
             isStreaming: true,
             streamingStartedAt: stream.streamingStartedAt ?? Date.now(),
             currentText: "",
-            currentThinking: "",
+            currentReasoningSegments: [],
             activeToolCalls: [],
             activeAgentActivities: [],
             pendingToolInputs: [],
@@ -262,7 +279,15 @@ function reducer(state: ConversationState, action: Action): ConversationState {
       if (!sid) return state;
       const stream = state.sessionStreams[sid];
       if (!stream) return state;
-      return updateStream(state, sid, { currentThinking: stream.currentThinking + action.text });
+      // The backend parses reasoning into structured thoughts and sends the
+      // parsed list for the one block the delta touched; merge by block.
+      return updateStream(state, sid, {
+        currentReasoningSegments: mergeReasoningBlock(
+          stream.currentReasoningSegments,
+          action.blockId,
+          action.segments,
+        ),
+      });
     }
 
     case "tool_use": {
@@ -311,7 +336,7 @@ function reducer(state: ConversationState, action: Action): ConversationState {
           [sid]: {
             ...existing,
             currentText: action.text,
-            currentThinking: action.thinking,
+            currentReasoningSegments: action.reasoningSegments,
             activeToolCalls: action.toolCalls,
             activeAgentActivities: action.agentActivities,
             isStreaming: true,
@@ -338,9 +363,9 @@ function reducer(state: ConversationState, action: Action): ConversationState {
       if (!stream) return state;
       const hasOutput = stream.currentText.length > 0 || stream.activeToolCalls.length > 0;
       const hasActivity = stream.activeAgentActivities.length > 0;
-      const hasThinking = stream.currentThinking.length > 0;
+      const hasReasoning = stream.currentReasoningSegments.length > 0;
       // Ignore stale cancelled events when there's no stream data.
-      if (!stream.isStreaming && !hasOutput && !hasActivity && !hasThinking) return state;
+      if (!stream.isStreaming && !hasOutput && !hasActivity && !hasReasoning) return state;
       return { ...state, sessionStreams: deleteStream(state, sid) };
     }
 
@@ -374,7 +399,7 @@ function reducer(state: ConversationState, action: Action): ConversationState {
         } else if (stream) {
           if (
             !stream.currentText &&
-            !stream.currentThinking &&
+            stream.currentReasoningSegments.length === 0 &&
             stream.activeToolCalls.length === 0 &&
             stream.activeAgentActivities.length === 0 &&
             stream.pendingToolInputs.length === 0
@@ -796,7 +821,7 @@ export function useConversation(workspaceId: string | undefined) {
     streamingStartedAt: activeStream?.streamingStartedAt ?? null,
     workspaceStatus: state.workspaceStatus,
     currentStreamingText: activeStream?.currentText ?? "",
-    currentThinking: activeStream?.currentThinking ?? "",
+    currentReasoningSegments: activeStream?.currentReasoningSegments ?? [],
     activeToolCalls: activeStream?.activeToolCalls ?? [],
     activeAgentActivities: activeStream?.activeAgentActivities ?? [],
     pendingToolInputs: activeStream?.pendingToolInputs ?? [],
