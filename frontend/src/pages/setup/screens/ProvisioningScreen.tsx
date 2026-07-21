@@ -67,16 +67,16 @@ function StepRow({ step }: { step: ProvisionStepView }) {
 
 type Source = { kind: "start"; params: ProvisionParams } | { kind: "resume"; params: ProvisionParams };
 
-export function ProvisioningScreen({
-  client,
-  params,
-  onDone,
-  onBack,
-  onContinueLater,
-  onStartOver,
-  title = "Installing Hive on your server",
-  description = "This runs over SSH and continues even if you close the app. It takes a few minutes.",
-}: ProvisioningScreenProps) {
+/**
+ * Drive a provision run (start, stream events, retry-as-resume) and fold it
+ * into a renderable progress. Shared by the wizard's fullscreen step and the
+ * inline server-update block in Settings > Connection.
+ */
+export function useProvisionRun(
+  client: ProvisionClient,
+  params: ProvisionParams,
+  onDone: (tailnetIp?: string) => void,
+) {
   const [progress, dispatch] = useReducer(
     (state: ProvisionProgress, event: ProvisionEvent) => applyProvisionEvent(state, event),
     undefined,
@@ -123,7 +123,9 @@ export function ProvisioningScreen({
       doneRef.current = true;
       onDone(progress.tailnetIp);
     }
-  }, [progress.status, progress.tailnetIp, onDone]);
+    // onDone intentionally unbound: parents pass inline closures.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [progress.status, progress.tailnetIp]);
 
   const retry = () => {
     doneRef.current = false;
@@ -138,6 +140,34 @@ export function ProvisioningScreen({
         logExcerpt: progress.error.detail,
       }
     : null;
+
+  return { progress, retry, error };
+}
+
+/** The provision checklist, renderable in any container. */
+export function ProvisionStepList({ progress }: { progress: ProvisionProgress }) {
+  return progress.steps.length === 0 ? (
+    <p className="text-xs text-muted-foreground">Starting…</p>
+  ) : (
+    <>
+      {progress.steps.map((step) => (
+        <StepRow key={step.id} step={step} />
+      ))}
+    </>
+  );
+}
+
+export function ProvisioningScreen({
+  client,
+  params,
+  onDone,
+  onBack,
+  onContinueLater,
+  onStartOver,
+  title = "Installing Hive on your server",
+  description = "This runs over SSH and continues even if you close the app. It takes a few minutes.",
+}: ProvisioningScreenProps) {
+  const { progress, retry, error } = useProvisionRun(client, params, onDone);
 
   return (
     <SetupScreen
@@ -157,11 +187,7 @@ export function ProvisioningScreen({
       }
     >
       <div className="rounded-lg border border-border/50 bg-card/50 p-4">
-        {progress.steps.length === 0 ? (
-          <p className="text-xs text-muted-foreground">Starting…</p>
-        ) : (
-          progress.steps.map((step) => <StepRow key={step.id} step={step} />)
-        )}
+        <ProvisionStepList progress={progress} />
       </div>
 
       {error && (

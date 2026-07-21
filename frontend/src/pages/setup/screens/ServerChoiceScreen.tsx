@@ -27,6 +27,19 @@ export function ServerChoiceScreen({
       onBack={onBack}
       onContinueLater={onContinueLater}
     >
+      <div className="mb-2 flex items-start gap-3 rounded-lg border border-dashed border-border/50 p-3 text-sm opacity-60">
+        <span>
+          <span className="font-medium text-foreground">
+            Deploy in one click
+            <span className="ml-2 rounded-full border border-border px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+              Coming soon
+            </span>
+          </span>
+          <span className="mt-1 block text-muted-foreground">
+            Hive will create and configure a server for you, no account juggling needed.
+          </span>
+        </span>
+      </div>
       <RadioGroup value={choice} onValueChange={(v) => setChoice(v as ServerChoice)}>
         <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-border/50 p-3 text-sm">
           <RadioGroupItem value="create" className="mt-0.5" />

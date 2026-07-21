@@ -27,8 +27,12 @@ const FALLBACK_CAPABILITIES: ProviderCapabilities = {
 let catalogCache: ModelCatalogResponse | null = null;
 let catalogPromise: Promise<ModelCatalogResponse> | null = null;
 
-/** Test-only: clear the module-level catalog cache so cases stay isolated. */
-export function __resetModelCatalogCacheForTests(): void {
+/**
+ * Invalidate the cached catalog. Called after the tools panel installs or
+ * signs in a provider: the backend re-probes its provider list, and the next
+ * mounted model selector must see the new entries instead of the stale cache.
+ */
+export function invalidateModelCatalog(): void {
   catalogCache = null;
   catalogPromise = null;
 }
@@ -39,6 +43,11 @@ export function setCachedDefaultModelId(defaultModelId: string): void {
   if (catalogCache) {
     catalogCache = { ...catalogCache, defaultModelId };
   }
+}
+
+/** Test-only: clear the module-level catalog cache so cases stay isolated. */
+export function __resetModelCatalogCacheForTests(): void {
+  invalidateModelCatalog();
 }
 
 function loadCatalog(): Promise<ModelCatalogResponse> {

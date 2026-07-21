@@ -11,6 +11,7 @@ import type { PairingPayload } from "@hive/shared/setup-types";
 import { createProvisionClient, type ProvisionClient } from "@/lib/provision-client";
 import { saveSshConnection } from "@/lib/ssh-connection";
 import { useServerUrl } from "@/hooks/useServerUrl";
+import { useTailscaleConfig } from "@/hooks/useTailscaleConfig";
 import { useAuthToken } from "@/hooks/useAuthToken";
 
 import { WelcomeScreen } from "./screens/WelcomeScreen";
@@ -40,6 +41,7 @@ export function SetupWizard({ client: injectedClient, onComplete }: SetupWizardP
   const client = useMemo(() => injectedClient ?? createProvisionClient(), [injectedClient]);
   const [machine, dispatch] = useReducer(reduce, undefined, loadMachineState);
   const { setServerUrl } = useServerUrl();
+  const { setIp, setPort, setSshUser } = useTailscaleConfig();
   const { setAuthToken } = useAuthToken();
 
   // Persist on every change so a reload resumes mid-flow.
@@ -81,7 +83,13 @@ export function SetupWizard({ client: injectedClient, onComplete }: SetupWizardP
     // v1 installs are token-less (network access = tailnet or LAN, plus the
     // backend's host-header guard); clear any token left from a previous
     // connection so requests don't send a stale bearer.
-    if (inputs.serverIp) setServerUrl(`http://${inputs.serverIp}:${DEFAULT_PORT}`);
+    if (inputs.serverIp) {
+      setServerUrl(`http://${inputs.serverIp}:${DEFAULT_PORT}`);
+      // Prefill Settings > Connection with the freshly-installed server.
+      setIp(inputs.serverIp);
+      setPort(String(DEFAULT_PORT));
+      setSshUser(inputs.sshUser ?? "");
+    }
     setAuthToken("");
     // Keep the SSH details so Settings > Connection can push backend updates later.
     if (inputs.serverIp && inputs.sshKeyPath) {
@@ -94,7 +102,7 @@ export function SetupWizard({ client: injectedClient, onComplete }: SetupWizardP
     }
     clearMachineState();
     onComplete?.();
-  }, [inputs, setServerUrl, setAuthToken, onComplete]);
+  }, [inputs, setServerUrl, setIp, setPort, setSshUser, setAuthToken, onComplete]);
 
   const pairingPayload: PairingPayload = {
     v: 1,
@@ -182,7 +190,12 @@ export function SetupWizard({ client: injectedClient, onComplete }: SetupWizardP
             authToken: "",
             port: DEFAULT_PORT,
           }}
-          onDone={(tailnetIp) => advance(tailnetIp ? { serverIp: tailnetIp } : undefined)}
+          onDone={(tailnetIp) => {
+            // The wizard's TOFU ran against the pre-tailnet address; trust the
+            // tailnet IP too so later SSH (updates) passes strict checking.
+            if (tailnetIp) void client.trustHost(tailnetIp, "");
+            advance(tailnetIp ? { serverIp: tailnetIp } : undefined);
+          }}
           onBack={back}
           onStartOver={startOver}
           onContinueLater={continueLater}

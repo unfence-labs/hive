@@ -38,142 +38,80 @@ describe("ConnectionSettings", () => {
     localStorage.removeItem("hive-tailscale-ip");
     localStorage.removeItem("hive-tailscale-port");
     localStorage.removeItem("hive-ssh-user");
+    localStorage.removeItem("hive-auth-token");
+    localStorage.removeItem("hive-ssh-connection");
   });
 
-  it("shows tailscale placeholders and unknown status when not configured", () => {
+  it("offers setup and manual connect when not configured", () => {
     render(<ConnectionSettings />);
 
     expect(screen.getByRole("heading", { name: "Connection" }).closest("div")).toHaveAttribute("data-tauri-drag-region");
+    expect(screen.getByText("Connect your server")).toBeInTheDocument();
     expect(screen.getByPlaceholderText("100.x.x.x")).toHaveValue("");
-    expect(screen.getByPlaceholderText("3000")).toHaveValue("");
-    expect(screen.getByPlaceholderText("root")).toHaveValue("");
-    expect(screen.getByText("Not configured")).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("3000")).toHaveValue("3000");
+    expect(screen.getByRole("button", { name: "Connect" })).toBeDisabled();
   });
 
-  it("persists tailscale IP on blur and schedules a status check", async () => {
-    const timeoutSpy = vi.spyOn(globalThis, "setTimeout");
-    const user = userEvent.setup();
-    render(<ConnectionSettings />);
-
-    const ipInput = screen.getByPlaceholderText("100.x.x.x");
-    await user.type(ipInput, " 100.64.0.10 ");
-    await user.tab();
-
-    expect(localStorage.getItem("hive-tailscale-ip")).toBe("100.64.0.10");
-    expect(localStorage.getItem("hive-server-url")).toBeNull();
-    expect(timeoutSpy).toHaveBeenCalledWith(expect.any(Function), 300);
-  });
-
-  it("persists port on Enter and updates computed server URL", async () => {
-    localStorage.setItem("hive-tailscale-ip", "100.64.0.10");
-    const timeoutSpy = vi.spyOn(globalThis, "setTimeout");
-    const user = userEvent.setup();
-    render(<ConnectionSettings />);
-
-    const portInput = screen.getByPlaceholderText("3000");
-    await user.type(portInput, "3001{Enter}");
-
-    expect(localStorage.getItem("hive-tailscale-port")).toBe("3001");
-    expect(localStorage.getItem("hive-server-url")).toBe("http://100.64.0.10:3001");
-    expect(timeoutSpy).toHaveBeenCalledWith(expect.any(Function), 300);
-  });
-
-  it("auto-refreshes connection on blur by running check and parent refresh", async () => {
+  it("connects manually: persists IP/port, computes the server URL, checks", async () => {
     const user = userEvent.setup();
     const onRefreshConnection = vi.fn();
-    localStorage.setItem("hive-tailscale-port", "3000");
-
     render(<ConnectionSettings onRefreshConnection={onRefreshConnection} />);
 
-    await user.type(screen.getByPlaceholderText("100.x.x.x"), "100.64.0.11");
-    await user.tab();
+    await user.type(screen.getByPlaceholderText("100.x.x.x"), " 100.64.0.10 ");
+    await user.click(screen.getByRole("button", { name: "Connect" }));
 
+    expect(localStorage.getItem("hive-tailscale-ip")).toBe("100.64.0.10");
+    expect(localStorage.getItem("hive-tailscale-port")).toBe("3000");
+    expect(localStorage.getItem("hive-server-url")).toBe("http://100.64.0.10:3000");
     await waitFor(() => {
       expect(check).toHaveBeenCalledTimes(1);
       expect(onRefreshConnection).toHaveBeenCalledTimes(1);
     });
-
-    expect(localStorage.getItem("hive-tailscale-ip")).toBe("100.64.0.11");
-    expect(localStorage.getItem("hive-tailscale-port")).toBe("3000");
-    expect(localStorage.getItem("hive-server-url")).toBe("http://100.64.0.11:3000");
   });
 
-  // ── SSH User field ────────────────────────────────────────────────────
-
-  it("persists SSH user on blur without triggering a connection check", async () => {
-    const user = userEvent.setup();
-    render(<ConnectionSettings />);
-
-    const sshUserInput = screen.getByPlaceholderText("root");
-    await user.type(sshUserInput, "  devops  ");
-    await user.tab();
-
-    expect(localStorage.getItem("hive-ssh-user")).toBe("devops");
-    expect(check).not.toHaveBeenCalled();
-  });
-
-  it("persists SSH user on Enter with trimming", async () => {
-    const user = userEvent.setup();
-    render(<ConnectionSettings />);
-
-    const sshUserInput = screen.getByPlaceholderText("root");
-    await user.type(sshUserInput, "  ubuntu  {Enter}");
-
-    expect(localStorage.getItem("hive-ssh-user")).toBe("ubuntu");
-  });
-
-  it("shows existing SSH user value from localStorage", () => {
-    localStorage.setItem("hive-ssh-user", "existing-user");
-
-    render(<ConnectionSettings />);
-
-    expect(screen.getByPlaceholderText("root")).toHaveValue("existing-user");
-  });
-
-  it("clears SSH user from localStorage when field is emptied and blurred", async () => {
-    localStorage.setItem("hive-ssh-user", "old-user");
-    const user = userEvent.setup();
-
-    render(<ConnectionSettings />);
-
-    const sshUserInput = screen.getByPlaceholderText("root");
-    await user.clear(sshUserInput);
-    await user.tab();
-
-    expect(localStorage.getItem("hive-ssh-user")).toBeNull();
-  });
-
-  it("renders SSH user label with optional marker", () => {
-    render(<ConnectionSettings />);
-
-    expect(screen.getByText("SSH User")).toBeInTheDocument();
-    expect(screen.getAllByText("(optional)").length).toBeGreaterThan(0);
-  });
-
-  it("renders SSH user help text about VS Code Remote SSH", () => {
-    render(<ConnectionSettings />);
-
-    expect(screen.getByText(/Used for VS Code Remote SSH/i)).toBeInTheDocument();
-  });
-
-  it("SSH user field has font-mono class for readability", () => {
-    render(<ConnectionSettings />);
-
-    const input = screen.getByPlaceholderText("root");
-    expect(input.className).toContain("font-mono");
-  });
-
-  it("does not affect server URL when SSH user changes", async () => {
-    localStorage.setItem("hive-tailscale-ip", "10.0.0.1");
+  it("shows the connected server with its address and status", () => {
+    localStorage.setItem("hive-tailscale-ip", "100.64.0.10");
     localStorage.setItem("hive-tailscale-port", "3000");
-    localStorage.setItem("hive-server-url", "http://10.0.0.1:3000");
+    mocks.useConnectionStatus.mockReturnValue({ status: "connected", check });
 
-    const user = userEvent.setup();
     render(<ConnectionSettings />);
 
-    await user.type(screen.getByPlaceholderText("root"), "newuser{Enter}");
+    expect(screen.getByText("100.64.0.10:3000")).toBeInTheDocument();
+    expect(screen.getByText("Connected")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /test connection/i })).toBeInTheDocument();
+  });
 
-    expect(localStorage.getItem("hive-server-url")).toBe("http://10.0.0.1:3000");
+  it("disconnect clears the stored connection and returns to the connect view", async () => {
+    localStorage.setItem("hive-tailscale-ip", "100.64.0.10");
+    localStorage.setItem("hive-tailscale-port", "3000");
+    localStorage.setItem("hive-server-url", "http://100.64.0.10:3000");
+    localStorage.setItem("hive-ssh-user", "root");
+    localStorage.setItem("hive-auth-token", "tok");
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    const user = userEvent.setup();
+
+    render(<ConnectionSettings />);
+    await user.click(screen.getByRole("button", { name: /disconnect/i }));
+
+    expect(localStorage.getItem("hive-tailscale-ip")).toBeNull();
+    expect(localStorage.getItem("hive-tailscale-port")).toBeNull();
+    expect(localStorage.getItem("hive-server-url")).toBeNull();
+    expect(localStorage.getItem("hive-ssh-user")).toBeNull();
+    expect(localStorage.getItem("hive-auth-token")).toBeNull();
+    expect(screen.getByText("Connect your server")).toBeInTheDocument();
+  });
+
+  it("keeps the connection when the disconnect confirm is declined", async () => {
+    localStorage.setItem("hive-tailscale-ip", "100.64.0.10");
+    localStorage.setItem("hive-tailscale-port", "3000");
+    vi.spyOn(window, "confirm").mockReturnValue(false);
+    const user = userEvent.setup();
+
+    render(<ConnectionSettings />);
+    await user.click(screen.getByRole("button", { name: /disconnect/i }));
+
+    expect(localStorage.getItem("hive-tailscale-ip")).toBe("100.64.0.10");
+    expect(screen.getByText("100.64.0.10:3000")).toBeInTheDocument();
   });
 });
 

@@ -1,17 +1,20 @@
 import { useMemo, useState } from "react";
-import { RefreshCw, Eye, EyeOff, Server, ArrowUpCircle, CheckCircle2 } from "lucide-react";
+import { createProvisionClient } from "@/lib/provision-client";
+import { RefreshCw, Server, ArrowUpCircle, CheckCircle2 } from "lucide-react";
 import { isTauri } from "@/lib/is-tauri";
 import { openSetupWizard } from "@/hooks/useSetupWizardRequest";
-import { loadSshConnection } from "@/lib/ssh-connection";
-import { createProvisionClient } from "@/lib/provision-client";
-import { ProvisioningScreen } from "@/pages/setup/screens/ProvisioningScreen";
 import { SettingsHeader } from "@/components/AppLayout";
 import { CenterCard } from "@/components/CenterCard";
 import { useTailscaleConfig } from "@/hooks/useTailscaleConfig";
 import { useAuthToken } from "@/hooks/useAuthToken";
 import { useConnectionStatus } from "@/hooks/useConnectionStatus";
-import ServerToolsSettings from "@/pages/settings/ServerToolsSettings";
+import { loadSshConnection, clearSshConnection, type SshConnection } from "@/lib/ssh-connection";
+import { useProvisionRun, ProvisionStepList } from "@/pages/setup/screens/ProvisioningScreen";
+import { ErrorPanel } from "@/pages/setup/screens/ErrorPanel";
+import { ToolsPanel } from "@/pages/setup/screens/GuidedSetupScreen";
+import type { ProvisionClient } from "@/lib/provision-client";
 import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 const STATUS_CONFIG: Record<string, { dot: string; label: string; badge: string }> = {
@@ -27,47 +30,110 @@ const STATUS_CONFIG: Record<string, { dot: string; label: string; badge: string 
   },
   unknown: {
     dot: "bg-muted-foreground/40",
-    label: "Not configured",
+    label: "Checking…",
     badge: "border-border bg-muted/50 text-muted-foreground",
   },
 };
+
+/**
+ * Inline server-update run: streams the provision checklist under the
+ * "Server software" row instead of taking over the screen.
+ */
+function ServerUpdateRun({
+  client,
+  conn,
+  port,
+  onDone,
+  onHide,
+}: {
+  client: ProvisionClient;
+  conn: SshConnection;
+  port: string;
+  onDone: () => void;
+  onHide: () => void;
+}) {
+  const { progress, retry, error } = useProvisionRun(
+    client,
+    {
+      host: conn.host,
+      user: conn.user,
+      keyPath: conn.keyPath,
+      tailscaleAuthKey: "",
+      skipTailscale: !conn.tailnet,
+      authToken: "",
+      port: Number(port) || 3000,
+    },
+    onDone,
+  );
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between">
+        <span className="text-xs font-medium text-foreground">Updating the server…</span>
+        <button
+          type="button"
+          onClick={onHide}
+          className="cursor-pointer text-xs text-muted-foreground hover:text-foreground"
+        >
+          Hide
+        </button>
+      </div>
+      <ProvisionStepList progress={progress} />
+      {error && <ErrorPanel error={error} onRetry={retry} />}
+    </div>
+  );
+}
 
 interface ConnectionSettingsProps {
   onRefreshConnection?: () => void;
 }
 
 export default function ConnectionSettings({ onRefreshConnection }: ConnectionSettingsProps) {
-  const { ip, port, sshUser, setIp, setPort, setSshUser } = useTailscaleConfig();
-  const { authToken, setAuthToken } = useAuthToken();
+  const { ip, port, setIp, setPort, setSshUser, isConfigured } = useTailscaleConfig();
+  const { setAuthToken } = useAuthToken();
   const { status, check } = useConnectionStatus();
-  const [ipDraft, setIpDraft] = useState(ip);
-  const [portDraft, setPortDraft] = useState(port);
-  const [sshUserDraft, setSshUserDraft] = useState(sshUser);
-  const [tokenDraft, setTokenDraft] = useState(authToken);
-  const [tokenRevealed, setTokenRevealed] = useState(false);
+  const [ipDraft, setIpDraft] = useState("");
+  const [portDraft, setPortDraft] = useState("3000");
   const [checking, setChecking] = useState(false);
   const [updating, setUpdating] = useState(false);
   const [updated, setUpdated] = useState(false);
-  const sshConn = useMemo(() => loadSshConnection(), []);
+  const [sshConn, setSshConn] = useState(() => loadSshConnection());
   const provisionClient = useMemo(() => createProvisionClient(), []);
 
-  const save = (nextIp: string, nextPort: string) => {
-    setIp(nextIp);
-    setPort(nextPort);
-    setTimeout(async () => { await check(); onRefreshConnection?.(); }, 300);
-  };
-  const saveIp = () => save(ipDraft, port);
-  const savePort = () => save(ip, portDraft);
-  const saveSshUser = () => setSshUser(sshUserDraft);
-  const saveToken = () => setAuthToken(tokenDraft);
-
-  const handleTest = async () => {
+  const recheck = async () => {
     setChecking(true);
-    save(ipDraft, portDraft);
-    await new Promise((r) => setTimeout(r, 400));
+    await new Promise((r) => setTimeout(r, 300));
     await check();
     onRefreshConnection?.();
     setChecking(false);
+  };
+
+  const connect = () => {
+    const nextIp = ipDraft.trim();
+    if (!nextIp) return;
+    setIp(nextIp);
+    setPort(portDraft.trim() || "3000");
+    setSshConn(loadSshConnection());
+    void recheck();
+  };
+
+  const reset = () => {
+    if (
+      !window.confirm(
+        "Disconnect from this server? The connection details are cleared; the server itself is untouched.",
+      )
+    ) {
+      return;
+    }
+    setIp("");
+    setPort("");
+    setSshUser("");
+    setAuthToken("");
+    clearSshConnection();
+    setSshConn(null);
+    setIpDraft("");
+    setPortDraft("3000");
+    onRefreshConnection?.();
   };
 
   const cfg = STATUS_CONFIG[status];
@@ -79,202 +145,144 @@ export default function ConnectionSettings({ onRefreshConnection }: ConnectionSe
       </SettingsHeader>
 
       <CenterCard scroll>
-      <div className="max-w-2xl space-y-6 px-4 py-5">
-        <section className="rounded-lg border border-border/50 bg-card/50 p-5">
-          <div className="flex items-start justify-between">
-            <div>
-              <h2 className="text-sm font-medium text-foreground">Tailscale</h2>
+        <div className="max-w-2xl space-y-6 px-4 py-5">
+          {!isConfigured ? (
+            <section className="rounded-lg border border-border/50 bg-card/50 p-5">
+              <h2 className="text-sm font-medium text-foreground">Connect your server</h2>
               <p className="mt-1 text-xs text-muted-foreground">
-                Connect to your backend over a Tailscale network.
+                Hive runs on your own server. Set one up from scratch, or point the app at a
+                server already on your Tailscale network.
               </p>
-            </div>
-            <span
-              className={cn(
-                "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[11px] font-medium",
-                cfg.badge,
-              )}
-            >
-              <span className={cn("h-1.5 w-1.5 rounded-full", cfg.dot)} />
-              {cfg.label}
-            </span>
-          </div>
 
-          <div className="mt-5 space-y-4">
-            <div className="grid grid-cols-[1fr_120px] gap-3">
-              <div>
-                <label htmlFor="ts-ip" className="mb-1.5 block text-xs font-medium text-muted-foreground">
-                  Tailscale IP
-                </label>
-                <Input
-                  id="ts-ip"
-                  value={ipDraft}
-                  onChange={(e) => setIpDraft(e.target.value)}
-                  onBlur={saveIp}
-                  onKeyDown={(e) => { if (e.key === "Enter") saveIp(); }}
-                  placeholder="100.x.x.x"
-                  className="font-mono text-xs"
-                />
-              </div>
-              <div>
-                <label htmlFor="ts-port" className="mb-1.5 block text-xs font-medium text-muted-foreground">
-                  Port
-                </label>
-                <Input
-                  id="ts-port"
-                  value={portDraft}
-                  onChange={(e) => setPortDraft(e.target.value)}
-                  onBlur={savePort}
-                  onKeyDown={(e) => { if (e.key === "Enter") savePort(); }}
-                  placeholder="3000"
-                  inputMode="numeric"
-                  className="font-mono text-xs"
-                />
-              </div>
-            </div>
-
-            <div>
-              <label htmlFor="ssh-user" className="mb-1.5 block text-xs font-medium text-muted-foreground">
-                SSH User <span className="text-muted-foreground/60">(optional)</span>
-              </label>
-              <Input
-                id="ssh-user"
-                value={sshUserDraft}
-                onChange={(e) => setSshUserDraft(e.target.value)}
-                onBlur={saveSshUser}
-                onKeyDown={(e) => { if (e.key === "Enter") saveSshUser(); }}
-                placeholder="root"
-                className="font-mono text-xs"
-              />
-              <p className="mt-1 text-[11px] text-muted-foreground/60">
-                Used for VS Code Remote SSH. Leave blank to use IP only.
-              </p>
-            </div>
-
-            <div>
-              <label htmlFor="auth-token" className="mb-1.5 block text-xs font-medium text-muted-foreground">
-                Auth token <span className="text-muted-foreground/60">(optional)</span>
-              </label>
-              <div className="relative">
-                <Input
-                  id="auth-token"
-                  type={tokenRevealed ? "text" : "password"}
-                  value={tokenDraft}
-                  onChange={(e) => setTokenDraft(e.target.value)}
-                  onBlur={saveToken}
-                  onKeyDown={(e) => { if (e.key === "Enter") saveToken(); }}
-                  placeholder="hive-…"
-                  autoComplete="off"
-                  spellCheck={false}
-                  className="pr-9 font-mono text-xs"
-                />
+              {isTauri() && (
                 <button
                   type="button"
-                  onClick={() => setTokenRevealed((v) => !v)}
-                  aria-label={tokenRevealed ? "Hide token" : "Show token"}
-                  className="absolute inset-y-0 right-0 flex items-center px-2.5 text-muted-foreground/60 transition-colors hover:text-foreground"
+                  onClick={openSetupWizard}
+                  className="mt-4 inline-flex cursor-pointer items-center gap-2 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground transition-opacity hover:opacity-90"
                 >
-                  {tokenRevealed ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                  <Server className="h-3 w-3" />
+                  Set up a new server
                 </button>
-              </div>
-              <p className="mt-1 text-[11px] text-muted-foreground/60">
-                Sent as a bearer token to the backend. Set during install; change here if you rotate it.
-              </p>
-            </div>
-
-            <button
-              type="button"
-              onClick={() => void handleTest()}
-              disabled={checking || (!ipDraft && !portDraft)}
-              className={cn(
-                "inline-flex cursor-pointer items-center gap-2 rounded-md border border-border/50 px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground",
-                checking && "pointer-events-none opacity-60",
               )}
-            >
-              <RefreshCw className={cn("h-3 w-3", checking && "animate-spin")} />
-              Test connection
-            </button>
-          </div>
-        </section>
 
-        {isTauri() && sshConn && (
-          <section className="rounded-lg border border-border/50 bg-card/50 p-5">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <h2 className="text-sm font-medium">Server update</h2>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Push the Hive backend bundled with this app to{" "}
-                  <span className="font-mono">{sshConn.user ? `${sshConn.user}@` : ""}{sshConn.host}</span>{" "}
-                  over SSH. Already up-to-date steps are skipped.
+              <div className="mt-5 border-t border-border/40 pt-4">
+                <p className="mb-3 text-xs font-medium text-muted-foreground">
+                  Or connect to an existing Hive server
                 </p>
-                {updated && (
-                  <p className="mt-2 inline-flex items-center gap-1.5 text-xs text-success-foreground">
-                    <CheckCircle2 className="h-3.5 w-3.5" /> Server updated
-                  </p>
+                <div className="grid grid-cols-[1fr_100px_auto] items-end gap-3">
+                  <div>
+                    <label htmlFor="ts-ip" className="mb-1.5 block text-xs font-medium text-muted-foreground">
+                      IP or hostname
+                    </label>
+                    <Input
+                      id="ts-ip"
+                      value={ipDraft}
+                      onChange={(e) => setIpDraft(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === "Enter") connect(); }}
+                      placeholder="100.x.x.x"
+                      className="font-mono text-xs"
+                    />
+                  </div>
+                  <div>
+                    <label htmlFor="ts-port" className="mb-1.5 block text-xs font-medium text-muted-foreground">
+                      Port
+                    </label>
+                    <Input
+                      id="ts-port"
+                      value={portDraft}
+                      onChange={(e) => setPortDraft(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === "Enter") connect(); }}
+                      placeholder="3000"
+                      inputMode="numeric"
+                      className="font-mono text-xs"
+                    />
+                  </div>
+                  <Button size="sm" onClick={connect} disabled={!ipDraft.trim()}>
+                    Connect
+                  </Button>
+                </div>
+              </div>
+            </section>
+          ) : (
+            <>
+              <section className="rounded-lg border border-border/50 bg-card/50 p-5">
+                <div className="flex items-start justify-between">
+                  <div>
+                    <h2 className="text-sm font-medium text-foreground">Server</h2>
+                    <p className="mt-1 font-mono text-xs text-muted-foreground">
+                      {ip}:{port}
+                    </p>
+                  </div>
+                  <span
+                    className={cn(
+                      "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[11px] font-medium",
+                      cfg.badge,
+                    )}
+                  >
+                    <span className={cn("h-1.5 w-1.5 rounded-full", cfg.dot)} />
+                    {cfg.label}
+                  </span>
+                </div>
+
+                <div className="mt-4 flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => void recheck()}
+                    disabled={checking}
+                    className={cn(
+                      "inline-flex cursor-pointer items-center gap-2 rounded-md border border-border/50 px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground",
+                      checking && "pointer-events-none opacity-60",
+                    )}
+                  >
+                    <RefreshCw className={cn("h-3 w-3", checking && "animate-spin")} />
+                    Test connection
+                  </button>
+                  <button
+                    type="button"
+                    onClick={reset}
+                    className="inline-flex cursor-pointer items-center gap-2 rounded-md border border-border/50 px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+                  >
+                    Disconnect…
+                  </button>
+                </div>
+
+                {isTauri() && sshConn && (
+                  <div className="mt-4 border-t border-border/40 pt-3 text-xs text-muted-foreground">
+                    {updating ? (
+                      <ServerUpdateRun
+                        client={provisionClient}
+                        conn={sshConn}
+                        port={port}
+                        onDone={() => { setUpdating(false); setUpdated(true); }}
+                        onHide={() => setUpdating(false)}
+                      />
+                    ) : updated ? (
+                      <span className="inline-flex items-center gap-1.5 text-success-foreground">
+                        <CheckCircle2 className="h-3.5 w-3.5" /> Server updated
+                      </span>
+                    ) : (
+                      <div className="flex items-center gap-2">
+                        <span>Server software</span>
+                        <button
+                          type="button"
+                          onClick={() => { setUpdated(false); setUpdating(true); }}
+                          className="inline-flex cursor-pointer items-center gap-1 text-primary hover:underline"
+                        >
+                          <ArrowUpCircle className="h-3 w-3" />
+                          Update
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 )}
-              </div>
-              <button
-                type="button"
-                onClick={() => { setUpdated(false); setUpdating(true); }}
-                className="inline-flex shrink-0 cursor-pointer items-center gap-2 rounded-md border border-border/50 px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground"
-              >
-                <ArrowUpCircle className="h-3 w-3" />
-                Update server
-              </button>
-            </div>
-          </section>
-        )}
+              </section>
 
-        {isTauri() && (
-          <section className="rounded-lg border border-border/50 bg-card/50 p-5">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <h2 className="text-sm font-medium">New server</h2>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Provision a fresh VPS from scratch: Tailscale, the Hive backend, and agent
-                  CLIs — all driven from this app, no terminal needed.
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={openSetupWizard}
-                className="inline-flex shrink-0 cursor-pointer items-center gap-2 rounded-md border border-border/50 px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground"
-              >
-                <Server className="h-3 w-3" />
-                Set up a new server
-              </button>
-            </div>
-          </section>
-        )}
-
-        <ServerToolsSettings />
-      </div>
+              <ToolsPanel />
+            </>
+          )}
+        </div>
       </CenterCard>
 
-      {updating && sshConn && (
-        <div className="fixed inset-0 z-50 flex flex-col bg-background">
-          <div className="h-10 shrink-0" data-tauri-drag-region />
-          <div className="min-h-0 flex-1 overflow-auto">
-          <ProvisioningScreen
-            client={provisionClient}
-            params={{
-              host: sshConn.host,
-              user: sshConn.user,
-              keyPath: sshConn.keyPath,
-              tailscaleAuthKey: "",
-              skipTailscale: !sshConn.tailnet,
-              authToken,
-              port: Number(port) || 3000,
-            }}
-            title="Updating Hive on your server"
-            description="Pushes the backend bundled with this app over SSH. Steps already up to date are skipped."
-            onDone={() => { setUpdating(false); setUpdated(true); }}
-            onBack={() => setUpdating(false)}
-            onContinueLater={() => setUpdating(false)}
-            onStartOver={() => setUpdating(false)}
-          />
-          </div>
-        </div>
-      )}
     </div>
   );
 }

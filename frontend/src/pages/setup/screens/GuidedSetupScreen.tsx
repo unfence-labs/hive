@@ -3,19 +3,14 @@ import { CheckCircle2, CopyIcon, ExternalLink } from "lucide-react";
 import { SetupScreen } from "./SetupScreen";
 import { ErrorPanel } from "./ErrorPanel";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Spinner } from "@/components/ui/spinner";
 import { createSetupApi, pollOperation } from "@/hooks/useSetupApi";
+import { invalidateModelCatalog } from "@/hooks/useModels";
 import { copyToClipboard } from "@/lib/clipboard";
 import { openExternal } from "@/lib/open-external";
 import { isTauri } from "@/lib/is-tauri";
-import type { ProvisionClient } from "@/lib/provision-client";
-import type {
-  SetupStatus,
-  SetupOperation,
-  DetectableTool,
-  ToolDetection,
-} from "@hive/shared/setup-types";
+import { createProvisionClient, type ProvisionClient } from "@/lib/provision-client";
+import type { SetupStatus, SetupOperation } from "@hive/shared/setup-types";
 import type { SetupError } from "@/pages/setup/machine";
 
 interface GuidedSetupScreenProps {
@@ -30,34 +25,6 @@ interface GuidedSetupScreenProps {
   onContinue: () => void;
   onBack: () => void;
   onContinueLater: () => void;
-}
-
-export const DETECTED_LABELS: Partial<Record<DetectableTool, string>> = {
-  claude: "Claude",
-  codex: "Codex",
-  gh: "GitHub CLI",
-  tailscale: "Tailscale",
-  node: "Node.js",
-  docker: "Docker",
-};
-
-export function DetectionRow({ tool, detection }: { tool: DetectableTool; detection: ToolDetection }) {
-  const label = DETECTED_LABELS[tool] ?? tool;
-  return (
-    <div className="flex items-center gap-2 py-1 text-xs">
-      <span className="min-w-0 flex-1 text-foreground">{label}</span>
-      {detection.version && <span className="text-muted-foreground/60">{detection.version}</span>}
-      {detection.installed ? (
-        detection.authenticated === false ? (
-          <Badge variant="outline">needs sign-in</Badge>
-        ) : (
-          <Badge variant="secondary">installed</Badge>
-        )
-      ) : (
-        <Badge variant="outline">missing</Badge>
-      )}
-    </div>
-  );
 }
 
 /**
@@ -145,24 +112,6 @@ function Connected({ label }: { label: string }) {
   );
 }
 
-/** Per-tool run state so GitHub / Claude / Codex actions run independently. */
-interface ToolRun {
-  busy: boolean;
-  op: SetupOperation | null;
-  error: SetupError | null;
-}
-
-const IDLE_RUN: ToolRun = { busy: false, op: null, error: null };
-
-function toSetupError(e: unknown): SetupError {
-  const message = e instanceof Error ? e.message : String(e);
-  return {
-    state: "guided_setup",
-    code: message.includes("already running") ? "CONCURRENT_RUN" : "UNKNOWN",
-    logExcerpt: message,
-  };
-}
-
 /** Fallback path: run `claude setup-token` yourself and paste the token. */
 export function ClaudeTokenCommand() {
   const [copied, setCopied] = useState(false);
@@ -188,9 +137,10 @@ export function ClaudeTokenCommand() {
 
 /**
  * Fully in-app Claude sign-in: the app drives `claude setup-token` in a local
- * PTY (the browser opens), the user pastes the browser's code here, and the
- * captured token is submitted to the server. Falls back to the manual
- * command + token paste for web builds or if the CLI is missing.
+ * PTY (the browser opens), watches for the token in the background (the
+ * localhost-callback flow never shows a code), and submits it to the server.
+ * Falls back to the manual command + token paste for web builds or if the CLI
+ * is missing.
  */
 export function ClaudeSignIn({
   client,
@@ -371,14 +321,39 @@ export function ClaudeSignIn({
   );
 }
 
-export function GuidedSetupScreen({
+/** Per-tool run state so GitHub / Claude / Codex actions run independently. */
+interface ToolRun {
+  busy: boolean;
+  op: SetupOperation | null;
+  error: SetupError | null;
+}
+
+const IDLE_RUN: ToolRun = { busy: false, op: null, error: null };
+
+function toSetupError(e: unknown): SetupError {
+  const message = e instanceof Error ? e.message : String(e);
+  return {
+    state: "guided_setup",
+    code: message.includes("already running") ? "CONCURRENT_RUN" : "UNKNOWN",
+    logExcerpt: message,
+  };
+}
+
+/**
+ * The GitHub / Claude / Codex install-and-sign-in cards. Used by the setup
+ * wizard (explicit baseUrl + token for the fresh server) and by Settings >
+ * Connection (no target: falls back to the stored server URL and token).
+ */
+export function ToolsPanel({
   client,
   baseUrl,
   authToken,
-  onContinue,
-  onBack,
-  onContinueLater,
-}: GuidedSetupScreenProps) {
+}: {
+  client?: ProvisionClient;
+  baseUrl?: string;
+  authToken?: string;
+}) {
+  const resolvedClient = useMemo(() => client ?? createProvisionClient(), [client]);
   const [status, setStatus] = useState<SetupStatus | null>(null);
   const [statusError, setStatusError] = useState<SetupError | null>(null);
   const [runs, setRuns] = useState<Record<string, ToolRun>>({});
@@ -423,6 +398,10 @@ export function GuidedSetupScreen({
             logExcerpt: failed?.error?.message,
           },
         });
+      } else {
+        // A provider may have been installed or signed in: the next model
+        // selector must refetch the catalog instead of serving the stale cache.
+        invalidateModelCatalog();
       }
       await refreshStatus();
     } catch (e) {
@@ -435,6 +414,7 @@ export function GuidedSetupScreen({
   const submitClaudeToken = async (token: string) => {
     await setupApi.submitClaudeToken(token);
     setClaudeDone(true);
+    invalidateModelCatalog();
     await refreshStatus();
   };
 
@@ -446,6 +426,126 @@ export function GuidedSetupScreen({
   const claudeRun = runs.claude ?? IDLE_RUN;
   const codexRun = runs.codex ?? IDLE_RUN;
 
+  if (status === null) {
+    return statusError ? (
+      <ErrorPanel
+        error={statusError}
+        onRetry={() => {
+          setStatusError(null);
+          void refreshStatus();
+        }}
+      />
+    ) : (
+      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+        <Spinner className="h-4 w-4" /> Detecting tools…
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      <section className="rounded-lg border border-border/50 bg-card/50 p-4">
+        <h2 className="mb-1 text-sm font-medium text-foreground">GitHub</h2>
+        <p className="mb-3 text-xs text-muted-foreground">
+          Sign in so Hive can clone your repositories and open pull requests.
+        </p>
+        {gh?.authenticated === true ? (
+          <Connected label="GitHub" />
+        ) : (
+          <Button
+            size="sm"
+            disabled={ghRun.busy}
+            onClick={() =>
+              void runSteps("gh", gh?.installed ? ["auth_gh"] : ["install_gh", "auth_gh"])
+            }
+          >
+            {ghRun.busy ? "Waiting for GitHub…" : "Sign in to GitHub"}
+          </Button>
+        )}
+        {ghRun.op && <OperationActions op={ghRun.op} />}
+        {ghRun.error && (
+          <div className="mt-3">
+            <ErrorPanel error={ghRun.error} onDismiss={() => patchRun("gh", { error: null })} />
+          </div>
+        )}
+      </section>
+
+      <section className="rounded-lg border border-border/50 bg-card/50 p-4">
+        <h2 className="mb-1 text-sm font-medium text-foreground">Claude</h2>
+        <p className="mb-3 text-xs text-muted-foreground">
+          Install Claude Code on the server and sign in with your Claude subscription.
+        </p>
+        {claudeAuthed ? (
+          <Connected label="Claude" />
+        ) : !claude?.installed ? (
+          <Button
+            size="sm"
+            disabled={claudeRun.busy}
+            onClick={() => void runSteps("claude", ["install_claude"])}
+          >
+            {claudeRun.busy ? "Installing…" : "Install Claude"}
+          </Button>
+        ) : (
+          <ClaudeSignIn
+            client={resolvedClient}
+            submitToken={submitClaudeToken}
+            onError={(message) =>
+              patchRun("claude", {
+                error: { state: "guided_setup", code: "CLAUDE_PASTEBACK_BROKEN", logExcerpt: message },
+              })
+            }
+          />
+        )}
+        {claudeRun.error && (
+          <div className="mt-3">
+            <ErrorPanel error={claudeRun.error} onDismiss={() => patchRun("claude", { error: null })} />
+          </div>
+        )}
+      </section>
+
+      <section className="rounded-lg border border-border/50 bg-card/50 p-4">
+        <h2 className="mb-1 text-sm font-medium text-foreground">Codex</h2>
+        <p className="mb-3 text-xs text-muted-foreground">
+          Install Codex on the server and sign in with your ChatGPT account.
+        </p>
+        {codex?.installed && codex.authenticated === true ? (
+          <Connected label="Codex" />
+        ) : !codex?.installed ? (
+          <Button
+            size="sm"
+            disabled={codexRun.busy}
+            onClick={() => void runSteps("codex", ["install_codex"])}
+          >
+            {codexRun.busy ? "Installing…" : "Install Codex"}
+          </Button>
+        ) : (
+          <Button
+            size="sm"
+            disabled={codexRun.busy}
+            onClick={() => void runSteps("codex", ["auth_codex"])}
+          >
+            {codexRun.busy ? "Waiting for sign-in…" : "Sign in to Codex"}
+          </Button>
+        )}
+        {codexRun.op && <OperationActions op={codexRun.op} />}
+        {codexRun.error && (
+          <div className="mt-3">
+            <ErrorPanel error={codexRun.error} onDismiss={() => patchRun("codex", { error: null })} />
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}
+
+export function GuidedSetupScreen({
+  client,
+  baseUrl,
+  authToken,
+  onContinue,
+  onBack,
+  onContinueLater,
+}: GuidedSetupScreenProps) {
   return (
     <SetupScreen
       title="Connect your tools"
@@ -455,114 +555,7 @@ export function GuidedSetupScreen({
       onBack={onBack}
       onContinueLater={onContinueLater}
     >
-      {status === null ? (
-        statusError ? (
-          <ErrorPanel
-            error={statusError}
-            onRetry={() => {
-              setStatusError(null);
-              void refreshStatus();
-            }}
-          />
-        ) : (
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Spinner className="h-4 w-4" /> Detecting tools…
-          </div>
-        )
-      ) : (
-        <div className="space-y-6">
-          <section className="rounded-lg border border-border/50 bg-card/50 p-4">
-            <h2 className="mb-1 text-sm font-medium text-foreground">GitHub</h2>
-            <p className="mb-3 text-xs text-muted-foreground">
-              Sign in so Hive can clone your repositories and open pull requests.
-            </p>
-            {gh?.authenticated === true ? (
-              <Connected label="GitHub" />
-            ) : (
-              <Button
-                size="sm"
-                disabled={ghRun.busy}
-                onClick={() =>
-                  void runSteps("gh", gh?.installed ? ["auth_gh"] : ["install_gh", "auth_gh"])
-                }
-              >
-                {ghRun.busy ? "Waiting for GitHub…" : "Sign in to GitHub"}
-              </Button>
-            )}
-            {ghRun.op && <OperationActions op={ghRun.op} />}
-            {ghRun.error && (
-              <div className="mt-3">
-                <ErrorPanel error={ghRun.error} onDismiss={() => patchRun("gh", { error: null })} />
-              </div>
-            )}
-          </section>
-
-          <section className="rounded-lg border border-border/50 bg-card/50 p-4">
-            <h2 className="mb-1 text-sm font-medium text-foreground">Claude</h2>
-            <p className="mb-3 text-xs text-muted-foreground">
-              Install Claude Code on the server and sign in with your Claude subscription.
-            </p>
-            {claudeAuthed ? (
-              <Connected label="Claude" />
-            ) : !claude?.installed ? (
-              <Button
-                size="sm"
-                disabled={claudeRun.busy}
-                onClick={() => void runSteps("claude", ["install_claude"])}
-              >
-                {claudeRun.busy ? "Installing…" : "Install Claude"}
-              </Button>
-            ) : (
-              <ClaudeSignIn
-                client={client}
-                submitToken={submitClaudeToken}
-                onError={(message) =>
-                  patchRun("claude", {
-                    error: { state: "guided_setup", code: "CLAUDE_PASTEBACK_BROKEN", logExcerpt: message },
-                  })
-                }
-              />
-            )}
-            {claudeRun.error && (
-              <div className="mt-3">
-                <ErrorPanel error={claudeRun.error} onDismiss={() => patchRun("claude", { error: null })} />
-              </div>
-            )}
-          </section>
-
-          <section className="rounded-lg border border-border/50 bg-card/50 p-4">
-            <h2 className="mb-1 text-sm font-medium text-foreground">Codex</h2>
-            <p className="mb-3 text-xs text-muted-foreground">
-              Install Codex on the server and sign in with your ChatGPT account.
-            </p>
-            {codex?.installed && codex.authenticated === true ? (
-              <Connected label="Codex" />
-            ) : !codex?.installed ? (
-              <Button
-                size="sm"
-                disabled={codexRun.busy}
-                onClick={() => void runSteps("codex", ["install_codex"])}
-              >
-                {codexRun.busy ? "Installing…" : "Install Codex"}
-              </Button>
-            ) : (
-              <Button
-                size="sm"
-                disabled={codexRun.busy}
-                onClick={() => void runSteps("codex", ["auth_codex"])}
-              >
-                {codexRun.busy ? "Waiting for sign-in…" : "Sign in to Codex"}
-              </Button>
-            )}
-            {codexRun.op && <OperationActions op={codexRun.op} />}
-            {codexRun.error && (
-              <div className="mt-3">
-                <ErrorPanel error={codexRun.error} onDismiss={() => patchRun("codex", { error: null })} />
-              </div>
-            )}
-          </section>
-        </div>
-      )}
+      <ToolsPanel client={client} baseUrl={baseUrl} authToken={authToken} />
     </SetupScreen>
   );
 }

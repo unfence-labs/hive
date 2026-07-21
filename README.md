@@ -316,6 +316,7 @@ Run the narrowest relevant checks during development, then the root checks befor
 **Install & updates**
 - Wire release CI to build the linux backend tarballs (x64 + arm64) into `dist-release/` before `tauri build`, so shipped apps bundle the backend they push over SSH (client-push distribution; no public GitHub release needed).
 - Implement the server-side updater (`update-hive.sh` swap + rollback) once public releases exist.
+- Update-available check in Settings > Connection (compare the app's bundled backend version against the server's) once real release versions exist — dev builds are all 0.0.0-dev, so the Update affordance is currently a discreet manual action.
 - v2 auth: re-enable HIVE_AUTH_TOKEN provisioning with zero-friction pairing (fetch the token over SSH when connecting a new device). v1 installs are token-less: access control = tailnet/LAN reachability plus the backend host-header guard; the token plumbing (hash check, bearer headers, Settings field) is kept for manually-secured servers.
 
 **Automation**
