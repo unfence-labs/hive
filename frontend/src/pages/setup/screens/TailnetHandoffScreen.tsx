@@ -3,9 +3,8 @@ import { SetupScreen } from "./SetupScreen";
 import { Spinner } from "@/components/ui/spinner";
 import { getServerUrl } from "@/hooks/useServerUrl";
 import { ErrorPanel } from "./ErrorPanel";
-import type { ProvisionClient } from "@/lib/provision-client";
+import { parseSidecarErrorCode, type ProvisionClient } from "@/lib/provision-client";
 import type { SetupError } from "@/pages/setup/machine";
-import { SETUP_ERROR_CODES, type SetupErrorCode } from "@hive/shared/setup-errors";
 
 interface TailnetHandoffScreenProps {
   client?: ProvisionClient;
@@ -21,9 +20,7 @@ interface TailnetHandoffScreenProps {
 
 function trustError(error: unknown): SetupError {
   const detail = error instanceof Error ? error.message : String(error);
-  const prefix = detail.split(":", 1)[0] as SetupErrorCode;
-  const code = SETUP_ERROR_CODES.includes(prefix) ? prefix : "UNKNOWN";
-  return { state: "tailnet_handoff", code, logExcerpt: detail };
+  return { state: "tailnet_handoff", code: parseSidecarErrorCode(detail), logExcerpt: detail };
 }
 
 // /health is unauthenticated; sending the PREVIOUS connection's bearer to the

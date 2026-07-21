@@ -7,7 +7,7 @@
 #   OPT_HOST OPT_PORT OPT_RELEASE_FILE
 
 APT_BASELINE="build-essential python3 python-is-python3 pkg-config libssl-dev \
-git unzip xz-utils jq ripgrep fd-find sqlite3 git-delta fzf tree curl gnupg ca-certificates ufw util-linux"
+git unzip xz-utils jq ripgrep fd-find sqlite3 git-delta fzf tree curl gnupg ca-certificates ufw util-linux iproute2"
 
 HIVE_HOME="/home/hive"
 HIVE_DATA_DIR="$HIVE_HOME/.hive"
@@ -55,8 +55,12 @@ step_probe_env() {
   # A busy target port on a pristine box means something else runs here.
   # No `grep -q`: its early exit can SIGPIPE ss, turning a found port into a
   # non-zero pipeline under pipefail (busy port read as free).
-  if command -v ss >/dev/null 2>&1 && ss -ltn 2>/dev/null | grep ":${OPT_PORT}\b" >/dev/null; then
-    die SERVER_NOT_PRISTINE "port ${OPT_PORT} is already in use"
+  if command -v ss >/dev/null 2>&1; then
+    if ss -ltn 2>/dev/null | grep ":${OPT_PORT}\b" >/dev/null; then
+      die SERVER_NOT_PRISTINE "port ${OPT_PORT} is already in use"
+    fi
+  else
+    emit_log probe_env "ss unavailable; skipping the port ${OPT_PORT} availability check"
   fi
 }
 
@@ -104,10 +108,12 @@ step_install_node() {
     STEP_DATA="$(printf '{"nodeVersion":"%s","skipped":true}' "$(node -v)")"
     return 0
   fi
+  STEP_ERR_CODE=APT_FAILURE
   run_logged install_node bash -o pipefail -c \
     'curl -fsSL https://deb.nodesource.com/setup_22.x | bash -'
   run_logged install_node apt_install nodejs
   guard_install_node || die APT_FAILURE "Node.js 22 or newer is unavailable after installation"
+  STEP_ERR_CODE=""
   STEP_DATA="$(printf '{"nodeVersion":"%s"}' "$(node -v)")"
 }
 
@@ -290,7 +296,7 @@ guard_install_release() {
   verify_release_dir "$current"
 }
 step_install_release() {
-  local tarball checksum arch_tag asset_url expected actual rel staging current
+  local tarball checksum arch_tag base_url asset_url expected actual rel staging current
   install -d -o hive -g hive "$HIVE_OPT/releases" "$HIVE_OPT/shared"
   ln -sfn "$HIVE_DATA_DIR" "$HIVE_OPT/shared/data"
 
@@ -306,7 +312,12 @@ step_install_release() {
       aarch64) arch_tag=arm64 ;;
       *) die UNSUPPORTED_ARCH "unsupported arch: $(uname -m)" ;;
     esac
-    asset_url="https://github.com/0xlny/hive/releases/download/v$HIVE_VERSION/hive-backend-$HIVE_VERSION-linux-$arch_tag.tar.gz"
+    base_url="https://github.com/0xlny/hive/releases/download/v$HIVE_VERSION"
+    # Test-only origin override, gated like --dev-release-file: prerelease only.
+    if [ -n "${HIVE_TEST_RELEASE_BASE_URL:-}" ] && [[ "$HIVE_VERSION" == *-* ]]; then
+      base_url="$HIVE_TEST_RELEASE_BASE_URL"
+    fi
+    asset_url="$base_url/hive-backend-$HIVE_VERSION-linux-$arch_tag.tar.gz"
     STEP_ERR_CODE=RELEASE_DOWNLOAD_FAILED
     DOWNLOAD_FILE="$(mktemp "$HIVE_VAR_DIR/release.XXXXXX.tar.gz")"
     run_logged install_release curl -fsSL -o "$DOWNLOAD_FILE" "$asset_url"
@@ -324,9 +335,15 @@ step_install_release() {
 
   rel="$HIVE_OPT/releases/$HIVE_VERSION-$checksum"
   if ! verify_release_dir "$rel"; then
+    STEP_ERR_CODE=RELEASE_DOWNLOAD_FAILED
     rm -rf "$rel"
     find "$HIVE_OPT/releases" -maxdepth 1 -type d -name ".staging-$HIVE_VERSION-*" -exec rm -rf {} +
     staging="$(mktemp -d "$HIVE_OPT/releases/.staging-$HIVE_VERSION-$checksum.XXXXXX")"
+    # Belt-and-suspenders behind the checksum: never extract absolute or
+    # parent-escaping member paths as root.
+    if tar -tzf "$tarball" | grep -E '^/|(^|/)\.\.(/|$)' >/dev/null; then
+      die RELEASE_DOWNLOAD_FAILED "release archive contains unsafe member paths"
+    fi
     tar --no-same-owner --no-same-permissions -xzf "$tarball" -C "$staging"
     printf '%s\n' "$HIVE_VERSION" >"$staging/.hive-version"
     printf '%s\n' "$checksum" >"$staging/.tarball.sha256"
@@ -340,6 +357,7 @@ step_install_release() {
     verify_release_runtime "$staging" || die RELEASE_DOWNLOAD_FAILED \
       "release native modules do not load as the hive service user"
     mv "$staging" "$rel"
+    STEP_ERR_CODE=""
   fi
 
   rm -f "${DOWNLOAD_FILE:-}"; DOWNLOAD_FILE=""
@@ -368,14 +386,19 @@ step_install_release() {
 title_write_secrets() { echo "Write service configuration"; }
 
 hive_env_base() {
-  local host="$OPT_HOST"
+  local host="$OPT_HOST" token="${HIVE_AUTH_TOKEN_SHA256:-}"
   [ "$OPT_LOCAL_DEV" != 1 ] && host="0.0.0.0"
+  # A resume that does not re-pass the token hash must not silently disable
+  # auth on a token-protected install: keep the value already on disk.
+  if [ -z "$token" ] && [ -f /etc/hive/hive.env ]; then
+    token="$(sed -n 's/^HIVE_AUTH_TOKEN_SHA256=//p' /etc/hive/hive.env)"
+  fi
   cat <<EOF
 NODE_ENV=production
 HOST=$host
 PORT=$OPT_PORT
 DATA_DIR=$HIVE_DATA_DIR
-HIVE_AUTH_TOKEN_SHA256=${HIVE_AUTH_TOKEN_SHA256:-}
+HIVE_AUTH_TOKEN_SHA256=$token
 PATH=/home/hive/.local/bin:/usr/local/bin:/usr/bin:/bin
 EOF
 }

@@ -691,6 +691,7 @@ fn maybe_upload_release(
 fn run_provision(
     params: ProvisionParams,
     on_event: Channel<serde_json::Value>,
+    child_pid: Arc<Mutex<Option<u32>>>,
 ) -> Result<(), String> {
     validate_params(&params)?;
     let tarball = if cfg!(debug_assertions) {
@@ -722,6 +723,7 @@ fn run_provision(
         .stderr(Stdio::piped())
         .spawn()
         .map_err(|e| e.to_string())?;
+    *child_pid.lock().unwrap() = Some(child.id());
 
     let mut stdin = child.stdin.take().ok_or("no stdin")?;
     let writer = std::thread::spawn(move || {
@@ -753,7 +755,9 @@ fn run_provision(
     }
     let _ = writer.join();
 
-    let status = child.wait().map_err(|e| e.to_string())?;
+    let status = child.wait();
+    *child_pid.lock().unwrap() = None;
+    let status = status.map_err(|e| e.to_string())?;
     let stderr_buf = stderr_reader.join().unwrap_or_default();
 
     if !saw_end {
@@ -785,7 +789,20 @@ fn run_provision(
 }
 
 #[derive(Clone, Default)]
-pub struct ProvisionState(Arc<Mutex<()>>);
+pub struct ProvisionState {
+    run_lock: Arc<Mutex<()>>,
+    child_pid: Arc<Mutex<Option<u32>>>,
+}
+
+impl ProvisionState {
+    /// Kill the ssh child of the active run, if any. The remote script is
+    /// marker-resumable, so interrupting it is always safe.
+    pub fn kill_active_run(&self) {
+        if let Some(pid) = *self.child_pid.lock().unwrap() {
+            let _ = Command::new("kill").arg(pid.to_string()).status();
+        }
+    }
+}
 
 #[tauri::command]
 pub async fn provision_start(
@@ -794,15 +811,21 @@ pub async fn provision_start(
     on_event: Channel<serde_json::Value>,
 ) -> Result<(), String> {
     validate_params(&params)?;
-    let lock = Arc::clone(&state.0);
+    let lock = Arc::clone(&state.run_lock);
+    let child_pid = Arc::clone(&state.child_pid);
     tauri::async_runtime::spawn_blocking(move || {
         let _guard = lock
             .try_lock()
             .map_err(|_| "CONCURRENT_RUN: another provision run is active".to_string())?;
-        run_provision(params, on_event)
+        run_provision(params, on_event, child_pid)
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub fn provision_cancel(state: State<'_, ProvisionState>) {
+    state.kill_active_run();
 }
 
 // ── local Claude sign-in (PTY-driven, code pasted back in the app) ───────────
@@ -821,6 +844,14 @@ pub struct ClaudeAuthSession {
 
 #[derive(Default)]
 pub struct ClaudeAuthState(pub Mutex<Option<ClaudeAuthSession>>);
+
+impl ClaudeAuthState {
+    pub fn kill_active_session(&self) {
+        if let Some(mut session) = self.0.lock().unwrap().take() {
+            kill_session(&mut session);
+        }
+    }
+}
 
 /// `claude` usually lives in a shell-profile PATH entry (~/.local/bin, brew),
 /// which GUI-launched apps do not inherit. Probe PATH, then known locations.
@@ -865,8 +896,8 @@ pub async fn claude_auth_start(
     // Widen the PTY first: the default 80 columns hard-wraps the ~108-char
     // token across lines, which once corrupted a captured token.
     let inner = format!(
-        "stty cols 500 2>/dev/null; exec \"{}\" setup-token",
-        bin.display()
+        "stty cols 500 2>/dev/null; exec '{}' setup-token",
+        shell_single_quote(&bin.display().to_string())
     );
     let mut cmd = Command::new("script");
     if cfg!(target_os = "macos") {

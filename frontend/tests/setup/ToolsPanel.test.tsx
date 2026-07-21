@@ -27,6 +27,32 @@ describe("ClaudeSignIn", () => {
     expect(cancel).toHaveBeenCalledOnce();
   });
 
+  it("stops polling once the browser callback delivers the token", async () => {
+    const client = createMockProvisionClient();
+    client.pollClaudeAuth = vi.fn()
+      .mockResolvedValueOnce({ token: "sk-ant-oat01-token", exited: true })
+      .mockResolvedValue({ exited: true });
+    let releaseSubmit: (() => void) | undefined;
+    const submitToken = vi.fn().mockImplementation(
+      () => new Promise<void>((resolve) => { releaseSubmit = resolve; }),
+    );
+    const onError = vi.fn();
+
+    render(<ClaudeSignIn client={client} submitToken={submitToken} onError={onError} />);
+    await userEvent.click(screen.getByRole("button", { name: "Sign in with Claude" }));
+
+    await waitFor(() => expect(submitToken).toHaveBeenCalledWith("sk-ant-oat01-token"), {
+      timeout: 3000,
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    expect(client.pollClaudeAuth).toHaveBeenCalledTimes(1);
+    releaseSubmit?.();
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    expect(onError).not.toHaveBeenCalled();
+    expect(submitToken).toHaveBeenCalledTimes(1);
+  }, 15000);
+
   it("lets Claude authentication restart without rerunning the installer", async () => {
     const client = createMockProvisionClient();
     client.startClaudeAuth = vi.fn()

@@ -3,6 +3,7 @@ mod provision;
 use serde::Serialize;
 use std::path::Path;
 use std::process::Command;
+use tauri::Manager;
 
 #[derive(Serialize)]
 pub struct TerminalApp {
@@ -29,6 +30,9 @@ fn detect_terminals() -> Vec<TerminalApp> {
 
 #[tauri::command]
 fn open_terminal_ssh(terminal_id: String, command: String) -> Result<(), String> {
+    if command.chars().any(|c| c.is_control()) {
+        return Err("Command must not contain control characters".into());
+    }
     let escaped = command.replace('\\', "\\\\").replace('"', "\\\"");
 
     let script = match terminal_id.as_str() {
@@ -63,11 +67,26 @@ pub fn run() {
             provision::provision_test_connection,
             provision::provision_trust_host,
             provision::provision_start,
+            provision::provision_cancel,
             provision::claude_auth_start,
             provision::claude_auth_code,
             provision::claude_auth_poll,
             provision::claude_auth_cancel
         ])
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::Destroyed = event {
+                // Closing the app must not orphan a multi-minute remote ssh run
+                // or a local claude PTY; provisioning resumes from its markers.
+                window
+                    .app_handle()
+                    .state::<provision::ProvisionState>()
+                    .kill_active_run();
+                window
+                    .app_handle()
+                    .state::<provision::ClaudeAuthState>()
+                    .kill_active_session();
+            }
+        })
         .setup(|app| {
             if cfg!(debug_assertions) {
                 app.handle().plugin(

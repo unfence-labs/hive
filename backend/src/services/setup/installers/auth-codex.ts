@@ -62,6 +62,13 @@ export function codexAuthStep(options: CodexAuthOptions = {}): StepFn {
       },
     });
 
+    // A clean exit with persisted credentials wins over any expiry notice seen
+    // mid-flight (a first code can expire and be replaced in the same session).
+    if (result.reason === "exit" && result.exitCode === 0) {
+      const verified = await detectTools();
+      if (verified.codex.authenticated) return;
+    }
+
     if (disabled) {
       throw new StepError(
         "CODEX_DEVICE_AUTH_DISABLED",
@@ -84,16 +91,13 @@ export function codexAuthStep(options: CodexAuthOptions = {}): StepFn {
       );
     }
 
-    const verified = await detectTools();
-    if (!verified.codex.authenticated) {
-      throw new StepError(
-        "UNKNOWN",
-        "Codex sign-in exited without an authenticated session.",
-        {
-          detail: outputDetail(result.buffer) ??
-            "No valid Codex credentials were detected after login.",
-        },
-      );
-    }
+    throw new StepError(
+      "UNKNOWN",
+      "Codex sign-in exited without an authenticated session.",
+      {
+        detail: outputDetail(result.buffer) ??
+          "No valid Codex credentials were detected after login.",
+      },
+    );
   };
 }

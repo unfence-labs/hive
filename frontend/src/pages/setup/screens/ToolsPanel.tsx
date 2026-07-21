@@ -145,6 +145,7 @@ export function ClaudeSignIn({
   // callback completes without a code, so this poll finishes both variants.
   useEffect(() => {
     if (!client || (phase !== "code" && phase !== "verifying")) return;
+    if (!authActiveRef.current) return;
     let done = false;
     const timer = setInterval(() => {
       void (async () => {

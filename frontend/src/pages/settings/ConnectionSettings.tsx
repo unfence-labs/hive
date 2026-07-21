@@ -7,9 +7,21 @@ import { CenterCard } from "@/components/CenterCard";
 import { useConnection } from "@/hooks/useConnection";
 import { useConnectionStatus } from "@/hooks/useConnectionStatus";
 import { switchServer } from "@/lib/server-connection";
+import { queryClient } from "@/lib/query-client";
+import { wsTransport } from "@/lib/ws-transport";
 import { ToolsPanel } from "@/pages/setup/screens/ToolsPanel";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
 
 const STATUS_CONFIG: Record<string, { dot: string; label: string; badge: string }> = {
@@ -43,6 +55,7 @@ export default function ConnectionSettings({ onRefreshConnection }: ConnectionSe
   const [tokenDraft, setTokenDraft] = useState("");
   const [connecting, setConnecting] = useState(false);
   const [checking, setChecking] = useState(false);
+  const [confirmingDisconnect, setConfirmingDisconnect] = useState(false);
   const [connectionError, setConnectionError] = useState<string | null>(null);
 
   const connect = async () => {
@@ -72,6 +85,8 @@ export default function ConnectionSettings({ onRefreshConnection }: ConnectionSe
     setChecking(true);
     try {
       await check();
+      wsTransport.disconnectAll();
+      await queryClient.invalidateQueries();
       onRefreshConnection?.();
     } finally {
       setChecking(false);
@@ -79,13 +94,7 @@ export default function ConnectionSettings({ onRefreshConnection }: ConnectionSe
   };
 
   const reset = async () => {
-    if (
-      !window.confirm(
-        "Disconnect from this server? The connection details are cleared; the server itself is untouched.",
-      )
-    ) {
-      return;
-    }
+    setConfirmingDisconnect(false);
     await switchServer(null);
     setHostDraft("");
     setPortDraft("3000");
@@ -231,12 +240,32 @@ export default function ConnectionSettings({ onRefreshConnection }: ConnectionSe
                   </button>
                   <button
                     type="button"
-                    onClick={() => void reset()}
+                    onClick={() => setConfirmingDisconnect(true)}
                     className="inline-flex cursor-pointer items-center gap-2 rounded-md border border-border/50 px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
                   >
                     Disconnect...
                   </button>
                 </div>
+
+                <AlertDialog open={confirmingDisconnect} onOpenChange={setConfirmingDisconnect}>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Disconnect from this server?</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        The connection details are cleared; the server itself is untouched.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Cancel</AlertDialogCancel>
+                      <AlertDialogAction
+                        onClick={() => void reset()}
+                        className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                      >
+                        Disconnect
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
               </section>
 
               <ToolsPanel />

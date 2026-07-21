@@ -15,13 +15,18 @@ interface InstallerSpec {
   env?: Record<string, string>;
 }
 
+const NETWORK_FAILURE =
+  /could not resolve|getaddrinfo|ENOTFOUND|ETIMEDOUT|ECONNREFUSED|network is unreachable|temporary failure in name resolution/i;
+
 function commandFailure(message: string, result: CommandResult): StepError {
+  const output = `${result.stderr}\n${result.stdout}`;
   const detail = (result.stderr || result.stdout)
     .trim()
     .split("\n")
     .slice(-4)
     .join("\n");
-  return new StepError("NETWORK", message, { detail: detail || undefined });
+  const code = NETWORK_FAILURE.test(output) ? "NETWORK" : "UNKNOWN";
+  return new StepError(code, message, { detail: detail || undefined });
 }
 
 function makeInstallerStep(

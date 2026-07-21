@@ -110,6 +110,7 @@ export function createMockProvisionClient(
       const events = attempts++ === 0 ? script.events : (script.retryEvents ?? script.events);
       return stream(events);
     },
+    async cancelProvision() {},
     async startClaudeAuth() {
       return { url: "https://claude.ai/oauth/mock" };
     },

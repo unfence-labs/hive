@@ -80,6 +80,20 @@ describe("user-space setup installers", () => {
     });
   });
 
+  it("does not blame the network for non-network install failures", async () => {
+    mocks.detectTools.mockResolvedValue({ claude: { installed: false, authenticated: false } });
+    const installerDeps = deps(vi.fn(async () => ({
+      stdout: "",
+      stderr: "tar: cannot write: No space left on device",
+      exitCode: 2,
+    })));
+
+    await expect(installClaudeStep(installerDeps)(context)).rejects.toMatchObject({
+      code: "UNKNOWN",
+      detail: "tar: cannot write: No space left on device",
+    });
+  });
+
   it("fails when a successful command did not install the executable", async () => {
     mocks.detectTools.mockResolvedValue({ claude: { installed: false, authenticated: false } });
     await expect(installClaudeStep(deps())(context)).rejects.toMatchObject({

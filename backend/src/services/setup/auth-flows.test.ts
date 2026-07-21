@@ -85,12 +85,14 @@ describe("setup secrets", () => {
     await expect(loadSetupSecrets(dataDir)).resolves.toBe(false);
   });
 
-  it("rejects corrupt or invalid persisted secrets", async () => {
+  it("ignores corrupt or invalid persisted secrets instead of failing startup", async () => {
     const path = join(dataDir, "setup-secrets.json");
     await writeFile(path, "not-json", "utf-8");
-    await expect(loadSetupSecrets(dataDir)).rejects.toThrow("Invalid JSON");
+    await expect(loadSetupSecrets(dataDir)).resolves.toBe(false);
+    expect(process.env.CLAUDE_CODE_OAUTH_TOKEN).toBeUndefined();
 
     await writeFile(path, JSON.stringify({ claudeCodeOAuthToken: "bad" }), "utf-8");
-    await expect(loadSetupSecrets(dataDir)).rejects.toThrow("Invalid Claude token");
+    await expect(loadSetupSecrets(dataDir)).resolves.toBe(false);
+    expect(process.env.CLAUDE_CODE_OAUTH_TOKEN).toBeUndefined();
   });
 });

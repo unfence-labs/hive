@@ -1,5 +1,14 @@
-import type { SetupErrorCode } from "@hive/shared/setup-errors";
+import { SETUP_ERROR_CODES, type SetupErrorCode } from "@hive/shared/setup-errors";
 import { isTauri } from "@/lib/is-tauri";
+
+/**
+ * Sidecar errors arrive as "CODE: detail" strings. Extract the typed code,
+ * falling back to UNKNOWN when the prefix is not part of the taxonomy.
+ */
+export function parseSidecarErrorCode(detail: string): SetupErrorCode {
+  const prefix = detail.split(":", 1)[0] as SetupErrorCode;
+  return SETUP_ERROR_CODES.includes(prefix) ? prefix : "UNKNOWN";
+}
 
 /**
  * Abstraction over the SSH sidecar (Tauri + Rust commands spawning the system
@@ -87,6 +96,8 @@ export interface ProvisionClient {
   trustHost(host: string, hostKey?: string, expectedHostKey?: string): Promise<void>;
   /** Start provisioning; yields NDJSON-derived events until run_end. */
   startProvision(params: ProvisionParams): AsyncIterable<ProvisionEvent>;
+  /** Interrupt the active provision run's ssh process, if any. */
+  cancelProvision(): Promise<void>;
   /**
    * Local Claude sign-in, fully in-app: start spawns `claude setup-token` in a
    * PTY (the CLI opens the browser); the user pastes the browser's code into
@@ -229,6 +240,9 @@ export function createTauriProvisionClient(): ProvisionClient {
     },
     startProvision(params) {
       return streamCommand(params);
+    },
+    async cancelProvision() {
+      await invoke("provision_cancel");
     },
     async startClaudeAuth() {
       return invoke<{ url?: string }>("claude_auth_start");

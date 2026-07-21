@@ -1,7 +1,9 @@
 import { useState } from "react";
 import { ShieldCheck } from "lucide-react";
 import { SetupScreen } from "./SetupScreen";
-import type { ProvisionClient } from "@/lib/provision-client";
+import { ErrorPanel } from "./ErrorPanel";
+import { parseSidecarErrorCode, type ProvisionClient } from "@/lib/provision-client";
+import type { SetupError } from "@/pages/setup/machine";
 
 interface HostTrustScreenProps {
   client: ProvisionClient;
@@ -28,7 +30,7 @@ export function HostTrustScreen({
   onContinueLater,
 }: HostTrustScreenProps) {
   const [trusting, setTrusting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<SetupError | null>(null);
 
   const handleTrust = async () => {
     setTrusting(true);
@@ -37,7 +39,8 @@ export function HostTrustScreen({
       await client.trustHost(host, hostKey);
       onContinue();
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "The SSH host key could not be saved.");
+      const detail = caught instanceof Error ? caught.message : "The SSH host key could not be saved.";
+      setError({ state: "host_trust", code: parseSidecarErrorCode(detail), logExcerpt: detail });
     } finally {
       setTrusting(false);
     }
@@ -60,7 +63,11 @@ export function HostTrustScreen({
         </div>
         <p className="mt-3 break-all font-mono text-xs text-foreground">{fingerprint}</p>
       </div>
-      {error && <p role="alert" className="mt-3 text-xs text-destructive">{error}</p>}
+      {error && (
+        <div className="mt-3">
+          <ErrorPanel error={error} onDismiss={() => setError(null)} />
+        </div>
+      )}
     </SetupScreen>
   );
 }

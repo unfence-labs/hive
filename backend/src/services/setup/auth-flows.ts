@@ -62,15 +62,19 @@ export async function loadSetupSecrets(dataDir: string): Promise<boolean> {
     throw error;
   }
 
+  // A malformed secrets file must not brick startup: treat it as "no token"
+  // and let the wizard re-provision it.
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
   } catch {
-    throw new Error(`Invalid JSON in ${SECRETS_FILE}`);
+    console.error(`[setup] Ignoring ${SECRETS_FILE}: invalid JSON`);
+    return false;
   }
   const token = (parsed as Partial<SetupSecrets> | null)?.claudeCodeOAuthToken;
   if (typeof token !== "string" || !isValidClaudeToken(token)) {
-    throw new Error(`Invalid Claude token in ${SECRETS_FILE}`);
+    console.error(`[setup] Ignoring ${SECRETS_FILE}: invalid Claude token`);
+    return false;
   }
 
   process.env.CLAUDE_CODE_OAUTH_TOKEN = token;

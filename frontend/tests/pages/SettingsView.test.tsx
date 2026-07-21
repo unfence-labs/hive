@@ -113,23 +113,23 @@ describe("ConnectionSettings", () => {
 
   it("disconnect clears the stored connection and returns to the connect view", async () => {
     replaceConnection({ host: "100.64.0.10", port: 3000, sshUser: "root", authToken: "tok" });
-    vi.spyOn(window, "confirm").mockReturnValue(true);
     const user = userEvent.setup();
 
     render(<ConnectionSettings />);
     await user.click(screen.getByRole("button", { name: /disconnect/i }));
+    await user.click(screen.getByRole("button", { name: "Disconnect" }));
 
-    expect(getConnection()).toBeNull();
+    await waitFor(() => expect(getConnection()).toBeNull());
     expect(screen.getByText("Connect your server")).toBeInTheDocument();
   });
 
   it("keeps the connection when the disconnect confirm is declined", async () => {
     replaceConnection({ host: "100.64.0.10", port: 3000 });
-    vi.spyOn(window, "confirm").mockReturnValue(false);
     const user = userEvent.setup();
 
     render(<ConnectionSettings />);
     await user.click(screen.getByRole("button", { name: /disconnect/i }));
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
 
     expect(getConnection()?.host).toBe("100.64.0.10");
     expect(screen.getByText("100.64.0.10:3000")).toBeInTheDocument();

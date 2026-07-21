@@ -33,13 +33,15 @@ DOWNLOAD_FILE=""
 # --- JSON helpers (no jq dependency: emit runs before apt installs jq) ---
 
 json_escape() {
-  # Escape a string for embedding in JSON.
+  # Escape a string for embedding in JSON. Remaining C0/DEL control bytes
+  # (ANSI escapes in apt/curl output) are stripped: raw they are invalid JSON.
   local s="$1"
   s="${s//\\/\\\\}"
   s="${s//\"/\\\"}"
   s="${s//$'\t'/\\t}"
   s="${s//$'\r'/\\r}"
   s="${s//$'\n'/\\n}"
+  s="${s//[$'\x01'-$'\x1f'$'\x7f']/}"
   printf '%s' "$s"
 }
 
@@ -81,7 +83,13 @@ emit_step() {
 
 emit_log() {
   # emit_log <stepId> <line>
-  emit_step "$1" log "$(printf '"line":"%s"' "$(json_escape "$2")")"
+  local line="$2"
+  if [ "${#line}" -gt 2000 ]; then
+    # Byte-wise truncation can split a UTF-8 sequence; iconv -c drops the
+    # partial tail so the emitted JSON stays valid UTF-8.
+    line="$(printf '%s' "${line:0:2000}" | iconv -f UTF-8 -t UTF-8 -c 2>/dev/null || printf '%s' "${line:0:2000}")"
+  fi
+  emit_step "$1" log "$(printf '"line":"%s"' "$(json_escape "$line")")"
 }
 
 # Run a command, streaming each output line as an NDJSON log event. Process
@@ -90,7 +98,7 @@ emit_log() {
 run_logged() {
   local id="$1" line; shift
   while IFS= read -r line || [ -n "$line" ]; do
-    emit_log "$id" "${line:0:2000}"
+    emit_log "$id" "$line"
   done < <("$@" 2>&1)
   wait $!
 }

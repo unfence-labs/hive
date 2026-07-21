@@ -2,7 +2,7 @@
 # Tier-1 provision harness: run provision.sh inside a systemd container and
 # assert install, idempotency, and crash-resume.
 #
-# Usage: provision-docker.sh [install|chaos|rollback]   (default: install)
+# Usage: provision-docker.sh [install|chaos|rollback|download]   (default: install)
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -250,9 +250,77 @@ mode_rollback() {
   log "PASS (unhealthy release rolled back)"
 }
 
+# Exercise the real download branch of install_release against an in-container
+# HTTP origin: 404, unparsable checksum, checksum mismatch, then a good install.
+run_provision_download() {
+  docker cp "$PROV/dist/provision.sh" "$CID:/root/provision.sh"
+  docker exec -e HIVE_TEST_RELEASE_BASE_URL="http://127.0.0.1:8000" "$CID" \
+    bash /root/provision.sh --local-dev --test-skip-ufw --test-skip-node \
+      --host 127.0.0.1 --port 3000
+}
+
+expect_download_failure() {
+  local expected_code="$1" out rc
+  set +e
+  out="$(run_provision_download 2>&1)"
+  rc=$?
+  set -e
+  [ "$rc" != 0 ] || { echo "FAIL: provisioning unexpectedly succeeded"; echo "$out"; return 1; }
+  grep -q "\"errorCode\":\"$expected_code\"" <<<"$out" \
+    || { echo "FAIL: expected $expected_code"; echo "$out"; return 1; }
+  echo "OK: died with $expected_code"
+}
+
+mode_download() {
+  local rel; rel="$(build_artifacts)"
+  build_image; start_container
+  local tag asset
+  case "$(docker exec "$CID" uname -m)" in
+    aarch64) tag=arm64 ;;
+    *) tag=x64 ;;
+  esac
+  asset="hive-backend-$VERSION-linux-$tag.tar.gz"
+
+  log "Serve releases over HTTP inside the container"
+  docker exec "$CID" mkdir -p /srv/release
+  docker exec -i "$CID" sh -c 'cat > /srv/serve.js' <<'EOF'
+const http = require("http"), fs = require("fs"), path = require("path");
+http.createServer((req, res) => {
+  fs.readFile(path.join("/srv/release", path.basename(req.url)), (err, data) => {
+    if (err) { res.writeHead(404); res.end(); return; }
+    res.writeHead(200); res.end(data);
+  });
+}).listen(8000, "127.0.0.1");
+EOF
+  docker exec -d "$CID" node /srv/serve.js
+  for _ in $(seq 1 20); do
+    docker exec "$CID" curl -s -o /dev/null http://127.0.0.1:8000/ && break
+    sleep 0.5
+  done
+
+  log "Case 1: missing release asset"
+  expect_download_failure RELEASE_DOWNLOAD_FAILED
+
+  log "Case 2: unparsable checksum file"
+  docker cp "$rel" "$CID:/srv/release/$asset"
+  docker exec "$CID" sh -c "printf 'not-a-checksum\n' > /srv/release/$asset.sha256"
+  expect_download_failure CHECKSUM_MISMATCH
+
+  log "Case 3: checksum mismatch (tampered download)"
+  docker exec "$CID" sh -c "printf '%064d  $asset\n' 0 > /srv/release/$asset.sha256"
+  expect_download_failure CHECKSUM_MISMATCH
+
+  log "Case 4: valid checksum installs to healthy"
+  docker exec "$CID" sh -c "cd /srv/release && sha256sum $asset > $asset.sha256"
+  run_provision_download | tail -3
+  assert_healthy
+  log "PASS (download + checksum verification)"
+}
+
 case "$MODE" in
   install)     mode_install ;;
   chaos)       mode_chaos ;;
   rollback)    mode_rollback ;;
-  *) echo "usage: $0 [install|chaos|rollback]"; exit 2 ;;
+  download)    mode_download ;;
+  *) echo "usage: $0 [install|chaos|rollback|download]"; exit 2 ;;
 esac

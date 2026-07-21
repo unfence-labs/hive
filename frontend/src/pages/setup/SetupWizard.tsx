@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useReducer } from "react";
+import { useCallback, useEffect, useMemo, useReducer, useState } from "react";
 import {
   reduce,
   loadMachineState,
@@ -20,6 +20,16 @@ import { TailnetHandoffScreen } from "./screens/TailnetHandoffScreen";
 import { GuidedSetupScreen } from "./screens/GuidedSetupScreen";
 import { DoneScreen } from "./screens/DoneScreen";
 import { ErrorPanel } from "./screens/ErrorPanel";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 const DEFAULT_PORT = 3000;
 
@@ -50,15 +60,8 @@ export function SetupWizard({ client: injectedClient, onComplete, onConnectExist
     // State is already persisted; hand control back to the app.
     onComplete?.();
   }, [onComplete]);
-  const startOver = useCallback(() => {
-    if (
-      window.confirm(
-        "Start the setup over from the beginning? The saved wizard progress and Tailscale key are discarded.",
-      )
-    ) {
-      dispatch({ type: "reset" });
-    }
-  }, []);
+  const [confirmingStartOver, setConfirmingStartOver] = useState(false);
+  const startOver = useCallback(() => setConfirmingStartOver(true), []);
   const fail = useCallback(
     (code: SetupErrorCode, logExcerpt?: string) => dispatch({ type: "fail", error: { code, logExcerpt } }),
     [],
@@ -215,6 +218,29 @@ export function SetupWizard({ client: injectedClient, onComplete, onConnectExist
         )}
         {screen}
       </div>
+
+      <AlertDialog open={confirmingStartOver} onOpenChange={setConfirmingStartOver}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Start the setup over?</AlertDialogTitle>
+            <AlertDialogDescription>
+              The saved wizard progress and Tailscale key are discarded.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                setConfirmingStartOver(false);
+                dispatch({ type: "reset" });
+              }}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Start over
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

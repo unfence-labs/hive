@@ -93,6 +93,8 @@ in the app's PTY sidecar and POSTs the captured token to the server.
 - `make provision-docker` — full install + idempotency in a systemd container.
 - `make provision-docker-chaos` — kill after representative steps, resume.
 - `make provision-docker-rollback` — unhealthy release activation and rollback.
+- `make provision-docker-download` — the GitHub-download branch against a local
+  HTTP origin: missing asset, bad checksum, tampered tarball, good install.
 - `make provision-contract` — bash/TS error-taxonomy subset contract (also in CI,
   along with shellcheck via `scripts/provision/build.sh`).
 - `docs/install-flow-orbstack.md` — end-to-end manual test against a local

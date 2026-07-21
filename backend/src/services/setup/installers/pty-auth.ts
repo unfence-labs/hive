@@ -1,5 +1,5 @@
 import { spawn as spawnChild } from "node:child_process";
-import { spawnPtyProcess, type PtyProcess } from "../../pty-process.js";
+import { killPtyProcess, spawnPtyProcess, type PtyProcess } from "../../pty-process.js";
 import { nanoid } from "nanoid";
 
 /**
@@ -36,7 +36,7 @@ export function wrapPtyProcess(proc: PtyProcess): PtyHandle {
       }
       return () => proc.exitListeners.delete(key);
     },
-    kill: () => proc.pty.kill(),
+    kill: () => killPtyProcess(proc),
   };
 }
 
@@ -49,23 +49,40 @@ export const defaultSpawnPty: SpawnPty = (command, cwd) =>
  * on interactive prompts and cursor-position queries a bare PTY never answers.
  */
 export const defaultSpawnPipe: SpawnPty = (command, cwd) => {
+  // detached: own process group, so kill() reaches the CLI even if bash execs
+  // or forks it rather than dying with the wrapper.
   const child = spawnChild("bash", ["-lc", command], {
     cwd,
     stdio: ["ignore", "pipe", "pipe"],
+    detached: true,
   });
   const dataCbs = new Set<(chunk: string) => void>();
   const exitCbs = new Set<(code: number) => void>();
   let exitCode: number | undefined;
+  const settle = (code: number) => {
+    if (exitCode !== undefined) return;
+    exitCode = code;
+    for (const cb of exitCbs) cb(exitCode);
+  };
   const forward = (d: Buffer) => {
     const text = d.toString("utf8");
     for (const cb of dataCbs) cb(text);
   };
   child.stdout?.on("data", forward);
   child.stderr?.on("data", forward);
-  child.on("close", (code) => {
-    exitCode = code ?? 1;
-    for (const cb of exitCbs) cb(exitCode);
-  });
+  child.on("close", (code) => settle(code ?? 1));
+  child.on("error", () => settle(1));
+  const signalGroup = (signal: NodeJS.Signals) => {
+    try {
+      if (child.pid !== undefined) {
+        process.kill(-child.pid, signal);
+      } else {
+        child.kill(signal);
+      }
+    } catch {
+      /* already gone */
+    }
+  };
   return {
     onData: (cb) => {
       dataCbs.add(cb);
@@ -77,10 +94,12 @@ export const defaultSpawnPipe: SpawnPty = (command, cwd) => {
       return () => exitCbs.delete(cb);
     },
     kill: () => {
-      try {
-        child.kill();
-      } catch {
-        /* already gone */
+      signalGroup("SIGTERM");
+      const fallback = setTimeout(() => {
+        if (exitCode === undefined) signalGroup("SIGKILL");
+      }, 5000);
+      if (typeof (fallback as { unref?: () => void }).unref === "function") {
+        (fallback as { unref: () => void }).unref();
       }
     },
   };
