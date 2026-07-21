@@ -199,6 +199,24 @@ describe("StreamParser", () => {
     expect(errors[0].message).toContain("Unknown message type");
   });
 
+  it("silently ignores tool_progress from Claude CLI", () => {
+    const parser = new StreamParser();
+    const errors: Error[] = [];
+    parser.on("error", (e) => errors.push(e));
+
+    parser.write(JSON.stringify({
+      type: "tool_progress",
+      tool_use_id: "toolu_abc",
+      tool_name: "Bash",
+      parent_tool_use_id: null,
+      elapsed_time_seconds: 30,
+      uuid: "5ceca816-9afd-4d1a-a57f-7bc7e117ca0e",
+      session_id: "test-session",
+    }) + "\n");
+
+    expect(errors).toHaveLength(0);
+  });
+
   it("silently ignores rate_limit_event from Claude CLI", () => {
     const parser = new StreamParser();
     const errors: Error[] = [];
