@@ -1,4 +1,4 @@
-import { execFile as execFileCb } from "node:child_process";
+import { execFile as execFileCb, spawn } from "node:child_process";
 import { promisify } from "node:util";
 import { access, constants } from "node:fs/promises";
 
@@ -25,12 +25,39 @@ export interface CommandResult {
  */
 export type RunCommand = (
   command: string,
-  opts?: { timeoutMs?: number; env?: Record<string, string> },
+  opts?: { timeoutMs?: number; env?: Record<string, string>; stdin?: string },
 ) => Promise<CommandResult>;
 
 const DEFAULT_TIMEOUT_MS = 300_000;
 
+/** Run via spawn so a secret can be streamed on stdin (never argv). */
+function runWithStdin(
+  command: string,
+  stdin: string,
+  opts: { timeoutMs?: number; env?: Record<string, string> },
+): Promise<CommandResult> {
+  return new Promise((resolve) => {
+    const child = spawn("/bin/sh", ["-c", command], {
+      timeout: opts.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+      env: opts.env ? { ...process.env, ...opts.env } : process.env,
+    });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (d) => (stdout += d.toString()));
+    child.stderr.on("data", (d) => (stderr += d.toString()));
+    child.on("error", (err) => resolve({ stdout, stderr: stderr || String(err), exitCode: 127 }));
+    child.on("close", (code) => resolve({ stdout, stderr, exitCode: code ?? 1 }));
+    child.stdin.on("error", () => {
+      /* child may exit before stdin is consumed; the close handler resolves */
+    });
+    child.stdin.end(stdin);
+  });
+}
+
 export const realRunCommand: RunCommand = async (command, opts = {}) => {
+  if (opts.stdin !== undefined) {
+    return runWithStdin(command, opts.stdin, opts);
+  }
   try {
     const { stdout, stderr } = await execFile("/bin/sh", ["-c", command], {
       timeout: opts.timeoutMs ?? DEFAULT_TIMEOUT_MS,
@@ -93,7 +120,7 @@ export async function runHelper(
   deps: InstallerDeps,
   name: string,
   args: string[] = [],
-  opts?: { timeoutMs?: number },
+  opts?: { timeoutMs?: number; stdin?: string },
 ): Promise<CommandResult> {
   const script = `${deps.helpersDir}/${name}.sh`;
   const quoted = [script, ...args].map(shellQuote).join(" ");

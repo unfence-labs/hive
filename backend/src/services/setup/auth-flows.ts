@@ -4,15 +4,14 @@ import {
   runHelper,
 } from "./installers/command.js";
 
-/** Prefix every Claude OAuth setup token carries (§3.4 / §6.4). */
-const CLAUDE_TOKEN_PREFIX = "sk-ant-oat01-";
+// Every Claude OAuth setup token is the `sk-ant-oat01-` prefix (§3.4 / §6.4)
+// followed only by [A-Za-z0-9_-] — the same charset the capture path yields.
+// Enforcing the whole shape here stops a newline (or any control/metacharacter)
+// from injecting a second line into the 0600 env file the token is written to.
+const CLAUDE_TOKEN_RE = /^sk-ant-oat01-[A-Za-z0-9_-]+$/;
 
 export function isValidClaudeToken(token: string): boolean {
-  return (
-    typeof token === "string" &&
-    token.startsWith(CLAUDE_TOKEN_PREFIX) &&
-    token.length > CLAUDE_TOKEN_PREFIX.length
-  );
+  return typeof token === "string" && CLAUDE_TOKEN_RE.test(token);
 }
 
 /**
@@ -48,9 +47,10 @@ export function makeClaudeTokenWriter(
       return { persisted: false };
     }
 
-    // The token is passed on stdin-equivalent via an argument the helper reads;
-    // the helper is responsible for atomically writing hive.env with 0600 perms.
-    const result = await runHelper(deps, "write-claude-token", [token]);
+    // The token is streamed on the helper's stdin (never argv, so it stays out
+    // of the process table and sudo/journald logs); the helper atomically writes
+    // hive.env with 0600 perms.
+    const result = await runHelper(deps, "write-claude-token", [], { stdin: token });
     if (result.exitCode !== 0) {
       console.warn(
         `[setup] write-claude-token helper failed (exit ${result.exitCode}): ` +

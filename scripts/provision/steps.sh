@@ -12,6 +12,10 @@ git unzip xz-utils jq ripgrep fd-find sqlite3 git-delta fzf tree gnupg ca-certif
 HIVE_HOME="/home/hive"
 HIVE_DATA_DIR="$HIVE_HOME/.hive"
 HIVE_OPT="/opt/hive"
+# Durable "installed by Hive" marker: survives the state-dir wipe on a
+# SCRIPT_VERSION bump, so probe_env can tell our own install (a resume/update)
+# apart from a foreign occupant. Removed by --uninstall (lives under /etc/hive).
+HIVE_INSTALL_MARKER="/etc/hive/.hive-install"
 
 # ---------------------------------------------------------------------------
 
@@ -37,6 +41,11 @@ step_probe_os() {
 
 title_probe_env() { echo "Check the server is pristine"; }
 step_probe_env() {
+  # Our own prior install is a resume/update, not a conflict (plan §5.2).
+  if [ -e "$HIVE_INSTALL_MARKER" ]; then
+    STEP_DATA='{"reinstall":true}'
+    return 0
+  fi
   if [ -e /etc/systemd/system/hive.service ] || [ -d "$HIVE_OPT" ]; then
     die EXISTING_INSTALL "Hive is already installed on this server"
   fi
@@ -55,9 +64,11 @@ guard_apt_baseline() {
   command -v fd >/dev/null 2>&1
 }
 step_apt_baseline() {
+  STEP_ERR_CODE=APT_FAILURE
   run_logged apt_baseline apt-get update -q -o DPkg::Lock::Timeout=300
   # shellcheck disable=SC2086
   run_logged apt_baseline apt_install $APT_BASELINE
+  STEP_ERR_CODE=""
   # Debian ships fd-find as `fdfind`; agents expect `fd`.
   if command -v fdfind >/dev/null 2>&1 && ! command -v fd >/dev/null 2>&1; then
     ln -sf "$(command -v fdfind)" /usr/local/bin/fd
@@ -108,7 +119,9 @@ title_tailscale_up() { echo "Join the Tailscale network"; }
 # On resume the step is skipped but the wizard still needs the tailnet IP to
 # target the backend (UFW only opens the tailscale0 interface in tailnet mode).
 skipdata_tailscale_up() {
-  local ip; ip="$(tailscale ip -4 2>/dev/null | head -1)"
+  # `|| true`: a not-yet-assigned IP makes the pipeline non-zero under pipefail,
+  # which must not abort this skip-time emit (matches step_tailscale_up).
+  local ip; ip="$(tailscale ip -4 2>/dev/null | head -1 || true)"
   if [ -n "$ip" ]; then printf '{"tailnetIp":"%s"}' "$ip"; else printf '{}'; fi
 }
 
@@ -135,7 +148,9 @@ step_tailscale_up() {
     die TS_AUTHKEY_INVALID "tailscale up: ${ts_err:0:300}"
   fi
   STEP_ERR_CODE=""
-  local ip; ip="$(tailscale ip -4 2>/dev/null | head -1)"
+  # `|| true`: let the explicit check below own the failure with TS_DAEMON_DOWN,
+  # instead of the pipeline's non-zero exit tripping the ERR trap as UNKNOWN.
+  local ip; ip="$(tailscale ip -4 2>/dev/null | head -1 || true)"
   [ -n "$ip" ] || die TS_DAEMON_DOWN "no tailnet IP assigned"
   RESOLVED_HOST="$ip"
   STEP_DATA="$(printf '{"tailnetIp":"%s"}' "$ip")"
@@ -203,15 +218,21 @@ step_install_release() {
       "dev build has no downloadable release: run 'make release-tarball' in the repo, then Retry (or set HIVE_DEV_RELEASE_TARBALL to a tarball path before launching the app)"
     local arch_tag; case "$(uname -m)" in x86_64) arch_tag=x64;; aarch64) arch_tag=arm64;; esac
     tarball="$HIVE_VAR_DIR/hive-backend.tar.gz"
+    local asset_url="https://github.com/0xlny/hive/releases/download/v$HIVE_VERSION/hive-backend-$HIVE_VERSION-linux-$arch_tag.tar.gz"
     STEP_ERR_CODE=RELEASE_DOWNLOAD_FAILED
-    run_logged install_release curl -fsSL -o "$tarball" \
-      "https://github.com/0xlny/hive/releases/download/v$HIVE_VERSION/hive-backend-$HIVE_VERSION-linux-$arch_tag.tar.gz"
+    run_logged install_release curl -fsSL -o "$tarball" "$asset_url"
     STEP_ERR_CODE=""
-    # checksum verification would go here (RELEASE_DOWNLOAD_FAILED/CHECKSUM_MISMATCH)
+    # Verify integrity against the SHA256 sidecar published next to the asset
+    # (release.yml). Extraction must never run on a tampered/corrupt download.
+    local expected actual
+    expected="$(curl -fsSL "$asset_url.sha256" 2>/dev/null | cut -d' ' -f1)"
+    [ -n "$expected" ] || die CHECKSUM_MISMATCH "could not fetch checksum from $asset_url.sha256"
+    actual="$(sha256sum "$tarball" | cut -d' ' -f1)"
+    [ "$expected" = "$actual" ] || die CHECKSUM_MISMATCH "release checksum mismatch: expected $expected, got $actual"
   fi
 
   rm -rf "$rel"; install -d -o hive -g hive "$rel"
-  tar -xzf "$tarball" -C "$rel"
+  tar --no-same-owner --no-same-permissions -xzf "$tarball" -C "$rel"
   sha256sum "$tarball" | cut -d' ' -f1 >"$rel/.tarball.sha256"
   # A dev tarball built on macOS ships darwin node-pty binaries (sharp's linux
   # binaries are selected at tarball build time). Rebuild in place when the
@@ -262,6 +283,10 @@ guard_write_secrets() {
 
 step_write_secrets() {
   install -d -m 755 /etc/hive
+  # Durable "installed by Hive" marker so a later version-bumped re-run (which
+  # wipes the state dir) is recognized by probe_env as a resume, not a conflict.
+  : >"$HIVE_INSTALL_MARKER"
+  chmod 600 "$HIVE_INSTALL_MARKER"
   local tmp; tmp="$(mktemp)"
   hive_env_base >"$tmp"
   grep '^CLAUDE_CODE_OAUTH_TOKEN=' /etc/hive/hive.env 2>/dev/null >>"$tmp" || true
@@ -357,8 +382,10 @@ EOF
 # Write CLAUDE_CODE_OAUTH_TOKEN into the service env (root-owned, 0600).
 # No service restart: the backend adopts the token in-process; a restart here
 # would kill the caller's HTTP response and any running auth operation.
+# The token arrives on stdin (never argv) so it stays out of the process table
+# and sudo/journald logs.
 set -euo pipefail
-token="${1:-}"
+IFS= read -r token || true
 [ -n "$token" ] || { echo "no token" >&2; exit 2; }
 install -d -m 755 /etc/hive
 tmp="$(mktemp)"

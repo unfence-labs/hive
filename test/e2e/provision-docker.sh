@@ -2,7 +2,7 @@
 # Tier-1 provision harness: run provision.sh inside a systemd container and
 # assert install, idempotency, and crash-resume. See plan 7.1 / 7.2.
 #
-# Usage: provision-docker.sh [install|chaos]   (default: install)
+# Usage: provision-docker.sh [install|chaos|reprovision]   (default: install)
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -48,7 +48,14 @@ start_container() {
 # Run provision.sh in the container. Extra args after the release path.
 run_provision() {
   local rel="$1"; shift
-  docker cp "$PROV/dist/provision.sh" "$CID:/root/provision.sh"
+  run_provision_script "$PROV/dist/provision.sh" "$rel" "$@"
+}
+
+# Like run_provision but with an explicit provision.sh path (e.g. a second build
+# at a bumped SCRIPT_VERSION, to exercise the re-provision/update path).
+run_provision_script() {
+  local prov="$1" rel="$2"; shift 2
+  docker cp "$prov" "$CID:/root/provision.sh"
   docker cp "$rel" "$CID:/root/release.tar.gz"
   docker exec ${DIE_AFTER:+-e HIVE_TEST_DIE_AFTER=$DIE_AFTER} "$CID" \
     bash /root/provision.sh \
@@ -116,8 +123,37 @@ mode_chaos() {
   log "PASS (chaos/resume)"
 }
 
+# Install, then re-run a build at a bumped SCRIPT_VERSION against the same box:
+# the version bump wipes step markers, so probe_env re-runs — it must recognize
+# our own install (via the durable marker) and resume instead of dying
+# EXISTING_INSTALL.
+mode_reprovision() {
+  local rel; rel="$(build_artifacts)"
+  build_image; start_container
+  log "Run 1: full install (v $VERSION)"
+  run_provision "$rel" | tail -3
+  assert_healthy
+
+  log "Run 2: re-provision with a bumped SCRIPT_VERSION (simulates an app update)"
+  local prov2="$PROV/dist/provision-v2.sh"
+  bash "$PROV/build.sh" "9.9.9-test" >/dev/null
+  cp "$PROV/dist/provision.sh" "$prov2"
+  local out
+  out="$(run_provision_script "$prov2" "$rel" 2>&1)" || {
+    echo "$out"; echo "FAIL: re-provision errored"; return 1;
+  }
+  if grep -q '"errorCode":"EXISTING_INSTALL"' <<<"$out"; then
+    echo "FAIL: re-provision hit EXISTING_INSTALL"; echo "$out"; return 1
+  fi
+  grep -q '"event":"run_end","status":"ok"' <<<"$out" \
+    || { echo "FAIL: re-provision did not finish ok"; echo "$out"; return 1; }
+  assert_healthy
+  log "PASS (re-provision after version bump)"
+}
+
 case "$MODE" in
-  install) mode_install ;;
-  chaos)   mode_chaos ;;
-  *) echo "usage: $0 [install|chaos]"; exit 2 ;;
+  install)     mode_install ;;
+  chaos)       mode_chaos ;;
+  reprovision) mode_reprovision ;;
+  *) echo "usage: $0 [install|chaos|reprovision]"; exit 2 ;;
 esac

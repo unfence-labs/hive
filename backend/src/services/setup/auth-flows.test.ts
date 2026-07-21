@@ -8,11 +8,20 @@ import type { InstallerDeps, RunCommand } from "./installers/command.js";
 describe("isValidClaudeToken", () => {
   it("accepts a well-formed OAuth token", () => {
     expect(isValidClaudeToken("sk-ant-oat01-abc123")).toBe(true);
+    expect(isValidClaudeToken("sk-ant-oat01-" + "a".repeat(95))).toBe(true);
+    expect(isValidClaudeToken("sk-ant-oat01-Ab_9-Xy")).toBe(true);
   });
   it("rejects a bad prefix or empty body", () => {
     expect(isValidClaudeToken("nope")).toBe(false);
     expect(isValidClaudeToken("sk-ant-oat01-")).toBe(false);
     expect(isValidClaudeToken("")).toBe(false);
+  });
+  it("rejects tokens with characters outside the token alphabet", () => {
+    // A newline would inject a second line into the systemd EnvironmentFile.
+    expect(isValidClaudeToken("sk-ant-oat01-abc\nNODE_OPTIONS=x")).toBe(false);
+    expect(isValidClaudeToken("sk-ant-oat01-abc def")).toBe(false);
+    expect(isValidClaudeToken("sk-ant-oat01-a;b")).toBe(false);
+    expect(isValidClaudeToken("sk-ant-oat01-a$b")).toBe(false);
   });
 });
 
@@ -43,11 +52,13 @@ describe("makeClaudeTokenWriter", () => {
     // the temp dir, emulating the privileged write-claude-token.sh.
     const envFile = join(helpersDir, "hive.env");
     const helperPath = join(helpersDir, "write-claude-token.sh");
+    // The token arrives on stdin (never argv) — the helper reads it with `read`.
     await writeFile(
       helperPath,
       `#!/usr/bin/env bash
 set -eu
-printf 'CLAUDE_CODE_OAUTH_TOKEN=%s\\n' "$1" > "${envFile}"
+IFS= read -r token || true
+printf 'CLAUDE_CODE_OAUTH_TOKEN=%s\\n' "$token" > "${envFile}"
 chmod 600 "${envFile}"
 `,
       "utf-8",
@@ -55,24 +66,28 @@ chmod 600 "${envFile}"
     await chmod(helperPath, 0o755);
 
     // Run without `sudo` in the test (no privileges needed for the temp dir):
-    // strip a leading "sudo " so the helper executes directly.
-    const run: RunCommand = async (command) => {
+    // strip a leading "sudo " so the helper executes directly. Assert the token
+    // is never present in the command line (argv) and pipe stdin to the child.
+    let capturedCommand = "";
+    const run: RunCommand = async (command, opts) => {
+      capturedCommand = command;
       const cmd = command.replace(/^sudo\s+/, "");
-      const { execFile } = await import("node:child_process");
-      const { promisify } = await import("node:util");
-      const exec = promisify(execFile);
-      try {
-        const { stdout, stderr } = await exec("/bin/sh", ["-c", cmd]);
-        return { stdout, stderr, exitCode: 0 };
-      } catch (err) {
-        const e = err as { stdout?: string; stderr?: string; code?: number };
-        return { stdout: e.stdout ?? "", stderr: e.stderr ?? String(err), exitCode: e.code ?? 1 };
-      }
+      const { spawn } = await import("node:child_process");
+      return await new Promise((resolve) => {
+        const child = spawn("/bin/sh", ["-c", cmd]);
+        let stdout = "";
+        let stderr = "";
+        child.stdout.on("data", (d) => (stdout += d.toString()));
+        child.stderr.on("data", (d) => (stderr += d.toString()));
+        child.on("close", (code) => resolve({ stdout, stderr, exitCode: code ?? 1 }));
+        child.stdin.end(opts?.stdin ?? "");
+      });
     };
 
     const writer = makeClaudeTokenWriter(deps(run));
     const result = await writer("sk-ant-oat01-secret42");
     expect(result).toEqual({ persisted: true });
+    expect(capturedCommand).not.toContain("secret42");
 
     const written = await readFile(envFile, "utf-8");
     expect(written.trim()).toBe("CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-secret42");

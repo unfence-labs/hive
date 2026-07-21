@@ -164,6 +164,81 @@ describe("runOperation", () => {
   });
 });
 
+describe("runOperation concurrency & failure persistence", () => {
+  it("serializes appendLog so seq stays unique and contiguous under concurrency", async () => {
+    const op = await createOperation("guided-setup", steps("a"), dataDir);
+    await Promise.all(
+      Array.from({ length: 20 }, (_, i) =>
+        appendLog(op.id, { stepId: "a", line: `line-${i}` }, dataDir),
+      ),
+    );
+    const all = await readLogSince(op.id, -1, dataDir);
+    const seqs = all.map((l) => l.seq);
+    expect(seqs).toEqual(Array.from({ length: 20 }, (_, i) => i));
+    expect(new Set(seqs).size).toBe(20);
+  });
+
+  it("lets only one of two overlapping runs execute the step (run-start TOCTOU)", async () => {
+    let ran = 0;
+    const slow: RunnableStep = {
+      id: "a",
+      title: "a",
+      fn: async () => {
+        ran += 1;
+        await new Promise((r) => setTimeout(r, 40));
+      },
+    };
+    const first = await createOperation("guided-setup", steps("a"), dataDir);
+    const second = await createOperation("guided-setup", steps("a"), dataDir);
+
+    const results = await Promise.allSettled([
+      runOperation(first.id, [slow], dataDir),
+      runOperation(second.id, [slow], dataDir),
+    ]);
+
+    const fulfilled = results.filter((r) => r.status === "fulfilled");
+    const rejected = results.filter((r) => r.status === "rejected");
+    expect(fulfilled).toHaveLength(1);
+    expect(rejected).toHaveLength(1);
+    expect((rejected[0] as PromiseRejectedResult).reason).toBeInstanceOf(
+      ConcurrentOperationError,
+    );
+    expect(ran).toBe(1);
+  });
+
+  it("clears a stale interactive action when a step is retried", async () => {
+    const op = await createOperation("guided-setup", steps("a"), dataDir);
+    const setActionThenFail: RunnableStep = {
+      id: "a",
+      title: "a",
+      fn: async (_emit, ctx) => {
+        await ctx.setAction({ kind: "open_url_with_code", url: "https://x", code: "OLD-CODE" });
+        throw new StepError("DEVICE_CODE_EXPIRED", "expired");
+      },
+    };
+    await runOperation(op.id, [setActionThenFail], dataDir);
+    let loaded = await getOperation(op.id, dataDir);
+    expect(loaded?.steps[0].action).toBeDefined();
+
+    // Retry: the stale action must be gone before/while the retry runs.
+    await runOperation(op.id, [okStep("a")], dataDir);
+    loaded = await getOperation(op.id, dataDir);
+    expect(loaded?.steps[0].status).toBe("succeeded");
+    expect(loaded?.steps[0].action).toBeUndefined();
+  });
+
+  it("persists a terminal failed state on an unexpected (non-step) error, never leaving it pending", async () => {
+    const op = await createOperation("guided-setup", steps("a"), dataDir);
+    // A runnable step whose id is not part of the operation forces updateStep to
+    // throw at step-start (outside the per-step try) — an unexpected error.
+    await expect(
+      runOperation(op.id, [okStep("not-a-real-step")], dataDir),
+    ).rejects.toBeTruthy();
+    const after = await getOperation(op.id, dataDir);
+    expect(after?.status).toBe("failed");
+  });
+});
+
 /** Helper: mark an op running without a runner finishing it (fresh heartbeat). */
 async function runOperationLeaveRunning(id: string, dir: string): Promise<void> {
   const op = await getOperation(id, dir);

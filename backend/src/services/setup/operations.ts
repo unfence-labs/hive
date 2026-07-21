@@ -10,6 +10,26 @@ import type {
 } from "@hive/shared/setup-types";
 import type { SetupErrorCode } from "@hive/shared/setup-errors";
 import { getDataDir, writeJsonAtomic } from "../../state/state.js";
+import { withKeyedLock } from "../../utils/async-lock.js";
+
+/**
+ * Per-operation write lock. Every read-modify-write of an operation's
+ * state.json / log.jsonl serializes on its id so the heartbeat, step
+ * transitions, setAction, and appendLog cannot clobber each other's writes or
+ * collide on log seq. Read-only helpers stay lock-free. NOT reentrant: a locked
+ * mutator must never call another locked mutator for the same key.
+ */
+const operationLocks = new Map<string, Promise<void>>();
+function withOperationLock<T>(
+  dataDir: string,
+  id: string,
+  fn: () => Promise<T>,
+): Promise<T> {
+  return withKeyedLock(operationLocks, `${dataDir}::${id}`, fn);
+}
+
+/** Dedicated key serializing the run-start check-then-set-running transition. */
+const RUN_GATE_KEY = "run-gate";
 
 /**
  * Durable multi-step setup operation engine (§6.1). Each operation lives under
@@ -200,17 +220,19 @@ export async function appendLog(
   line: { stepId: string; stream?: SetupLogLine["stream"]; line: string; ts?: string },
   dataDir: string = getDataDir(),
 ): Promise<SetupLogLine> {
-  await mkdir(opDir(dataDir, id), { recursive: true });
-  const seq = await nextSeq(dataDir, id);
-  const entry: SetupLogLine = {
-    seq,
-    ts: line.ts ?? nowIso(),
-    stepId: line.stepId,
-    stream: line.stream ?? "system",
-    line: line.line,
-  };
-  await appendFile(logPath(dataDir, id), JSON.stringify(entry) + "\n", "utf-8");
-  return entry;
+  return withOperationLock(dataDir, id, async () => {
+    await mkdir(opDir(dataDir, id), { recursive: true });
+    const seq = await nextSeq(dataDir, id);
+    const entry: SetupLogLine = {
+      seq,
+      ts: line.ts ?? nowIso(),
+      stepId: line.stepId,
+      stream: line.stream ?? "system",
+      line: line.line,
+    };
+    await appendFile(logPath(dataDir, id), JSON.stringify(entry) + "\n", "utf-8");
+    return entry;
+  });
 }
 
 /** Read log lines with seq strictly greater than `since`. */
@@ -230,13 +252,15 @@ export async function updateStep(
   patch: Partial<SetupStep>,
   dataDir: string = getDataDir(),
 ): Promise<SetupOperation> {
-  const op = await getOperation(id, dataDir);
-  if (!op) throw new Error(`Operation ${id} not found`);
-  const idx = op.steps.findIndex((s) => s.id === stepId);
-  if (idx === -1) throw new Error(`Step ${stepId} not found in operation ${id}`);
-  op.steps[idx] = { ...op.steps[idx], ...patch };
-  await writeState(dataDir, op);
-  return op;
+  return withOperationLock(dataDir, id, async () => {
+    const op = await getOperation(id, dataDir);
+    if (!op) throw new Error(`Operation ${id} not found`);
+    const idx = op.steps.findIndex((s) => s.id === stepId);
+    if (idx === -1) throw new Error(`Step ${stepId} not found in operation ${id}`);
+    op.steps[idx] = { ...op.steps[idx], ...patch };
+    await writeState(dataDir, op);
+    return op;
+  });
 }
 
 async function patchOperation(
@@ -244,11 +268,13 @@ async function patchOperation(
   id: string,
   patch: Partial<SetupOperation>,
 ): Promise<SetupOperation> {
-  const op = await getOperation(id, dataDir);
-  if (!op) throw new Error(`Operation ${id} not found`);
-  const next = { ...op, ...patch };
-  await writeState(dataDir, next);
-  return next;
+  return withOperationLock(dataDir, id, async () => {
+    const op = await getOperation(id, dataDir);
+    if (!op) throw new Error(`Operation ${id} not found`);
+    const next = { ...op, ...patch };
+    await writeState(dataDir, next);
+    return next;
+  });
 }
 
 /**
@@ -287,12 +313,33 @@ export async function runOperation(
   const op = await getOperation(id, dataDir);
   if (!op) throw new Error(`Operation ${id} not found`);
 
-  const otherRunning = await findRunningOperation(op.kind, steps.map((s) => s.id), dataDir);
-  if (otherRunning && otherRunning !== id) {
-    throw new ConcurrentOperationError(op.kind, otherRunning);
+  // Close the check-then-set-running TOCTOU: serialize the guard and the status
+  // flip under one gate so two overlapping runs cannot both start.
+  try {
+    await withOperationLock(dataDir, RUN_GATE_KEY, async () => {
+      const current = await getOperation(id, dataDir);
+      if (current?.status === "running") {
+        throw new ConcurrentOperationError(op.kind, id);
+      }
+      const otherRunning = await findRunningOperation(op.kind, steps.map((s) => s.id), dataDir);
+      if (otherRunning && otherRunning !== id) {
+        throw new ConcurrentOperationError(op.kind, otherRunning);
+      }
+      await patchOperation(dataDir, id, { status: "running", heartbeatAt: nowIso() });
+    });
+  } catch (err) {
+    // A concurrency rejection means the op never started — leave its state as is.
+    // Any other error (disk, corrupt state) must not leave the op stuck pending.
+    if (!(err instanceof ConcurrentOperationError)) {
+      await patchOperation(dataDir, id, {
+        status: "failed",
+        finishedAt: nowIso(),
+      }).catch(() => {
+        /* best-effort */
+      });
+    }
+    throw err;
   }
-
-  await patchOperation(dataDir, id, { status: "running", heartbeatAt: nowIso() });
 
   const heartbeat = setInterval(() => {
     void patchOperation(dataDir, id, { heartbeatAt: nowIso() }).catch(() => {
@@ -318,6 +365,9 @@ export async function runOperation(
           attempts: (stepState?.attempts ?? 0) + 1,
           error: undefined,
           finishedAt: undefined,
+          // Clear any prior attempt's device code/URL so the polling client does
+          // not keep rendering a now-expired action while the retry runs.
+          action: undefined,
         },
         dataDir,
       );
@@ -383,6 +433,18 @@ export async function runOperation(
       heartbeatAt: nowIso(),
       finishedAt: nowIso(),
     });
+  } catch (err) {
+    // A step's own failure is handled in the loop (it returns a failed op). This
+    // catches an unexpected error outside a step (disk, corrupt state) so the op
+    // never remains stuck at running/pending with no terminal state.
+    await patchOperation(dataDir, id, {
+      status: "failed",
+      heartbeatAt: nowIso(),
+      finishedAt: nowIso(),
+    }).catch(() => {
+      /* best-effort */
+    });
+    throw err;
   } finally {
     clearInterval(heartbeat);
   }
