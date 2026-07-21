@@ -12,7 +12,7 @@ describe("switchServer", () => {
 
   it("probes with the proposed token before replacing the connection", async () => {
     const disconnect = vi.spyOn(wsTransport, "disconnectAll");
-    const clear = vi.spyOn(queryClient, "clear");
+    const reset = vi.spyOn(queryClient, "resetQueries");
     const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response("[]", { status: 200, headers: { "Content-Type": "application/json" } }),
     );
@@ -27,7 +27,7 @@ describe("switchServer", () => {
       expect.objectContaining({ headers: { Authorization: "Bearer token" } }),
     );
     expect(disconnect).toHaveBeenCalledOnce();
-    expect(clear).toHaveBeenCalledOnce();
+    expect(reset).toHaveBeenCalledOnce();
     expect(getConnection()).toMatchObject({ host: "100.64.0.10", authToken: "token" });
   });
 

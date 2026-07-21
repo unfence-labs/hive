@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { getServerUrl } from "./useServerUrl";
 
 export type ConnectionStatus = "unknown" | "connected" | "disconnected";
@@ -22,6 +22,7 @@ async function checkHealth(): Promise<HealthResult> {
 }
 
 export function useConnectionStatus() {
+  const queryClient = useQueryClient();
   const query = useQuery({
     queryKey: ["health"],
     queryFn: checkHealth,
@@ -33,6 +34,6 @@ export function useConnectionStatus() {
   return {
     status: query.data?.status ?? ("unknown" as ConnectionStatus),
     backendEnv: query.data?.backendEnv ?? null,
-    check: () => query.refetch(),
+    check: () => queryClient.refetchQueries({ queryKey: ["health"] }),
   };
 }

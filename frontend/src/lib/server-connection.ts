@@ -66,5 +66,7 @@ export async function switchServer(
 
   replaceConnection(connection);
   wsTransport.disconnectAll();
-  queryClient.clear();
+  // Not clear(): mounted observers (e.g. the health badge) are not refetched
+  // after a cache teardown and would freeze on their pending state.
+  await queryClient.resetQueries();
 }
