@@ -56,7 +56,11 @@ export class StreamParser extends EventEmitter<StreamParserEvent> {
       return;
     }
 
-    // Handle CLI-internal events before narrowing to CliJsonLine
+    // Handle non-conversation events before narrowing to CliJsonLine
+    if (raw.type === "tool_progress") {
+      return;
+    }
+
     if (raw.type === "rate_limit_event") {
       const info = raw.rate_limit_info as {
         status?: string;
