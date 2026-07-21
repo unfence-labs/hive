@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import { ProvisioningScreen } from "@/pages/setup/screens/ProvisioningScreen";
 import { createMockProvisionClient } from "@/lib/provision-client";
 
-const params = { host: "1.2.3.4", keyPath: "/k", tailscaleAuthKey: "tskey-auth-x", authToken: "hive_x" };
+const params = { host: "1.2.3.4", keyPath: "/k", tailscaleAuthKey: "tskey-auth-x" };
 
 describe("ProvisioningScreen", () => {
   it("renders the checklist and completes on the happy path", async () => {

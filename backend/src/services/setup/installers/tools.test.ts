@@ -5,7 +5,6 @@ vi.mock("../detect.js", () => ({ detectTools: mocks.detectTools }));
 
 import {
   installGhStep,
-  installDockerStep,
   installClaudeStep,
   installCodexStep,
 } from "./tools.js";
@@ -107,11 +106,11 @@ describe("helper-backed installers", () => {
     expect(lines.some((l) => l.includes("privileged helpers unavailable"))).toBe(true);
   });
 
-  it("docker helper failure raises APT_FAILURE", async () => {
-    mocks.detectTools.mockResolvedValue({ docker: { installed: false } });
+  it("gh helper failure raises APT_FAILURE", async () => {
+    mocks.detectTools.mockResolvedValue({ gh: { installed: false } });
     const run = vi.fn<RunCommand>(async () => ({ stdout: "", stderr: "dpkg error", exitCode: 100 }));
     const d = deps({ run });
-    await expect(installDockerStep(d)(emit)).rejects.toBeInstanceOf(StepError);
-    await expect(installDockerStep(d)(emit)).rejects.toMatchObject({ code: "APT_FAILURE" });
+    await expect(installGhStep(d)(emit)).rejects.toBeInstanceOf(StepError);
+    await expect(installGhStep(d)(emit)).rejects.toMatchObject({ code: "APT_FAILURE" });
   });
 });

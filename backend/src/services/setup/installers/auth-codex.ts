@@ -25,7 +25,7 @@ export interface CodexAuthOptions {
 }
 
 /**
- * `auth_codex` step: drives `codex login --device-auth` in a PTY (§6.3).
+ * `auth_codex` step: drives `codex login --device-auth` in a PTY.
  *
  * - Guard: skip if codex already reports authenticated.
  * - Scrape the device URL (variants `/device` and `/codex/device` — do not

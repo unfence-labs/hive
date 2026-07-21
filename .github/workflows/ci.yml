@@ -37,6 +37,11 @@ jobs:
       - name: Build frontend
         run: npm run build --workspace=frontend
 
+      - name: Provision script (shellcheck + error-taxonomy contract)
+        run: |
+          bash scripts/provision/build.sh
+          bash test/provision/contract.sh
+
   ios:
     runs-on: macos-26
 

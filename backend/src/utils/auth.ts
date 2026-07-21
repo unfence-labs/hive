@@ -30,7 +30,7 @@ export function extractAuthToken(
 }
 
 /**
- * Auth expectation. Provisioned installs store the token hash-only (§5.5) via
+ * Auth expectation. Provisioned installs store the token hash-only via
  * `expectedTokenSha256`; legacy manual installs keep the plaintext `expectedToken`.
  * One mode per install, but both are accepted (a hash match still authorizes
  * when only the hash is configured).
@@ -106,6 +106,7 @@ export function isAllowedHostHeader(
 
 export function createHostGuardHook(extraAllowed: readonly string[] = []) {
   return async (req: FastifyRequest, reply: FastifyReply): Promise<void> => {
+    if (req.url.startsWith("/health")) return;
     if (isAllowedHostHeader(headerString(req.headers.host), extraAllowed)) return;
     reply.status(403).send({ error: "Forbidden host" });
   };

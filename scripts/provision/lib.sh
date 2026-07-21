@@ -1,6 +1,6 @@
 # shellcheck shell=bash
 # Hive provision framework: NDJSON emit, resumable step state, locking, traps.
-# Sourced by the built provision.sh. See docs/install-flow-implementation-plan.md 5.1.
+# Sourced by the built provision.sh.
 
 # -E (errtrace) is required: without it the ERR trap does not fire inside
 # functions, so a failing step would kill the run with no typed error event.
@@ -14,12 +14,11 @@ STATE_DIR="$HIVE_VAR_DIR/state"
 STATE_FILE="$HIVE_VAR_DIR/provision-state.json"
 LOG_FILE="${HIVE_LOG_FILE:-$HIVE_VAR_DIR/provision.log.ndjson}"
 LOCK_FILE="$HIVE_VAR_DIR/provision.lock"
-ENV_FILE="${HIVE_ENV_FILE:-$HIVE_VAR_DIR/provision.env}"
 
 # Error taxonomy — MUST stay identical to shared/setup-errors.ts (contract test).
 # shellcheck disable=SC2034  # read by the bash/TS contract test
 SETUP_ERROR_CODES="UNSUPPORTED_OS UNSUPPORTED_ARCH SERVER_NOT_PRISTINE EXISTING_INSTALL \
-APT_LOCK_TIMEOUT APT_FAILURE NETWORK CHECKSUM_MISMATCH TS_AUTHKEY_INVALID TS_DAEMON_DOWN \
+APT_FAILURE NETWORK CHECKSUM_MISMATCH TS_AUTHKEY_INVALID TS_DAEMON_DOWN \
 UFW_FAILURE RELEASE_DOWNLOAD_FAILED SERVICE_START_FAILED HEALTH_TIMEOUT SSH_AUTH_FAILED \
 SSH_HOST_KEY_CHANGED SSH_UNREACHABLE SSH_NO_ROOT CLAUDE_PASTEBACK_BROKEN DEVICE_CODE_EXPIRED \
 CODEX_DEVICE_AUTH_DISABLED GH_POLL_STUCK INTERRUPTED CONCURRENT_RUN UNKNOWN"
@@ -43,12 +42,10 @@ json_escape() {
   printf '%s' "$s"
 }
 
-now_ts() { date -u +%Y-%m-%dT%H:%M:%SZ; }
-
 emit() {
   # emit '<json body without braces>'
   SEQ=$((SEQ + 1))
-  printf '{"v":1,"seq":%d,"ts":"%s",%s}\n' "$SEQ" "$(now_ts)" "$1" | tee -a "$LOG_FILE"
+  printf '{"v":1,"seq":%d,"ts":"%s",%s}\n' "$SEQ" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$1" | tee -a "$LOG_FILE"
 }
 
 emit_run_start() {
@@ -78,10 +75,15 @@ emit_log() {
   emit_step "$1" log "$(printf '"line":"%s"' "$(json_escape "$2")")"
 }
 
-# Run a command, streaming each output line as a throttled NDJSON log event.
+# Run a command, streaming each output line as an NDJSON log event. Process
+# substitution keeps the read loop in this shell (SEQ must stay monotonic in
+# the parent); `wait $!` propagates the command's exit status to the ERR trap.
 run_logged() {
-  local id="$1"; shift
-  "$@" 2>&1 | while IFS= read -r line; do emit_log "$id" "${line:0:2000}"; done
+  local id="$1" line; shift
+  while IFS= read -r line || [ -n "$line" ]; do
+    emit_log "$id" "${line:0:2000}"
+  done < <("$@" 2>&1)
+  wait $!
 }
 
 # --- State (markers are the source of truth; state.json is a rendered view) ---
@@ -110,8 +112,8 @@ mark_step() {
 
 # --- Failure handling ---
 
-fail() {
-  # fail <errorCode> <message> [exitCode]
+die() {
+  # die <errorCode> <message> [exitCode]
   local code="$1" msg="$2" rc="${3:-1}"
   trap - ERR
   if [ -n "$CURRENT_STEP" ]; then
@@ -123,13 +125,11 @@ fail() {
   exit 1
 }
 
-die() { fail "$1" "$2" "${3:-1}"; }   # typed failure from within a step
-
 on_err() {
   # Include the exact failing command and line so unexpected failures are
   # debuggable from the error panel alone.
   local rc=$?
-  fail "${STEP_ERR_CODE:-UNKNOWN}" \
+  die "${STEP_ERR_CODE:-UNKNOWN}" \
     "step ${CURRENT_STEP:-?} failed (rc=$rc) at line ${BASH_LINENO[0]:-?}: ${BASH_COMMAND:-?}" "$rc"
 }
 
@@ -193,26 +193,17 @@ acquire_lock() {
   flock -n 9 || die CONCURRENT_RUN "another provision run holds the lock"
 }
 
-load_env_file() {
-  [ -f "$ENV_FILE" ] || return 0
-  set -a
-  # shellcheck source=/dev/null
-  . "$ENV_FILE"
-  set +a
-}
-
 bootstrap() {
   require_root
   mkdir -p "$HIVE_VAR_DIR" "$STATE_DIR"
   chmod 700 "$HIVE_VAR_DIR"
   : >>"$LOG_FILE"
   acquire_lock
-  load_env_file
   trap on_err ERR
 
   # A newer script version invalidates prior state (step semantics may change).
   if [ -f "$STATE_FILE" ] && ! grep -q "\"scriptVersion\": \"$SCRIPT_VERSION\"" "$STATE_FILE" 2>/dev/null; then
-    [ "${HIVE_KEEP_STATE:-}" = 1 ] || rm -f "$STATE_DIR"/* 2>/dev/null || true
+    rm -f "$STATE_DIR"/* 2>/dev/null || true
   fi
 
   RUN_ID="r-$(head -c4 /dev/urandom | od -An -tx1 | tr -d ' \n')"

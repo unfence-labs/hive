@@ -7,9 +7,8 @@ import type { SetupErrorCode } from "@hive/shared/setup-errors";
 
 interface ServerIpScreenProps {
   client: ProvisionClient;
-  keyPath: string;
   initialValue?: string;
-  onContinue: (ip: string, fingerprint: string, user?: string) => void;
+  onContinue: (ip: string, fingerprint: string, hostKeys: string[], user?: string) => void;
   onBack: () => void;
   onContinueLater: () => void;
   onError: (code: SetupErrorCode) => void;
@@ -34,7 +33,6 @@ export function looksLikeHost(value: string): boolean {
 
 export function ServerIpScreen({
   client,
-  keyPath,
   initialValue = "",
   onContinue,
   onBack,
@@ -48,12 +46,12 @@ export function ServerIpScreen({
     const { host, user } = parseHostInput(value);
     setChecking(true);
     try {
-      const result = await client.testConnection(host, keyPath);
+      const result = await client.testConnection(host);
       if ("error" in result) {
         onError(result.error);
         return;
       }
-      onContinue(host, result.fingerprint, user);
+      onContinue(host, result.fingerprint, result.keys, user);
     } catch {
       onError("SSH_UNREACHABLE");
     } finally {

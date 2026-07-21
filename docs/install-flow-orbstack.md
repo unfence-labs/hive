@@ -67,7 +67,8 @@ In the wizard:
 4. **Trust** — accept the host fingerprint.
 5. **Provisioning** — watch the checklist; provision.sh installs Node, the
    firewall, the release, and the systemd service, then reports healthy.
-6. The wizard connects to `http://<VM_IP>:3000` with the generated token.
+6. The wizard connects to `http://<VM_IP>:3000` (token-less v1: access is
+   gated by network reachability plus the backend's host-header guard).
 
 ## What works vs. what to expect
 

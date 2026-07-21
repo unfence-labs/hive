@@ -1,7 +1,7 @@
 # Tier-1 provision test target: Ubuntu 24.04 with systemd as PID 1.
-# Node + curl + jq are baked in so the tested run can use --skip-node and stay
-# offline; provision.sh exercises the full systemd spine (user, release, units,
-# service, health) in seconds. Run with:
+# Node + curl + jq are baked in so the tested run can use --skip-node;
+# provision.sh exercises the full systemd spine (user, release, units,
+# service, health). apt_baseline still hits the network. Run with:
 #   docker run --rm --privileged --cgroupns=host \
 #     -v /sys/fs/cgroup:/sys/fs/cgroup hive-provision-test
 FROM ubuntu:24.04

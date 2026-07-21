@@ -7,6 +7,7 @@ fn main() {
     let manifest = std::env::var("CARGO_MANIFEST_DIR").unwrap();
     let prov = Path::new(&manifest).join("../../scripts/provision");
     let parts = ["lib.sh", "steps.sh", "main.sh"];
+    println!("cargo:rerun-if-env-changed=HIVE_VERSION");
     let version = std::env::var("HIVE_VERSION").unwrap_or_else(|_| "0.0.0-dev".into());
 
     let mut out = String::new();

@@ -25,7 +25,7 @@ import { agentSettingsRoutes } from "./api/agents-settings.js";
 import { providerUsageRoutes } from "./api/provider-usage.js";
 import { stopProviderUsagePolling } from "./services/provider-usage.js";
 import { accountRoutes } from "./api/account.js";
-import { versionRoutes, buildVersionResponse } from "./api/version.js";
+import { getBackendVersion } from "./api/version.js";
 import { setupRoutes } from "./api/setup.js";
 import { reapStaleOperations } from "./services/setup/operations.js";
 import { scriptRoutes } from "./api/scripts.js";
@@ -330,7 +330,7 @@ export async function buildApp(opts: BuildAppOptions = {}) {
     return {
       status: "ok",
       env: process.env.NODE_ENV ?? "development",
-      version: buildVersionResponse(),
+      version: getBackendVersion(),
       system: {
         cpuPercent,
         memPercent: Math.round(((totalMem - freeMem) / totalMem) * 100),
@@ -362,7 +362,6 @@ export async function buildApp(opts: BuildAppOptions = {}) {
   await app.register((instance: FastifyInstance) => agentSettingsRoutes(instance));
   await app.register((instance: FastifyInstance) => providerUsageRoutes(instance));
   await app.register((instance: FastifyInstance) => accountRoutes(instance));
-  await app.register((instance: FastifyInstance) => versionRoutes(instance));
   await app.register((instance: FastifyInstance) => setupRoutes(instance));
   await app.register((instance: FastifyInstance) => scriptRoutes(instance));
   await app.register((instance: FastifyInstance) =>

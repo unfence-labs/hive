@@ -44,7 +44,7 @@ describe("SetupWizard", () => {
     );
     const client = createMockProvisionClient("happy");
     render(<SetupWizard client={client} />);
-    expect(screen.getByText("Do you have a server?")).toBeInTheDocument();
+    expect(screen.getByText("Get a server ready")).toBeInTheDocument();
   });
 
   it("validates the tailscale key before allowing continue", async () => {

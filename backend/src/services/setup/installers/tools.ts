@@ -11,7 +11,7 @@ import {
 } from "./command.js";
 
 /**
- * Non-interactive tool installers (§6.3). Each installer follows the same
+ * Non-interactive tool installers. Each installer follows the same
  * guard -> install -> verify shape:
  *
  *   1. guard: if `detect` already reports the tool installed, skip.
@@ -157,26 +157,6 @@ export function installGhStep(depsOverride?: InstallerDeps) {
       title: "Install GitHub CLI",
       run: (emit, deps) =>
         installViaHelper(emit, deps, "install-gh", "GitHub CLI", "APT_FAILURE"),
-    },
-    depsOverride,
-  );
-}
-
-/** Docker: root-required -> helper, with a rootless-config note. */
-export function installDockerStep(depsOverride?: InstallerDeps) {
-  return makeInstallerStep(
-    {
-      tool: "docker",
-      title: "Install Docker (rootless)",
-      run: (emit, deps) =>
-        installViaHelper(
-          emit,
-          deps,
-          "install-docker",
-          "Docker",
-          "APT_FAILURE",
-          "Docker configured for rootless operation under the service user.",
-        ),
     },
     depsOverride,
   );

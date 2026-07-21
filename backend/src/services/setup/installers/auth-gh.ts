@@ -33,7 +33,7 @@ async function defaultSetupGit(): Promise<void> {
 }
 
 /**
- * `auth_gh` step: drives `gh auth login --web` WITHOUT a TTY (§6.3).
+ * `auth_gh` step: drives `gh auth login --web` WITHOUT a TTY.
  *
  * Pipe mode is deliberate: with a TTY gh renders interactive prompts (git
  * credentials question, cursor-position queries) that stall a bare PTY, while

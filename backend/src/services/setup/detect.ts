@@ -9,13 +9,6 @@ const execFile = promisify(execFileCb);
 
 const PROBE_TIMEOUT_MS = 2_000;
 const CACHE_TTL_MS = 30_000;
-const NPM_REGISTRY_TIMEOUT_MS = 5_000;
-
-/** npm package for tools whose latest version is tracked via the npm registry. */
-const NPM_PACKAGES: Partial<Record<DetectableTool, string>> = {
-  claude: "@anthropic-ai/claude-code",
-  codex: "@openai/codex",
-};
 
 /** Tools where an `authenticated` state is cheaply detectable. */
 const AUTH_TOOLS: DetectableTool[] = ["claude", "codex", "gh", "tailscale"];
@@ -102,38 +95,6 @@ async function detectAuthenticated(tool: DetectableTool): Promise<boolean | unde
   }
 }
 
-async function fetchLatestNpmVersion(packageName: string): Promise<string | null> {
-  if (!packageName) return null;
-  try {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), NPM_REGISTRY_TIMEOUT_MS);
-    const res = await fetch(`https://registry.npmjs.org/${packageName}/latest`, {
-      signal: controller.signal,
-    });
-    clearTimeout(timer);
-    if (!res.ok) return null;
-    const data = (await res.json()) as { version?: string };
-    return data.version ?? null;
-  } catch {
-    return null;
-  }
-}
-
-/** true if `latest` > `installed`, comparing numeric segments only. */
-function isNewerVersion(installed: string, latest: string): boolean {
-  const iParts = installed.split(".").map(Number);
-  const lParts = latest.split(".").map(Number);
-  const len = Math.max(iParts.length, lParts.length);
-  for (let i = 0; i < len; i++) {
-    const a = iParts[i] ?? 0;
-    const b = lParts[i] ?? 0;
-    if (Number.isNaN(a) || Number.isNaN(b)) return false;
-    if (b > a) return true;
-    if (a > b) return false;
-  }
-  return false;
-}
-
 async function probeTool(spec: ProbeSpec): Promise<ToolDetection> {
   const exists = await commandExists(spec.command);
   if (!exists) return { installed: false };
@@ -156,24 +117,14 @@ async function probeTool(spec: ProbeSpec): Promise<ToolDetection> {
     if (authenticated !== undefined) detection.authenticated = authenticated;
   }
 
-  const npmPackage = NPM_PACKAGES[spec.tool];
-  if (npmPackage) {
-    const latestVersion = await fetchLatestNpmVersion(npmPackage);
-    if (latestVersion) {
-      detection.latestVersion = latestVersion;
-      detection.updateAvailable = version ? isNewerVersion(version, latestVersion) : false;
-    }
-  }
-
   return detection;
 }
 
 let cache: { at: number; result: Partial<Record<DetectableTool, ToolDetection>> } | null = null;
 
 /**
- * Detect the presence, version, auth state, and available updates of the setup
- * tool suite (§6.2). Probes run in parallel with a ~2s timeout each; the result
- * is cached ~30s.
+ * Detect the presence, version, and auth state of the setup tool suite.
+ * Probes run in parallel with a ~2s timeout each; the result is cached ~30s.
  */
 export async function detectTools(
   options: { force?: boolean } = {},

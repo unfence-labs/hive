@@ -11,7 +11,7 @@ interface ErrorPanelProps {
 }
 
 /**
- * Global error panel (§9): shows the step, error code, taxonomy hint, an
+ * Global error panel: shows the step, error code, taxonomy hint, an
  * optional log excerpt, and a Retry action.
  */
 export function ErrorPanel({ error, onRetry, onDismiss, retrying }: ErrorPanelProps) {

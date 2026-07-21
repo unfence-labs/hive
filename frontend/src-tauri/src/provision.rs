@@ -1,16 +1,15 @@
 // SSH sidecar that drives provision.sh on the target server. Uses the system
-// OpenSSH binary (per the amended design) so agent-held keys, ~/.ssh/config and
-// two decades of sshd compatibility come for free. Secrets are streamed over
-// stdin (never argv); progress NDJSON is forwarded to the frontend on a Channel.
+// OpenSSH binary so agent-held keys, ~/.ssh/config and two decades of sshd
+// compatibility come for free. Secrets are streamed over stdin (never argv);
+// progress NDJSON is forwarded to the frontend on a Channel.
 
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::PathBuf;
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::{Arc, Mutex};
 use tauri::ipc::Channel;
-use tauri::{Manager, State};
+use tauri::State;
 
 const PROVISION_SH: &str = include_str!(concat!(env!("OUT_DIR"), "/provision.sh"));
 
@@ -21,8 +20,7 @@ pub struct SshKey {
     label: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     r#type: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    encrypted: Option<bool>,
+    encrypted: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     public_key: Option<String>,
 }
@@ -37,8 +35,6 @@ pub struct ProvisionParams {
     key_path: String,
     #[serde(default)]
     tailscale_auth_key: String,
-    #[serde(default)]
-    auth_token: String,
     #[serde(default)]
     port: Option<u16>,
     /// Explicit tailnet-vs-local choice; defaults to "skip when no auth key"
@@ -62,6 +58,16 @@ impl ProvisionParams {
     }
 }
 
+/// A host string starting with "-" would be parsed as an ssh/scp/keyscan
+/// option (-oProxyCommand=… is a local-code-exec vector).
+fn validate_host(host: &str) -> Result<(), String> {
+    let h = host.trim();
+    if h.is_empty() || h.starts_with('-') {
+        return Err("SSH_UNREACHABLE: invalid host".into());
+    }
+    Ok(())
+}
+
 /// Non-root users run the remote script through passwordless sudo.
 fn sudo_prefix(user: &str) -> &'static str {
     if user == "root" { "" } else { "sudo -n " }
@@ -74,7 +80,9 @@ fn known_hosts_path() -> PathBuf {
     dir.join("known_hosts")
 }
 
-fn ssh_common_args(key_path: &str, user: &str) -> Vec<String> {
+/// Options shared by ssh and scp invocations (scp takes no -l; the user goes
+/// into its destination spec instead).
+fn ssh_opts(key_path: &str) -> Vec<String> {
     vec![
         "-o".into(), "BatchMode=yes".into(),
         "-o".into(), "ConnectTimeout=15".into(),
@@ -83,8 +91,14 @@ fn ssh_common_args(key_path: &str, user: &str) -> Vec<String> {
         // config dir ("Application Support") contains a space.
         "-o".into(), format!("UserKnownHostsFile=\"{}\"", known_hosts_path().display()),
         "-i".into(), key_path.to_string(),
-        "-l".into(), user.to_string(),
     ]
+}
+
+fn ssh_common_args(key_path: &str, user: &str) -> Vec<String> {
+    let mut args = ssh_opts(key_path);
+    args.push("-l".into());
+    args.push(user.to_string());
+    args
 }
 
 /// Map ssh stderr to a shared SetupErrorCode string.
@@ -99,10 +113,6 @@ fn ssh_error_code(stderr: &str) -> &'static str {
         "SSH_NO_ROOT"
     } else if s.contains("permission denied") || s.contains("no matching") || s.contains("authentication") {
         "SSH_AUTH_FAILED"
-    } else if s.contains("connection refused") || s.contains("timed out") || s.contains("could not resolve")
-        || s.contains("no route to host") || s.contains("connection timed out")
-    {
-        "SSH_UNREACHABLE"
     } else {
         "SSH_UNREACHABLE"
     }
@@ -111,7 +121,13 @@ fn ssh_error_code(stderr: &str) -> &'static str {
 // ── list_keys ────────────────────────────────────────────────────────────────
 
 #[tauri::command]
-pub fn provision_list_keys() -> Vec<SshKey> {
+pub async fn provision_list_keys() -> Vec<SshKey> {
+    tauri::async_runtime::spawn_blocking(list_keys_blocking)
+        .await
+        .unwrap_or_default()
+}
+
+fn list_keys_blocking() -> Vec<SshKey> {
     let mut keys = Vec::new();
     let Some(home) = dirs::home_dir() else { return keys };
     let ssh_dir = home.join(".ssh");
@@ -145,14 +161,14 @@ pub fn provision_list_keys() -> Vec<SshKey> {
             Ok(o) if o.status.success() => {
                 let pk = String::from_utf8_lossy(&o.stdout).trim().to_string();
                 let ty = pk.split_whitespace().next().map(map_key_type);
-                (Some(false), Some(pk), ty)
+                (false, Some(pk), ty)
             }
             _ => {
                 // Failed with empty passphrase → most likely encrypted.
                 let ty = std::fs::read_to_string(ssh_dir.join(format!("{name}.pub")))
                     .ok()
                     .and_then(|p| p.split_whitespace().next().map(map_key_type));
-                (Some(true), None, ty)
+                (true, None, ty)
             }
         };
         keys.push(SshKey {
@@ -177,34 +193,50 @@ fn map_key_type(algo: &str) -> String {
     }
 }
 
-// ── test_connection ──────────────────────────────────────────────────────────
+// ── test_connection / trust_host (TOFU) ──────────────────────────────────────
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TestConnectionResult {
     #[serde(skip_serializing_if = "Option::is_none")]
     fingerprint: Option<String>,
+    /// Raw ssh-keyscan lines the fingerprint was computed from. The frontend
+    /// passes these back to trust_host so the exact keys the user approved are
+    /// the ones written to known_hosts (no second scan, no TOCTOU window).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    keys: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<String>,
 }
 
+impl TestConnectionResult {
+    fn err(code: &str) -> Self {
+        Self { fingerprint: None, keys: None, error: Some(code.into()) }
+    }
+}
+
+fn keyscan(host: &str) -> Result<Vec<u8>, TestConnectionResult> {
+    let scan = Command::new("ssh-keyscan")
+        .args(["-T", "10", "-t", "ed25519,rsa,ecdsa", host])
+        .output();
+    match scan {
+        Ok(o) if !o.stdout.is_empty() => Ok(o.stdout),
+        Ok(o) => Err(TestConnectionResult::err(ssh_error_code(&String::from_utf8_lossy(&o.stderr)))),
+        Err(_) => Err(TestConnectionResult::err("SSH_UNREACHABLE")),
+    }
+}
+
 #[tauri::command]
-pub async fn provision_test_connection(host: String, _key_path: String) -> TestConnectionResult {
+pub async fn provision_test_connection(host: String) -> TestConnectionResult {
+    if validate_host(&host).is_err() {
+        return TestConnectionResult::err("SSH_UNREACHABLE");
+    }
     tauri::async_runtime::spawn_blocking(move || {
         // ssh-keyscan fetches the host key without needing prior trust; piping it
         // through ssh-keygen -lf yields the SHA256 fingerprint for the TOFU dialog.
-        let scan = Command::new("ssh-keyscan")
-            .args(["-T", "10", "-t", "ed25519,rsa,ecdsa", &host])
-            .output();
-        let scan = match scan {
-            Ok(o) if !o.stdout.is_empty() => o.stdout,
-            Ok(o) => {
-                return TestConnectionResult {
-                    fingerprint: None,
-                    error: Some(ssh_error_code(&String::from_utf8_lossy(&o.stderr)).into()),
-                }
-            }
-            Err(_) => return TestConnectionResult { fingerprint: None, error: Some("SSH_UNREACHABLE".into()) },
+        let scan = match keyscan(&host) {
+            Ok(s) => s,
+            Err(e) => return e,
         };
 
         let mut kg = match Command::new("ssh-keygen")
@@ -214,7 +246,7 @@ pub async fn provision_test_connection(host: String, _key_path: String) -> TestC
             .spawn()
         {
             Ok(c) => c,
-            Err(_) => return TestConnectionResult { fingerprint: None, error: Some("UNKNOWN".into()) },
+            Err(_) => return TestConnectionResult::err("UNKNOWN"),
         };
         if let Some(mut si) = kg.stdin.take() {
             let _ = si.write_all(&scan);
@@ -225,40 +257,52 @@ pub async fn provision_test_connection(host: String, _key_path: String) -> TestC
             .and_then(|s| s.lines().next().map(|l| l.to_string()))
             .and_then(|line| line.split_whitespace().nth(1).map(|s| s.to_string()));
         match fp {
-            Some(f) => TestConnectionResult { fingerprint: Some(f), error: None },
-            None => TestConnectionResult { fingerprint: None, error: Some("UNKNOWN".into()) },
+            Some(f) => TestConnectionResult {
+                fingerprint: Some(f),
+                keys: Some(
+                    String::from_utf8_lossy(&scan)
+                        .lines()
+                        .filter(|l| !l.trim().is_empty())
+                        .map(|l| l.to_string())
+                        .collect(),
+                ),
+                error: None,
+            },
+            None => TestConnectionResult::err("UNKNOWN"),
         }
     })
     .await
-    .unwrap_or(TestConnectionResult { fingerprint: None, error: Some("UNKNOWN".into()) })
+    .unwrap_or_else(|_| TestConnectionResult::err("UNKNOWN"))
 }
 
-// ── trust_host ───────────────────────────────────────────────────────────────
-
+/// Append host keys to the app-owned known_hosts. When `keys` is present these
+/// are the exact lines the user approved in the TOFU dialog; when absent (e.g.
+/// trusting the tailnet IP of a server we just provisioned) the host is scanned.
 #[tauri::command]
-pub async fn provision_trust_host(host: String) -> Result<(), String> {
+pub async fn provision_trust_host(host: String, keys: Option<Vec<String>>) -> Result<(), String> {
+    validate_host(&host)?;
     tauri::async_runtime::spawn_blocking(move || {
-        let scan = Command::new("ssh-keyscan")
-            .args(["-T", "10", "-t", "ed25519,rsa,ecdsa", &host])
-            .output()
-            .map_err(|e| e.to_string())?;
-        if scan.stdout.is_empty() {
-            return Err("SSH_UNREACHABLE".into());
-        }
+        let lines = match keys {
+            Some(k) if !k.is_empty() => k.join("\n") + "\n",
+            _ => {
+                let scan = keyscan(&host).map_err(|e| e.error.unwrap_or_else(|| "UNKNOWN".into()))?;
+                String::from_utf8_lossy(&scan).to_string()
+            }
+        };
         let kh = known_hosts_path();
         let mut f = std::fs::OpenOptions::new()
             .create(true)
             .append(true)
             .open(&kh)
             .map_err(|e| e.to_string())?;
-        f.write_all(&scan.stdout).map_err(|e| e.to_string())?;
+        f.write_all(lines.as_bytes()).map_err(|e| e.to_string())?;
         Ok(())
     })
     .await
     .map_err(|e| e.to_string())?
 }
 
-// ── start / resume provision ─────────────────────────────────────────────────
+// ── start provision ──────────────────────────────────────────────────────────
 
 const HIVE_VERSION: &str = match option_env!("HIVE_VERSION") {
     Some(v) => v,
@@ -266,9 +310,9 @@ const HIVE_VERSION: &str = match option_env!("HIVE_VERSION") {
 };
 
 /// Resolve the backend tarball to push over SSH: HIVE_DEV_RELEASE_TARBALL
-/// wins, then a locally built dist-release/ (make release-tarball), then the
-/// tarball bundled with the app (production installs and updates).
-fn release_tarball(resource_dir: Option<&std::path::Path>, arch: &str) -> Option<PathBuf> {
+/// wins, then a locally built dist-release/ (make release-tarball). Without a
+/// tarball the server downloads the release from GitHub itself.
+fn release_tarball(arch: &str) -> Option<PathBuf> {
     if let Ok(p) = std::env::var("HIVE_DEV_RELEASE_TARBALL") {
         return Some(PathBuf::from(p));
     }
@@ -276,11 +320,7 @@ fn release_tarball(resource_dir: Option<&std::path::Path>, arch: &str) -> Option
     let dev = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../dist-release")
         .join(&name);
-    if dev.exists() {
-        return Some(dev);
-    }
-    let res = resource_dir?.join("release").join(&name);
-    res.exists().then_some(res)
+    dev.exists().then_some(dev)
 }
 
 /// `uname -m` on the server, mapped to the release arch tags.
@@ -321,29 +361,14 @@ fn provision_args(params: &ProvisionParams, has_tarball: bool) -> Vec<String> {
 }
 
 fn env_prelude(params: &ProvisionParams) -> String {
-    let mut s = String::new();
-    // v1 installs are token-less; the hash is only provisioned when a token is
-    // explicitly supplied (legacy / future v2 flows).
-    if !params.auth_token.trim().is_empty() {
-        let hash = {
-            let mut h = Sha256::new();
-            h.update(params.auth_token.as_bytes());
-            hex(&h.finalize())
-        };
-        s.push_str(&format!("export HIVE_AUTH_TOKEN_SHA256='{hash}'\n"));
+    if params.tailscale_auth_key.trim().is_empty() {
+        return String::new();
     }
-    if !params.tailscale_auth_key.trim().is_empty() {
-        s.push_str(&format!("export TS_AUTHKEY='{}'\n", shell_single_quote(&params.tailscale_auth_key)));
-    }
-    s
-}
-
-fn hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|b| format!("{b:02x}")).collect()
+    format!("export TS_AUTHKEY='{}'\n", shell_single_quote(&params.tailscale_auth_key))
 }
 
 fn shell_single_quote(s: &str) -> String {
-    s.replace('\'', "")
+    s.replace('\'', "'\\''")
 }
 
 /// scp a dev release tarball to the server when one is configured or found.
@@ -351,12 +376,7 @@ fn maybe_upload_release(params: &ProvisionParams, tarball: Option<&std::path::Pa
     let Some(tarball) = tarball else { return Ok(()) };
     let user = params.ssh_user();
     let sudo = sudo_prefix(user);
-    // scp to /tmp (writable by any user), then move into place with root rights.
-    let mut scp_args = vec![
-        "-o".to_string(), "BatchMode=yes".into(),
-        "-o".into(), format!("UserKnownHostsFile=\"{}\"", known_hosts_path().display()),
-        "-i".into(), params.key_path.clone(),
-    ];
+    let mut scp_args = ssh_opts(&params.key_path);
     // Upload into the SSH user's home: /tmp is sticky, so a fixed /tmp path
     // owned by another user (e.g. a previous root-run install) is unwritable.
     scp_args.push(tarball.to_string_lossy().to_string());
@@ -382,10 +402,10 @@ fn maybe_upload_release(params: &ProvisionParams, tarball: Option<&std::path::Pa
 fn run_provision(
     params: ProvisionParams,
     on_event: Channel<serde_json::Value>,
-    resource_dir: Option<PathBuf>,
 ) -> Result<(), String> {
+    validate_host(&params.host)?;
     let arch = probe_arch(&params)?;
-    let tarball = release_tarball(resource_dir.as_deref(), &arch);
+    let tarball = release_tarball(&arch);
     maybe_upload_release(&params, tarball.as_deref())?;
 
     let user = params.ssh_user().to_string();
@@ -403,14 +423,12 @@ fn run_provision(
         .spawn()
         .map_err(|e| e.to_string())?;
 
-    // Stream the env prelude + script to the remote bash over stdin.
     let mut stdin = child.stdin.take().ok_or("no stdin")?;
     let writer = std::thread::spawn(move || {
         let _ = stdin.write_all(stdin_payload.as_bytes());
         // Dropping stdin closes it → bash sees EOF and runs.
     });
 
-    // Forward each NDJSON line to the channel.
     let stdout = child.stdout.take().ok_or("no stdout")?;
     let reader = BufReader::new(stdout);
     let mut saw_end = false;
@@ -435,16 +453,19 @@ fn run_provision(
     }
     let status = child.wait().map_err(|e| e.to_string())?;
 
-    if !saw_end && !status.success() {
-        // SSH-level failure before the script could emit run_end. Forward the
-        // stderr tail so the UI can show what actually went wrong.
-        let code = ssh_error_code(&stderr_buf);
-        let detail = stderr_buf.trim();
-        let mut start = detail.len().saturating_sub(500);
-        while start < detail.len() && !detail.is_char_boundary(start) {
-            start += 1;
-        }
-        let detail = &detail[start..];
+    if !saw_end {
+        // The script never reported completion (SSH-level failure, or an exit
+        // without run_end). Synthesize a terminal event so the UI never hangs.
+        let (code, detail) = if status.success() {
+            ("UNKNOWN".to_string(), "the provision script ended without reporting completion".to_string())
+        } else {
+            let detail = stderr_buf.trim();
+            let mut start = detail.len().saturating_sub(500);
+            while start < detail.len() && !detail.is_char_boundary(start) {
+                start += 1;
+            }
+            (ssh_error_code(&stderr_buf).to_string(), detail[start..].to_string())
+        };
         let _ = on_event.send(serde_json::json!({
             "v": 1, "seq": -1, "event": "run_end", "status": "error", "errorCode": code,
             "detail": detail
@@ -456,30 +477,13 @@ fn run_provision(
 
 #[tauri::command]
 pub async fn provision_start(
-    app: tauri::AppHandle,
     params: ProvisionParams,
     on_event: Channel<serde_json::Value>,
 ) -> Result<(), String> {
-    let resource_dir = app.path().resource_dir().ok();
-    tauri::async_runtime::spawn_blocking(move || run_provision(params, on_event, resource_dir))
+    tauri::async_runtime::spawn_blocking(move || run_provision(params, on_event))
         .await
         .map_err(|e| e.to_string())?
 }
-
-// resume is identical: provision.sh is idempotent and re-runs from the first
-// non-ok step. The frontend passes the same params it stored.
-#[tauri::command]
-pub async fn provision_resume(
-    app: tauri::AppHandle,
-    params: ProvisionParams,
-    on_event: Channel<serde_json::Value>,
-) -> Result<(), String> {
-    let resource_dir = app.path().resource_dir().ok();
-    tauri::async_runtime::spawn_blocking(move || run_provision(params, on_event, resource_dir))
-        .await
-        .map_err(|e| e.to_string())?
-}
-
 
 // ── local Claude sign-in (PTY-driven, code pasted back in the app) ───────────
 //
@@ -487,7 +491,7 @@ pub async fn provision_resume(
 // then waits for the user to paste an authorization code before printing the
 // OAuth token. We give it a pseudo-TTY via `script` so the app can drive the
 // whole exchange: start → browser opens → the UI collects the code → the code
-// is written to the CLI → the token is parsed from its output.
+// is written to the CLI → claude_auth_poll picks the token out of its output.
 
 pub struct ClaudeAuthSession {
     child: Child,
@@ -576,7 +580,6 @@ pub async fn claude_auth_start(
         });
     }
 
-    // Replace any previous session.
     {
         let mut slot = state.0.lock().map_err(|e| e.to_string())?;
         if let Some(mut old) = slot.take() {
@@ -603,51 +606,22 @@ pub async fn claude_auth_start(
     Ok(ClaudeAuthStarted { url })
 }
 
-#[derive(Serialize)]
-pub struct ClaudeAuthResult {
-    token: String,
-}
-
+/// Forward the pasted authorization code to the CLI. The token is not awaited
+/// here — claude_auth_poll is the single delivery path, so the code write and
+/// the background poll can never race a double submit.
 #[tauri::command]
 pub async fn claude_auth_code(
     state: State<'_, ClaudeAuthState>,
     code: String,
-) -> Result<ClaudeAuthResult, String> {
-    let buffer = {
-        let mut slot = state.0.lock().map_err(|e| e.to_string())?;
-        let session = slot.as_mut().ok_or("CLAUDE_PASTEBACK_BROKEN: no session")?;
-        session
-            .stdin
-            .write_all(format!("{}\n", code.trim()).as_bytes())
-            .map_err(|e| format!("CLAUDE_PASTEBACK_BROKEN: {e}"))?;
-        let _ = session.stdin.flush();
-        Arc::clone(&session.buffer)
-    };
-
-    // Wait for the CLI to print the token.
-    let token = tauri::async_runtime::spawn_blocking(move || {
-        for _ in 0..150 {
-            std::thread::sleep(std::time::Duration::from_millis(200));
-            if let Some(t) = find_token(&buffer, false) {
-                return Some(t);
-            }
-        }
-        find_token(&buffer, true)
-    })
-    .await
-    .map_err(|e| e.to_string())?;
-
-    // Session is done either way.
-    if let Ok(mut slot) = state.0.lock() {
-        if let Some(mut session) = slot.take() {
-            kill_session(&mut session);
-        }
-    }
-
-    match token {
-        Some(token) => Ok(ClaudeAuthResult { token }),
-        None => Err("CLAUDE_PASTEBACK_BROKEN: the CLI did not return a token".into()),
-    }
+) -> Result<(), String> {
+    let mut slot = state.0.lock().map_err(|e| e.to_string())?;
+    let session = slot.as_mut().ok_or("CLAUDE_PASTEBACK_BROKEN: no session")?;
+    session
+        .stdin
+        .write_all(format!("{}\n", code.trim()).as_bytes())
+        .map_err(|e| format!("CLAUDE_PASTEBACK_BROKEN: {e}"))?;
+    let _ = session.stdin.flush();
+    Ok(())
 }
 
 #[derive(Serialize)]
@@ -657,50 +631,9 @@ pub struct ClaudeAuthPoll {
     token: Option<String>,
     /// True when the CLI exited without producing a token.
     exited: bool,
-    /// Tail of the CLI output (ANSI-stripped) when it exited token-less, so
-    /// the error panel shows what actually happened instead of guesswork.
+    /// Tail of the CLI output when it exited token-less, so the error panel
+    /// shows what actually happened instead of guesswork.
     detail: Option<String>,
-}
-
-/// Strip ANSI escape sequences (CSI, OSC, lone ESC) — the CLI's TUI interleaves
-/// them with the text it renders.
-fn strip_ansi(raw: &str) -> String {
-    let mut out = String::with_capacity(raw.len());
-    let mut chars = raw.chars().peekable();
-    while let Some(c) = chars.next() {
-        if c != '\u{1b}' {
-            out.push(c);
-            continue;
-        }
-        match chars.peek() {
-            Some('[') => {
-                // CSI: ESC [ params final-byte(@..~)
-                chars.next();
-                for c2 in chars.by_ref() {
-                    if ('@'..='~').contains(&c2) {
-                        break;
-                    }
-                }
-            }
-            Some(']') => {
-                // OSC: ESC ] ... (BEL | ESC \)
-                chars.next();
-                while let Some(c2) = chars.next() {
-                    if c2 == '\u{7}' {
-                        break;
-                    }
-                    if c2 == '\u{1b}' {
-                        chars.next();
-                        break;
-                    }
-                }
-            }
-            _ => {
-                chars.next();
-            }
-        }
-    }
-    out
 }
 
 /// Extract the OAuth token from PTY output.
@@ -708,8 +641,9 @@ fn strip_ansi(raw: &str) -> String {
 /// Two candidate sources, union'd:
 ///  A. The RAW buffer: the token charset excludes ESC/spaces/newlines, so a
 ///     run terminates naturally at any of them — immune to ANSI-strip bugs.
-///  B. The ANSI-stripped, per-line scan — catches a token interleaved with
-///     escape sequences mid-run.
+///  B. A vt100 terminal emulation of the stream — the TUI renders
+///     differentially (cursor jumps, unchanged cells never re-emitted), so
+///     only the final screen grid contains the assembled text.
 /// Only candidates of plausible length (90–120; wrap-truncated fragments and
 /// repaint-glued runs fall outside) are accepted. Unless `allow_tail` (used
 /// once the CLI exited), a candidate ending exactly at the buffer edge is
@@ -724,8 +658,6 @@ fn extract_token(raw: &str, allow_tail: bool) -> Option<String> {
         }
     };
 
-    // Source A: the raw byte stream. Works when the CLI happens to emit the
-    // token contiguously (the token charset excludes ESC/space/newline).
     for (pos, _) in raw.match_indices("sk-ant-oat01-") {
         let rest = &raw[pos..];
         let run: String = rest
@@ -736,9 +668,6 @@ fn extract_token(raw: &str, allow_tail: bool) -> Option<String> {
         consider(run, terminated);
     }
 
-    // Source B: a real terminal emulation of the stream. The TUI renders
-    // differentially — words placed with cursor jumps, unchanged cells never
-    // re-emitted — so only the final screen grid contains the assembled text.
     let mut parser = vt100::Parser::new(200, 510, 0);
     parser.process(raw.as_bytes());
     let rendered = parser.screen().contents();
@@ -781,27 +710,36 @@ fn buffer_tail(buffer: &Arc<Mutex<String>>) -> Option<String> {
 
 #[tauri::command]
 pub async fn claude_auth_poll(state: State<'_, ClaudeAuthState>) -> Result<ClaudeAuthPoll, String> {
+    let exited = {
+        let mut slot = state.0.lock().map_err(|e| e.to_string())?;
+        let Some(session) = slot.as_mut() else {
+            return Ok(ClaudeAuthPoll { token: None, exited: true, detail: None });
+        };
+        if let Some(token) = find_token(&session.buffer, false) {
+            let mut s = slot.take().expect("session present");
+            kill_session(&mut s);
+            return Ok(ClaudeAuthPoll { token: Some(token), exited: true, detail: None });
+        }
+        matches!(session.child.try_wait(), Ok(Some(_)))
+    };
+    if !exited {
+        return Ok(ClaudeAuthPoll { token: None, exited: false, detail: None });
+    }
+
+    // The CLI exited: give the reader thread a beat to flush trailing output
+    // (off the mutex, off the async executor), then re-check.
+    tauri::async_runtime::spawn_blocking(|| std::thread::sleep(std::time::Duration::from_millis(300)))
+        .await
+        .map_err(|e| e.to_string())?;
+
     let mut slot = state.0.lock().map_err(|e| e.to_string())?;
-    let Some(session) = slot.as_mut() else {
+    let Some(mut session) = slot.take() else {
         return Ok(ClaudeAuthPoll { token: None, exited: true, detail: None });
     };
-    if let Some(token) = find_token(&session.buffer, false) {
-        let mut s = slot.take().expect("session present");
-        kill_session(&mut s);
-        return Ok(ClaudeAuthPoll { token: Some(token), exited: true, detail: None });
-    }
-    let exited = matches!(session.child.try_wait(), Ok(Some(_)));
-    if exited {
-        // Give the reader thread a beat to flush trailing output, then re-check.
-        let buffer = Arc::clone(&session.buffer);
-        std::thread::sleep(std::time::Duration::from_millis(300));
-        let token = find_token(&buffer, true);
-        let detail = if token.is_none() { buffer_tail(&buffer) } else { None };
-        let mut s = slot.take().expect("session present");
-        kill_session(&mut s);
-        return Ok(ClaudeAuthPoll { token, exited: true, detail });
-    }
-    Ok(ClaudeAuthPoll { token: None, exited: false, detail: None })
+    let token = find_token(&session.buffer, true);
+    let detail = if token.is_none() { buffer_tail(&session.buffer) } else { None };
+    kill_session(&mut session);
+    Ok(ClaudeAuthPoll { token, exited: true, detail })
 }
 
 #[tauri::command]
@@ -816,7 +754,7 @@ pub async fn claude_auth_cancel(state: State<'_, ClaudeAuthState>) -> Result<(),
 
 #[cfg(test)]
 mod tests {
-    use super::{extract_token, strip_ansi};
+    use super::extract_token;
 
     // 13-char prefix + 95 chars = 108, the shape of a real setup token.
     const TOKEN: &str = "sk-ant-oat01-AbC123_deF456-gHi789jKl012MnO345pQr678StU901vWx234Yz567AbC890dEf123gHi456JkL789MnO012pQ";
@@ -877,10 +815,5 @@ mod tests {
     #[test]
     fn rejects_short_fragment() {
         assert_eq!(extract_token("sk-ant-oat01-tooshort \n", true), None);
-    }
-
-    #[test]
-    fn strip_ansi_removes_osc_sequences() {
-        assert_eq!(strip_ansi("\u{1b}]11;?\u{7}ok\u{1b}[6n"), "ok");
     }
 }

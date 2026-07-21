@@ -3,7 +3,6 @@ import {
   stripAnsi,
   parseDeviceCode,
   parseDeviceUrl,
-  parseDeviceAuth,
   isCodexLoggedIn,
   isCodexDeviceAuthDisabled,
   isDeviceCodeExpired,
@@ -57,16 +56,6 @@ describe("parseDeviceUrl", () => {
     expect(parseDeviceUrl("go to https://github.com/login/device.")).toBe(
       "https://github.com/login/device",
     );
-  });
-});
-
-describe("parseDeviceAuth", () => {
-  it("returns both code and url", () => {
-    const text = "code: AB12-CD34 url https://github.com/login/device";
-    expect(parseDeviceAuth(text)).toEqual({
-      code: "AB12-CD34",
-      url: "https://github.com/login/device",
-    });
   });
 });
 

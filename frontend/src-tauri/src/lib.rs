@@ -62,7 +62,6 @@ pub fn run() {
       provision::provision_test_connection,
       provision::provision_trust_host,
       provision::provision_start,
-      provision::provision_resume,
       provision::claude_auth_start,
       provision::claude_auth_code,
       provision::claude_auth_poll,

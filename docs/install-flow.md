@@ -1,320 +1,90 @@
-# Hive Install Flow — Design
+# Install flow
 
-**Status: design proposal, not yet implemented.** This document describes the target
-installation and configuration flow for open-source Hive. Today's manual setup is
-documented in [GETTING_STARTED.md](../GETTING_STARTED.md). (A `deploy/` directory
-with unit templates does not exist on `main` yet; this design introduces it.)
+Zero-terminal setup of a Hive server from the desktop app. The wizard walks the
+user from "I have nothing" to a provisioned VPS with the backend running, the
+tools (GitHub CLI, Claude Code, Codex) installed and signed in, and the app
+connected. This documents what is implemented; deferred work lives in the
+README backlog.
 
-## Goals
+## Flow
 
-1. **Zero terminal for the user.** The entire installation is driven from the Hive
-   desktop app. The user never types a shell command.
-2. **Minimal extra steps.** Beyond downloading the app, the user only: creates a
-   Tailscale account, creates a VPS at a cloud provider, selects the SSH key that
-   has access to it, and pastes two strings (Tailscale auth key, server IP).
-3. **Subscriptions, not API keys.** Claude and Codex authenticate with the user's
-   existing consumer subscription (Claude Pro/Max, ChatGPT Plus/Pro). Hive never
-   asks for a pay-per-use API key.
-4. **Never publicly exposed.** The backend is reachable only over the Tailscale
-   interface from its first second (ufw default-deny enforces this).
-   No port is ever reachable from the public internet, so there
-   is no setup-window attack surface (the class of bug behind the Portainer
-   first-run takeover CVE and the OpenClaw mass-exposure incident).
-5. **One script, simple tech.** A single idempotent `provision.sh` does all
-   server-side work. The desktop app is a thin driver. Fewer moving parts means
-   fewer bugs on unusual servers.
+`SetupWizard` (frontend/src/pages/setup) is a linear, resumable state machine
+persisted to localStorage:
 
-## Actors
+1. Welcome → Tailscale intro → Tailscale auth key (`tskey-auth-…`, validated).
+2. Server info → SSH key pick (`~/.ssh` scan) → server IP (`user@host`
+   supported; root is the default).
+3. Host trust: TOFU dialog showing the SSH fingerprint from `ssh-keyscan`; the
+   exact scanned keys the user approved are written to an app-owned
+   `known_hosts` (never `~/.ssh/known_hosts`).
+4. Provisioning: live step checklist streamed from the server.
+5. Tailnet handoff: poll the new server's `/health` over the tailnet.
+6. Guided setup: install/sign in GitHub CLI, Claude Code, Codex on the server.
+7. iOS pairing (host/port shown for manual entry) → done; the app commits the
+   new server URL and SSH details to its stores.
 
-| Tag | Actor | Runs where |
-|---|---|---|
-| `[U]` | User | Mac/PC, iPhone, browser |
-| `[W]` | Hive desktop app (wizard, drives the system OpenSSH client) | user's computer |
-| `[S]` | `provision.sh` (root, one-shot, idempotent) | VPS |
-| `[H]` | Hive backend (systemd service; acts as installer after handoff) | VPS |
+## Provisioning architecture
 
-Key implementation choices for `[W]`:
+- The Tauri app ships a Rust sidecar (`frontend/src-tauri/src/provision.rs`)
+  that shells out to the system OpenSSH binaries. `provision.sh` is embedded at
+  compile time (build.rs concatenates `scripts/provision/{lib,steps,main}.sh`)
+  and streamed to `bash -s` over SSH stdin together with an env prelude — the
+  Tailscale key never appears in argv.
+- Progress is NDJSON on stdout (`run_start`, `step_*`, `run_end`), forwarded
+  raw over a Tauri Channel and normalized once in
+  `frontend/src/lib/provision-client.ts`.
+- `provision.sh` is idempotent and resumable: name-keyed marker files under
+  `/var/lib/hive/state` are the source of truth; completed steps skip on
+  re-run, so Retry after a crash or disconnect just re-streams the script.
+- Steps: OS/arch probe, pristine-server probe, Tailscale install + `up` (first,
+  so a dead auth key fails in seconds), apt baseline, Node 22, service user,
+  ufw (tailnet-only unless `--skip-tailscale`), backend release install
+  (client-pushed tarball or GitHub release download with SHA256 verification),
+  service env, hardened systemd unit, privileged helpers + sudoers, service
+  start, health check.
+- Errors are typed: `SETUP_ERROR_CODES` in `shared/setup-errors.ts` mirrors
+  `lib.sh`; `test/provision/contract.sh` (run in CI) asserts the two lists are
+  identical. Each code maps to an actionable hint in the error panel.
 
-- SSH client is the **system OpenSSH binary** (`ssh`, spawned as a Tauri
-  sidecar) — present by default on macOS, Linux, and Windows 10+. This buys,
-  for free: agent-held keys (1Password, YubiKey, macOS keychain),
-  `~/.ssh/config`, and two decades of sshd compatibility. If no `ssh` binary
-  is found (rare), the wizard shows a clear error. *(Review change: an
-  embedded Rust client — russh — was originally planned; see Alternatives.)*
-- The app uses the **user's existing SSH key** — the one that has access to the
-  server. The wizard auto-detects candidate keys in `~/.ssh`
-  (`%USERPROFILE%\.ssh` on Windows) and offers a file picker for non-standard
-  paths. Keys held only in an agent (1Password, YubiKey, macOS keychain) work
-  natively — the system `ssh` talks to the agent; Hive never reads or copies
-  key material. Passphrase-protected key files get an in-app prompt via
-  `SSH_ASKPASS`. The app stores only the file *path*. Supported: whatever the
-  local OpenSSH supports; PuTTY `.ppk` is not.
-  **Fallback for users with no SSH key:** the app generates an ed25519 keypair
-  (stored `0600` in the app data dir) and shows the public key to paste into the
-  provider's "SSH keys" field when creating the VPS.
-- The app **generates the `HIVE_AUTH_TOKEN`** locally before installation, so no
-  pairing protocol is ever needed: the app already holds the credential when the
-  backend comes up.
+## Security model (v1)
 
-## Flow overview
+- Token-less: API access is gated by network reachability (tailnet or LAN)
+  plus the backend's Host-header allowlist (anti DNS-rebinding; `/health` is
+  exempt). Legacy manual installs can still set `HIVE_AUTH_TOKEN` /
+  `HIVE_AUTH_TOKEN_SHA256`.
+- Secrets travel over SSH stdin, never argv. The Claude OAuth token is written
+  through a root-owned helper reading stdin (`write-claude-token.sh`).
+- The `hive` service user can sudo exactly the fixed helper scripts under
+  `/usr/lib/hive/helpers` (validated with `visudo -cf`).
+- The unit runs hardened: `NoNewPrivileges`, `ProtectSystem=strict`,
+  `PrivateTmp`, memory-capped.
 
-```mermaid
-flowchart TD
-    subgraph P1["1 · Prepare (app + browser, ~4 min)"]
-        A1["[U] downloads Hive app, opens 'Set up a server'"]
-        A2["[U] creates Tailscale account (SSO)<br/>installs Tailscale app on Mac"]
-        A3["[U] generates a tagged auth key (tag:hive)<br/>via deep link, pastes it into Hive"]
-        A4["[W] generates HIVE_AUTH_TOKEN"]
-        A1 --> A2 --> A3 --> A4
-    end
+## Guided setup (tools)
 
-    subgraph P2["2 · Server (~3 min)"]
-        B1["[U] creates a VPS (Hetzner/DO, guided link)<br/>with their own SSH key, as usual"]
-        B2["[U] selects that SSH key in Hive<br/>(auto-detected from ~/.ssh; passphrase prompt if encrypted;<br/>no key? Hive generates one and shows the public part to paste)"]
-        B3["[U] pastes the server IP into Hive"]
-        B1 --> B2 --> B3
-    end
+The backend exposes `/api/setup/*` (see README API table): a durable operation
+engine (`backend/src/services/setup/operations.ts`) runs registered steps
+(`install_gh`, `auth_gh`, `install_claude`, `install_codex`, `auth_codex`) with
+per-step logs on disk and resume-on-retry. Device-code sign-ins (gh, codex) are
+driven through a PTY and surface `open_url_with_code` actions the UI renders.
+Claude sign-in runs `claude setup-token` locally in the app's PTY sidecar and
+POSTs the captured token to the server.
 
-    subgraph P3["3 · Install over SSH (~3 min, watched from the wizard)"]
-        C1["[W] connects via SSH (system ssh + the user's key/agent)<br/>host-key trust dialog (TOFU)"]
-        C2["[W] probes OS + pristine state<br/>clean refusal if unsupported or already occupied"]
-        C3["[W] streams provision.sh + secrets over stdin<br/>(nothing in argv, shell history, or console)"]
-        C4["[S] runs DETACHED (setsid + logfile)<br/>survives app close; NDJSON progress streamed to the checklist"]
-        C1 --> C2 --> C3 --> C4
-    end
+## Server layout
 
-    subgraph PS["provision.sh steps (root, idempotent)"]
-        S1["tailscale (official apt repo)<br/>tailscale up --auth-key → 100.x.y.z"]
-        S2["node 22 (NodeSource) · git<br/>ufw default-deny + allow in on tailscale0"]
-        S3["/opt/hive/releases/N ← release tarball (checksum)<br/>current → N symlink · shared/ for data"]
-        S4["HIVE_AUTH_TOKEN → EnvironmentFile (0600)<br/>systemd units: hive.service + hive-updater"]
-        S5["start Hive — reachable over the tailnet only<br/>(ufw default-deny; no public port ever open)"]
-        S1 --> S2 --> S3 --> S4 --> S5
-    end
+- `/opt/hive/current` → symlink into `/opt/hive/releases/<version>` (3
+  generations kept), data in `/home/hive/.hive` (survives reinstalls).
+- `/etc/hive/hive.env` (0600) service env; `/etc/hive/.hive-install` marks a
+  Hive-owned server so re-provisioning resumes instead of failing
+  `EXISTING_INSTALL`.
+- `/var/lib/hive` provision state + logs.
 
-    subgraph P4["4 · Handoff"]
-        D1["[W] sees the node on the tailnet<br/>GET /health with its token → connected"]
-        D2["[W] closes SSH<br/>(kept as a REPAIR channel only)"]
-        D1 --> D2
-    end
+## Testing
 
-    subgraph P5["5 · Guided setup (backend = installer, resumable jobs)"]
-        E1["detect: claude / codex / gh<br/>(installed + authenticated)<br/>only missing pieces are shown"]
-        E2["Claude: auth with SUBSCRIPTION, LOCALLY:<br/>wizard runs claude setup-token on the user's computer<br/>(downloads standalone binary if absent) → browser opens →<br/>token captured and POSTed to the backend"]
-        E3["Codex (optional): codex login --device-auth<br/>URL + code shown in wizard"]
-        E4["GitHub (optional, private HTTPS repos):<br/>gh device flow, one-time code in wizard"]
-        E5["preflight ✓ · health ✓ · 'Your Hive is ready'"]
-        E1 --> E2 --> E3 --> E4 --> E5
-    end
-
-    subgraph P6["6 · iOS"]
-        F1["[U] installs Tailscale on iPhone (same account)"]
-        F2["[W] shows a QR: tailnet address + token<br/>scan in Hive iOS → connected"]
-        F1 --> F2
-    end
-
-    P1 --> P2 --> P3
-    C4 -.-> PS
-    S5 --> P4 --> P5 --> P6
-```
-
-## Install-time sequence
-
-```mermaid
-sequenceDiagram
-    participant U as User
-    participant W as Hive app
-    participant P as Cloud provider
-    participant V as VPS (script)
-    participant T as Tailscale
-    participant H as Hive backend
-
-    U->>T: create account (SSO), get tagged auth key
-    U->>W: paste Tailscale auth key
-    W->>W: generate HIVE_AUTH_TOKEN
-    U->>P: create VPS (with the user's SSH key)
-    U->>W: select SSH key (passphrase prompt if encrypted)
-    U->>W: paste server IP
-    W->>V: SSH connect (user's key), TOFU dialog
-    W->>V: stream provision.sh + secrets over stdin
-    W->>V: run detached, tail NDJSON progress
-    V->>T: tailscale up --auth-key (node joins tailnet)
-    V->>V: install node, ufw, Hive release, systemd units
-    V->>H: start hive.service (tailnet-only via ufw)
-    W->>H: GET /health over tailnet (token) — first API contact
-    W--xV: close SSH (repair channel only)
-    W->>W: claude setup-token runs locally, browser approval on the same machine
-    W->>H: POST captured Claude token
-    W->>H: guided setup: codex / gh device flows (VPS PTY)
-    U->>H: approves OAuth pages in browser (subscription auth)
-```
-
-## What gets installed, in what order, by whom
-
-| # | Component | Installed by | Channel | Notes |
-|---|---|---|---|---|
-| 1 | tailscale | script (root) | official apt repo | `up --auth-key` — non-interactive, no browser on the VPS |
-| 2 | node 22, git, ufw | script (root) | NodeSource apt / apt | ufw: default-deny, `allow in on tailscale0` |
-| 3 | Hive backend | script (root) | GitHub Release tarball, checksum-verified | `/opt/hive/releases/N`, `current` symlink, `shared/` data dir |
-| 4 | systemd units | script (root) | files | `hive.service` (dedicated user, hardened) + `hive-updater` |
-| 5 | claude CLI | backend | official native installer (standalone binary — no Anthropic apt repo exists) | auto-updater disabled (`DISABLE_AUTOUPDATER=1`); Hive owns updates |
-| 6 | codex CLI (opt.) | backend | npm/binary release | device-auth on the VPS |
-| 7 | gh CLI (opt.) | backend | official apt repo | only needed for HTTPS cloning of private repos |
-| — | Tailscale app | user | App Store / MSI | on the Mac (step 1) and iPhone (step 6) |
-
-## How Tailscale is configured
-
-- The wizard deep-links the user to the Tailscale admin console to generate an
-  **auth key tagged `tag:hive`**. Tagged keys matter: tagged nodes have **key
-  expiry disabled by default**, avoiding the silent "server drops off the tailnet
-  after 180 days" failure.
-- The script installs Tailscale from the official apt repo and runs
-  `tailscale up --auth-key=…` — fully non-interactive, no login URL to lift.
-- The backend listens on `0.0.0.0`; reachability is enforced by `ufw`
-  (default-deny, `allow in on tailscale0`) — no public port is ever opened.
-  Binding the 100.x IP directly was dropped in review: it races tailscaled at
-  boot (the IP may not be assigned yet → crash loop on every slow reboot);
-  the firewall alone carries the guarantee.
-- Optional (guided later, for clean iOS HTTPS): enabling **MagicDNS + HTTPS** on
-  the tailnet gives `https://<host>.<tailnet>.ts.net` with a real Let's Encrypt
-  certificate. This is a one-time manual toggle in the admin console and publishes
-  machine names to Certificate Transparency logs — surfaced to the user as an
-  explicit consent step.
-- Free plan (6 users, unlimited devices) comfortably covers 1 VPS + 1 computer +
-  1 phone.
-
-## Agent CLI authentication (subscriptions only)
-
-| CLI | Flow | Fallback | Known pitfalls encoded in the design |
-|---|---|---|---|
-| claude | the wizard runs `claude setup-token` **locally on the user's computer** (downloading the standalone native binary into app data if absent); the browser opens on the same machine; the wizard captures the 1-year `CLAUDE_CODE_OAUTH_TOKEN` and POSTs it to the backend, which writes it to a `0600` EnvironmentFile | manual: the user runs `setup-token` themselves and pastes the token into the wizard | running locally keeps SSH and remote PTYs out of the most fragile flow (paste-back regressions anthropics/claude-code #42965, #48048 — originally the #1 project risk). Never set `ANTHROPIC_API_KEY` alongside (it silently wins and bills API credits). Pre-seed `~/.claude.json` (onboarding + workspace trust; `--dangerously-skip-permissions` does NOT bypass the trust dialog) |
-| codex | `codex login --device-auth` in a PTY; wizard shows URL + code; tokens auto-refresh in `~/.codex/auth.json` on the VPS | SSH port-forward of the login callback | requires "Allow device code login" enabled in ChatGPT settings (detect the error, guide the user). Never copy `auth.json` between machines (single-use rotating refresh tokens) |
-| gh | device flow; wizard shows the one-time code | personal access token | the CLI does not poll until Enter is pressed (cli/cli #12925) → inject the keystroke into the PTY. Step is optional: SSH-key/public-repo users skip it |
-
-Codex and gh flows run on the VPS inside a PTY owned by the backend; the
-wizard renders extracted URLs/codes. Claude never runs interactively on the
-VPS — the token is generated on the user's machine and POSTed to the backend.
-CLI versions are pinned and the scrape patterns are snapshot-tested (no login
-flow has a `--json` mode).
-
-Auth is a permanent service, not an install step: detection reports
-`authenticated` per CLI (already-logged-in binaries are never asked again),
-expiry or revocation — the Claude token lasts one year — surfaces as a
-visible health warning, and Settings offers "Reconnect" re-running the same
-flows. Day 366 is a designed path.
-
-## Security model
-
-- **No public exposure, ever.** The backend is born on the tailnet. There is no
-  pairing window, no self-signed certificate pinning, no commit-confirm rebind —
-  that entire threat surface is designed out rather than mitigated.
-- **Trust chain:** the app generates the auth token locally; secrets reach the
-  server over stdin inside SSH (never in a command line, console, or shell
-  history). The user's private key never leaves their machine — Hive does not
-  even read it; the system `ssh`/agent handles it. First API contact happens
-  over the encrypted tailnet with a token the app already holds.
-- **Host key TOFU:** first SSH connection shows the server fingerprint in a
-  native dialog; accepted keys are remembered.
-- **Least privilege at runtime:** `hive.service` runs as a dedicated user with
-  `NoNewPrivileges=true`; root is only used by the one-shot provision script and
-  the narrow update/restart path. No sudoers command whitelist for `apt`/
-  `tailscale` (GTFOBins-style escapes make those un-whitelistable).
-- **The `hive` user is assumed hostile.** Hive's core product runs LLM agents
-  that execute arbitrary code as the service user, so compromise of `hive`
-  yields agent credentials and cloned repos by design — but must never yield
-  root: Docker is rootless-only (`docker` group membership is instant root
-  equivalence), no privileged helper may escalate through its *effect*, and
-  the root updater never consumes `hive`-writable input (it resolves the
-  latest release itself and refuses downgrades). Every helper is audited
-  against this criterion.
-- **Secrets at rest:** the server stores only the SHA-256 of the auth token —
-  the app, which generated it, is the sole holder of the plaintext (a lost
-  token is *reset* over SSH, not recovered). Agent CLI tokens live in `0600`
-  files under the service user's home — readable by agent-run code, an
-  accepted v1 trade-off (see the hostile-`hive` threat model above). The app
-  persists only a path reference to the user's SSH key (generated-key
-  fallback: `0600` file in the app data dir); iOS token to move from
-  UserDefaults to Keychain.
-
-## Updates
-
-```mermaid
-flowchart LR
-    G1["[H] compares its version<br/>to GitHub Releases"] --> G2["update banner<br/>in desktop + iOS"]
-    G2 --> G3["[U] clicks Update"]
-    G3 --> G4["hive-updater.service<br/>(own cgroup — survives the restart)"]
-    G4 --> G5["download release N+1<br/>verify checksum"]
-    G5 --> G6["atomic swap:<br/>current → releases/N+1"]
-    G6 --> G7["restart hive.service"]
-    G7 --> G8{"/health OK?"}
-    G8 -- yes --> G9["done — clients reconnect"]
-    G8 -- no --> G10["automatic rollback:<br/>current → releases/N"]
-```
-
-- The updater is a separate systemd unit triggered by a path unit, so restarting
-  Hive never kills the update mid-flight.
-- Keep 2–3 release generations; rollback is a second symlink swap.
-- Rollback logic lives only inside the updater's window: after the swap, the
-  updater health-checks and rolls back itself. `hive.service` has no
-  `OnFailure=` hook — a steady-state crash (full disk, slow tailscale at
-  boot) must never trigger a root rollback of a healthy release.
-- If an update is requested while agent sessions are running, the UI warns first.
-- If the backend is ever unreachable, the desktop app still holds a working SSH
-  key: SSH is the out-of-band repair channel (tail logs, roll back, restart).
-
-## What the user experiences, end to end
-
-1. Download the Hive app.
-2. Create a Tailscale account; install the Tailscale app on their computer.
-3. Create the VPS at the provider (with their usual SSH key), then in Hive:
-   paste the Tailscale auth key, select the SSH key, paste the server IP.
-4. Watch the checklist; approve 1–3 OAuth pages in the browser (Claude, and
-   optionally Codex/GitHub).
-5. Scan one QR code on the iPhone.
-
-No terminal, no shell command, no manual server configuration, no VPN setup.
-
-## Known risks and open questions
-
-1. **Claude subscription auth was the #1 project risk** while it ran in a
-   remote PTY on the VPS (buggy paste-back, no device-code mode). Review moved
-   it local: the wizard drives `claude setup-token` on the user's machine and
-   POSTs the token — SSH and remote terminals are out of the flow. Residual
-   risk: local CLI output capture still needs version-keyed patterns.
-2. **Non-root servers** (AWS uses `ubuntu` + sudo): v1 targets root login
-   (Hetzner/DO/OVH default); sudo support later. Hardened servers with
-   `PermitRootLogin no` get a clear error and a documented fallback.
-3. **SSH key edge cases:** agent-held keys (1Password, YubiKey, macOS
-   keychain) work natively through the system `ssh`. PuTTY `.ppk` files are
-   not supported (convert or use the generated-key fallback).
-   Passphrase-protected key files are supported via an in-app `SSH_ASKPASS`
-   prompt — its behavior from a GUI-spawned process is validated per-OS in
-   spike S4.
-4. **OS matrix:** Ubuntu 22.04/24.04 + Debian 12 (systemd required) at launch;
-   the probe refuses anything else cleanly.
-5. **Hard dependency on Tailscale** (account required). Accepted: remote access
-   required it in every considered design; the free tier suffices. A hosted
-   relay ("Hive Connect", Nabu-Casa-style) could remove the dependency later and
-   is the natural monetization path.
-6. **Pristine servers only.** The wizard refuses servers that already run
-   other services or a manual Hive install (explicit `SERVER_NOT_PRISTINE` /
-   `EXISTING_INSTALL` errors) rather than half-applying firewall and unit
-   changes to an inhabited box. Existing manual installs keep the
-   GETTING_STARTED path; migration = documented backup/wipe/restore, no tool
-   in v1.
-7. **Backend work not covered here** (tracked separately): runtime-issued auth
-   tokens instead of the build-time `VITE_HIVE_AUTH_TOKEN`, a backend version
-   endpoint + WS protocol version, setup progress served over REST polling
-   (review decision: no new WS channel), QR scanning + deep links in iOS,
-   tagged release CI.
-
-## Alternatives considered and rejected
-
-| Alternative | Why rejected |
-|---|---|
-| `curl \| bash` pasted by the user (OpenClaw model) | requires a terminal moment; rejected as primary UX (kept internally: the same `provision.sh` powers a documented power-user path) |
-| Public bootstrap window + pairing token + pinned cert | large security-critical surface (Portainer CVE class); made obsolete by never exposing the backend |
-| Provider API + cloud-init (app creates the VPS) | excellent, but adds a second account/token paste; deferred — natural v2 on top of the same script, and the basis for a future "Hive Cloud" |
-| Docker as primary distribution | fights the product: git worktrees, host PTYs, agent CLIs and their host credentials |
-| App-generated dedicated key as the default | adds a public-key paste step at the provider that key-owning users find redundant; kept as the fallback for users with no SSH key |
-| Embedded Rust SSH client (`russh`) | original choice, replaced in review: strictly less capable than the system `ssh` it ships next to (no agent-held keys — excluding 1Password/YubiKey users, common among developers — no `~/.ssh/config`), plus an entire SSH client to maintain and re-validate against sshd variants. The system OpenSSH binary is present by default on macOS/Linux/Windows 10+ and makes agent keys the happy path |
+- `make provision-docker` — full install + idempotency in a systemd container.
+- `make provision-docker-chaos` — kill after representative steps, resume.
+- `make provision-docker-reprovision` — version-bumped re-run over an existing
+  install.
+- `make provision-contract` — bash/TS error-taxonomy contract (also in CI,
+  along with shellcheck via `scripts/provision/build.sh`).
+- `docs/install-flow-orbstack.md` — end-to-end manual test against a local
+  OrbStack VM.

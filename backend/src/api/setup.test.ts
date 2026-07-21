@@ -34,10 +34,14 @@ function stubStep(title: string): SetupStepDef {
 }
 
 const STUB_STEPS: Record<string, SetupStepDef> = {
-  detect: stubStep("Detect tools"),
   install_claude: stubStep("Install Claude Code"),
   install_gh: stubStep("Install GitHub CLI"),
-  verify: stubStep("Verify installation"),
+  slow_step: {
+    title: "Slow step",
+    fn: async () => {
+      await new Promise((r) => setTimeout(r, 200));
+    },
+  },
 };
 
 beforeEach(async () => {
@@ -92,7 +96,7 @@ describe("POST /api/setup/run", () => {
     const res = await app.inject({
       method: "POST",
       url: "/api/setup/run",
-      payload: { steps: ["install_claude", "verify"] },
+      payload: { steps: ["install_claude", "install_gh"] },
     });
     expect(res.statusCode).toBe(200);
     const { operationId } = res.json();
@@ -101,7 +105,7 @@ describe("POST /api/setup/run", () => {
     await waitForTerminal(operationId);
     const op = await getOperation(operationId, dataDir);
     expect(op?.status).toBe("succeeded");
-    expect(op?.steps.map((s) => s.id)).toEqual(["install_claude", "verify"]);
+    expect(op?.steps.map((s) => s.id)).toEqual(["install_claude", "install_gh"]);
   });
 
   it("rejects an empty step list", async () => {
@@ -119,11 +123,36 @@ describe("POST /api/setup/run", () => {
     expect(res.json().error).toContain("not_a_real_step");
   });
 
+  it("returns 409 with code CONCURRENT_RUN while the same step is running", async () => {
+    const first = await app.inject({
+      method: "POST",
+      url: "/api/setup/run",
+      payload: { steps: ["slow_step"] },
+    });
+    expect(first.statusCode).toBe(200);
+    for (let i = 0; i < 100; i++) {
+      const op = await getOperation(first.json().operationId, dataDir);
+      if (op?.status === "running") break;
+      await new Promise((r) => setTimeout(r, 5));
+    }
+
+    const second = await app.inject({
+      method: "POST",
+      url: "/api/setup/run",
+      payload: { steps: ["slow_step"] },
+    });
+    expect(second.statusCode).toBe(409);
+    expect(second.json().code).toBe("CONCURRENT_RUN");
+    expect(second.json().operationId).toBe(first.json().operationId);
+
+    await waitForTerminal(first.json().operationId);
+  });
+
   it("appears in /status operations after running", async () => {
     const run = await app.inject({
       method: "POST",
       url: "/api/setup/run",
-      payload: { steps: ["verify"] },
+      payload: { steps: ["install_gh"] },
     });
     await waitForTerminal(run.json().operationId);
 
@@ -142,7 +171,7 @@ describe("GET /api/setup/operations/:id", () => {
     const run = await app.inject({
       method: "POST",
       url: "/api/setup/run",
-      payload: { steps: ["verify"] },
+      payload: { steps: ["install_gh"] },
     });
     const id = run.json().operationId;
     await waitForTerminal(id);
@@ -153,45 +182,12 @@ describe("GET /api/setup/operations/:id", () => {
   });
 });
 
-describe("GET /api/setup/operations/:id/log", () => {
-  it("returns NDJSON lines filtered by ?since", async () => {
-    const run = await app.inject({
-      method: "POST",
-      url: "/api/setup/run",
-      payload: { steps: ["install_gh"] },
-    });
-    const id = run.json().operationId;
-    await waitForTerminal(id);
-
-    const all = await app.inject({ method: "GET", url: `/api/setup/operations/${id}/log?since=-1` });
-    expect(all.statusCode).toBe(200);
-    expect(all.headers["content-type"]).toContain("application/x-ndjson");
-    const lines = all.body.trim().split("\n").filter(Boolean).map((l: string) => JSON.parse(l));
-    expect(lines.length).toBeGreaterThan(0);
-    const seqs = lines.map((l: { seq: number }) => l.seq);
-    expect(seqs).toEqual([...seqs].sort((a, b) => a - b));
-
-    // since = first seq → excludes it.
-    const since = await app.inject({
-      method: "GET",
-      url: `/api/setup/operations/${id}/log?since=${seqs[0]}`,
-    });
-    const filtered = since.body.trim().split("\n").filter(Boolean).map((l: string) => JSON.parse(l));
-    expect(filtered.every((l: { seq: number }) => l.seq > seqs[0])).toBe(true);
-  });
-
-  it("returns 404 for a missing operation log", async () => {
-    const res = await app.inject({ method: "GET", url: "/api/setup/operations/op-x/log?since=-1" });
-    expect(res.statusCode).toBe(404);
-  });
-});
-
 describe("POST /api/setup/operations/:id/retry", () => {
   it("re-runs and succeeds for a completed op", async () => {
     const run = await app.inject({
       method: "POST",
       url: "/api/setup/run",
-      payload: { steps: ["verify"] },
+      payload: { steps: ["install_gh"] },
     });
     const id = run.json().operationId;
     await waitForTerminal(id);

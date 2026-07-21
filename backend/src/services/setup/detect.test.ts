@@ -142,25 +142,6 @@ describe("detectTools", () => {
     else process.env.CLAUDE_CODE_OAUTH_TOKEN = prev;
   });
 
-  it("computes latestVersion / updateAvailable for claude from npm", async () => {
-    mocks.execImpl.mockImplementation(async (cmd: string, args: string[]) => {
-      if (cmd === "command" && args[1] === "claude") return { stdout: "/usr/bin/claude", stderr: "" };
-      if (cmd === "claude") return { stdout: "2.1.0", stderr: "" };
-      throw new Error("not found");
-    });
-    globalThis.fetch = vi.fn(async (input: string | URL | Request) => {
-      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
-      if (url.includes("@anthropic-ai/claude-code")) {
-        return new Response(JSON.stringify({ version: "2.1.53" }), { status: 200 });
-      }
-      return new Response("Not Found", { status: 404 });
-    }) as typeof fetch;
-
-    const detected = await detectTools({ force: true });
-    expect(detected.claude?.latestVersion).toBe("2.1.53");
-    expect(detected.claude?.updateAvailable).toBe(true);
-  });
-
   it("caches results within the TTL", async () => {
     mocks.execImpl.mockImplementation(async (cmd: string, args: string[]) => {
       if (cmd === "command" && args[1] === "node") return { stdout: "/usr/bin/node", stderr: "" };

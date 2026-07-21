@@ -6,7 +6,6 @@ export const SETUP_ERROR_CODES = [
   "UNSUPPORTED_ARCH",
   "SERVER_NOT_PRISTINE",
   "EXISTING_INSTALL",
-  "APT_LOCK_TIMEOUT",
   "APT_FAILURE",
   "NETWORK",
   "CHECKSUM_MISMATCH",
@@ -42,8 +41,6 @@ export const SETUP_ERROR_HINTS: Record<SetupErrorCode, string> = {
     "This server already runs other services. Use a fresh, empty server dedicated to Hive, then start over with its IP.",
   EXISTING_INSTALL:
     "Hive is already installed on this server. To use it, set its IP and token in Settings > Connection. To reinstall from scratch, remove /opt/hive on the server first, then Retry.",
-  APT_LOCK_TIMEOUT:
-    "The server's package manager is busy — usually automatic updates right after first boot. Wait a minute, then press Retry.",
   APT_FAILURE:
     "A system package failed to install. Press Retry (completed steps are skipped). If it fails again, the log below shows the failing package.",
   NETWORK:

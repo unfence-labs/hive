@@ -7,7 +7,6 @@ import {
   type SetupInputs,
 } from "@/pages/setup/machine";
 import type { SetupErrorCode } from "@hive/shared/setup-errors";
-import type { PairingPayload } from "@hive/shared/setup-types";
 import { createProvisionClient, type ProvisionClient } from "@/lib/provision-client";
 import { saveSshConnection } from "@/lib/ssh-connection";
 import { useServerUrl } from "@/hooks/useServerUrl";
@@ -104,14 +103,6 @@ export function SetupWizard({ client: injectedClient, onComplete }: SetupWizardP
     onComplete?.();
   }, [inputs, setServerUrl, setIp, setPort, setSshUser, setAuthToken, onComplete]);
 
-  const pairingPayload: PairingPayload = {
-    v: 1,
-    host: inputs.serverIp ?? "",
-    port: DEFAULT_PORT,
-    token: "",
-    name: "Hive",
-  };
-
   let screen: React.ReactNode;
   switch (state) {
     case "welcome":
@@ -134,12 +125,7 @@ export function SetupWizard({ client: injectedClient, onComplete }: SetupWizardP
       break;
     case "server_choice":
       screen = (
-        <ServerChoiceScreen
-          initialValue={inputs.serverChoice}
-          onContinue={(serverChoice) => advance({ serverChoice })}
-          onBack={back}
-          onContinueLater={continueLater}
-        />
+        <ServerChoiceScreen onContinue={() => advance()} onBack={back} onContinueLater={continueLater} />
       );
       break;
     case "ssh_key":
@@ -157,9 +143,10 @@ export function SetupWizard({ client: injectedClient, onComplete }: SetupWizardP
       screen = (
         <ServerIpScreen
           client={client}
-          keyPath={inputs.sshKeyPath ?? ""}
           initialValue={inputs.sshUser && inputs.serverIp ? `${inputs.sshUser}@${inputs.serverIp}` : inputs.serverIp}
-          onContinue={(serverIp, hostFingerprint, sshUser) => advance({ serverIp, hostFingerprint, sshUser })}
+          onContinue={(serverIp, hostFingerprint, hostKeys, sshUser) =>
+            advance({ serverIp, hostFingerprint, hostKeys, sshUser })
+          }
           onBack={back}
           onContinueLater={continueLater}
           onError={fail}
@@ -172,6 +159,7 @@ export function SetupWizard({ client: injectedClient, onComplete }: SetupWizardP
           client={client}
           host={inputs.serverIp ?? ""}
           fingerprint={inputs.hostFingerprint ?? ""}
+          hostKeys={inputs.hostKeys ?? []}
           onContinue={() => advance()}
           onBack={back}
           onContinueLater={continueLater}
@@ -187,13 +175,12 @@ export function SetupWizard({ client: injectedClient, onComplete }: SetupWizardP
             user: inputs.sshUser,
             keyPath: inputs.sshKeyPath ?? "",
             tailscaleAuthKey: inputs.tailscaleAuthKey ?? "",
-            authToken: "",
             port: DEFAULT_PORT,
           }}
           onDone={(tailnetIp) => {
             // The wizard's TOFU ran against the pre-tailnet address; trust the
             // tailnet IP too so later SSH (updates) passes strict checking.
-            if (tailnetIp) void client.trustHost(tailnetIp, "");
+            if (tailnetIp) void client.trustHost(tailnetIp);
             advance(tailnetIp ? { serverIp: tailnetIp } : undefined);
           }}
           onBack={back}
@@ -217,7 +204,6 @@ export function SetupWizard({ client: injectedClient, onComplete }: SetupWizardP
         <GuidedSetupScreen
           client={client}
           baseUrl={serverBaseUrl}
-          authToken=""
           onContinue={() => advance()}
           onBack={back}
           onContinueLater={continueLater}
@@ -227,7 +213,8 @@ export function SetupWizard({ client: injectedClient, onComplete }: SetupWizardP
     case "ios_pairing":
       screen = (
         <IosPairingScreen
-          payload={pairingPayload}
+          host={inputs.serverIp ?? ""}
+          port={DEFAULT_PORT}
           onContinue={() => advance()}
           onBack={back}
           onSkip={() => advance()}

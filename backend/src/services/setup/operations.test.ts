@@ -7,14 +7,12 @@ import {
   getOperation,
   listOperations,
   appendLog,
-  readLogSince,
   updateStep,
   runOperation,
   reapStaleOperations,
   findRunningOperation,
   ConcurrentOperationError,
   StepError,
-  STALE_HEARTBEAT_MS,
   type RunnableStep,
 } from "./operations.js";
 
@@ -42,6 +40,14 @@ function okStep(id: string, line = `${id} ran`): RunnableStep {
   };
 }
 
+async function readLog(opId: string): Promise<Array<{ seq: number; line: string }>> {
+  const raw = await readFile(join(dataDir, "setup", opId, "log.jsonl"), "utf-8");
+  return raw
+    .split("\n")
+    .filter((l) => l.trim())
+    .map((l) => JSON.parse(l) as { seq: number; line: string });
+}
+
 describe("createOperation / getOperation", () => {
   it("creates a pending operation with pending steps", async () => {
     const op = await createOperation("guided-setup", steps("a", "b"), dataDir);
@@ -66,10 +72,6 @@ describe("runOperation", () => {
     expect(result.status).toBe("succeeded");
     expect(result.steps.map((s) => s.status)).toEqual(["succeeded", "succeeded"]);
     expect(result.finishedAt).toBeDefined();
-    for (const s of result.steps) {
-      expect(s.attempts).toBe(1);
-      expect(s.logRange).toBeDefined();
-    }
   });
 
   it("captures structured step data returned by the step fn", async () => {
@@ -138,9 +140,7 @@ describe("runOperation", () => {
 
     expect(result.status).toBe("succeeded");
     expect(result.steps[0].status).toBe("succeeded");
-    expect(result.steps[0].attempts).toBe(1); // not re-attempted
     expect(result.steps[1].status).toBe("succeeded");
-    expect(result.steps[1].attempts).toBe(2); // retried
   });
 
   it("rejects a second op touching the same step", async () => {
@@ -172,9 +172,9 @@ describe("runOperation concurrency & failure persistence", () => {
         appendLog(op.id, { stepId: "a", line: `line-${i}` }, dataDir),
       ),
     );
-    const all = await readLogSince(op.id, -1, dataDir);
+    const all = await readLog(op.id);
     const seqs = all.map((l) => l.seq);
-    expect(seqs).toEqual(Array.from({ length: 20 }, (_, i) => i));
+    expect(seqs.sort((x, y) => x - y)).toEqual(Array.from({ length: 20 }, (_, i) => i));
     expect(new Set(seqs).size).toBe(20);
   });
 
@@ -239,38 +239,31 @@ describe("runOperation concurrency & failure persistence", () => {
   });
 });
 
-/** Helper: mark an op running without a runner finishing it (fresh heartbeat). */
+/** Helper: mark an op running without a runner finishing it. */
 async function runOperationLeaveRunning(id: string, dir: string): Promise<void> {
   const op = await getOperation(id, dir);
   if (!op) throw new Error("missing");
   op.status = "running";
-  op.heartbeatAt = new Date().toISOString();
   const { writeJsonAtomic } = await import("../../state/state.js");
   await writeJsonAtomic(join(dir, "setup", id, "state.json"), op, join(dir, "setup", id));
 }
 
 describe("logs", () => {
-  it("appendLog assigns monotonic seq and readLogSince filters", async () => {
+  it("appendLog assigns monotonic seq", async () => {
     const op = await createOperation("guided-setup", steps("a"), dataDir);
     await appendLog(op.id, { stepId: "a", line: "one" }, dataDir);
     await appendLog(op.id, { stepId: "a", line: "two" }, dataDir);
     await appendLog(op.id, { stepId: "a", line: "three" }, dataDir);
 
-    const all = await readLogSince(op.id, -1, dataDir);
+    const all = await readLog(op.id);
     expect(all.map((l) => l.seq)).toEqual([0, 1, 2]);
     expect(all.map((l) => l.line)).toEqual(["one", "two", "three"]);
-
-    const since0 = await readLogSince(op.id, 0, dataDir);
-    expect(since0.map((l) => l.seq)).toEqual([1, 2]);
-
-    const since2 = await readLogSince(op.id, 2, dataDir);
-    expect(since2).toEqual([]);
   });
 
   it("run emits step log lines with a monotonic seq", async () => {
     const op = await createOperation("guided-setup", steps("a", "b"), dataDir);
     await runOperation(op.id, [okStep("a", "hi-a"), okStep("b", "hi-b")], dataDir);
-    const lines = await readLogSince(op.id, -1, dataDir);
+    const lines = await readLog(op.id);
     const seqs = lines.map((l) => l.seq);
     expect(seqs).toEqual([...seqs].sort((x, y) => x - y));
     expect(lines.some((l) => l.line === "hi-a")).toBe(true);
@@ -289,15 +282,12 @@ describe("updateStep", () => {
 });
 
 describe("reapStaleOperations", () => {
-  it("marks a stale running op failed with INTERRUPTED on its running step", async () => {
+  it("marks any running op failed with INTERRUPTED on its running step", async () => {
     const op = await createOperation("guided-setup", steps("a", "b"), dataDir);
-    // Simulate a crash mid-run: op running, step a running, stale heartbeat.
-    const staleTs = new Date(Date.now() - STALE_HEARTBEAT_MS - 5_000).toISOString();
     await updateStep(op.id, "a", { status: "running" }, dataDir);
     const { writeJsonAtomic } = await import("../../state/state.js");
     const current = (await getOperation(op.id, dataDir))!;
     current.status = "running";
-    current.heartbeatAt = staleTs;
     await writeJsonAtomic(
       join(dataDir, "setup", op.id, "state.json"),
       current,
@@ -315,14 +305,6 @@ describe("reapStaleOperations", () => {
     expect(after?.steps[1].status).toBe("pending");
   });
 
-  it("reaps a running op even with a fresh heartbeat (runners never survive boot)", async () => {
-    const op = await createOperation("guided-setup", steps("a"), dataDir);
-    await runOperationLeaveRunning(op.id, dataDir);
-    const reaped = await reapStaleOperations(dataDir);
-    expect(reaped).toEqual([op.id]);
-    expect((await getOperation(op.id, dataDir))?.status).toBe("failed");
-  });
-
   it("after reaping, the op can be resumed and succeed", async () => {
     const op = await createOperation("guided-setup", steps("a", "b"), dataDir);
     // a already succeeded, b was running when interrupted.
@@ -331,7 +313,6 @@ describe("reapStaleOperations", () => {
     const { writeJsonAtomic } = await import("../../state/state.js");
     const current = (await getOperation(op.id, dataDir))!;
     current.status = "running";
-    current.heartbeatAt = new Date(Date.now() - STALE_HEARTBEAT_MS - 1000).toISOString();
     await writeJsonAtomic(
       join(dataDir, "setup", op.id, "state.json"),
       current,

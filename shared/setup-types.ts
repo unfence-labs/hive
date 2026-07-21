@@ -1,9 +1,7 @@
 // Shared types for the install/setup flow. Consumed by backend (API + engine)
-// and frontend (wizard). See docs/install-flow-implementation-plan.md §3.
+// and frontend (wizard).
 
 import type { SetupErrorCode } from "./setup-errors.js";
-
-export const SETUP_PROTOCOL_VERSION = 1;
 
 export type SetupStepStatus =
   | "pending"
@@ -22,10 +20,7 @@ export interface SetupStep {
   id: string;
   title: string;
   status: SetupStepStatus;
-  attempts: number;
   exitCode?: number;
-  /** [firstSeq, lastSeq] range of this step's lines in the operation log. */
-  logRange?: [number, number];
   error?: SetupStepError;
   startedAt?: string;
   finishedAt?: string;
@@ -39,7 +34,7 @@ export type SetupStepAction =
   | { kind: "open_url"; url: string }
   | { kind: "open_url_with_code"; url: string; code: string; expiresAt?: string };
 
-export type SetupOperationKind = "guided-setup" | "self-update";
+export type SetupOperationKind = "guided-setup";
 
 export type SetupOperationStatus =
   | "pending"
@@ -53,17 +48,7 @@ export interface SetupOperation {
   status: SetupOperationStatus;
   steps: SetupStep[];
   startedAt: string;
-  heartbeatAt: string;
   finishedAt?: string;
-}
-
-/** One line of an operation log (also the wire format for /log?since=). */
-export interface SetupLogLine {
-  seq: number;
-  ts: string;
-  stepId: string;
-  stream: "stdout" | "stderr" | "system";
-  line: string;
 }
 
 // --- Detection ---
@@ -81,8 +66,6 @@ export interface ToolDetection {
   /** Whether the tool is authenticated where that concept applies (claude/codex/gh/tailscale). */
   authenticated?: boolean;
   version?: string;
-  latestVersion?: string;
-  updateAvailable?: boolean;
 }
 
 export interface SetupStatus {
@@ -99,20 +82,4 @@ export interface RunSetupRequest {
 
 export interface RunSetupResponse {
   operationId: string;
-}
-
-export interface VersionResponse {
-  version: string;
-  protocolVersion: number;
-  commit?: string;
-}
-
-// --- iOS pairing payload (QR) ---
-
-export interface PairingPayload {
-  v: number;
-  host: string;
-  port: number;
-  token: string;
-  name?: string;
 }

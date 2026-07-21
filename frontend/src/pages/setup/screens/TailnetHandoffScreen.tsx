@@ -2,7 +2,6 @@ import { useEffect, useState } from "react";
 import { SetupScreen } from "./SetupScreen";
 import { Spinner } from "@/components/ui/spinner";
 import { getServerUrl } from "@/hooks/useServerUrl";
-import { getAuthToken } from "@/hooks/useAuthToken";
 
 interface TailnetHandoffScreenProps {
   /** Server base URL to poll (e.g. http://100.x.y.z:3000). */
@@ -14,15 +13,13 @@ interface TailnetHandoffScreenProps {
   checkHealth?: (baseUrl: string) => Promise<boolean>;
 }
 
+// /health is unauthenticated; sending the PREVIOUS connection's bearer to the
+// new server would be both useless and a token leak across hosts.
 async function defaultCheckHealth(baseUrl: string): Promise<boolean> {
   const base = baseUrl || getServerUrl();
   if (!base) return false;
   try {
-    const token = getAuthToken();
-    const res = await fetch(`${base}/health`, {
-      signal: AbortSignal.timeout(3000),
-      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-    });
+    const res = await fetch(`${base}/health`, { signal: AbortSignal.timeout(3000) });
     return res.ok;
   } catch {
     return false;

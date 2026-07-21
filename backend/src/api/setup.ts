@@ -10,7 +10,6 @@ import {
   createOperation,
   getOperation,
   listOperations,
-  readLogSince,
   runOperation,
   findRunningOperation,
   type RunnableStep,
@@ -44,7 +43,7 @@ function resolveSteps(
 
 export interface SetupRoutesOptions {
   dataDir?: string;
-  /** Injectable Claude token writer (§6.4); defaults to the env-file writer. */
+  /** Injectable Claude token writer; defaults to the env-file writer. */
   claudeTokenWriter?: ClaudeTokenWriter;
   /** Injectable step registry; defaults to the real installer steps. */
   steps?: Record<string, SetupStepDef>;
@@ -80,7 +79,9 @@ export async function setupRoutes(
 
     const running = await findRunningOperation("guided-setup", stepIds, dataDir);
     if (running) {
-      return reply.status(409).send({ error: "This step is already running", operationId: running });
+      return reply
+        .status(409)
+        .send({ code: "CONCURRENT_RUN", error: "This step is already running", operationId: running });
     }
 
     const op = await createOperation(
@@ -104,21 +105,6 @@ export async function setupRoutes(
     return op;
   });
 
-  app.get<{ Params: { id: string }; Querystring: { since?: string } }>(
-    "/api/setup/operations/:id/log",
-    async (req, reply) => {
-      const op = await getOperation(req.params.id, dataDir);
-      if (!op) return reply.status(404).send({ error: "Operation not found" });
-
-      const since = Number.parseInt(req.query.since ?? "", 10);
-      const sinceSeq = Number.isFinite(since) ? since : -1;
-      const lines = await readLogSince(req.params.id, sinceSeq, dataDir);
-
-      reply.header("content-type", "application/x-ndjson");
-      return lines.map((l) => JSON.stringify(l)).join("\n");
-    },
-  );
-
   app.post<{ Params: { id: string } }>(
     "/api/setup/operations/:id/retry",
     async (req, reply) => {
@@ -134,7 +120,9 @@ export async function setupRoutes(
 
       const running = await findRunningOperation(op.kind, op.steps.map((s) => s.id), dataDir);
       if (running && running !== op.id) {
-        return reply.status(409).send({ error: "This step is already running", operationId: running });
+        return reply
+          .status(409)
+          .send({ code: "CONCURRENT_RUN", error: "This step is already running", operationId: running });
       }
 
       void runOperation(op.id, steps, dataDir).catch((err) => {

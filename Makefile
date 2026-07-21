@@ -1,10 +1,11 @@
-# Hive install-flow developer entry points. See docs/install-flow-implementation-plan.md 7.6.
-.PHONY: provision-build provision-docker provision-docker-chaos provision-docker-reprovision provision-contract
+# Hive install-flow developer entry points.
+.PHONY: provision-build provision-docker provision-docker-chaos provision-docker-reprovision provision-contract release-tarball
 
 provision-build:
 	bash scripts/provision/build.sh $(or $(VERSION),0.0.0-dev)
 
-# Tier-1: full install + idempotency inside a systemd container (fast, offline).
+# Tier-1: full install + idempotency inside a systemd container. Needs network
+# (apt + nodesource run inside the container).
 provision-docker:
 	bash test/e2e/provision-docker.sh install
 

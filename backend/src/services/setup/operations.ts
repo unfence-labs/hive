@@ -6,7 +6,6 @@ import type {
   SetupOperationKind,
   SetupStep,
   SetupStepAction,
-  SetupLogLine,
 } from "@hive/shared/setup-types";
 import type { SetupErrorCode } from "@hive/shared/setup-errors";
 import { getDataDir, writeJsonAtomic } from "../../state/state.js";
@@ -14,10 +13,10 @@ import { withKeyedLock } from "../../utils/async-lock.js";
 
 /**
  * Per-operation write lock. Every read-modify-write of an operation's
- * state.json / log.jsonl serializes on its id so the heartbeat, step
- * transitions, setAction, and appendLog cannot clobber each other's writes or
- * collide on log seq. Read-only helpers stay lock-free. NOT reentrant: a locked
- * mutator must never call another locked mutator for the same key.
+ * state.json / log.jsonl serializes on its id so step transitions, setAction,
+ * and appendLog cannot clobber each other's writes or collide on log seq.
+ * Read-only helpers stay lock-free. NOT reentrant: a locked mutator must never
+ * call another locked mutator for the same key.
  */
 const operationLocks = new Map<string, Promise<void>>();
 function withOperationLock<T>(
@@ -32,17 +31,13 @@ function withOperationLock<T>(
 const RUN_GATE_KEY = "run-gate";
 
 /**
- * Durable multi-step setup operation engine (§6.1). Each operation lives under
+ * Durable multi-step setup operation engine. Each operation lives under
  * DATA_DIR/setup/<opId>/ as `state.json` (atomic) + `log.jsonl` (append-only,
- * monotonic seq). The in-process runner executes ordered async step functions,
- * heartbeats while running, and is resumable (already-succeeded steps skip).
+ * monotonic seq, kept on disk for debugging). The in-process runner executes
+ * ordered async step functions and is resumable (already-succeeded steps skip).
  */
 
-const HEARTBEAT_INTERVAL_MS = 5_000;
-/** A running op whose heartbeat is older than this is considered dead (§6.1). */
-export const STALE_HEARTBEAT_MS = 30_000;
-
-/** Thrown/returned when a second op of the same kind is requested (409, §6.1). */
+/** Thrown/returned when a second op of the same kind is requested (409). */
 export class ConcurrentOperationError extends Error {
   readonly kind: SetupOperationKind;
   readonly existingOperationId: string;
@@ -54,9 +49,18 @@ export class ConcurrentOperationError extends Error {
   }
 }
 
+/** One line of an operation's on-disk log.jsonl (debugging only, not on the wire). */
+interface LogLine {
+  seq: number;
+  ts: string;
+  stepId: string;
+  stream: "stdout" | "stderr" | "system";
+  line: string;
+}
+
 /** Emit callback handed to each step function; writes one log line. */
 export type EmitFn = (args: {
-  stream?: SetupLogLine["stream"];
+  stream?: LogLine["stream"];
   line: string;
 }) => Promise<void>;
 
@@ -137,10 +141,8 @@ export async function createOperation(
       id: s.id,
       title: s.title,
       status: "pending",
-      attempts: 0,
     })),
     startedAt: now,
-    heartbeatAt: now,
   };
   await mkdir(opDir(dataDir, op.id), { recursive: true });
   await writeState(dataDir, op);
@@ -191,7 +193,7 @@ async function nextSeq(dataDir: string, opId: string): Promise<number> {
   return lines[lines.length - 1].seq + 1;
 }
 
-async function readAllLogLines(dataDir: string, opId: string): Promise<SetupLogLine[]> {
+async function readAllLogLines(dataDir: string, opId: string): Promise<LogLine[]> {
   let raw: string;
   try {
     raw = await readFile(logPath(dataDir, opId), "utf-8");
@@ -199,11 +201,11 @@ async function readAllLogLines(dataDir: string, opId: string): Promise<SetupLogL
     if ((err as NodeJS.ErrnoException).code === "ENOENT") return [];
     throw err;
   }
-  const out: SetupLogLine[] = [];
+  const out: LogLine[] = [];
   for (const line of raw.split("\n")) {
     if (!line.trim()) continue;
     try {
-      out.push(JSON.parse(line) as SetupLogLine);
+      out.push(JSON.parse(line) as LogLine);
     } catch {
       // Skip a torn/partial line rather than failing the whole read.
     }
@@ -217,13 +219,13 @@ async function readAllLogLines(dataDir: string, opId: string): Promise<SetupLogL
  */
 export async function appendLog(
   id: string,
-  line: { stepId: string; stream?: SetupLogLine["stream"]; line: string; ts?: string },
+  line: { stepId: string; stream?: LogLine["stream"]; line: string; ts?: string },
   dataDir: string = getDataDir(),
-): Promise<SetupLogLine> {
+): Promise<LogLine> {
   return withOperationLock(dataDir, id, async () => {
     await mkdir(opDir(dataDir, id), { recursive: true });
     const seq = await nextSeq(dataDir, id);
-    const entry: SetupLogLine = {
+    const entry: LogLine = {
       seq,
       ts: line.ts ?? nowIso(),
       stepId: line.stepId,
@@ -233,16 +235,6 @@ export async function appendLog(
     await appendFile(logPath(dataDir, id), JSON.stringify(entry) + "\n", "utf-8");
     return entry;
   });
-}
-
-/** Read log lines with seq strictly greater than `since`. */
-export async function readLogSince(
-  id: string,
-  since: number,
-  dataDir: string = getDataDir(),
-): Promise<SetupLogLine[]> {
-  const lines = await readAllLogLines(dataDir, id);
-  return lines.filter((l) => l.seq > since);
 }
 
 /** Patch a single step within an operation (merges fields) and persist. */
@@ -299,8 +291,8 @@ export async function findRunningOperation(
 
 /**
  * Run (or resume) an operation's steps sequentially in-process. Steps already
- * `succeeded` are skipped. Heartbeats every ~5s while running. On the first
- * failing step, remaining steps stay pending and the op is marked `failed`.
+ * `succeeded` are skipped. On the first failing step, remaining steps stay
+ * pending and the op is marked `failed`.
  *
  * Throws {@link ConcurrentOperationError} if another running op of the same
  * kind touches any of the same steps.
@@ -325,7 +317,7 @@ export async function runOperation(
       if (otherRunning && otherRunning !== id) {
         throw new ConcurrentOperationError(op.kind, otherRunning);
       }
-      await patchOperation(dataDir, id, { status: "running", heartbeatAt: nowIso() });
+      await patchOperation(dataDir, id, { status: "running" });
     });
   } catch (err) {
     // A concurrency rejection means the op never started — leave its state as is.
@@ -341,13 +333,6 @@ export async function runOperation(
     throw err;
   }
 
-  const heartbeat = setInterval(() => {
-    void patchOperation(dataDir, id, { heartbeatAt: nowIso() }).catch(() => {
-      /* best-effort heartbeat */
-    });
-  }, HEARTBEAT_INTERVAL_MS);
-  if (typeof heartbeat.unref === "function") heartbeat.unref();
-
   try {
     for (const step of steps) {
       const current = await getOperation(id, dataDir);
@@ -355,14 +340,12 @@ export async function runOperation(
       // Resume: skip already-succeeded steps.
       if (stepState?.status === "succeeded") continue;
 
-      const startSeq = await nextSeq(dataDir, id);
       await updateStep(
         id,
         step.id,
         {
           status: "running",
           startedAt: nowIso(),
-          attempts: (stepState?.attempts ?? 0) + 1,
           error: undefined,
           finishedAt: undefined,
           // Clear any prior attempt's device code/URL so the polling client does
@@ -384,14 +367,12 @@ export async function runOperation(
 
       try {
         const data = await step.fn(emit, ctx);
-        const lastSeq = Math.max(startSeq, (await nextSeq(dataDir, id)) - 1);
         await updateStep(
           id,
           step.id,
           {
             status: "succeeded",
             finishedAt: nowIso(),
-            logRange: [startSeq, lastSeq],
             ...(data && typeof data === "object" ? { data } : {}),
           },
           dataDir,
@@ -403,7 +384,6 @@ export async function runOperation(
           { stepId: step.id, stream: "stderr", line: stepError.message },
           dataDir,
         );
-        const lastSeq = Math.max(startSeq, (await nextSeq(dataDir, id)) - 1);
         await updateStep(
           id,
           step.id,
@@ -411,7 +391,6 @@ export async function runOperation(
             status: "failed",
             finishedAt: nowIso(),
             exitCode: stepError.exitCode,
-            logRange: [startSeq, lastSeq],
             error: {
               code: stepError.code,
               message: stepError.message,
@@ -422,7 +401,6 @@ export async function runOperation(
         );
         return await patchOperation(dataDir, id, {
           status: "failed",
-          heartbeatAt: nowIso(),
           finishedAt: nowIso(),
         });
       }
@@ -430,7 +408,6 @@ export async function runOperation(
 
     return await patchOperation(dataDir, id, {
       status: "succeeded",
-      heartbeatAt: nowIso(),
       finishedAt: nowIso(),
     });
   } catch (err) {
@@ -439,14 +416,11 @@ export async function runOperation(
     // never remains stuck at running/pending with no terminal state.
     await patchOperation(dataDir, id, {
       status: "failed",
-      heartbeatAt: nowIso(),
       finishedAt: nowIso(),
     }).catch(() => {
       /* best-effort */
     });
     throw err;
-  } finally {
-    clearInterval(heartbeat);
   }
 }
 
@@ -457,10 +431,8 @@ function toStepError(err: unknown): StepError {
 }
 
 /**
- * Boot reaper (§6.1): runners live in-process, so at boot ANY op still
- * `running` is orphaned — even with a fresh heartbeat (a restart seconds after
- * the last beat used to leave zombies that blocked same-step retries forever).
- * Marks the op `failed` and its running step INTERRUPTED. Idempotent.
+ * Boot reaper: runners live in-process, so at boot ANY op still `running` is
+ * orphaned. Marks the op `failed` and its running step INTERRUPTED. Idempotent.
  * Returns the ids of operations that were reaped.
  */
 export async function reapStaleOperations(

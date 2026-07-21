@@ -1,9 +1,9 @@
 import type { SetupErrorCode } from "@hive/shared/setup-errors";
 
 /**
- * Wizard state machine (docs/install-flow-implementation-plan.md §9). Pure and
- * fully testable; the React shell (SetupWizard.tsx) owns rendering and side
- * effects. States are linear with a `back` affordance and a global error panel.
+ * Wizard state machine. Pure and fully testable; the React shell
+ * (SetupWizard.tsx) owns rendering and side effects. States are linear with a
+ * `back` affordance and a global error panel.
  */
 
 export const SETUP_STATES = [
@@ -23,17 +23,16 @@ export const SETUP_STATES = [
 
 export type SetupState = (typeof SETUP_STATES)[number];
 
-export type ServerChoice = "create" | "existing";
-
 /** Inputs collected across the flow, persisted with the state. */
 export interface SetupInputs {
   tailscaleAuthKey?: string;
-  serverChoice?: ServerChoice;
   sshKeyPath?: string;
   serverIp?: string;
   /** SSH user for the target server; undefined means root. */
   sshUser?: string;
   hostFingerprint?: string;
+  /** Raw keyscan lines behind the fingerprint; written verbatim on trust. */
+  hostKeys?: string[];
 }
 
 export interface SetupError {
@@ -80,8 +79,6 @@ export function canGoBack(state: SetupState): boolean {
 export type SetupAction =
   | { type: "advance"; inputs?: Partial<SetupInputs> }
   | { type: "back" }
-  | { type: "goto"; state: SetupState }
-  | { type: "setInputs"; inputs: Partial<SetupInputs> }
   | { type: "fail"; error: Omit<SetupError, "state"> }
   | { type: "clearError" }
   | { type: "reset" };
@@ -98,10 +95,6 @@ export function reduce(current: SetupMachineState, action: SetupAction): SetupMa
     case "back":
       if (!canGoBack(current.state)) return current;
       return { ...current, state: prevState(current.state), error: null };
-    case "goto":
-      return { ...current, state: action.state, error: null };
-    case "setInputs":
-      return { ...current, inputs: { ...current.inputs, ...action.inputs } };
     case "fail":
       return { ...current, error: { ...action.error, state: current.state } };
     case "clearError":

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Tier-1 provision harness: run provision.sh inside a systemd container and
-# assert install, idempotency, and crash-resume. See plan 7.1 / 7.2.
+# assert install, idempotency, and crash-resume.
 #
 # Usage: provision-docker.sh [install|chaos|reprovision]   (default: install)
 set -euo pipefail
@@ -21,18 +21,28 @@ build_artifacts() {
   bash "$PROV/build.sh" "$VERSION" >/dev/null
   log "Build fake release tarball"
   local rel="$PROV/dist/fake-release.tar.gz"
-  # The real backend tarball ships dist/index.js; mirror that layout.
+  # Mirror the real tarball layout: dist/index.js plus loadable node_modules
+  # stubs for the natives install_release verifies (node-pty, sharp).
   local staging; staging="$(mktemp -d)"
   mkdir -p "$staging/dist"
   cp "$ROOT/test/provision/fake-release/index.js" "$staging/dist/index.js"
-  tar -czf "$rel" -C "$staging" dist
+  local m
+  for m in node-pty sharp; do
+    mkdir -p "$staging/node_modules/$m"
+    printf '{"name":"%s","version":"0.0.0-test","main":"index.js"}\n' "$m" \
+      >"$staging/node_modules/$m/package.json"
+    echo "module.exports = {};" >"$staging/node_modules/$m/index.js"
+  done
+  tar -czf "$rel" -C "$staging" dist node_modules
   rm -rf "$staging"
   echo "$rel"
 }
 
 build_image() {
   log "Build systemd test image"
-  docker build -q -f "$ROOT/test/images/ubuntu-systemd.Dockerfile" -t "$IMAGE" "$ROOT" >/dev/null
+  # Context is the Dockerfile's own dir (no COPY): the repo root would tar
+  # gigabytes of node_modules/.git into the docker daemon for nothing.
+  docker build -q -f "$ROOT/test/images/ubuntu-systemd.Dockerfile" -t "$IMAGE" "$ROOT/test/images" >/dev/null
 }
 
 start_container() {
@@ -138,6 +148,8 @@ mode_reprovision() {
   local prov2="$PROV/dist/provision-v2.sh"
   bash "$PROV/build.sh" "9.9.9-test" >/dev/null
   cp "$PROV/dist/provision.sh" "$prov2"
+  # Restore the $VERSION build so dist/ holds no stale test artifact.
+  bash "$PROV/build.sh" "$VERSION" >/dev/null
   local out
   out="$(run_provision_script "$prov2" "$rel" 2>&1)" || {
     echo "$out"; echo "FAIL: re-provision errored"; return 1;

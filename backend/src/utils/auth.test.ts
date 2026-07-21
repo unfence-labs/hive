@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { createHash } from "node:crypto";
-import { createAuthHook, extractAuthToken, isAllowedHostHeader, isAuthorized } from "./auth.js";
+import {
+  createAuthHook,
+  createHostGuardHook,
+  extractAuthToken,
+  isAllowedHostHeader,
+  isAuthorized,
+} from "./auth.js";
 
 function bearer(token: string): Record<string, string> {
   return { authorization: `Bearer ${token}` };
@@ -227,5 +233,32 @@ describe("isAllowedHostHeader", () => {
 
   it("honors the explicit allowlist", () => {
     expect(isAllowedHostHeader("hive.mydomain.dev", ["hive.mydomain.dev"])).toBe(true);
+  });
+});
+
+describe("createHostGuardHook", () => {
+  function replyRecorder() {
+    const state: { statusCode?: number } = {};
+    return {
+      state,
+      reply: {
+        status(code: number) { state.statusCode = code; return this; },
+        send() {},
+      },
+    };
+  }
+
+  it("allows /health regardless of the Host header (matches the auth hook exemption)", async () => {
+    const hook = createHostGuardHook();
+    const { state, reply } = replyRecorder();
+    await hook({ url: "/health", headers: { host: "hive.mydomain.dev" } } as never, reply as never);
+    expect(state.statusCode).toBeUndefined();
+  });
+
+  it("rejects other routes with a disallowed Host header", async () => {
+    const hook = createHostGuardHook();
+    const { state, reply } = replyRecorder();
+    await hook({ url: "/api/projects", headers: { host: "evil.example.com" } } as never, reply as never);
+    expect(state.statusCode).toBe(403);
   });
 });

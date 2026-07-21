@@ -4,7 +4,7 @@ import {
   runHelper,
 } from "./installers/command.js";
 
-// Every Claude OAuth setup token is the `sk-ant-oat01-` prefix (§3.4 / §6.4)
+// Every Claude OAuth setup token is the `sk-ant-oat01-` prefix
 // followed only by [A-Za-z0-9_-] — the same charset the capture path yields.
 // Enforcing the whole shape here stops a newline (or any control/metacharacter)
 // from injecting a second line into the 0600 env file the token is written to.
@@ -15,7 +15,7 @@ export function isValidClaudeToken(token: string): boolean {
 }
 
 /**
- * Persist the Claude OAuth token into the service env (§6.4). On a provisioned
+ * Persist the Claude OAuth token into the service env. On a provisioned
  * server this writes `CLAUDE_CODE_OAUTH_TOKEN=<token>` into
  * `/etc/hive/hive.env` (root-owned, 0600) via the privileged
  * `write-claude-token.sh` helper. In tests and non-provisioned environments the

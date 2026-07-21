@@ -1,20 +1,22 @@
 # shellcheck shell=bash
 # Hive provision steps. Each step: optional guard_<id> (skip if satisfied),
-# optional title_<id>, and step_<id> (the action). See plan 5.2.
+# optional title_<id>, and step_<id> (the action).
 
 # Flags/options (set by parse_args in provision.sh):
 #   OPT_SKIP_TAILSCALE OPT_SKIP_UFW OPT_SKIP_NODE
-#   OPT_HOST OPT_PORT OPT_RELEASE_FILE OPT_APT_BASELINE
+#   OPT_HOST OPT_PORT OPT_RELEASE_FILE
 
-APT_BASELINE_DEFAULT="build-essential python3 python-is-python3 pkg-config libssl-dev \
+APT_BASELINE="build-essential python3 python-is-python3 pkg-config libssl-dev \
 git unzip xz-utils jq ripgrep fd-find sqlite3 git-delta fzf tree gnupg ca-certificates ufw"
+
+HIVE_RELEASE_BASE_URL="${HIVE_RELEASE_BASE_URL:-https://github.com/0xlny/hive/releases/download}"
 
 HIVE_HOME="/home/hive"
 HIVE_DATA_DIR="$HIVE_HOME/.hive"
 HIVE_OPT="/opt/hive"
 # Durable "installed by Hive" marker: survives the state-dir wipe on a
 # SCRIPT_VERSION bump, so probe_env can tell our own install (a resume/update)
-# apart from a foreign occupant. Removed by --uninstall (lives under /etc/hive).
+# apart from a foreign occupant.
 HIVE_INSTALL_MARKER="/etc/hive/.hive-install"
 
 # ---------------------------------------------------------------------------
@@ -31,7 +33,7 @@ step_probe_os() {
   [ -d /run/systemd/system ] || die UNSUPPORTED_OS "systemd is required"
   local arch; arch="$(uname -m)"
   case "$arch" in
-    x86_64|aarch64) : ;;
+    x86_64 | aarch64) : ;;
     *) die UNSUPPORTED_ARCH "unsupported arch: $arch" ;;
   esac
   STEP_DATA="$(printf '{"os":"%s %s","arch":"%s"}' "${ID}" "${VERSION_ID}" "$arch")"
@@ -41,7 +43,7 @@ step_probe_os() {
 
 title_probe_env() { echo "Check the server is pristine"; }
 step_probe_env() {
-  # Our own prior install is a resume/update, not a conflict (plan §5.2).
+  # Our own prior install is a resume/update, not a conflict.
   if [ -e "$HIVE_INSTALL_MARKER" ]; then
     STEP_DATA='{"reinstall":true}'
     return 0
@@ -50,7 +52,9 @@ step_probe_env() {
     die EXISTING_INSTALL "Hive is already installed on this server"
   fi
   # A busy target port on a pristine box means something else runs here.
-  if command -v ss >/dev/null 2>&1 && ss -ltn 2>/dev/null | grep -q ":${OPT_PORT}\b"; then
+  # No `grep -q`: its early exit can SIGPIPE ss, turning a found port into a
+  # non-zero pipeline under pipefail (busy port read as free).
+  if command -v ss >/dev/null 2>&1 && ss -ltn 2>/dev/null | grep ":${OPT_PORT}\b" >/dev/null; then
     die SERVER_NOT_PRISTINE "port ${OPT_PORT} is already in use"
   fi
 }
@@ -109,6 +113,14 @@ title_install_tailscale() { echo "Install Tailscale"; }
 guard_install_tailscale() { [ "$OPT_SKIP_TAILSCALE" = 1 ] || command -v tailscale >/dev/null 2>&1; }
 step_install_tailscale() {
   [ "$OPT_SKIP_TAILSCALE" = 1 ] && { STEP_DATA='{"skipped":true}'; return 0; }
+  # This step runs before apt_baseline (fail fast on a dead auth key) so curl
+  # may not exist yet on minimal images.
+  if ! command -v curl >/dev/null 2>&1; then
+    STEP_ERR_CODE=APT_FAILURE
+    run_logged install_tailscale apt-get update -q -o DPkg::Lock::Timeout=300
+    run_logged install_tailscale apt_install curl ca-certificates
+    STEP_ERR_CODE=""
+  fi
   run_logged install_tailscale bash -c \
     'curl -fsSL https://tailscale.com/install.sh | sh'
   systemctl enable --now tailscaled
@@ -216,16 +228,22 @@ step_install_release() {
     # HIVE_DEV_RELEASE_TARBALL, so the sidecar never passed --release-file.
     [ "$HIVE_VERSION" != "0.0.0-dev" ] || die RELEASE_DOWNLOAD_FAILED \
       "dev build has no downloadable release: run 'make release-tarball' in the repo, then Retry (or set HIVE_DEV_RELEASE_TARBALL to a tarball path before launching the app)"
-    local arch_tag; case "$(uname -m)" in x86_64) arch_tag=x64;; aarch64) arch_tag=arm64;; esac
+    local arch_tag
+    case "$(uname -m)" in
+      x86_64) arch_tag=x64 ;;
+      aarch64) arch_tag=arm64 ;;
+      *) die UNSUPPORTED_ARCH "unsupported arch: $(uname -m)" ;;
+    esac
     tarball="$HIVE_VAR_DIR/hive-backend.tar.gz"
-    local asset_url="https://github.com/0xlny/hive/releases/download/v$HIVE_VERSION/hive-backend-$HIVE_VERSION-linux-$arch_tag.tar.gz"
+    local asset_url="$HIVE_RELEASE_BASE_URL/v$HIVE_VERSION/hive-backend-$HIVE_VERSION-linux-$arch_tag.tar.gz"
     STEP_ERR_CODE=RELEASE_DOWNLOAD_FAILED
     run_logged install_release curl -fsSL -o "$tarball" "$asset_url"
     STEP_ERR_CODE=""
     # Verify integrity against the SHA256 sidecar published next to the asset
     # (release.yml). Extraction must never run on a tampered/corrupt download.
+    # `|| true`: a failed fetch must reach the typed die below, not the ERR trap.
     local expected actual
-    expected="$(curl -fsSL "$asset_url.sha256" 2>/dev/null | cut -d' ' -f1)"
+    expected="$(curl -fsSL "$asset_url.sha256" 2>/dev/null | cut -d' ' -f1 || true)"
     [ -n "$expected" ] || die CHECKSUM_MISMATCH "could not fetch checksum from $asset_url.sha256"
     actual="$(sha256sum "$tarball" | cut -d' ' -f1)"
     [ "$expected" = "$actual" ] || die CHECKSUM_MISMATCH "release checksum mismatch: expected $expected, got $actual"
@@ -325,24 +343,6 @@ PrivateTmp=true
 [Install]
 WantedBy=multi-user.target
 EOF
-  # Updater trigger: path unit watches a hive-writable flag; updater runs as root
-  # in its own cgroup so a hive restart never kills an in-flight update.
-  cat >/etc/systemd/system/hive-updater.path <<EOF
-[Unit]
-Description=Watch for Hive update requests
-[Path]
-PathExists=$HIVE_OPT/shared/.update-requested
-Unit=hive-updater.service
-[Install]
-WantedBy=multi-user.target
-EOF
-  cat >/etc/systemd/system/hive-updater.service <<EOF
-[Unit]
-Description=Hive self-update
-[Service]
-Type=oneshot
-ExecStart=/usr/lib/hive/helpers/update-hive.sh
-EOF
   systemctl daemon-reload
 }
 
@@ -367,16 +367,6 @@ DEBIAN_FRONTEND=noninteractive apt-get update -q -o DPkg::Lock::Timeout=300
 DEBIAN_FRONTEND=noninteractive apt-get install -q -y -o DPkg::Lock::Timeout=300 gh
 EOF
 
-  cat >/usr/lib/hive/helpers/install-docker.sh <<'EOF'
-#!/usr/bin/env bash
-set -euo pipefail
-curl -fsSL https://get.docker.com | sh
-# Rootless for the hive user (docker group == host root; avoid it).
-apt-get install -y -o DPkg::Lock::Timeout=300 uidmap dbus-user-session || true
-loginctl enable-linger hive || true
-sudo -u hive XDG_RUNTIME_DIR=/run/user/$(id -u hive) dockerd-rootless-setuptool.sh install || true
-EOF
-
   cat >/usr/lib/hive/helpers/write-claude-token.sh <<'EOF'
 #!/usr/bin/env bash
 # Write CLAUDE_CODE_OAUTH_TOKEN into the service env (root-owned, 0600).
@@ -395,37 +385,21 @@ install -m 600 "$tmp" /etc/hive/hive.env
 rm -f "$tmp"
 EOF
 
-  cat >/usr/lib/hive/helpers/update-hive.sh <<'EOF'
-#!/usr/bin/env bash
-# Placeholder self-update entrypoint (Phase 6 wires the real swap + rollback).
-set -euo pipefail
-rm -f /opt/hive/shared/.update-requested
-echo "update-hive: not yet implemented" >&2
-EOF
-
   chmod 755 /usr/lib/hive/helpers/*.sh
   chown -R root:root /usr/lib/hive
 
   # Allow the hive service user to run exactly these helpers as root.
   cat >/etc/sudoers.d/hive <<'EOF'
-hive ALL=(root) NOPASSWD: /usr/lib/hive/helpers/install-gh.sh, /usr/lib/hive/helpers/install-docker.sh, /usr/lib/hive/helpers/write-claude-token.sh, /usr/lib/hive/helpers/update-hive.sh
+hive ALL=(root) NOPASSWD: /usr/lib/hive/helpers/install-gh.sh, /usr/lib/hive/helpers/write-claude-token.sh
 EOF
   chmod 440 /etc/sudoers.d/hive
   visudo -cf /etc/sudoers.d/hive >/dev/null || die UNKNOWN "sudoers validation failed"
 }
 
-title_install_dev_tools() { echo "Install GitHub CLI and Docker"; }
-step_install_dev_tools() {
-  STEP_ERR_CODE=APT_FAILURE
-  command -v gh >/dev/null 2>&1 || run_logged install_dev_tools bash /usr/lib/hive/helpers/install-gh.sh
-  command -v docker >/dev/null 2>&1 || run_logged install_dev_tools bash /usr/lib/hive/helpers/install-docker.sh
-  STEP_ERR_CODE=""
-}
-
 title_enable_service() { echo "Start Hive"; }
 step_enable_service() {
   STEP_ERR_CODE=SERVICE_START_FAILED
-  systemctl enable hive >/dev/null 2>&1 || true
+  systemctl enable hive >/dev/null 2>&1
   systemctl restart hive
   STEP_ERR_CODE=""
 }
@@ -443,12 +417,4 @@ step_health_check() {
     sleep 2
   done
   die HEALTH_TIMEOUT "Hive did not become healthy on $host:$OPT_PORT"
-}
-
-# ---------------------------------------------------------------------------
-
-title_cleanup() { echo "Finish up"; }
-step_cleanup() {
-  rm -f "$ENV_FILE"        # rm, not shred: journaling FS gives shred no guarantee
-  STEP_DATA="$(printf '{"host":"%s","port":%d}' "${RESOLVED_HOST:-$OPT_HOST}" "$OPT_PORT")"
 }

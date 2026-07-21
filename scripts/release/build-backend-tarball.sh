@@ -26,8 +26,9 @@ mkdir -p "$OUT_DIR"
 staging="$(mktemp -d)"
 trap 'rm -rf "$staging"' EXIT
 
-# Build the backend and shared dep.
-( cd "$ROOT" && npm ci --workspaces --include-workspace-root >/dev/null 2>&1 || npm install >/dev/null )
+# Build the backend and shared dep. npm ci must fail loudly: a lockfile drift
+# silently patched by npm install would ship unpinned deps in a release.
+( cd "$ROOT" && npm ci --workspaces --include-workspace-root >/dev/null )
 ( cd "$ROOT/shared" && npm run build >/dev/null )
 ( cd "$ROOT/backend" && npm run build >/dev/null )
 
@@ -42,8 +43,10 @@ cp "$ROOT/shared/package.json" "$staging/pkg/node_modules/@hive/shared/package.j
 # Target linux so platform-selected optional deps (sharp's @img/*) match the
 # server even when building on macOS. node-pty has no linux prebuild in its
 # npm package; provision.sh rebuilds it on the server when it cannot load.
+# No lockfile applies here (the workspace lockfile does not cover a standalone
+# package.json), so versions resolve from backend/package.json ranges.
 ( cd "$staging/pkg" && npm install --omit=dev --no-audit --no-fund \
-    --os=linux --cpu="$ARCH" --libc=glibc >/dev/null 2>&1 )
+    --os=linux --cpu="$ARCH" --libc=glibc >/dev/null )
 
 tar -czf "$OUT_DIR/$NAME.tar.gz" -C "$staging/pkg" .
 if command -v sha256sum >/dev/null 2>&1; then

@@ -1,9 +1,6 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import type { FastifyInstance } from "fastify";
-import { SETUP_PROTOCOL_VERSION } from "@hive/shared/setup-types";
-import type { VersionResponse } from "@hive/shared/setup-types";
 
 // Import attributes (`with { type: "json" }`) are not supported under the repo's
 // Node16 module mode, so read package.json from disk instead. Path is resolved
@@ -22,21 +19,7 @@ function readBackendVersion(): string {
 
 const BACKEND_VERSION = readBackendVersion();
 
-/** The backend version, read from package.json. */
+/** The backend version, read from package.json. Reported on /health. */
 export function getBackendVersion(): string {
   return BACKEND_VERSION;
-}
-
-/** Build the /api/version payload (also reused for the /health version field). */
-export function buildVersionResponse(): VersionResponse {
-  const commit = process.env.HIVE_COMMIT?.trim();
-  return {
-    version: getBackendVersion(),
-    protocolVersion: SETUP_PROTOCOL_VERSION,
-    ...(commit ? { commit } : {}),
-  };
-}
-
-export async function versionRoutes(app: FastifyInstance): Promise<void> {
-  app.get("/api/version", async (): Promise<VersionResponse> => buildVersionResponse());
 }

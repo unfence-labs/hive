@@ -11,7 +11,7 @@ import { useConnectionStatus } from "@/hooks/useConnectionStatus";
 import { loadSshConnection, clearSshConnection, type SshConnection } from "@/lib/ssh-connection";
 import { useProvisionRun, ProvisionStepList } from "@/pages/setup/screens/ProvisioningScreen";
 import { ErrorPanel } from "@/pages/setup/screens/ErrorPanel";
-import { ToolsPanel } from "@/pages/setup/screens/GuidedSetupScreen";
+import { ToolsPanel } from "@/pages/setup/screens/ToolsPanel";
 import type { ProvisionClient } from "@/lib/provision-client";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -60,7 +60,6 @@ function ServerUpdateRun({
       keyPath: conn.keyPath,
       tailscaleAuthKey: "",
       skipTailscale: !conn.tailnet,
-      authToken: "",
       port: Number(port) || 3000,
     },
     onDone,

@@ -7,6 +7,8 @@ interface HostTrustScreenProps {
   client: ProvisionClient;
   host: string;
   fingerprint: string;
+  /** The exact keyscan lines the fingerprint was computed from. */
+  hostKeys: string[];
   onContinue: () => void;
   onBack: () => void;
   onContinueLater: () => void;
@@ -14,12 +16,13 @@ interface HostTrustScreenProps {
 
 /**
  * Trust-on-first-use: show the server's host-key fingerprint and let the user
- * accept it, which persists it to known_hosts via the ProvisionClient.
+ * accept it, which persists the exact scanned keys to known_hosts.
  */
 export function HostTrustScreen({
   client,
   host,
   fingerprint,
+  hostKeys,
   onContinue,
   onBack,
   onContinueLater,
@@ -29,7 +32,7 @@ export function HostTrustScreen({
   const handleTrust = async () => {
     setTrusting(true);
     try {
-      await client.trustHost(host, fingerprint);
+      await client.trustHost(host, hostKeys);
       onContinue();
     } finally {
       setTrusting(false);

@@ -25,8 +25,8 @@ export function DoneScreen({ serverHost, onFinish }: DoneScreenProps) {
         <div className="rounded-lg border border-border/50 bg-card/50 p-3">
           <p className="font-medium text-foreground">Updates</p>
           <p className="mt-1 text-xs">
-            When a new version ships, Hive shows an update banner — one click updates the server and
-            rolls back automatically if the new version is unhealthy.
+            To update the server later, use Settings &gt; Connection — already-completed install
+            steps are skipped.
           </p>
         </div>
       </div>

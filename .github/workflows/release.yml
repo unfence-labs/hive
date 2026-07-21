@@ -57,10 +57,10 @@ jobs:
           mkdir -p release
           find artifacts -type f -exec cp {} release/ \;
           cd release
-          cat *.sha256 > SHA256SUMS 2>/dev/null || true
-          jq -n --arg v "${GITHUB_REF_NAME#v}" '{version:$v,minProtocol:1}' > latest.json
+          sha256sum provision.sh > provision.sh.sha256
+          cat *.sha256 > SHA256SUMS
           ls -la
       - name: Publish GitHub release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           files: release/*

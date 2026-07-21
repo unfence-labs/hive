@@ -1,11 +1,6 @@
 /**
- * Device-auth output parsers for the gh and codex CLIs (§6.3). Kept in one place
- * so the regexes are snapshot-testable and easy to re-confirm against real CLI
- * output during Spike S2.
- *
- * IMPORTANT: the CLIs are not available in this environment, so these patterns
- * are authored against documented/expected output, NOT captured from the real
- * tools. Lines flagged "(assumption)" in the fixtures must be verified in S2.
+ * Device-auth output parsers for the gh and codex CLIs. Kept in one place so
+ * the regexes are snapshot-testable against captured fixture output.
  */
 
 /** Strip ANSI/OSC escape sequences and normalise CR so line parsing is stable. */
@@ -34,11 +29,6 @@ const DEVICE_CODE_RE = /\b([A-Z0-9]{4,8}-[A-Z0-9]{4,8})\b/;
 /** First https URL on the buffer. Used to scrape the device-activation URL. */
 const URL_RE = /https?:\/\/[^\s"'<>)\]]+/g;
 
-export interface ParsedDeviceAuth {
-  code?: string;
-  url?: string;
-}
-
 export function parseDeviceCode(text: string): string | undefined {
   const clean = stripAnsi(text);
   // Prefer an explicit "one-time code:" label when present (gh), else any match.
@@ -61,10 +51,6 @@ export function parseDeviceUrl(text: string): string | undefined {
   const trimmed = urls.map((u) => u.replace(/[.,]+$/, ""));
   const deviceUrl = trimmed.find((u) => /device/i.test(u));
   return deviceUrl ?? trimmed[0];
-}
-
-export function parseDeviceAuth(text: string): ParsedDeviceAuth {
-  return { code: parseDeviceCode(text), url: parseDeviceUrl(text) };
 }
 
 // --- Success / error signals ---

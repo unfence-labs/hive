@@ -5,25 +5,21 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 
-# Extract the bash list.
-bash_codes="$(
-  # shellcheck source=/dev/null
-  . "$ROOT/scripts/provision/lib.sh" 2>/dev/null
-  printf '%s\n' $SETUP_ERROR_CODES | sort
-)" || true
-# lib.sh runs `set -e`/traps on source; re-extract robustly if the above bailed.
-bash_codes="$(grep -A6 'SETUP_ERROR_CODES="' "$ROOT/scripts/provision/lib.sh" \
-  | tr ' \\\n"' '\n' | grep -E '^[A-Z_]+$' | sort -u)"
+# Extract the full (possibly line-continued) assignment, then keep the codes.
+bash_codes="$(sed -n '/^SETUP_ERROR_CODES="/,/"$/p' "$ROOT/scripts/provision/lib.sh" \
+  | tr ' \\"' '\n' | grep -E '^[A-Z_]+$' | grep -v '^SETUP_ERROR_CODES$' | sort -u)"
 
 ts_codes="$(grep -oE '"[A-Z_]+"' "$ROOT/shared/setup-errors.ts" \
-  | tr -d '"' | grep -E '^[A-Z_]+$' | sort -u)"
-# Drop the const name if it leaked in.
-ts_codes="$(printf '%s\n' "$ts_codes" | grep -v '^SETUP_ERROR_CODES$' || true)"
+  | tr -d '"' | sort -u)"
 
-if diff <(printf '%s\n' "$bash_codes") <(printf '%s\n' "$ts_codes") >/tmp/codes.diff; then
-  echo "OK: bash and TS error taxonomies match ($(wc -w <<<"$bash_codes") codes)"
+[ -n "$bash_codes" ] || { echo "FAIL: could not extract SETUP_ERROR_CODES from lib.sh"; exit 1; }
+
+diff_file="$(mktemp)"
+trap 'rm -f "$diff_file"' EXIT
+if diff <(printf '%s\n' "$bash_codes") <(printf '%s\n' "$ts_codes") >"$diff_file"; then
+  echo "OK: bash and TS error taxonomies match ($(wc -w <<<"$bash_codes" | tr -d ' ') codes)"
 else
   echo "FAIL: error taxonomy mismatch (< bash, > TS):"
-  cat /tmp/codes.diff
+  cat "$diff_file"
   exit 1
 fi

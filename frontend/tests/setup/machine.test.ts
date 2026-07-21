@@ -37,12 +37,12 @@ describe("setup machine", () => {
     expect(last.state).toBe("done");
   });
 
-  it("merges inputs on advance and setInputs", () => {
+  it("merges inputs on advance", () => {
     let s = initialMachineState();
     s = reduce(s, { type: "advance" }); // tailscale_intro
     s = reduce(s, { type: "advance", inputs: { tailscaleAuthKey: "tskey-auth-x" } });
     expect(s.inputs.tailscaleAuthKey).toBe("tskey-auth-x");
-    s = reduce(s, { type: "setInputs", inputs: { serverIp: "1.2.3.4" } });
+    s = reduce(s, { type: "advance", inputs: { serverIp: "1.2.3.4" } });
     expect(s.inputs.serverIp).toBe("1.2.3.4");
     expect(s.inputs.tailscaleAuthKey).toBe("tskey-auth-x");
   });
