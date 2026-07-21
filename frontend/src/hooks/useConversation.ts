@@ -632,6 +632,13 @@ export function useConversation(workspaceId: string | undefined) {
       wsTransport.send(workspaceId, { type: "switch_session", sessionId: savedSession });
     }
 
+    // Replay in-progress streaming snapshots for a view that mounts mid-turn.
+    // Stream frames delivered while this view was unmounted were consumed by
+    // the app-level cache hooks (never buffered), so without this a turn
+    // started from another client (e.g. iOS) shows only the frames that arrive
+    // after mount — tool calls without the already-streamed text.
+    wsTransport.requestBootstrap();
+
     return () => {
       if (workspaceId && sessionIdRef.current) {
         savedSessionByWorkspace.set(workspaceId, sessionIdRef.current);

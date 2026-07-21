@@ -104,6 +104,32 @@ describe("wsTransport", () => {
     expect(syncs).toEqual([["ws-1"]]);
   });
 
+  it("requestBootstrap resends sync_workspaces with forceBootstrap on an open socket", () => {
+    wsTransport.connect("ws-1");
+    wsTransport.connect("ws-2");
+    const socket = MockWebSocket.instances[0]!;
+    socket.open();
+
+    wsTransport.requestBootstrap();
+
+    const parsed = socket.sent.map((s) => JSON.parse(s) as Record<string, unknown>);
+    const forced = parsed.filter((m) => m.type === "sync_workspaces" && m.forceBootstrap === true);
+    expect(forced).toHaveLength(1);
+    expect(forced[0]!.workspaceIds).toEqual(expect.arrayContaining(["ws-1", "ws-2"]));
+  });
+
+  it("requestBootstrap is a no-op while the socket is not open (connect bootstrap covers it)", () => {
+    wsTransport.connect("ws-1");
+    const socket = MockWebSocket.instances[0]!;
+
+    wsTransport.requestBootstrap();
+    expect(socket.sent).toHaveLength(0);
+
+    socket.open();
+    const parsed = socket.sent.map((s) => JSON.parse(s) as Record<string, unknown>);
+    expect(parsed.filter((m) => m.forceBootstrap === true)).toHaveLength(0);
+  });
+
   it("uses a single hub socket for multiple workspaces", () => {
     wsTransport.connect("ws-1");
     wsTransport.connect("ws-2");
