@@ -3,7 +3,6 @@ import {
   stripAnsi,
   parseDeviceCode,
   parseDeviceUrl,
-  isCodexLoggedIn,
   isCodexDeviceAuthDisabled,
   isDeviceCodeExpired,
 } from "./auth-parsers.js";
@@ -59,13 +58,7 @@ describe("parseDeviceUrl", () => {
   });
 });
 
-describe("success/error signals", () => {
-  it("detects codex logged in", () => {
-    expect(isCodexLoggedIn("Successfully logged in to ChatGPT.")).toBe(true);
-    expect(isCodexLoggedIn("Logged in")).toBe(true);
-    expect(isCodexLoggedIn("Starting...")).toBe(false);
-  });
-
+describe("error signals", () => {
   it("detects codex device-auth disabled", () => {
     expect(
       isCodexDeviceAuthDisabled(

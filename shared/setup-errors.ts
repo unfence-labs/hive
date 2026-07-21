@@ -1,5 +1,6 @@
-// Shared setup/provision error taxonomy. Mirrored in scripts/provision/lib.sh
-// (SETUP_ERROR_CODES). A contract test asserts the two lists are identical.
+// Shared setup/provision error taxonomy. scripts/provision/lib.sh contains the
+// subset that the provisioning script can emit; backend-only flows use the
+// remaining codes.
 
 export const SETUP_ERROR_CODES = [
   "UNSUPPORTED_OS",
@@ -42,7 +43,7 @@ export const SETUP_ERROR_HINTS: Record<SetupErrorCode, string> = {
   EXISTING_INSTALL:
     "Hive is already installed on this server. To use it, set its IP and token in Settings > Connection. To reinstall from scratch, remove /opt/hive on the server first, then Retry.",
   APT_FAILURE:
-    "A system package failed to install. Press Retry (completed steps are skipped). If it fails again, the log below shows the failing package.",
+    "A system package failed to install. Press Retry. If it fails again, the diagnostic below identifies the failing package.",
   NETWORK:
     "The server itself has no internet access. Check its network/DNS in your provider's console, then press Retry.",
   CHECKSUM_MISMATCH:
@@ -52,13 +53,13 @@ export const SETUP_ERROR_HINTS: Record<SetupErrorCode, string> = {
   TS_DAEMON_DOWN:
     "Tailscale installed but its service did not come up. Press Retry; if it persists, reboot the server and Retry again.",
   UFW_FAILURE:
-    "The firewall could not be configured. Press Retry; the log below shows the failing rule.",
+    "The firewall could not be configured. Press Retry; the diagnostic below identifies the failing rule.",
   RELEASE_DOWNLOAD_FAILED:
-    "The Hive backend could not be fetched onto the server. Check the server has internet access, then press Retry. (Developing locally? Run 'make release-tarball' first, then Retry.)",
+    "The Hive backend could not be fetched onto the server. Check that the server has internet access, then press Retry.",
   SERVICE_START_FAILED:
-    "Hive installed but its service failed to start. The log below shows why. Press Retry after fixing; if you're stuck, report it with the log.",
+    "Hive installed but its service failed to start. The diagnostic below shows why. Press Retry after fixing the reported issue.",
   HEALTH_TIMEOUT:
-    "Hive's service started but never answered on its port. Press Retry once; if it persists, the log below shows the service output.",
+    "Hive's service started but never answered on its port. Press Retry once; if it persists, inspect the reported service diagnostic.",
   SSH_AUTH_FAILED:
     "The server refused this SSH key. Make sure the key you picked is authorized on the server (its .pub in ~/.ssh/authorized_keys of the SSH user), or go Back to pick another key.",
   SSH_HOST_KEY_CHANGED:
@@ -76,9 +77,9 @@ export const SETUP_ERROR_HINTS: Record<SetupErrorCode, string> = {
   GH_POLL_STUCK:
     "GitHub sign-in stalled. Press Retry to get a fresh code and enter it on github.com/login/device.",
   INTERRUPTED:
-    "The install was interrupted — connection drop or app closed. Press Retry: completed steps are skipped and the install continues where it left off.",
+    "The action was interrupted by a connection drop or backend restart. Start it again; completed installs are detected and skipped.",
   CONCURRENT_RUN:
     "This action is already running — possibly from a previous attempt. Wait a moment for it to finish, then retry.",
   UNKNOWN:
-    "Something unexpected went wrong — the log below has the details. Retry is safe: completed steps are skipped. If it keeps failing, report it with the log.",
+    "Something unexpected went wrong. Review the diagnostic below, then retry the action.",
 };

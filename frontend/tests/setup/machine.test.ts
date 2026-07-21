@@ -26,6 +26,20 @@ describe("setup machine", () => {
     expect(s.error).toBeNull();
   });
 
+  it("contains only the nine user-facing setup stages", () => {
+    expect(SETUP_STATES).toEqual([
+      "welcome",
+      "tailscale",
+      "ssh_key",
+      "server",
+      "host_trust",
+      "provisioning",
+      "tailnet_handoff",
+      "guided_setup",
+      "done",
+    ]);
+  });
+
   it("advances through the full flow in order", () => {
     let s = initialMachineState();
     for (let i = 1; i < SETUP_STATES.length; i++) {
@@ -39,7 +53,7 @@ describe("setup machine", () => {
 
   it("merges inputs on advance", () => {
     let s = initialMachineState();
-    s = reduce(s, { type: "advance" }); // tailscale_intro
+    s = reduce(s, { type: "advance" }); // tailscale
     s = reduce(s, { type: "advance", inputs: { tailscaleAuthKey: "tskey-auth-x" } });
     expect(s.inputs.tailscaleAuthKey).toBe("tskey-auth-x");
     s = reduce(s, { type: "advance", inputs: { serverIp: "1.2.3.4" } });
@@ -50,13 +64,13 @@ describe("setup machine", () => {
   it("goes back but not before welcome and not from done", () => {
     expect(canGoBack("welcome")).toBe(false);
     expect(canGoBack("done")).toBe(false);
-    expect(canGoBack("server_ip")).toBe(true);
+    expect(canGoBack("server")).toBe(true);
 
     let s = initialMachineState();
     s = reduce(s, { type: "advance" });
-    s = reduce(s, { type: "advance" }); // tailscale_key
+    s = reduce(s, { type: "advance" }); // ssh_key
     const back = reduce(s, { type: "back" });
-    expect(back.state).toBe("tailscale_intro");
+    expect(back.state).toBe("tailscale");
 
     // back at welcome is a no-op
     const atWelcome = reduce(initialMachineState(), { type: "back" });
@@ -64,10 +78,10 @@ describe("setup machine", () => {
   });
 
   it("nextState/prevState are pure and bounded", () => {
-    expect(nextState("welcome")).toBe("tailscale_intro");
+    expect(nextState("welcome")).toBe("tailscale");
     expect(nextState("done")).toBe("done");
     expect(prevState("welcome")).toBe("welcome");
-    expect(prevState("done")).toBe("ios_pairing");
+    expect(prevState("done")).toBe("guided_setup");
   });
 
   it("records and clears errors, advance clears error", () => {
@@ -75,7 +89,7 @@ describe("setup machine", () => {
     s = reduce(s, { type: "advance" });
     s = reduce(s, { type: "advance" });
     s = reduce(s, { type: "fail", error: { code: "SSH_UNREACHABLE" } });
-    expect(s.error).toEqual({ state: "tailscale_key", code: "SSH_UNREACHABLE" });
+    expect(s.error).toEqual({ state: "ssh_key", code: "SSH_UNREACHABLE" });
     const cleared = reduce(s, { type: "clearError" });
     expect(cleared.error).toBeNull();
     const advanced = reduce(s, { type: "advance" });
@@ -89,7 +103,7 @@ describe("setup machine", () => {
     expect(r).toEqual(initialMachineState());
   });
 
-  it("reset keeps machine-level preferences but drops server-specific inputs", () => {
+  it("reset keeps only the SSH key choice and drops secrets and server inputs", () => {
     let s = initialMachineState();
     s = reduce(s, {
       type: "advance",
@@ -102,7 +116,7 @@ describe("setup machine", () => {
     });
     const r = reduce(s, { type: "reset" });
     expect(r.state).toBe("welcome");
-    expect(r.inputs.tailscaleAuthKey).toBe("tskey-auth-x");
+    expect(r.inputs.tailscaleAuthKey).toBeUndefined();
     expect(r.inputs.sshKeyPath).toBe("/home/u/.ssh/id_ed25519");
     expect(r.inputs.serverIp).toBeUndefined();
     expect(r.inputs.hostFingerprint).toBeUndefined();
@@ -116,8 +130,33 @@ describe("setup machine", () => {
       saveMachineState(s);
 
       const restored = loadMachineState();
-      expect(restored.state).toBe(s.state);
-      expect(restored.inputs.tailscaleAuthKey).toBe("tskey-auth-y");
+      expect(restored.state).toBe("tailscale");
+      expect(restored.inputs.tailscaleAuthKey).toBeUndefined();
+      expect(localStorage.getItem(SETUP_STATE_STORAGE_KEY)).not.toContain("tskey-auth-y");
+    });
+
+    it("resumes local development and post-provision states without a Tailscale key", () => {
+      localStorage.setItem(
+        SETUP_STATE_STORAGE_KEY,
+        JSON.stringify({
+          schema: SETUP_STATE_SCHEMA,
+          state: "server",
+          inputs: { skipTailscale: true, sshKeyPath: "/key" },
+          error: null,
+        }),
+      );
+      expect(loadMachineState().state).toBe("server");
+
+      localStorage.setItem(
+        SETUP_STATE_STORAGE_KEY,
+        JSON.stringify({
+          schema: SETUP_STATE_SCHEMA,
+          state: "guided_setup",
+          inputs: { serverIp: "100.64.0.1" },
+          error: null,
+        }),
+      );
+      expect(loadMachineState().state).toBe("guided_setup");
     });
 
     it("starts fresh on schema mismatch", () => {

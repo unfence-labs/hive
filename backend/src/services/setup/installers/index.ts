@@ -1,12 +1,10 @@
 import type { StepFn } from "../operations.js";
 import {
-  installGhStep,
   installClaudeStep,
   installCodexStep,
 } from "./tools.js";
 import { ghAuthStep } from "./auth-gh.js";
 import { codexAuthStep } from "./auth-codex.js";
-import { makeClaudeTokenWriter } from "../auth-flows.js";
 import type { InstallerDeps } from "./command.js";
 
 export interface SetupStepDef {
@@ -26,7 +24,6 @@ export function buildSetupSteps(opts: {
 } = {}): Record<string, SetupStepDef> {
   const deps = opts.installerDeps;
   return {
-    install_gh: { title: "Install GitHub CLI", fn: installGhStep(deps) },
     auth_gh: { title: "Authenticate GitHub", fn: ghAuthStep() },
     install_codex: { title: "Install Codex", fn: installCodexStep(deps) },
     auth_codex: { title: "Authenticate Codex", fn: codexAuthStep() },
@@ -36,6 +33,3 @@ export function buildSetupSteps(opts: {
 
 /** Production step registry with default (real) installer deps. */
 export const SETUP_STEPS: Record<string, SetupStepDef> = buildSetupSteps();
-
-/** Re-export so the API can build a Claude token writer over the same deps. */
-export { makeClaudeTokenWriter };

@@ -1,108 +1,96 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { mkdtemp, rm, writeFile, chmod, readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { isValidClaudeToken, makeClaudeTokenWriter } from "./auth-flows.js";
-import type { InstallerDeps, RunCommand } from "./installers/command.js";
+import { join } from "node:path";
+import {
+  isValidClaudeToken,
+  loadSetupSecrets,
+  makeClaudeTokenWriter,
+} from "./auth-flows.js";
 
 describe("isValidClaudeToken", () => {
-  it("accepts a well-formed OAuth token", () => {
+  it("accepts the OAuth token alphabet", () => {
     expect(isValidClaudeToken("sk-ant-oat01-abc123")).toBe(true);
-    expect(isValidClaudeToken("sk-ant-oat01-" + "a".repeat(95))).toBe(true);
     expect(isValidClaudeToken("sk-ant-oat01-Ab_9-Xy")).toBe(true);
   });
-  it("rejects a bad prefix or empty body", () => {
-    expect(isValidClaudeToken("nope")).toBe(false);
-    expect(isValidClaudeToken("sk-ant-oat01-")).toBe(false);
-    expect(isValidClaudeToken("")).toBe(false);
-  });
-  it("rejects tokens with characters outside the token alphabet", () => {
-    // A newline would inject a second line into the systemd EnvironmentFile.
-    expect(isValidClaudeToken("sk-ant-oat01-abc\nNODE_OPTIONS=x")).toBe(false);
-    expect(isValidClaudeToken("sk-ant-oat01-abc def")).toBe(false);
-    expect(isValidClaudeToken("sk-ant-oat01-a;b")).toBe(false);
-    expect(isValidClaudeToken("sk-ant-oat01-a$b")).toBe(false);
+
+  it("rejects empty, malformed, or injectable values", () => {
+    for (const token of [
+      "",
+      "nope",
+      "sk-ant-oat01-",
+      "sk-ant-oat01-abc def",
+      "sk-ant-oat01-abc\nNODE_OPTIONS=x",
+      "sk-ant-oat01-a;b",
+    ]) {
+      expect(isValidClaudeToken(token)).toBe(false);
+    }
   });
 });
 
-describe("makeClaudeTokenWriter", () => {
-  let helpersDir: string;
+describe("setup secrets", () => {
+  let dataDir: string;
+  let previousToken: string | undefined;
 
   beforeEach(async () => {
-    helpersDir = await mkdtemp(join(tmpdir(), "hive-helpers-"));
+    dataDir = await mkdtemp(join(tmpdir(), "hive-setup-secrets-"));
+    previousToken = process.env.CLAUDE_CODE_OAUTH_TOKEN;
+    delete process.env.CLAUDE_CODE_OAUTH_TOKEN;
   });
+
   afterEach(async () => {
-    await rm(helpersDir, { recursive: true, force: true });
+    if (previousToken === undefined) delete process.env.CLAUDE_CODE_OAUTH_TOKEN;
+    else process.env.CLAUDE_CODE_OAUTH_TOKEN = previousToken;
+    await rm(dataDir, { recursive: true, force: true });
   });
 
-  function deps(run: RunCommand, available = true): InstallerDeps {
-    return { run, helpersAvailable: async () => available, helpersDir };
-  }
+  it("atomically writes structured JSON with mode 0600 and adopts the token", async () => {
+    const token = "sk-ant-oat01-secret42";
+    await makeClaudeTokenWriter(dataDir)(token);
 
-  it("no-ops (persisted:false) when helpers are unavailable (off-server)", async () => {
-    const run = vi.fn();
-    const writer = makeClaudeTokenWriter(deps(run as unknown as RunCommand, false));
-    const result = await writer("sk-ant-oat01-abc");
-    expect(result).toEqual({ persisted: false });
-    expect(run).not.toHaveBeenCalled();
+    const path = join(dataDir, "setup-secrets.json");
+    expect(JSON.parse(await readFile(path, "utf-8"))).toEqual({
+      claudeCodeOAuthToken: token,
+    });
+    expect((await stat(path)).mode & 0o777).toBe(0o600);
+    expect(process.env.CLAUDE_CODE_OAUTH_TOKEN).toBe(token);
+    expect((await readdir(dataDir)).filter((entry) => entry.endsWith(".tmp"))).toEqual([]);
   });
 
-  it("writes the env line via a real helper standing in for /etc/hive", async () => {
-    // A real bash helper that writes CLAUDE_CODE_OAUTH_TOKEN into an env file in
-    // the temp dir, emulating the privileged write-claude-token.sh.
-    const envFile = join(helpersDir, "hive.env");
-    const helperPath = join(helpersDir, "write-claude-token.sh");
-    // The token arrives on stdin (never argv) — the helper reads it with `read`.
-    await writeFile(
-      helperPath,
-      `#!/usr/bin/env bash
-set -eu
-IFS= read -r token || true
-printf 'CLAUDE_CODE_OAUTH_TOKEN=%s\\n' "$token" > "${envFile}"
-chmod 600 "${envFile}"
-`,
-      "utf-8",
+  it("rejects an invalid token without creating a file", async () => {
+    await expect(makeClaudeTokenWriter(dataDir)("bad-token")).rejects.toThrow(
+      "Invalid Claude token",
     );
-    await chmod(helperPath, 0o755);
-
-    // Run without `sudo` in the test (no privileges needed for the temp dir):
-    // strip a leading "sudo " so the helper executes directly. Assert the token
-    // is never present in the command line (argv) and pipe stdin to the child.
-    let capturedCommand = "";
-    const run: RunCommand = async (command, opts) => {
-      capturedCommand = command;
-      const cmd = command.replace(/^sudo\s+/, "");
-      const { spawn } = await import("node:child_process");
-      return await new Promise((resolve) => {
-        const child = spawn("/bin/sh", ["-c", cmd]);
-        let stdout = "";
-        let stderr = "";
-        child.stdout.on("data", (d) => (stdout += d.toString()));
-        child.stderr.on("data", (d) => (stderr += d.toString()));
-        child.on("close", (code) => resolve({ stdout, stderr, exitCode: code ?? 1 }));
-        child.stdin.end(opts?.stdin ?? "");
-      });
-    };
-
-    const writer = makeClaudeTokenWriter(deps(run));
-    const result = await writer("sk-ant-oat01-secret42");
-    expect(result).toEqual({ persisted: true });
-    expect(capturedCommand).not.toContain("secret42");
-
-    const written = await readFile(envFile, "utf-8");
-    expect(written.trim()).toBe("CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-secret42");
+    expect(await readdir(dataDir)).toEqual([]);
   });
 
-  it("reports persisted:false when the helper exits non-zero", async () => {
-    const run: RunCommand = async () => ({ stdout: "", stderr: "boom", exitCode: 3 });
-    const writer = makeClaudeTokenWriter(deps(run));
-    expect(await writer("sk-ant-oat01-abc")).toEqual({ persisted: false });
+  it("loads a persisted token into the process", async () => {
+    const token = "sk-ant-oat01-persisted";
+    await makeClaudeTokenWriter(dataDir)(token);
+    delete process.env.CLAUDE_CODE_OAUTH_TOKEN;
+
+    await expect(loadSetupSecrets(dataDir)).resolves.toBe(true);
+    expect(process.env.CLAUDE_CODE_OAUTH_TOKEN).toBe(token);
   });
 
-  it("refuses to shell an invalid token", async () => {
-    const run = vi.fn();
-    const writer = makeClaudeTokenWriter(deps(run as unknown as RunCommand));
-    expect(await writer("bad-token")).toEqual({ persisted: false });
-    expect(run).not.toHaveBeenCalled();
+  it("keeps an explicitly configured environment token", async () => {
+    await makeClaudeTokenWriter(dataDir)("sk-ant-oat01-persisted");
+    process.env.CLAUDE_CODE_OAUTH_TOKEN = "sk-ant-oat01-explicit";
+
+    await expect(loadSetupSecrets(dataDir)).resolves.toBe(false);
+    expect(process.env.CLAUDE_CODE_OAUTH_TOKEN).toBe("sk-ant-oat01-explicit");
+  });
+
+  it("returns false when no secret exists", async () => {
+    await expect(loadSetupSecrets(dataDir)).resolves.toBe(false);
+  });
+
+  it("rejects corrupt or invalid persisted secrets", async () => {
+    const path = join(dataDir, "setup-secrets.json");
+    await writeFile(path, "not-json", "utf-8");
+    await expect(loadSetupSecrets(dataDir)).rejects.toThrow("Invalid JSON");
+
+    await writeFile(path, JSON.stringify({ claudeCodeOAuthToken: "bad" }), "utf-8");
+    await expect(loadSetupSecrets(dataDir)).rejects.toThrow("Invalid Claude token");
   });
 });

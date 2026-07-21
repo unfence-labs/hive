@@ -1,157 +1,145 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   execImpl: vi.fn(),
-  accessImpl: vi.fn(),
 }));
 
-// promisify(execFile) calls execFile(cmd, args, options, callback). We route
-// everything through a single configurable implementation keyed on cmd/args.
 vi.mock("node:child_process", () => ({
   execFile: (
-    cmd: string,
+    command: string,
     args: string[],
-    optionsOrCb: unknown,
-    maybeCb?: (...cbArgs: unknown[]) => void,
+    optionsOrCallback: unknown,
+    maybeCallback?: (...args: unknown[]) => void,
   ) => {
-    const cb = (typeof optionsOrCb === "function" ? optionsOrCb : maybeCb) as (
-      ...cbArgs: unknown[]
-    ) => void;
-    Promise.resolve()
-      .then(() => mocks.execImpl(cmd, args))
-      .then((out) => cb(null, out))
-      .catch((err) => cb(err));
+    const callback = (
+      typeof optionsOrCallback === "function" ? optionsOrCallback : maybeCallback
+    ) as (...args: unknown[]) => void;
+    Promise.resolve(mocks.execImpl(command, args))
+      .then((output) => callback(null, output))
+      .catch((error) => callback(error));
   },
 }));
 
-vi.mock("node:fs/promises", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("node:fs/promises")>();
-  return { ...actual, access: (path: string) => mocks.accessImpl(path) };
-});
+import { detectTools } from "./detect.js";
 
-import { detectTools, _resetDetectCache } from "./detect.js";
-
-const originalFetch = globalThis.fetch;
+let previousClaudeToken: string | undefined;
 
 beforeEach(() => {
-  _resetDetectCache();
+  previousClaudeToken = process.env.CLAUDE_CODE_OAUTH_TOKEN;
+  delete process.env.CLAUDE_CODE_OAUTH_TOKEN;
   mocks.execImpl.mockReset();
-  mocks.accessImpl.mockReset();
-  // Default: nothing installed, no files, npm returns nothing.
   mocks.execImpl.mockRejectedValue(new Error("not found"));
-  mocks.accessImpl.mockRejectedValue(new Error("ENOENT"));
-  globalThis.fetch = vi.fn(async () => new Response("Not Found", { status: 404 })) as typeof fetch;
 });
 
 afterEach(() => {
-  globalThis.fetch = originalFetch;
-  vi.restoreAllMocks();
+  if (previousClaudeToken === undefined) delete process.env.CLAUDE_CODE_OAUTH_TOKEN;
+  else process.env.CLAUDE_CODE_OAUTH_TOKEN = previousClaudeToken;
   vi.clearAllMocks();
 });
 
 describe("detectTools", () => {
-  it("reports a tool as not installed when command -v fails", async () => {
-    const detected = await detectTools({ force: true });
-    expect(detected.node).toEqual({ installed: false });
-    expect(detected.docker).toEqual({ installed: false });
+  it("reports only gh, Claude, and Codex with explicit booleans", async () => {
+    expect(await detectTools()).toEqual({
+      gh: { installed: false, authenticated: false },
+      claude: { installed: false, authenticated: false },
+      codex: { installed: false, authenticated: false },
+    });
   });
 
-  it("reports installed + version for a present tool", async () => {
-    mocks.execImpl.mockImplementation(async (cmd: string, args: string[]) => {
-      if (cmd === "command" && args[1] === "node") return { stdout: "/usr/bin/node", stderr: "" };
-      if (cmd === "node") return { stdout: "v22.17.0", stderr: "" };
+  it("detects GitHub CLI authentication", async () => {
+    mocks.execImpl.mockImplementation(async (command: string, args: string[]) => {
+      if (command === "gh" && args[0] === "--version") return { stdout: "gh 2.40.0" };
+      if (command === "gh" && args[0] === "auth") return { stdout: "logged in" };
       throw new Error("not found");
     });
 
-    const detected = await detectTools({ force: true });
-    expect(detected.node?.installed).toBe(true);
-    expect(detected.node?.version).toBe("22.17.0");
-    // node is not an auth tool.
-    expect(detected.node?.authenticated).toBeUndefined();
+    expect((await detectTools()).gh).toEqual({ installed: true, authenticated: true });
   });
 
-  it("detects gh authenticated via `gh auth status`", async () => {
-    mocks.execImpl.mockImplementation(async (cmd: string, args: string[]) => {
-      if (cmd === "command" && args[1] === "gh") return { stdout: "/usr/bin/gh", stderr: "" };
-      if (cmd === "gh" && args[0] === "--version") return { stdout: "gh version 2.40.0", stderr: "" };
-      if (cmd === "gh" && args[0] === "auth") return { stdout: "Logged in", stderr: "" };
+  it("reports an installed but unauthenticated GitHub CLI", async () => {
+    mocks.execImpl.mockImplementation(async (command: string, args: string[]) => {
+      if (command === "gh" && args[0] === "--version") return { stdout: "gh 2.40.0" };
+      throw new Error("not authenticated");
+    });
+
+    expect((await detectTools()).gh).toEqual({ installed: true, authenticated: false });
+  });
+
+  it("detects Claude auth from an explicit environment token", async () => {
+    mocks.execImpl.mockImplementation(async (command: string, args: string[]) => {
+      if (command === "claude" && args[0] === "--version") return { stdout: "Claude Code" };
       throw new Error("not found");
     });
-
-    const detected = await detectTools({ force: true });
-    expect(detected.gh?.installed).toBe(true);
-    expect(detected.gh?.authenticated).toBe(true);
-    expect(detected.gh?.version).toBe("2.40.0");
+    process.env.CLAUDE_CODE_OAUTH_TOKEN = "sk-ant-oat01-env";
+    expect((await detectTools()).claude.authenticated).toBe(true);
+    expect(mocks.execImpl).not.toHaveBeenCalledWith("claude", ["auth", "status"]);
   });
 
-  it("reports gh unauthenticated when `gh auth status` fails", async () => {
-    mocks.execImpl.mockImplementation(async (cmd: string, args: string[]) => {
-      if (cmd === "command" && args[1] === "gh") return { stdout: "/usr/bin/gh", stderr: "" };
-      if (cmd === "gh" && args[0] === "--version") return { stdout: "gh version 2.40.0", stderr: "" };
-      throw new Error("not authed");
-    });
-
-    const detected = await detectTools({ force: true });
-    expect(detected.gh?.authenticated).toBe(false);
-  });
-
-  it("detects tailscale authenticated via BackendState=Running", async () => {
-    mocks.execImpl.mockImplementation(async (cmd: string, args: string[]) => {
-      if (cmd === "command" && args[1] === "tailscale") return { stdout: "/usr/bin/tailscale", stderr: "" };
-      if (cmd === "tailscale" && args[0] === "version") return { stdout: "1.60.0", stderr: "" };
-      if (cmd === "tailscale" && args[0] === "status") {
-        return { stdout: JSON.stringify({ BackendState: "Running" }), stderr: "" };
+  it("detects Claude auth through the CLI status probe", async () => {
+    mocks.execImpl.mockImplementation(async (command: string, args: string[]) => {
+      if (command === "claude" && args[0] === "--version") return { stdout: "Claude Code" };
+      if (command === "claude" && args[0] === "auth") {
+        return { stdout: JSON.stringify({ loggedIn: true, authMethod: "claude.ai" }) };
       }
       throw new Error("not found");
     });
 
-    const detected = await detectTools({ force: true });
-    expect(detected.tailscale?.authenticated).toBe(true);
+    expect((await detectTools()).claude).toEqual({ installed: true, authenticated: true });
+    expect(mocks.execImpl).toHaveBeenCalledWith("claude", ["auth", "status"]);
   });
 
-  it("detects claude authenticated via the credentials file", async () => {
-    mocks.execImpl.mockImplementation(async (cmd: string, args: string[]) => {
-      if (cmd === "command" && args[1] === "claude") return { stdout: "/usr/bin/claude", stderr: "" };
-      if (cmd === "claude") return { stdout: "2.1.53 (Claude Code)", stderr: "" };
-      throw new Error("not found");
-    });
-    mocks.accessImpl.mockImplementation(async (path: string) => {
-      if (path.endsWith(".credentials.json")) return undefined;
-      throw new Error("ENOENT");
-    });
-
-    const detected = await detectTools({ force: true });
-    expect(detected.claude?.installed).toBe(true);
-    expect(detected.claude?.authenticated).toBe(true);
-    expect(detected.claude?.version).toBe("2.1.53");
-  });
-
-  it("detects claude authenticated via CLAUDE_CODE_OAUTH_TOKEN env", async () => {
-    const prev = process.env.CLAUDE_CODE_OAUTH_TOKEN;
-    process.env.CLAUDE_CODE_OAUTH_TOKEN = "sk-ant-oat01-x";
-    mocks.execImpl.mockImplementation(async (cmd: string, args: string[]) => {
-      if (cmd === "command" && args[1] === "claude") return { stdout: "/usr/bin/claude", stderr: "" };
-      if (cmd === "claude") return { stdout: "2.1.53", stderr: "" };
+  it.each([
+    ["logged out", JSON.stringify({ loggedIn: false })],
+    ["empty", ""],
+    ["corrupt", "not json"],
+    ["stale", new Error("stored credentials expired")],
+  ])("rejects %s Claude CLI status", async (_kind, statusResult) => {
+    mocks.execImpl.mockImplementation(async (command: string, args: string[]) => {
+      if (command === "claude" && args[0] === "--version") return { stdout: "Claude Code" };
+      if (command === "claude" && args[0] === "auth") {
+        if (statusResult instanceof Error) throw statusResult;
+        return { stdout: statusResult };
+      }
       throw new Error("not found");
     });
 
-    const detected = await detectTools({ force: true });
-    expect(detected.claude?.authenticated).toBe(true);
-
-    if (prev === undefined) delete process.env.CLAUDE_CODE_OAUTH_TOKEN;
-    else process.env.CLAUDE_CODE_OAUTH_TOKEN = prev;
+    expect((await detectTools()).claude).toEqual({ installed: true, authenticated: false });
   });
 
-  it("caches results within the TTL", async () => {
-    mocks.execImpl.mockImplementation(async (cmd: string, args: string[]) => {
-      if (cmd === "command" && args[1] === "node") return { stdout: "/usr/bin/node", stderr: "" };
-      if (cmd === "node") return { stdout: "v22.0.0", stderr: "" };
+  it("detects Codex auth through the CLI status probe", async () => {
+    mocks.execImpl.mockImplementation(async (command: string, args: string[]) => {
+      if (command === "codex" && args[0] === "--version") return { stdout: "Codex" };
+      if (command === "codex" && args[0] === "login") {
+        return { stdout: "Logged in using ChatGPT", stderr: "" };
+      }
       throw new Error("not found");
     });
 
-    await detectTools({ force: true });
-    const callsAfterFirst = mocks.execImpl.mock.calls.length;
-    await detectTools(); // cached — should not re-probe
-    expect(mocks.execImpl.mock.calls.length).toBe(callsAfterFirst);
+    expect((await detectTools()).codex).toEqual({ installed: true, authenticated: true });
+    expect(mocks.execImpl).toHaveBeenCalledWith("codex", ["login", "status"]);
+  });
+
+  it.each([
+    ["empty", { stdout: "Not logged in", stderr: "" }],
+    ["corrupt", new Error("failed to parse auth.json")],
+    ["stale", new Error("stored credentials expired")],
+  ])("does not accept an existing %s Codex auth file", async (_kind, statusResult) => {
+    mocks.execImpl.mockImplementation(async (command: string, args: string[]) => {
+      if (command === "codex" && args[0] === "--version") return { stdout: "Codex" };
+      if (command === "codex" && args[0] === "login") {
+        if (statusResult instanceof Error) throw statusResult;
+        return statusResult;
+      }
+      throw new Error("not found");
+    });
+
+    expect((await detectTools()).codex).toEqual({ installed: true, authenticated: false });
+  });
+
+  it("does not cache stale results", async () => {
+    await detectTools();
+    const callsAfterFirstProbe = mocks.execImpl.mock.calls.length;
+    await detectTools();
+    expect(mocks.execImpl.mock.calls.length).toBe(callsAfterFirstProbe * 2);
   });
 });

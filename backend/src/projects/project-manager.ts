@@ -11,7 +11,7 @@ import { bareRepoPath } from "../utils/paths.js";
 import { saveProject, loadProject, loadAllProjects, getDataDir } from "../state/state.js";
 import { notifyProjectDeleted } from "../state/workspace-index.js";
 import { pruneProjectFromUiPreferences } from "../state/ui-preferences.js";
-import { validateRepositoryUrl } from "../utils/repo-url.js";
+import { normalizeRepositoryUrl, validateRepositoryUrl } from "../utils/repo-url.js";
 import { NotFoundError } from "../utils/errors.js";
 import type { ProjectState } from "../types.js";
 
@@ -24,7 +24,7 @@ export async function createProject(
   url: string,
   dataDir = getDataDir()
 ): Promise<ProjectState> {
-  const validatedUrl = validateRepositoryUrl(url, {
+  const validatedUrl = validateRepositoryUrl(normalizeRepositoryUrl(url), {
     // Tests use local fixture paths as clone sources.
     allowLocalPath: process.env.NODE_ENV === "test",
   });
@@ -62,9 +62,9 @@ async function createGitHubRepo(
   // Point the bare repo at the new remote and push the initial commit.
   // If any post-create step fails, delete the GitHub repo so we don't leave orphans.
   try {
-    await git(["remote", "add", "origin", repo.sshUrl], bare);
+    await git(["remote", "add", "origin", repo.url], bare);
     await git(["push", "--all", "origin"], bare);
-    return repo.sshUrl;
+    return repo.url;
   } catch (err) {
     await deleteGitHubRepository(repo.fullName).catch(() => {});
     throw err;

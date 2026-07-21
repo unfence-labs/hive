@@ -8,16 +8,13 @@ import type { SetupErrorCode } from "@hive/shared/setup-errors";
 
 export const SETUP_STATES = [
   "welcome",
-  "tailscale_intro",
-  "tailscale_key",
-  "server_choice",
+  "tailscale",
   "ssh_key",
-  "server_ip",
+  "server",
   "host_trust",
   "provisioning",
   "tailnet_handoff",
   "guided_setup",
-  "ios_pairing",
   "done",
 ] as const;
 
@@ -26,13 +23,15 @@ export type SetupState = (typeof SETUP_STATES)[number];
 /** Inputs collected across the flow, persisted with the state. */
 export interface SetupInputs {
   tailscaleAuthKey?: string;
+  /** Explicit local-development flow; stable desktop builds reject it. */
+  skipTailscale?: boolean;
   sshKeyPath?: string;
   serverIp?: string;
   /** SSH user for the target server; undefined means root. */
   sshUser?: string;
   hostFingerprint?: string;
-  /** Raw keyscan lines behind the fingerprint; written verbatim on trust. */
-  hostKeys?: string[];
+  /** Exact keyscan line behind the displayed fingerprint. */
+  hostKey?: string;
 }
 
 export interface SetupError {
@@ -43,7 +42,7 @@ export interface SetupError {
 }
 
 /** Schema version for the persisted state (bump on breaking shape changes). */
-export const SETUP_STATE_SCHEMA = 1;
+export const SETUP_STATE_SCHEMA = 2;
 
 export interface SetupMachineState {
   schema: number;
@@ -100,12 +99,9 @@ export function reduce(current: SetupMachineState, action: SetupAction): SetupMa
     case "clearError":
       return { ...current, error: null };
     case "reset":
-      // Machine-level preferences survive a start-over; anything tied to the
-      // target server (IP, fingerprint, auth token) must not.
       return {
         ...initialMachineState(),
         inputs: {
-          tailscaleAuthKey: current.inputs.tailscaleAuthKey,
           sshKeyPath: current.inputs.sshKeyPath,
         },
       };
@@ -126,11 +122,17 @@ export function loadMachineState(): SetupMachineState {
     // Reject on schema mismatch or an unknown state — start fresh.
     if (parsed.schema !== SETUP_STATE_SCHEMA) return initialMachineState();
     if (!parsed.state || !SETUP_STATES.includes(parsed.state)) return initialMachineState();
+    const inputs = { ...(parsed.inputs ?? {}), tailscaleAuthKey: undefined };
+    const needsTailscaleKey = !inputs.skipTailscale
+      && ["ssh_key", "server", "host_trust", "provisioning"].includes(parsed.state);
     return {
       schema: SETUP_STATE_SCHEMA,
-      state: parsed.state,
-      inputs: parsed.inputs ?? {},
-      error: parsed.error ?? null,
+      // The auth key is intentionally not persisted. Re-enter it before any
+      // resumed flow that has not completed provisioning yet.
+      state: needsTailscaleKey ? "tailscale" : parsed.state,
+      // Never restore a Tailscale auth key from durable browser storage.
+      inputs,
+      error: needsTailscaleKey ? null : (parsed.error ?? null),
     };
   } catch {
     return initialMachineState();
@@ -139,7 +141,10 @@ export function loadMachineState(): SetupMachineState {
 
 export function saveMachineState(state: SetupMachineState): void {
   try {
-    localStorage.setItem(SETUP_STATE_STORAGE_KEY, JSON.stringify(state));
+    localStorage.setItem(
+      SETUP_STATE_STORAGE_KEY,
+      JSON.stringify({ ...state, inputs: { ...state.inputs, tailscaleAuthKey: undefined } }),
+    );
   } catch {
     // ignore quota / serialization errors — persistence is best-effort
   }

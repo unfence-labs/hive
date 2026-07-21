@@ -5,9 +5,13 @@ on:
     branches: [main]
   push:
     branches: [main]
+  schedule:
+    - cron: "17 3 * * 1"
+  workflow_dispatch:
 
 jobs:
   ci:
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
 
     steps:
@@ -15,7 +19,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
 
       - run: npm ci
@@ -37,12 +41,16 @@ jobs:
       - name: Build frontend
         run: npm run build --workspace=frontend
 
+      - name: Build and inspect backend release
+        run: bash scripts/release/build-backend-tarball.sh 0.0.0-ci x64
+
       - name: Provision script (shellcheck + error-taxonomy contract)
         run: |
           bash scripts/provision/build.sh
           bash test/provision/contract.sh
 
   ios:
+    if: github.event_name != 'schedule'
     runs-on: macos-26
 
     steps:
@@ -55,3 +63,41 @@ jobs:
       - name: Build iOS app
         working-directory: ios
         run: xcodebuild -project HiveMobile.xcodeproj -scheme HiveMobile -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build
+
+  rust:
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Tauri system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+      - name: Test sidecar
+        working-directory: frontend/src-tauri
+        run: cargo test --locked
+      - name: Check release build
+        working-directory: frontend/src-tauri
+        run: cargo check --release --locked
+
+  provision-smoke:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install shellcheck
+        run: sudo apt-get update && sudo apt-get install -y shellcheck
+      - name: Install and re-run provisioning
+        run: make provision-docker
+
+  provision-resilience:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install shellcheck
+        run: sudo apt-get update && sudo apt-get install -y shellcheck
+      - name: Crash and resume provisioning
+        run: make provision-docker-chaos
+      - name: Verify failed release rollback
+        run: make provision-docker-rollback

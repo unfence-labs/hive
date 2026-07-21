@@ -1,5 +1,5 @@
 # Hive install-flow developer entry points.
-.PHONY: provision-build provision-docker provision-docker-chaos provision-docker-reprovision provision-contract release-tarball
+.PHONY: provision-build provision-docker provision-docker-chaos provision-docker-rollback provision-contract release-tarball
 
 provision-build:
 	bash scripts/provision/build.sh $(or $(VERSION),0.0.0-dev)
@@ -13,16 +13,15 @@ provision-docker:
 provision-docker-chaos:
 	bash test/e2e/provision-docker.sh chaos
 
-# Re-provision harness: install, then re-run at a bumped version; assert the
-# update path resumes (no EXISTING_INSTALL) and stays healthy.
-provision-docker-reprovision:
-	bash test/e2e/provision-docker.sh reprovision
+# Release rollback harness: activate an unhealthy build and verify that the
+# previous service is restored.
+provision-docker-rollback:
+	bash test/e2e/provision-docker.sh rollback
 
-# Assert the bash error taxonomy matches shared/setup-errors.ts.
+# Assert every bash-emitted error exists in the shared taxonomy.
 provision-contract:
 	bash test/provision/contract.sh
 
-# Build a backend release tarball (feeds provision.sh --release-file and the
-# OrbStack dev flow via HIVE_DEV_RELEASE_TARBALL).
+# Build a backend release tarball for the explicit OrbStack/debug upload path.
 release-tarball:
 	bash scripts/release/build-backend-tarball.sh $(or $(VERSION),0.0.0-dev)

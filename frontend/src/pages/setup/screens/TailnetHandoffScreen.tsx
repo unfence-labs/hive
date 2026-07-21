@@ -2,15 +2,28 @@ import { useEffect, useState } from "react";
 import { SetupScreen } from "./SetupScreen";
 import { Spinner } from "@/components/ui/spinner";
 import { getServerUrl } from "@/hooks/useServerUrl";
+import { ErrorPanel } from "./ErrorPanel";
+import type { ProvisionClient } from "@/lib/provision-client";
+import type { SetupError } from "@/pages/setup/machine";
+import { SETUP_ERROR_CODES, type SetupErrorCode } from "@hive/shared/setup-errors";
 
 interface TailnetHandoffScreenProps {
+  client?: ProvisionClient;
+  host?: string;
+  expectedHostKey?: string;
   /** Server base URL to poll (e.g. http://100.x.y.z:3000). */
   baseUrl: string;
   onContinue: () => void;
-  onBack: () => void;
   onContinueLater: () => void;
   /** Injectable for tests. */
   checkHealth?: (baseUrl: string) => Promise<boolean>;
+}
+
+function trustError(error: unknown): SetupError {
+  const detail = error instanceof Error ? error.message : String(error);
+  const prefix = detail.split(":", 1)[0] as SetupErrorCode;
+  const code = SETUP_ERROR_CODES.includes(prefix) ? prefix : "UNKNOWN";
+  return { state: "tailnet_handoff", code, logExcerpt: detail };
 }
 
 // /health is unauthenticated; sending the PREVIOUS connection's bearer to the
@@ -27,18 +40,53 @@ async function defaultCheckHealth(baseUrl: string): Promise<boolean> {
 }
 
 export function TailnetHandoffScreen({
+  client,
+  host = "",
+  expectedHostKey,
   baseUrl,
   onContinue,
-  onBack,
   onContinueLater,
   checkHealth = defaultCheckHealth,
 }: TailnetHandoffScreenProps) {
+  const needsTrust = Boolean(client && host && expectedHostKey);
+  const [trusted, setTrusted] = useState(!needsTrust);
+  const [trusting, setTrusting] = useState(false);
+  const [trustFailure, setTrustFailure] = useState<SetupError | null>(null);
+  const [trustAttempt, setTrustAttempt] = useState(0);
   const [healthy, setHealthy] = useState(false);
   const [attempts, setAttempts] = useState(0);
 
   useEffect(() => {
+    if (!needsTrust || !client || !expectedHostKey) {
+      setTrusted(true);
+      setTrustFailure(null);
+      return;
+    }
+    let cancelled = false;
+    setTrusted(false);
+    setTrusting(true);
+    setTrustFailure(null);
+    void client.trustHost(host, undefined, expectedHostKey)
+      .then(() => {
+        if (!cancelled) setTrusted(true);
+      })
+      .catch((error) => {
+        if (!cancelled) setTrustFailure(trustError(error));
+      })
+      .finally(() => {
+        if (!cancelled) setTrusting(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [client, expectedHostKey, host, needsTrust, trustAttempt]);
+
+  useEffect(() => {
+    if (!trusted) return;
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout>;
+    setHealthy(false);
+    setAttempts(0);
     const tick = async () => {
       const ok = await checkHealth(baseUrl);
       if (cancelled) return;
@@ -54,7 +102,7 @@ export function TailnetHandoffScreen({
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [baseUrl, checkHealth]);
+  }, [baseUrl, checkHealth, trusted]);
 
   return (
     <SetupScreen
@@ -65,16 +113,27 @@ export function TailnetHandoffScreen({
           : "Hive should appear on your tailnet within a minute or two. Make sure this computer is signed in to Tailscale."
       }
       onContinue={healthy ? onContinue : undefined}
-      onBack={onBack}
       onContinueLater={onContinueLater}
     >
-      {!healthy && (
+      {trustFailure && (
+        <ErrorPanel
+          error={trustFailure}
+          onRetry={() => setTrustAttempt((attempt) => attempt + 1)}
+          retrying={trusting}
+        />
+      )}
+      {!trustFailure && !trusted && (
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <Spinner className="h-4 w-4" /> Verifying the server SSH identity…
+        </div>
+      )}
+      {!trustFailure && trusted && !healthy && (
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <Spinner className="h-4 w-4" />
           Checking… {attempts > 0 && <span className="text-xs">(attempt {attempts + 1})</span>}
         </div>
       )}
-      {!healthy && attempts >= 10 && (
+      {trusted && !healthy && attempts >= 10 && (
         <p className="mt-3 text-xs text-muted-foreground">
           Still nothing? Confirm the server shows up in your Tailscale admin console, and that this
           computer is on the same tailnet. SSH stays available as a repair channel.

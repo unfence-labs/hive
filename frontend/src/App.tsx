@@ -22,7 +22,7 @@ import { useNotificationToasts } from "@/hooks/useNotificationToasts";
 import { wsTransport } from "@/lib/ws-transport";
 import { HiveToaster } from "@/components/ui/toaster";
 import { isTauri } from "@/lib/is-tauri";
-import { useServerUrl } from "@/hooks/useServerUrl";
+import { useConnection } from "@/hooks/useConnection";
 import { closeSetupWizard, useSetupWizardRequest } from "@/hooks/useSetupWizardRequest";
 
 const SetupWizard = lazy(() => import("@/pages/setup/SetupWizard"));
@@ -40,15 +40,49 @@ function NotificationToastsBridge({ projects }: { projects: Project[] }) {
 }
 
 export default function App() {
-  const { serverUrl } = useServerUrl();
+  const { isConfigured } = useConnection();
   // First-run gate: in the Tauri desktop shell with no server configured yet,
   // show the install wizard. Non-invasive for the web build (isTauri() is false).
   // Existing installs reach the wizard on demand via Settings > Connection.
-  const [wizardDismissed, setWizardDismissed] = useState(false);
+  const [wizardDismissed, setWizardDismissed] = useState(isConfigured);
   const wizardRequested = useSetupWizardRequest();
-  const showWizard = isTauri() && ((!serverUrl && !wizardDismissed) || wizardRequested);
+  const showWizard = isTauri() && ((!isConfigured && !wizardDismissed) || wizardRequested);
 
-  const { projects, loading, fetchProjects, createProjectWithWorkspace, createNewProjectWithWorkspace } = useProjects();
+  const closeWizard = () => {
+    setWizardDismissed(true);
+    closeSetupWizard();
+  };
+
+  if (showWizard) {
+    return (
+      <Suspense fallback={null}>
+        <SetupWizard
+          onComplete={closeWizard}
+          onConnectExisting={() => {
+            window.history.replaceState({}, "", "/settings/connection");
+            closeWizard();
+          }}
+        />
+      </Suspense>
+    );
+  }
+
+  if (isTauri() && !isConfigured) {
+    return (
+      <BrowserRouter>
+        <HiveToaster />
+        <Routes>
+          <Route path="*" element={<ConnectionSettings />} />
+        </Routes>
+      </BrowserRouter>
+    );
+  }
+
+  return <ConnectedApp />;
+}
+
+function ConnectedApp() {
+  const { projects, loading, createProjectWithWorkspace, createNewProjectWithWorkspace } = useProjects();
   const [showAddProject, setShowAddProject] = useState(false);
   const [showAddAutomation, setShowAddAutomation] = useState(false);
   const workspaceIds = useMemo(
@@ -77,19 +111,6 @@ export default function App() {
   useEffect(() => () => {
     wsTransport.disconnectAll();
   }, []);
-
-  if (showWizard) {
-    return (
-      <Suspense fallback={null}>
-        <SetupWizard
-          onComplete={() => {
-            setWizardDismissed(true);
-            closeSetupWizard();
-          }}
-        />
-      </Suspense>
-    );
-  }
 
   return (
     <BrowserRouter>
@@ -133,7 +154,7 @@ export default function App() {
             <Route path="settings" element={<Navigate to="/settings/appearance" replace />} />
             <Route path="settings/account" element={<AccountSettings />} />
             <Route path="settings/appearance" element={<AppearanceSettings />} />
-            <Route path="settings/connection" element={<ConnectionSettings onRefreshConnection={() => { wsTransport.disconnectAll(); fetchProjects(); }} />} />
+            <Route path="settings/connection" element={<ConnectionSettings />} />
             <Route path="settings/notifications" element={<NotificationSettings />} />
             <Route path="settings/cli" element={<AgentSettings />} />
             <Route path="settings/models" element={<ModelsSettings />} />

@@ -53,18 +53,6 @@ export function parseDeviceUrl(text: string): string | undefined {
   return deviceUrl ?? trimmed[0];
 }
 
-// --- Success / error signals ---
-
-/** codex prints a success line and/or writes auth.json. */
-export function isCodexLoggedIn(text: string): boolean {
-  const clean = stripAnsi(text);
-  return (
-    /Successfully logged in/i.test(clean) ||
-    /Logged in( to ChatGPT)?/i.test(clean) ||
-    /Authentication (complete|successful)/i.test(clean)
-  );
-}
-
 /**
  * codex refuses device-code auth when the ChatGPT workspace has it disabled.
  * Detecting this maps to CODEX_DEVICE_AUTH_DISABLED so the wizard can tell the

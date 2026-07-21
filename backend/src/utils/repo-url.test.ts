@@ -1,5 +1,34 @@
 import { describe, expect, it } from "vitest";
-import { validateRepositoryUrl } from "./repo-url.js";
+import { normalizeRepositoryUrl, validateRepositoryUrl } from "./repo-url.js";
+
+describe("normalizeRepositoryUrl", () => {
+  it("normalizes GitHub scp and ssh clone URLs", () => {
+    expect(normalizeRepositoryUrl("git@github.com:acme/repo.git")).toBe(
+      "https://github.com/acme/repo.git",
+    );
+    expect(normalizeRepositoryUrl("ssh://git@github.com/acme/repo.git")).toBe(
+      "https://github.com/acme/repo.git",
+    );
+  });
+
+  it("does not rewrite SSH URLs for other hosts or users", () => {
+    expect(normalizeRepositoryUrl("git@gitlab.com:acme/repo.git")).toBe(
+      "git@gitlab.com:acme/repo.git",
+    );
+    expect(normalizeRepositoryUrl("ssh://deploy@github.com/acme/repo.git")).toBe(
+      "ssh://deploy@github.com/acme/repo.git",
+    );
+  });
+
+  it("does not rewrite ambiguous GitHub SSH paths", () => {
+    expect(normalizeRepositoryUrl("git@github.com:acme/repo.git?ref=main")).toBe(
+      "git@github.com:acme/repo.git?ref=main",
+    );
+    expect(normalizeRepositoryUrl("ssh://git@github.com/acme/team/repo.git")).toBe(
+      "ssh://git@github.com/acme/team/repo.git",
+    );
+  });
+});
 
 describe("validateRepositoryUrl", () => {
   it("accepts https repository urls", () => {

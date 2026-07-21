@@ -1,0 +1,10 @@
+{
+  "extends": "./tsconfig.json",
+  "exclude": [
+    "src/**/*.test.ts",
+    "src/**/__tests__/**",
+    "src/**/__fixtures__/**",
+    "src/services/setup/installers/fake-pty.ts",
+    "src/utils/test-helpers.ts"
+  ]
+}

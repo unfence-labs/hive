@@ -53,14 +53,27 @@ ping 100.x.x.x
 
 ## 2. Deploy the Backend on the VPS
 
+The recommended production path is the desktop setup wizard. It connects to a
+fresh Ubuntu 22.04/24.04 or Debian 12 server over SSH, joins it to Tailscale,
+and downloads the backend archive for the desktop app's exact release version
+from GitHub. The archive checksum and native modules are verified before the
+systemd service is activated; an unhealthy activation restores the previous
+release.
+
+Production provisioning requires a Tailscale auth key. Local/LAN provisioning
+and client-pushed archives are explicit development-only options in a Tauri
+development build.
+
+The source/PM2 flow below remains useful for a manual installation.
+
 ### Prerequisites
 
 The backend runs preflight checks on startup. It exits with a clear error if a required dependency is missing; optional dependencies only disable related features:
 
 - **Node.js >= 20**
-- **Git >= 2.17** (worktree support)
-- **Claude CLI** installed and authenticated (`claude` command)
-- **GitHub CLI** (`gh`) installed (startup preflight requirement; authenticate it before GitHub-backed flows)
+- **Git** >= 2.17 (the only CLI checked by backend startup preflight)
+- **Claude CLI** optional for Anthropic model support
+- **GitHub CLI** optional for GitHub-backed flows
 - **Codex CLI** (`codex`) optional for OpenAI model support
 
 ### Clone and build
@@ -140,7 +153,7 @@ cd frontend
 npm run dev
 ```
 
-Open the app and go to **Settings > Connection**. Enter your VPS Tailscale IP (e.g. `100.x.x.x`) and port (`3000`). The status badge will show **Connected** (green) once the health check succeeds. All API and WebSocket traffic routes through Tailscale.
+Open the app and go to **Settings > Connection**. Enter your VPS Tailscale IP (e.g. `100.x.x.x`), port (`3000`), and an optional bearer token for a manually secured server. The connection is committed only after the API probe succeeds. All API and WebSocket traffic then routes through Tailscale.
 
 ### Tauri Desktop App
 
@@ -158,7 +171,7 @@ cd frontend
 npm run tauri build
 ```
 
-The output (`.dmg` on macOS, `.msi` on Windows) will be in `frontend/src-tauri/target/release/bundle/`.
+The output (`.dmg` on macOS, `.msi` on Windows) will be in `frontend/src-tauri/target/release/bundle/`. During provisioning, a production app installs the backend from the GitHub release whose tag matches the version in `frontend/src-tauri/Cargo.toml`; it does not bundle or upload a backend archive.
 
 ### Post-connect setup (optional)
 
@@ -176,7 +189,10 @@ Once connected, you can configure additional integrations from the app:
 |---|---|---|
 | `HOST` | `100.x.x.x` (Tailscale IP) | Bind to Tailscale interface only |
 | `PORT` | `3000` | HTTP port |
-| `HIVE_AUTH_TOKEN` | a strong random string | Secures API + WS access |
+| `HIVE_AUTH_TOKEN` | unset on a tailnet | Optional bearer token securing API + WS access |
+| `HIVE_AUTH_TOKEN_SHA256` | SHA-256 digest | Alternative to storing the bearer token itself |
+| `HIVE_ALLOWED_HOSTS` | comma-separated hosts | Additional Host-header values in tokenless mode |
+| `HIVE_ALLOWED_ORIGINS` | comma-separated origins | Additional exact origins allowed by REST CORS and WebSocket upgrades |
 
 ### Frontend (local)
 
@@ -184,9 +200,9 @@ Once connected, you can configure additional integrations from the app:
 |---|---|
 | `VITE_HIVE_AUTH_TOKEN` | Must match the backend `HIVE_AUTH_TOKEN` |
 
-The Tailscale IP and port are configured at runtime in **Settings > Connection**, not via env vars. Telegram notification credentials are configured in **Settings > Notifications** and persisted in `~/.hive/config.json` on the VPS.
+The Tailscale IP, port, and optional manual token are configured atomically at runtime in **Settings > Connection**. Provisioned servers are tokenless by default and rely on tailnet reachability plus the Host-header guard. Telegram notification credentials are configured in **Settings > Notifications** and persisted in `~/.hive/config.json` on the VPS.
 
-## Updating the Backend
+## Updating a Manual Source Install
 
 ```bash
 cd hive

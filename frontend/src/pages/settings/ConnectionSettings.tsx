@@ -1,18 +1,13 @@
-import { useMemo, useState } from "react";
-import { createProvisionClient } from "@/lib/provision-client";
-import { RefreshCw, Server, ArrowUpCircle, CheckCircle2 } from "lucide-react";
+import { useState } from "react";
+import { RefreshCw, Server } from "lucide-react";
 import { isTauri } from "@/lib/is-tauri";
 import { openSetupWizard } from "@/hooks/useSetupWizardRequest";
 import { SettingsHeader } from "@/components/AppLayout";
 import { CenterCard } from "@/components/CenterCard";
-import { useTailscaleConfig } from "@/hooks/useTailscaleConfig";
-import { useAuthToken } from "@/hooks/useAuthToken";
+import { useConnection } from "@/hooks/useConnection";
 import { useConnectionStatus } from "@/hooks/useConnectionStatus";
-import { loadSshConnection, clearSshConnection, type SshConnection } from "@/lib/ssh-connection";
-import { useProvisionRun, ProvisionStepList } from "@/pages/setup/screens/ProvisioningScreen";
-import { ErrorPanel } from "@/pages/setup/screens/ErrorPanel";
+import { switchServer } from "@/lib/server-connection";
 import { ToolsPanel } from "@/pages/setup/screens/ToolsPanel";
-import type { ProvisionClient } from "@/lib/provision-client";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -30,93 +25,60 @@ const STATUS_CONFIG: Record<string, { dot: string; label: string; badge: string 
   },
   unknown: {
     dot: "bg-muted-foreground/40",
-    label: "Checking…",
+    label: "Checking...",
     badge: "border-border bg-muted/50 text-muted-foreground",
   },
 };
-
-/**
- * Inline server-update run: streams the provision checklist under the
- * "Server software" row instead of taking over the screen.
- */
-function ServerUpdateRun({
-  client,
-  conn,
-  port,
-  onDone,
-  onHide,
-}: {
-  client: ProvisionClient;
-  conn: SshConnection;
-  port: string;
-  onDone: () => void;
-  onHide: () => void;
-}) {
-  const { progress, retry, error } = useProvisionRun(
-    client,
-    {
-      host: conn.host,
-      user: conn.user,
-      keyPath: conn.keyPath,
-      tailscaleAuthKey: "",
-      skipTailscale: !conn.tailnet,
-      port: Number(port) || 3000,
-    },
-    onDone,
-  );
-
-  return (
-    <div className="space-y-2">
-      <div className="flex items-center justify-between">
-        <span className="text-xs font-medium text-foreground">Updating the server…</span>
-        <button
-          type="button"
-          onClick={onHide}
-          className="cursor-pointer text-xs text-muted-foreground hover:text-foreground"
-        >
-          Hide
-        </button>
-      </div>
-      <ProvisionStepList progress={progress} />
-      {error && <ErrorPanel error={error} onRetry={retry} />}
-    </div>
-  );
-}
 
 interface ConnectionSettingsProps {
   onRefreshConnection?: () => void;
 }
 
 export default function ConnectionSettings({ onRefreshConnection }: ConnectionSettingsProps) {
-  const { ip, port, setIp, setPort, setSshUser, isConfigured } = useTailscaleConfig();
-  const { setAuthToken } = useAuthToken();
+  const { connection, isConfigured } = useConnection();
   const { status, check } = useConnectionStatus();
-  const [ipDraft, setIpDraft] = useState("");
+  const [hostDraft, setHostDraft] = useState("");
   const [portDraft, setPortDraft] = useState("3000");
+  const [sshUserDraft, setSshUserDraft] = useState("");
+  const [tokenDraft, setTokenDraft] = useState("");
+  const [connecting, setConnecting] = useState(false);
   const [checking, setChecking] = useState(false);
-  const [updating, setUpdating] = useState(false);
-  const [updated, setUpdated] = useState(false);
-  const [sshConn, setSshConn] = useState(() => loadSshConnection());
-  const provisionClient = useMemo(() => createProvisionClient(), []);
+  const [connectionError, setConnectionError] = useState<string | null>(null);
+
+  const connect = async () => {
+    const port = Number(portDraft);
+    setConnecting(true);
+    setConnectionError(null);
+    try {
+      await switchServer(
+        {
+          host: hostDraft.trim(),
+          port,
+          sshUser: sshUserDraft.trim() || undefined,
+          authToken: tokenDraft.trim() || undefined,
+        },
+        { verify: true },
+      );
+      setTokenDraft("");
+      onRefreshConnection?.();
+    } catch (error) {
+      setConnectionError(error instanceof Error ? error.message : "The server could not be reached.");
+    } finally {
+      setConnecting(false);
+    }
+  };
 
   const recheck = async () => {
     setChecking(true);
-    await new Promise((r) => setTimeout(r, 300));
-    await check();
-    onRefreshConnection?.();
-    setChecking(false);
+    try {
+      await check();
+      onRefreshConnection?.();
+    } finally {
+      setChecking(false);
+    }
   };
 
-  const connect = () => {
-    const nextIp = ipDraft.trim();
-    if (!nextIp) return;
-    setIp(nextIp);
-    setPort(portDraft.trim() || "3000");
-    setSshConn(loadSshConnection());
-    void recheck();
-  };
-
-  const reset = () => {
+  const reset = async () => {
     if (
       !window.confirm(
         "Disconnect from this server? The connection details are cleared; the server itself is untouched.",
@@ -124,17 +86,18 @@ export default function ConnectionSettings({ onRefreshConnection }: ConnectionSe
     ) {
       return;
     }
-    setIp("");
-    setPort("");
-    setSshUser("");
-    setAuthToken("");
-    clearSshConnection();
-    setSshConn(null);
-    setIpDraft("");
+    await switchServer(null);
+    setHostDraft("");
     setPortDraft("3000");
+    setSshUserDraft("");
+    setTokenDraft("");
+    setConnectionError(null);
     onRefreshConnection?.();
   };
 
+  const port = Number(portDraft);
+  const canConnect =
+    hostDraft.trim().length > 0 && Number.isInteger(port) && port >= 1 && port <= 65_535;
   const cfg = STATUS_CONFIG[status];
 
   return (
@@ -145,61 +108,91 @@ export default function ConnectionSettings({ onRefreshConnection }: ConnectionSe
 
       <CenterCard scroll>
         <div className="max-w-2xl space-y-6 px-4 py-5">
-          {!isConfigured ? (
+          {!isConfigured || !connection ? (
             <section className="rounded-lg border border-border/50 bg-card/50 p-5">
               <h2 className="text-sm font-medium text-foreground">Connect your server</h2>
               <p className="mt-1 text-xs text-muted-foreground">
-                Hive runs on your own server. Set one up from scratch, or point the app at a
-                server already on your Tailscale network.
+                Set up a new Hive server, or connect to an existing one.
               </p>
 
               {isTauri() && (
-                <button
-                  type="button"
-                  onClick={openSetupWizard}
-                  className="mt-4 inline-flex cursor-pointer items-center gap-2 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground transition-opacity hover:opacity-90"
-                >
-                  <Server className="h-3 w-3" />
+                <Button size="sm" className="mt-4" onClick={openSetupWizard}>
+                  <Server className="h-3.5 w-3.5" />
                   Set up a new server
-                </button>
+                </Button>
               )}
 
-              <div className="mt-5 border-t border-border/40 pt-4">
-                <p className="mb-3 text-xs font-medium text-muted-foreground">
-                  Or connect to an existing Hive server
+              <div className="mt-5 space-y-3 border-t border-border/40 pt-4">
+                <p className="text-xs font-medium text-muted-foreground">
+                  Connect to an existing Hive server
                 </p>
-                <div className="grid grid-cols-[1fr_100px_auto] items-end gap-3">
+                <div className="grid grid-cols-[minmax(0,1fr)_100px] gap-3">
                   <div>
-                    <label htmlFor="ts-ip" className="mb-1.5 block text-xs font-medium text-muted-foreground">
+                    <label htmlFor="server-host" className="mb-1.5 block text-xs font-medium text-muted-foreground">
                       IP or hostname
                     </label>
                     <Input
-                      id="ts-ip"
-                      value={ipDraft}
-                      onChange={(e) => setIpDraft(e.target.value)}
-                      onKeyDown={(e) => { if (e.key === "Enter") connect(); }}
+                      id="server-host"
+                      value={hostDraft}
+                      onChange={(event) => setHostDraft(event.target.value)}
                       placeholder="100.x.x.x"
+                      autoComplete="off"
+                      spellCheck={false}
                       className="font-mono text-xs"
                     />
                   </div>
                   <div>
-                    <label htmlFor="ts-port" className="mb-1.5 block text-xs font-medium text-muted-foreground">
+                    <label htmlFor="server-port" className="mb-1.5 block text-xs font-medium text-muted-foreground">
                       Port
                     </label>
                     <Input
-                      id="ts-port"
+                      id="server-port"
                       value={portDraft}
-                      onChange={(e) => setPortDraft(e.target.value)}
-                      onKeyDown={(e) => { if (e.key === "Enter") connect(); }}
+                      onChange={(event) => setPortDraft(event.target.value)}
                       placeholder="3000"
                       inputMode="numeric"
                       className="font-mono text-xs"
                     />
                   </div>
-                  <Button size="sm" onClick={connect} disabled={!ipDraft.trim()}>
-                    Connect
-                  </Button>
                 </div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div>
+                    <label htmlFor="ssh-user" className="mb-1.5 block text-xs font-medium text-muted-foreground">
+                      SSH user <span className="font-normal">(optional)</span>
+                    </label>
+                    <Input
+                      id="ssh-user"
+                      value={sshUserDraft}
+                      onChange={(event) => setSshUserDraft(event.target.value)}
+                      placeholder="root"
+                      autoComplete="username"
+                      className="font-mono text-xs"
+                    />
+                  </div>
+                  <div>
+                    <label htmlFor="server-token" className="mb-1.5 block text-xs font-medium text-muted-foreground">
+                      Access token <span className="font-normal">(optional)</span>
+                    </label>
+                    <Input
+                      id="server-token"
+                      type="password"
+                      value={tokenDraft}
+                      onChange={(event) => setTokenDraft(event.target.value)}
+                      placeholder="Legacy secured servers"
+                      autoComplete="off"
+                      className="font-mono text-xs"
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" && canConnect && !connecting) void connect();
+                      }}
+                    />
+                  </div>
+                </div>
+                {connectionError && (
+                  <p role="alert" className="text-xs text-destructive">{connectionError}</p>
+                )}
+                <Button size="sm" onClick={() => void connect()} disabled={!canConnect || connecting}>
+                  {connecting ? "Connecting..." : "Connect"}
+                </Button>
               </div>
             </section>
           ) : (
@@ -209,7 +202,7 @@ export default function ConnectionSettings({ onRefreshConnection }: ConnectionSe
                   <div>
                     <h2 className="text-sm font-medium text-foreground">Server</h2>
                     <p className="mt-1 font-mono text-xs text-muted-foreground">
-                      {ip}:{port}
+                      {connection.host}:{connection.port}
                     </p>
                   </div>
                   <span
@@ -238,42 +231,12 @@ export default function ConnectionSettings({ onRefreshConnection }: ConnectionSe
                   </button>
                   <button
                     type="button"
-                    onClick={reset}
+                    onClick={() => void reset()}
                     className="inline-flex cursor-pointer items-center gap-2 rounded-md border border-border/50 px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
                   >
-                    Disconnect…
+                    Disconnect...
                   </button>
                 </div>
-
-                {isTauri() && sshConn && (
-                  <div className="mt-4 border-t border-border/40 pt-3 text-xs text-muted-foreground">
-                    {updating ? (
-                      <ServerUpdateRun
-                        client={provisionClient}
-                        conn={sshConn}
-                        port={port}
-                        onDone={() => { setUpdating(false); setUpdated(true); }}
-                        onHide={() => setUpdating(false)}
-                      />
-                    ) : updated ? (
-                      <span className="inline-flex items-center gap-1.5 text-success-foreground">
-                        <CheckCircle2 className="h-3.5 w-3.5" /> Server updated
-                      </span>
-                    ) : (
-                      <div className="flex items-center gap-2">
-                        <span>Server software</span>
-                        <button
-                          type="button"
-                          onClick={() => { setUpdated(false); setUpdating(true); }}
-                          className="inline-flex cursor-pointer items-center gap-1 text-primary hover:underline"
-                        >
-                          <ArrowUpCircle className="h-3 w-3" />
-                          Update
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                )}
               </section>
 
               <ToolsPanel />
@@ -281,7 +244,6 @@ export default function ConnectionSettings({ onRefreshConnection }: ConnectionSe
           )}
         </div>
       </CenterCard>
-
     </div>
   );
 }

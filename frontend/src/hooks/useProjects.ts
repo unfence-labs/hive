@@ -1,6 +1,8 @@
 import { useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "./useApi";
+import { useConnection } from "./useConnection";
+import { isTauri } from "@/lib/is-tauri";
 import type { Project, Workspace } from "@/types";
 
 const PROJECTS_FETCH_TIMEOUT_MS = 10_000;
@@ -84,10 +86,12 @@ function formatProjectsError(error: unknown): string {
 
 export function useProjects() {
   const queryClient = useQueryClient();
+  const { isConfigured } = useConnection();
 
   const query = useQuery({
     queryKey: ["projects"],
     queryFn: ({ signal }) => fetchProjects(signal),
+    enabled: !isTauri() || isConfigured,
     refetchInterval: (currentQuery) =>
       currentQuery.state.error && !currentQuery.state.data
         ? PROJECTS_RECOVERY_INTERVAL_MS

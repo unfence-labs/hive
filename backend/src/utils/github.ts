@@ -20,7 +20,7 @@ export interface GitHubRepository {
   owner: string;
   name: string;
   fullName: string;
-  sshUrl: string;
+  url: string;
 }
 
 export type GhClient = typeof gh;
@@ -89,7 +89,7 @@ export async function gh(
   return { stdout: stdout.trim(), stderr: stderr.trim() };
 }
 
-/** Create a GitHub repository and return its SSH clone URL. */
+/** Create a GitHub repository and return its HTTPS URL. */
 export async function createGitHubRepository(
   name: string,
   visibility: RepositoryVisibility,
@@ -123,14 +123,16 @@ export async function createGitHubRepository(
       "view",
       fullName,
       "--json",
-      "sshUrl",
+      "url",
       "--jq",
-      ".sshUrl",
+      ".url",
     ]);
-    const sshUrl = stdout.trim();
-    if (!sshUrl) throw new Error("Unable to determine GitHub SSH URL");
+    const url = stdout.trim();
+    if (!url.startsWith("https://github.com/")) {
+      throw new Error("Unable to determine GitHub HTTPS URL");
+    }
 
-    return { owner, name: repoName, fullName, sshUrl };
+    return { owner, name: repoName, fullName, url };
   } catch (err) {
     await deleteGitHubRepository(fullName, ghClient).catch(() => {});
     throw new Error(formatGhFailure(err));

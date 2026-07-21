@@ -4,6 +4,7 @@ import { buildWsUrl } from "@/lib/ws-url";
 import { buildBrowserStreamUrl } from "@/lib/browser-stream";
 import { resolveApiResourceSrc } from "@/lib/image-url";
 import { wsTransport } from "@/lib/ws-transport";
+import { createSetupApi } from "@/hooks/useSetupApi";
 
 const TOKEN_KEY = "hive-auth-token";
 const SERVER_KEY = "hive-server-url";
@@ -72,5 +73,38 @@ describe("runtime auth token is read at each replaced call site", () => {
     } finally {
       wsTransport.disconnectAll();
     }
+  });
+
+  it("does not send the stored server token to an explicitly targeted setup server", async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(
+      new Response(JSON.stringify({}), { status: 200, headers: { "Content-Type": "application/json" } }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createSetupApi({ baseUrl: "http://100.64.0.2:3000" }).getStatus();
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://100.64.0.2:3000/api/setup/status",
+      expect.objectContaining({ headers: {} }),
+    );
+  });
+
+  it("keeps the request timeout when setup polling is externally cancellable", async () => {
+    const controller = new AbortController();
+    let requestSignal: AbortSignal | undefined;
+    const fetchMock = vi.fn().mockImplementation((_input, init: RequestInit) => {
+      requestSignal = init.signal as AbortSignal;
+      return Promise.resolve(
+        new Response(JSON.stringify({}), { status: 200, headers: { "Content-Type": "application/json" } }),
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createSetupApi({ baseUrl: "http://100.64.0.2:3000" }).getOperation("op-1", controller.signal);
+
+    expect(requestSignal).not.toBe(controller.signal);
+    expect(requestSignal?.aborted).toBe(false);
+    controller.abort();
+    expect(requestSignal?.aborted).toBe(true);
   });
 });

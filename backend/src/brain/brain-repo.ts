@@ -8,7 +8,7 @@ import {
   type GitHubRepository,
 } from "../utils/github.js";
 import { brainDir, brainRepoPath } from "../utils/paths.js";
-import { validateRepositoryUrl } from "../utils/repo-url.js";
+import { normalizeRepositoryUrl, validateRepositoryUrl } from "../utils/repo-url.js";
 import { ConflictError } from "../utils/errors.js";
 import { getDataDir } from "../state/state.js";
 import { deleteBrainState, loadBrainState, saveBrainState } from "../state/brain.js";
@@ -80,7 +80,7 @@ export async function createBrain(
   const remote = await createRemote(name);
 
   try {
-    await git(["clone", remote.sshUrl, repoPath]);
+    await git(["clone", remote.url, repoPath]);
     await git(["checkout", "-b", "main"], repoPath);
     await writeFile(
       join(repoPath, "README.md"),
@@ -90,7 +90,7 @@ export async function createBrain(
     await git(["add", "README.md"], repoPath);
     await git(["commit", "-m", "Initial Brain"], repoPath);
     await git(["push", "-u", "origin", "main"], repoPath);
-    return await persistBrain(remote.sshUrl, dataDir, options.now ?? (() => new Date()));
+    return await persistBrain(remote.url, dataDir, options.now ?? (() => new Date()));
   } catch (err) {
     await rm(repoPath, { recursive: true, force: true }).catch(() => {});
     await deleteRemote(remote.fullName).catch(() => {});
@@ -105,7 +105,7 @@ export async function connectBrain(
   options: Pick<BrainCreateOptions, "now"> = {},
 ): Promise<PersistedBrainState> {
   await assertBrainDoesNotExist(dataDir);
-  const validatedUrl = validateRepositoryUrl(url, {
+  const validatedUrl = validateRepositoryUrl(normalizeRepositoryUrl(url), {
     allowLocalPath: process.env.NODE_ENV === "test",
   });
   await mkdir(brainDir(dataDir), { recursive: true });

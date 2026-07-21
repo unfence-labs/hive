@@ -12,8 +12,6 @@ export interface PtyHandle {
   onData: (cb: (chunk: string) => void) => () => void;
   /** Register an exit listener; returns an unsubscribe fn. */
   onExit: (cb: (code: number) => void) => () => void;
-  /** Write raw bytes into the PTY (e.g. an Enter keystroke). */
-  write: (data: string) => void;
   /** Terminate the PTY. */
   kill: () => void;
 }
@@ -38,7 +36,6 @@ export function wrapPtyProcess(proc: PtyProcess): PtyHandle {
       }
       return () => proc.exitListeners.delete(key);
     },
-    write: (data) => proc.pty.write(data),
     kill: () => proc.pty.kill(),
   };
 }
@@ -79,9 +76,6 @@ export const defaultSpawnPipe: SpawnPty = (command, cwd) => {
       if (exitCode !== undefined) cb(exitCode);
       return () => exitCbs.delete(cb);
     },
-    write: () => {
-      /* no stdin in pipe mode */
-    },
     kill: () => {
       try {
         child.kill();
@@ -94,29 +88,22 @@ export const defaultSpawnPipe: SpawnPty = (command, cwd) => {
 
 /**
  * Drive a PTY-based device-auth flow. Accumulates output, invokes `onChunk` for
- * each new full buffer so the caller can parse for a code/URL, success, or a
- * typed error, and resolves with the final buffer + exit code.
- *
- * The caller controls timing via callbacks:
- *  - `onChunk(buffer)`: return a verdict to end early (`success`/`fail`), or
- *    `undefined` to keep waiting.
- *  - `onTimeout`: buffer accumulated when the overall timeout fires.
+ * each new full buffer so the caller can parse for a code/URL, and resolves
+ * only when the process exits or times out. Output is never treated as proof
+ * of success because both CLIs persist credentials immediately before exit.
  */
 export interface DriveResult {
   buffer: string;
   exitCode: number | null;
-  reason: "chunk-success" | "chunk-fail" | "exit" | "timeout";
+  reason: "exit" | "timeout";
 }
-
-export type ChunkVerdict = "success" | "fail" | undefined;
 
 export interface DriveOptions {
   spawn: SpawnPty;
   command: string;
   cwd: string;
   timeoutMs: number;
-  /** Called on every buffer update; return a verdict to stop early. */
-  onChunk: (buffer: string, handle: PtyHandle) => ChunkVerdict | Promise<ChunkVerdict>;
+  onChunk: (buffer: string) => void;
 }
 
 export function drivePtyAuth(opts: DriveOptions): Promise<DriveResult> {
@@ -133,7 +120,7 @@ export function drivePtyAuth(opts: DriveOptions): Promise<DriveResult> {
       clearTimeout(timer);
       offData();
       offExit();
-      if (reason !== "exit") {
+      if (reason === "timeout") {
         try {
           handle.kill();
         } catch {
@@ -150,10 +137,7 @@ export function drivePtyAuth(opts: DriveOptions): Promise<DriveResult> {
 
     offData = handle.onData((chunk) => {
       buffer += chunk;
-      void Promise.resolve(opts.onChunk(buffer, handle)).then((verdict) => {
-        if (verdict === "success") finish("chunk-success", null);
-        else if (verdict === "fail") finish("chunk-fail", null);
-      });
+      opts.onChunk(buffer);
     });
 
     offExit = handle.onExit((code) => finish("exit", code));

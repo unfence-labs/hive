@@ -1,4 +1,4 @@
-import { useEffect, useReducer, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { CheckIcon, CircleIcon, XCircleIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -65,58 +65,98 @@ function StepRow({ step }: { step: ProvisionStepView }) {
   );
 }
 
-type Source = { kind: "start"; params: ProvisionParams } | { kind: "resume"; params: ProvisionParams };
+interface ProvisionRunEntry {
+  events: ProvisionEvent[];
+  listeners: Set<(event: ProvisionEvent) => void>;
+  finished: boolean;
+}
+
+const provisionRuns = new Map<string, ProvisionRunEntry>();
+
+function provisionRunKey(params: ProvisionParams): string {
+  return JSON.stringify({
+    host: params.host,
+    user: params.user || "root",
+    keyPath: params.keyPath,
+    port: params.port ?? 3000,
+    skipTailscale: params.skipTailscale,
+  });
+}
+
+function createProvisionRun(
+  key: string,
+  client: ProvisionClient,
+  params: ProvisionParams,
+): ProvisionRunEntry {
+  const entry: ProvisionRunEntry = { events: [], listeners: new Set(), finished: false };
+  provisionRuns.set(key, entry);
+
+  void (async () => {
+    try {
+      for await (const event of client.startProvision(params)) {
+        entry.events.push(event);
+        for (const listener of entry.listeners) listener(event);
+      }
+    } catch (error) {
+      const event: ProvisionEvent = {
+        kind: "step_error",
+        seq: -1,
+        step: "provision",
+        errorCode: "UNKNOWN",
+        detail: error instanceof Error ? error.message : String(error),
+      };
+      entry.events.push(event);
+      for (const listener of entry.listeners) listener(event);
+    } finally {
+      entry.finished = true;
+      if (provisionRuns.get(key) === entry) provisionRuns.delete(key);
+    }
+  })();
+  return entry;
+}
+
+function getProvisionRun(
+  client: ProvisionClient,
+  params: ProvisionParams,
+): ProvisionRunEntry {
+  const key = provisionRunKey(params);
+  const existing = provisionRuns.get(key);
+  if (existing) return existing;
+  return createProvisionRun(key, client, params);
+}
 
 /**
- * Drive a provision run (start, stream events, retry-as-resume) and fold it
- * into a renderable progress. Shared by the wizard's fullscreen step and the
- * inline server-update block in Settings > Connection.
+ * Drive one provision run per host and fold its buffered events into a
+ * renderable progress. Buffering prevents React StrictMode remounts from
+ * launching a second SSH process.
  */
 export function useProvisionRun(
   client: ProvisionClient,
   params: ProvisionParams,
   onDone: (tailnetIp?: string) => void,
 ) {
-  const [progress, dispatch] = useReducer(
-    (state: ProvisionProgress, event: ProvisionEvent) => applyProvisionEvent(state, event),
-    undefined,
-    initialProgress,
-  );
-  const [source, setSource] = useState<Source>({ kind: "start", params });
-  const [runId, setRunId] = useState(0);
+  const [progress, setProgress] = useState<ProvisionProgress>(initialProgress);
+  const [attempt, setAttempt] = useState(0);
   const doneRef = useRef(false);
+  const paramsRef = useRef(params);
+  const runRef = useRef<{ client: ProvisionClient; key: string; run: ProvisionRunEntry } | null>(null);
+  paramsRef.current = params;
+  const key = provisionRunKey(params);
 
   useEffect(() => {
-    let cancelled = false;
-    const iterable =
-      source.kind === "start"
-        ? client.startProvision(source.params)
-        : client.resumeProvision(source.params);
-
-    (async () => {
-      try {
-        for await (const event of iterable) {
-          if (cancelled) return;
-          dispatch(event);
-        }
-      } catch (e) {
-        if (!cancelled) {
-          dispatch({
-            kind: "step_error",
-            seq: -1,
-            step: "provision",
-            errorCode: "UNKNOWN",
-            detail: e instanceof Error ? e.message : String(e),
-          });
-        }
-      }
-    })();
-
-    return () => {
-      cancelled = true;
+    if (!runRef.current || runRef.current.client !== client || runRef.current.key !== key) {
+      runRef.current = { client, key, run: getProvisionRun(client, paramsRef.current) };
+    }
+    const run = runRef.current.run;
+    const apply = (event: ProvisionEvent) => {
+      setProgress((current) => applyProvisionEvent(current, event));
     };
-    // Re-run when the user retries (runId) or switches source.
-  }, [client, source, runId]);
+    run.listeners.add(apply);
+    for (const event of run.events) apply(event);
+    return () => {
+      run.listeners.delete(apply);
+    };
+  }, [attempt, client, key]);
 
   useEffect(() => {
     if (progress.status === "succeeded" && !doneRef.current) {
@@ -129,8 +169,9 @@ export function useProvisionRun(
 
   const retry = () => {
     doneRef.current = false;
-    setSource({ kind: "resume", params });
-    setRunId((n) => n + 1);
+    setProgress(initialProgress());
+    runRef.current = { client, key, run: createProvisionRun(key, client, paramsRef.current) };
+    setAttempt((current) => current + 1);
   };
 
   const error: SetupError | null = progress.error
@@ -165,7 +206,7 @@ export function ProvisioningScreen({
   onContinueLater,
   onStartOver,
   title = "Installing Hive on your server",
-  description = "This runs over SSH and continues even if you close the app. It takes a few minutes.",
+  description = "This runs over SSH and takes a few minutes. If it is interrupted, Retry resumes the idempotent install.",
 }: ProvisioningScreenProps) {
   const { progress, retry, error } = useProvisionRun(client, params, onDone);
 

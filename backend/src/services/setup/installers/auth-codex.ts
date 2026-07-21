@@ -1,17 +1,16 @@
 import { homedir } from "node:os";
-import { StepError } from "../operations.js";
-import type { EmitFn, StepContext } from "../operations.js";
 import { detectTools } from "../detect.js";
+import { StepError, type StepFn } from "../operations.js";
 import {
-  parseDeviceCode,
-  parseDeviceUrl,
-  isCodexLoggedIn,
   isCodexDeviceAuthDisabled,
   isDeviceCodeExpired,
+  parseDeviceCode,
+  parseDeviceUrl,
+  stripAnsi,
 } from "./auth-parsers.js";
 import {
-  drivePtyAuth,
   defaultSpawnPty,
+  drivePtyAuth,
   type SpawnPty,
 } from "./pty-auth.js";
 
@@ -24,63 +23,42 @@ export interface CodexAuthOptions {
   timeoutMs?: number;
 }
 
-/**
- * `auth_codex` step: drives `codex login --device-auth` in a PTY.
- *
- * - Guard: skip if codex already reports authenticated.
- * - Scrape the device URL (variants `/device` and `/codex/device` — do not
- *   hardcode) and the `XXXX-XXXX` code; surface as `open_url_with_code`.
- * - Detect "contact your workspace admin to enable device code authentication"
- *   -> CODEX_DEVICE_AUTH_DISABLED.
- * - Success when the CLI reports logged in (auth.json is written).
- */
-export function codexAuthStep(options: CodexAuthOptions = {}) {
-  return async (emit: EmitFn, ctx: StepContext): Promise<Record<string, unknown> | void> => {
-    await emit({ stream: "system", line: "Codex sign-in: checking existing auth" });
-    const detected = await detectTools({ force: true });
-    if (detected.codex?.authenticated) {
-      await emit({ stream: "stdout", line: "Codex already authenticated; skipping" });
-      return { skipped: true, reason: "already-authenticated" };
-    }
-    if (!detected.codex?.installed) {
-      throw new StepError("UNKNOWN", "Codex is not installed; install it first.", {
-        hint: "Run the Install Codex step first.",
-      });
-    }
+function outputDetail(buffer: string): string | undefined {
+  const detail = stripAnsi(buffer).trim().split("\n").filter(Boolean).slice(-8).join("\n");
+  return detail || undefined;
+}
 
-    const spawn = options.spawn ?? defaultSpawnPty;
-    const command = options.command ?? CODEX_LOGIN_COMMAND;
-    const cwd = options.cwd ?? homedir();
-    const timeoutMs = options.timeoutMs ?? 180_000;
+export function codexAuthStep(options: CodexAuthOptions = {}): StepFn {
+  return async (ctx) => {
+    const detected = await detectTools();
+    if (detected.codex?.authenticated) return;
+    if (!detected.codex?.installed) {
+      throw new StepError(
+        "UNKNOWN",
+        "Codex is not installed on this server.",
+        { detail: "Run the Codex install step first." },
+      );
+    }
 
     let actionSurfaced = false;
     let disabled = false;
     let sawExpiry = false;
-
-    await emit({ stream: "system", line: "Codex sign-in: starting device flow" });
-
     const result = await drivePtyAuth({
-      spawn,
-      command,
-      cwd,
-      timeoutMs,
-      onChunk: async (buffer) => {
-        if (isCodexDeviceAuthDisabled(buffer)) {
-          disabled = true;
-          return "fail";
-        }
+      spawn: options.spawn ?? defaultSpawnPty,
+      command: options.command ?? CODEX_LOGIN_COMMAND,
+      cwd: options.cwd ?? homedir(),
+      timeoutMs: options.timeoutMs ?? 180_000,
+      onChunk: (buffer) => {
+        disabled ||= isCodexDeviceAuthDisabled(buffer);
+        sawExpiry ||= isDeviceCodeExpired(buffer);
         if (!actionSurfaced) {
           const code = parseDeviceCode(buffer);
           const url = parseDeviceUrl(buffer);
           if (code && url) {
             actionSurfaced = true;
-            await ctx.setAction({ kind: "open_url_with_code", url, code });
-            await emit({ stream: "system", line: `Open ${url} and enter code ${code}` });
+            ctx.setAction({ kind: "open_url_with_code", url, code });
           }
         }
-        if (isDeviceCodeExpired(buffer)) sawExpiry = true;
-        if (isCodexLoggedIn(buffer)) return "success";
-        return undefined;
       },
     });
 
@@ -90,25 +68,32 @@ export function codexAuthStep(options: CodexAuthOptions = {}) {
         "Device code authentication is disabled for this ChatGPT workspace.",
       );
     }
-
-    if (result.reason === "chunk-success" || (result.reason === "exit" && result.exitCode === 0)) {
-      await emit({ stream: "stdout", line: "Codex sign-in complete" });
-      // Refresh the detection cache so the next /status shows authenticated.
-      await detectTools({ force: true });
-      return { authenticated: true };
-    }
-
     if (sawExpiry) {
       throw new StepError(
         "DEVICE_CODE_EXPIRED",
         "The Codex sign-in code expired before it was entered.",
-        { exitCode: result.exitCode ?? undefined },
+      );
+    }
+    if (result.reason !== "exit" || result.exitCode !== 0) {
+      throw new StepError(
+        "UNKNOWN",
+        result.reason === "timeout"
+          ? "Codex sign-in timed out."
+          : "Codex sign-in did not complete.",
+        { detail: outputDetail(result.buffer) },
       );
     }
 
-    throw new StepError("UNKNOWN", "Codex sign-in did not complete.", {
-      exitCode: result.exitCode ?? undefined,
-      hint: "Retry the Codex sign-in step.",
-    });
+    const verified = await detectTools();
+    if (!verified.codex.authenticated) {
+      throw new StepError(
+        "UNKNOWN",
+        "Codex sign-in exited without an authenticated session.",
+        {
+          detail: outputDetail(result.buffer) ??
+            "No valid Codex credentials were detected after login.",
+        },
+      );
+    }
   };
 }

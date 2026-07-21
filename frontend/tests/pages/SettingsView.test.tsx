@@ -3,6 +3,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import ConnectionSettings from "@/pages/settings/ConnectionSettings";
 import AppearanceSettings from "@/pages/settings/AppearanceSettings";
+import { getConnection, replaceConnection } from "@/hooks/useConnection";
 
 const mocks = vi.hoisted(() => ({
   setAccent: vi.fn(),
@@ -29,17 +30,28 @@ describe("ConnectionSettings", () => {
   let check: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
+    vi.restoreAllMocks();
+    localStorage.clear();
     check = vi.fn().mockResolvedValue(undefined);
     mocks.useConnectionStatus.mockReset();
     mocks.useConnectionStatus.mockReturnValue({ status: "unknown", check });
 
-    vi.restoreAllMocks();
-    localStorage.removeItem("hive-server-url");
-    localStorage.removeItem("hive-tailscale-ip");
-    localStorage.removeItem("hive-tailscale-port");
-    localStorage.removeItem("hive-ssh-user");
-    localStorage.removeItem("hive-auth-token");
-    localStorage.removeItem("hive-ssh-connection");
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.endsWith("/api/projects")) {
+        return new Response("[]", { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      return new Response(
+        JSON.stringify({
+          detected: {
+            gh: { installed: true, authenticated: true },
+            claude: { installed: true, authenticated: true },
+            codex: { installed: true, authenticated: true },
+          },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    });
   });
 
   it("offers setup and manual connect when not configured", () => {
@@ -52,7 +64,7 @@ describe("ConnectionSettings", () => {
     expect(screen.getByRole("button", { name: "Connect" })).toBeDisabled();
   });
 
-  it("connects manually: persists IP/port, computes the server URL, checks", async () => {
+  it("verifies and stores a manual connection atomically", async () => {
     const user = userEvent.setup();
     const onRefreshConnection = vi.fn();
     render(<ConnectionSettings onRefreshConnection={onRefreshConnection} />);
@@ -60,57 +72,66 @@ describe("ConnectionSettings", () => {
     await user.type(screen.getByPlaceholderText("100.x.x.x"), " 100.64.0.10 ");
     await user.click(screen.getByRole("button", { name: "Connect" }));
 
-    expect(localStorage.getItem("hive-tailscale-ip")).toBe("100.64.0.10");
-    expect(localStorage.getItem("hive-tailscale-port")).toBe("3000");
-    expect(localStorage.getItem("hive-server-url")).toBe("http://100.64.0.10:3000");
+    expect(getConnection()).toMatchObject({ host: "100.64.0.10", port: 3000 });
     await waitFor(() => {
-      expect(check).toHaveBeenCalledTimes(1);
       expect(onRefreshConnection).toHaveBeenCalledTimes(1);
     });
   });
 
-  it("shows the connected server with its address and status", () => {
-    localStorage.setItem("hive-tailscale-ip", "100.64.0.10");
-    localStorage.setItem("hive-tailscale-port", "3000");
+  it("shows the connected server with its address and status", async () => {
+    replaceConnection({ host: "100.64.0.10", port: 3000 });
     mocks.useConnectionStatus.mockReturnValue({ status: "connected", check });
 
     render(<ConnectionSettings />);
 
     expect(screen.getByText("100.64.0.10:3000")).toBeInTheDocument();
     expect(screen.getByText("Connected")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /test connection/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /test connection/i })).toHaveClass("text-muted-foreground");
+    expect(screen.getByRole("button", { name: /disconnect/i })).toHaveClass("hover:text-destructive");
+    expect(await screen.findByText("GitHub connected")).toBeInTheDocument();
+  });
+
+  it("runs a visible connection check", async () => {
+    replaceConnection({ host: "100.64.0.10", port: 3000 });
+    let finishCheck: (() => void) | undefined;
+    check.mockImplementation(() => new Promise<void>((resolve) => {
+      finishCheck = resolve;
+    }));
+    const user = userEvent.setup();
+
+    render(<ConnectionSettings />);
+    const button = screen.getByRole("button", { name: /test connection/i });
+    await user.click(button);
+
+    expect(check).toHaveBeenCalledOnce();
+    expect(button).toBeDisabled();
+    expect(button.querySelector("svg")).toHaveClass("animate-spin");
+
+    finishCheck?.();
+    await waitFor(() => expect(button).toBeEnabled());
   });
 
   it("disconnect clears the stored connection and returns to the connect view", async () => {
-    localStorage.setItem("hive-tailscale-ip", "100.64.0.10");
-    localStorage.setItem("hive-tailscale-port", "3000");
-    localStorage.setItem("hive-server-url", "http://100.64.0.10:3000");
-    localStorage.setItem("hive-ssh-user", "root");
-    localStorage.setItem("hive-auth-token", "tok");
+    replaceConnection({ host: "100.64.0.10", port: 3000, sshUser: "root", authToken: "tok" });
     vi.spyOn(window, "confirm").mockReturnValue(true);
     const user = userEvent.setup();
 
     render(<ConnectionSettings />);
     await user.click(screen.getByRole("button", { name: /disconnect/i }));
 
-    expect(localStorage.getItem("hive-tailscale-ip")).toBeNull();
-    expect(localStorage.getItem("hive-tailscale-port")).toBeNull();
-    expect(localStorage.getItem("hive-server-url")).toBeNull();
-    expect(localStorage.getItem("hive-ssh-user")).toBeNull();
-    expect(localStorage.getItem("hive-auth-token")).toBeNull();
+    expect(getConnection()).toBeNull();
     expect(screen.getByText("Connect your server")).toBeInTheDocument();
   });
 
   it("keeps the connection when the disconnect confirm is declined", async () => {
-    localStorage.setItem("hive-tailscale-ip", "100.64.0.10");
-    localStorage.setItem("hive-tailscale-port", "3000");
+    replaceConnection({ host: "100.64.0.10", port: 3000 });
     vi.spyOn(window, "confirm").mockReturnValue(false);
     const user = userEvent.setup();
 
     render(<ConnectionSettings />);
     await user.click(screen.getByRole("button", { name: /disconnect/i }));
 
-    expect(localStorage.getItem("hive-tailscale-ip")).toBe("100.64.0.10");
+    expect(getConnection()?.host).toBe("100.64.0.10");
     expect(screen.getByText("100.64.0.10:3000")).toBeInTheDocument();
   });
 });

@@ -1,5 +1,5 @@
 # Tier-1 provision test target: Ubuntu 24.04 with systemd as PID 1.
-# Node + curl + jq are baked in so the tested run can use --skip-node;
+# Node + curl + jq are baked in so the harness can use --test-skip-node;
 # provision.sh exercises the full systemd spine (user, release, units,
 # service, health). apt_baseline still hits the network. Run with:
 #   docker run --rm --privileged --cgroupns=host \

@@ -9,21 +9,16 @@ const FIXTURES_DIR = join(HERE, "..", "__fixtures__");
 /**
  * Test-only fake PTY: runs a bash fixture stub (replaying recorded gh/codex
  * output) as a child process with piped stdio, adapted to the {@link PtyHandle}
- * interface. Not a real tty, but good enough to exercise parsing, Enter
- * injection (written to the child's stdin), and exit handling without the real
- * CLIs. Records every `write()` so tests can assert the Enter keystroke.
+ * interface. Not a real tty, but enough to exercise parsing and exit handling
+ * without invoking the real CLIs.
  */
 export function makeFakePty(fixture: string): {
   spawn: SpawnPty;
-  writes: string[];
 } {
-  const writes: string[] = [];
   const spawnFn: SpawnPty = (): PtyHandle => {
-    // Force line-buffered stdout/stderr: bash writing to a pipe is otherwise
-    // block-buffered by libc, so lines wouldn't arrive until the stub exits —
-    // deadlocking fixtures that block on `read` waiting for injected Enter.
+    // Force line-buffered output so tests observe device codes before exit.
     const child = spawn("stdbuf", ["-oL", "-eL", "bash", join(FIXTURES_DIR, fixture)], {
-      stdio: ["pipe", "pipe", "pipe"],
+      stdio: ["ignore", "pipe", "pipe"],
     });
     const dataCbs = new Set<(chunk: string) => void>();
     const exitCbs = new Set<(code: number) => void>();
@@ -46,17 +41,6 @@ export function makeFakePty(fixture: string): {
         exitCbs.add(cb);
         return () => exitCbs.delete(cb);
       },
-      write: (data) => {
-        writes.push(data);
-        try {
-          // Emulate the tty line discipline: a real PTY maps the Enter key
-          // (CR, "\r") to NL so line-oriented readers (`read` in the stub)
-          // unblock. Our pipe does no such translation, so do it here.
-          child.stdin.write(data.replace(/\r/g, "\n"));
-        } catch {
-          /* stdin may be closed */
-        }
-      },
       kill: () => {
         try {
           child.kill();
@@ -66,5 +50,5 @@ export function makeFakePty(fixture: string): {
       },
     };
   };
-  return { spawn: spawnFn, writes };
+  return { spawn: spawnFn };
 }

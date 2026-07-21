@@ -1,8 +1,9 @@
-import { render, screen } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import App from "@/App";
+import { replaceConnection } from "@/hooks/useConnection";
 
 function renderApp() {
   const queryClient = new QueryClient({
@@ -170,7 +171,33 @@ describe("App", () => {
     vi.clearAllMocks();
     mocks.projects = makeProjects();
     mocks.loading = false;
+    delete (window as Window & { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__;
     window.history.pushState({}, "", "/projects");
+  });
+
+  it("lets a first-run desktop user connect to an existing server", async () => {
+    (window as Window & { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ = {};
+    renderApp();
+
+    await userEvent.click(await screen.findByRole("button", { name: /connect to an existing server/i }));
+
+    expect(window.location.pathname).toBe("/settings/connection");
+    expect(screen.getByRole("button", { name: "refresh connection" })).toBeInTheDocument();
+    expect(mocks.syncWorkspaces).not.toHaveBeenCalled();
+  });
+
+  it("does not force provisioning after disconnecting an existing desktop connection", async () => {
+    (window as Window & { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ = {};
+    replaceConnection({ host: "100.64.0.10", port: 3000 });
+    window.history.pushState({}, "", "/settings/connection");
+    renderApp();
+    mocks.syncWorkspaces.mockClear();
+
+    await act(async () => replaceConnection(null));
+
+    expect(screen.getByRole("button", { name: "refresh connection" })).toBeInTheDocument();
+    expect(screen.queryByText("Set up a Hive server")).not.toBeInTheDocument();
+    expect(mocks.syncWorkspaces).not.toHaveBeenCalled();
   });
 
   it("syncs unique workspace IDs and disconnects all sockets on unmount", () => {
@@ -256,15 +283,11 @@ describe("App", () => {
     expect(screen.getByTestId("dialog-open")).toHaveTextContent("true");
   });
 
-  it("refreshes backend connection from settings route", async () => {
-    const user = userEvent.setup();
+  it("renders the connection settings route", () => {
     window.history.pushState({}, "", "/settings/connection");
     renderApp();
 
-    await user.click(screen.getByRole("button", { name: "refresh connection" }));
-
-    expect(mocks.disconnectAll).toHaveBeenCalledTimes(1);
-    expect(mocks.fetchProjects).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("button", { name: "refresh connection" })).toBeInTheDocument();
   });
 
   it("renders notification settings route", () => {

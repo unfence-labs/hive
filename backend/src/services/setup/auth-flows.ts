@@ -1,70 +1,78 @@
-import {
-  type InstallerDeps,
-  defaultInstallerDeps,
-  runHelper,
-} from "./installers/command.js";
+import { randomUUID } from "node:crypto";
+import { chmod, mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 
-// Every Claude OAuth setup token is the `sk-ant-oat01-` prefix
-// followed only by [A-Za-z0-9_-] — the same charset the capture path yields.
-// Enforcing the whole shape here stops a newline (or any control/metacharacter)
-// from injecting a second line into the 0600 env file the token is written to.
 const CLAUDE_TOKEN_RE = /^sk-ant-oat01-[A-Za-z0-9_-]+$/;
+const SECRETS_FILE = "setup-secrets.json";
+
+interface SetupSecrets {
+  claudeCodeOAuthToken: string;
+}
+
+export type ClaudeTokenWriter = (token: string) => Promise<void>;
 
 export function isValidClaudeToken(token: string): boolean {
   return typeof token === "string" && CLAUDE_TOKEN_RE.test(token);
 }
 
-/**
- * Persist the Claude OAuth token into the service env. On a provisioned
- * server this writes `CLAUDE_CODE_OAUTH_TOKEN=<token>` into
- * `/etc/hive/hive.env` (root-owned, 0600) via the privileged
- * `write-claude-token.sh` helper. In tests and non-provisioned environments the
- * helper directory does not exist, so the default implementation is a
- * graceful no-op that reports `persisted: false`.
- */
-export type ClaudeTokenWriter = (token: string) => Promise<{ persisted: boolean }>;
+function secretsPath(dataDir: string): string {
+  return join(dataDir, SECRETS_FILE);
+}
 
-/**
- * Build a Claude token writer over the given installer deps. Exposed so tests
- * can point `helpersDir` at a temp dir standing in for /etc/hive + the helper.
- */
-export function makeClaudeTokenWriter(
-  depsOverride?: InstallerDeps,
-): ClaudeTokenWriter {
-  return async (token: string) => {
-    const deps = depsOverride ?? defaultInstallerDeps();
+async function writeSecretsAtomic(dataDir: string, secrets: SetupSecrets): Promise<void> {
+  await mkdir(dataDir, { recursive: true, mode: 0o700 });
+  const target = secretsPath(dataDir);
+  const temporary = join(dataDir, `.${SECRETS_FILE}.${randomUUID()}.tmp`);
 
-    if (!isValidClaudeToken(token)) {
-      // Defensive: callers validate first, but never shell an invalid token.
-      return { persisted: false };
-    }
+  try {
+    await writeFile(temporary, JSON.stringify(secrets, null, 2), {
+      encoding: "utf-8",
+      flag: "wx",
+      mode: 0o600,
+    });
+    await rename(temporary, target);
+    await chmod(target, 0o600);
+  } finally {
+    await unlink(temporary).catch((error: NodeJS.ErrnoException) => {
+      if (error.code !== "ENOENT") throw error;
+    });
+  }
+}
 
-    if (!(await deps.helpersAvailable())) {
-      console.warn(
-        "[setup] privileged helpers unavailable (not a provisioned server); " +
-          "Claude token not persisted.",
-      );
-      return { persisted: false };
-    }
-
-    // The token is streamed on the helper's stdin (never argv, so it stays out
-    // of the process table and sudo/journald logs); the helper atomically writes
-    // hive.env with 0600 perms.
-    const result = await runHelper(deps, "write-claude-token", [], { stdin: token });
-    if (result.exitCode !== 0) {
-      console.warn(
-        `[setup] write-claude-token helper failed (exit ${result.exitCode}): ` +
-          (result.stderr || result.stdout).trim(),
-      );
-      return { persisted: false };
-    }
-    // Adopt the token in-process so detection and future agents see it now —
-    // the env file feeds future restarts. Restarting the service here instead
-    // would kill in-flight requests and any running auth operation.
+export function makeClaudeTokenWriter(dataDir: string): ClaudeTokenWriter {
+  return async (token) => {
+    if (!isValidClaudeToken(token)) throw new Error("Invalid Claude token format");
+    await writeSecretsAtomic(dataDir, { claudeCodeOAuthToken: token });
     process.env.CLAUDE_CODE_OAUTH_TOKEN = token;
-    return { persisted: true };
   };
 }
 
-/** Default writer: env-file persistence via helper, graceful no-op off-server. */
-export const defaultClaudeTokenWriter: ClaudeTokenWriter = makeClaudeTokenWriter();
+/**
+ * Loads the persisted Claude token into this process. An explicitly configured
+ * environment variable always wins over the setup file.
+ */
+export async function loadSetupSecrets(dataDir: string): Promise<boolean> {
+  if (process.env.CLAUDE_CODE_OAUTH_TOKEN?.trim()) return false;
+
+  let raw: string;
+  try {
+    raw = await readFile(secretsPath(dataDir), "utf-8");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+    throw error;
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new Error(`Invalid JSON in ${SECRETS_FILE}`);
+  }
+  const token = (parsed as Partial<SetupSecrets> | null)?.claudeCodeOAuthToken;
+  if (typeof token !== "string" || !isValidClaudeToken(token)) {
+    throw new Error(`Invalid Claude token in ${SECRETS_FILE}`);
+  }
+
+  process.env.CLAUDE_CODE_OAUTH_TOKEN = token;
+  return true;
+}

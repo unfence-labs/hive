@@ -11,6 +11,7 @@ import { isTauri } from "@/lib/is-tauri";
 import { createProvisionClient, type ProvisionClient } from "@/lib/provision-client";
 import type { SetupStatus, SetupOperation, SetupStepAction } from "@hive/shared/setup-types";
 import type { SetupError } from "@/pages/setup/machine";
+import { cn } from "@/lib/utils";
 
 /** Device code with a one-click copy affordance. */
 function DeviceCode({ code }: { code: string }) {
@@ -35,7 +36,7 @@ function DeviceCode({ code }: { code: string }) {
   );
 }
 
-/** Renders an open_url / open_url_with_code action from an operation step. */
+/** Render the device-code action emitted by an authentication step. */
 export function OperationActions({ op }: { op: SetupOperation }) {
   const actionable = op.steps
     .map((step) => ({ step, action: step.action }))
@@ -66,7 +67,7 @@ export function OperationActions({ op }: { op: SetupOperation }) {
             >
               {action.url} <ExternalLink className="h-3 w-3" />
             </a>
-            {action.kind === "open_url_with_code" && <DeviceCode code={action.code} />}
+            <DeviceCode code={action.code} />
           </div>
         );
       })}
@@ -116,11 +117,13 @@ export function ClaudeSignIn({
   client,
   submitToken,
   onError,
+  onAttempt,
 }: {
-  client: ProvisionClient;
+  client?: ProvisionClient;
   /** POST the captured token to the right server; throws on failure. */
   submitToken: (token: string) => Promise<void>;
   onError: (message: string) => void;
+  onAttempt?: () => void;
 }) {
   const [phase, setPhase] = useState<"idle" | "starting" | "code" | "verifying">("idle");
   const [authUrl, setAuthUrl] = useState<string | undefined>();
@@ -131,12 +134,17 @@ export function ClaudeSignIn({
   submitRef.current = submitToken;
   const errorRef = useRef(onError);
   errorRef.current = onError;
+  const authActiveRef = useRef(false);
+
+  useEffect(() => () => {
+    if (authActiveRef.current && client) void client.cancelClaudeAuth();
+  }, [client]);
 
   // Watch the CLI output while a sign-in is underway ("code": waiting on the
   // browser or a pasted code; "verifying": code submitted). The localhost
   // callback completes without a code, so this poll finishes both variants.
   useEffect(() => {
-    if (phase !== "code" && phase !== "verifying") return;
+    if (!client || (phase !== "code" && phase !== "verifying")) return;
     let done = false;
     const timer = setInterval(() => {
       void (async () => {
@@ -145,6 +153,7 @@ export function ClaudeSignIn({
           if (done) return;
           if (r.token) {
             done = true;
+            authActiveRef.current = false;
             clearInterval(timer);
             setPhase("verifying");
             try {
@@ -155,6 +164,7 @@ export function ClaudeSignIn({
             }
           } else if (r.exited) {
             done = true;
+            authActiveRef.current = false;
             clearInterval(timer);
             setPhase("idle");
             errorRef.current(
@@ -175,18 +185,24 @@ export function ClaudeSignIn({
   }, [phase, client]);
 
   const start = async () => {
+    if (!client) return;
+    onAttempt?.();
     setPhase("starting");
     try {
+      authActiveRef.current = true;
       const { url } = await client.startClaudeAuth();
       setAuthUrl(url);
       setPhase("code");
     } catch (e) {
+      authActiveRef.current = false;
       setPhase("idle");
       onError(e instanceof Error ? e.message : String(e));
     }
   };
 
   const complete = async () => {
+    if (!client) return;
+    onAttempt?.();
     setPhase("verifying");
     try {
       await client.completeClaudeAuth(code.trim());
@@ -198,12 +214,14 @@ export function ClaudeSignIn({
   };
 
   const cancel = () => {
-    void client.cancelClaudeAuth();
+    authActiveRef.current = false;
+    if (client) void client.cancelClaudeAuth();
     setCode("");
     setPhase("idle");
   };
 
   const submitManual = async () => {
+    onAttempt?.();
     setManualBusy(true);
     try {
       await submitToken(manualToken.trim());
@@ -217,7 +235,7 @@ export function ClaudeSignIn({
 
   return (
     <div className="space-y-3">
-      {isTauri() && phase === "idle" && (
+      {client && phase === "idle" && (
         <Button size="sm" onClick={() => void start()}>
           Sign in with Claude
         </Button>
@@ -263,9 +281,9 @@ export function ClaudeSignIn({
         </div>
       )}
       {phase === "idle" && (
-        <details className="text-xs text-muted-foreground">
-          <summary className="cursor-pointer">Or do it manually in a terminal</summary>
-          <div className="mt-2 space-y-2">
+        <details className="text-xs text-muted-foreground" open={!client}>
+          <summary className={cn("cursor-pointer", !client && "hidden")}>Or do it manually in a terminal</summary>
+          <div className={cn("space-y-2", client && "mt-2")}>
             <p>Run this command, sign in, then paste the token it prints (sk-ant-oat01-…):</p>
             <ClaudeTokenCommand />
             <div className="flex gap-2">
@@ -322,11 +340,15 @@ export function ToolsPanel({
   client?: ProvisionClient;
   baseUrl?: string;
 }) {
-  const resolvedClient = useMemo(() => client ?? createProvisionClient(), [client]);
+  const resolvedClient = useMemo(
+    () => client ?? (isTauri() ? createProvisionClient() : undefined),
+    [client],
+  );
   const [status, setStatus] = useState<SetupStatus | null>(null);
   const [statusError, setStatusError] = useState<SetupError | null>(null);
   const [runs, setRuns] = useState<Record<string, ToolRun>>({});
   const [claudeDone, setClaudeDone] = useState(false);
+  const abortControllers = useRef(new Set<AbortController>());
 
   const setupApi = useMemo(() => createSetupApi({ baseUrl }), [baseUrl]);
 
@@ -347,13 +369,21 @@ export function ToolsPanel({
     void refreshStatus();
   }, [refreshStatus]);
 
+  useEffect(() => () => {
+    for (const controller of abortControllers.current) controller.abort();
+    abortControllers.current.clear();
+  }, []);
+
   /** Run backend setup steps for one tool; other tools stay usable. */
   const runSteps = async (tool: string, steps: string[]) => {
+    const controller = new AbortController();
+    abortControllers.current.add(controller);
     patchRun(tool, { busy: true, op: null, error: null });
     try {
       const { operationId } = await setupApi.run({ steps });
       const op = await pollOperation(operationId, (o) => patchRun(tool, { op: o }), {
         api: setupApi,
+        signal: controller.signal,
       });
       if (op.status === "failed") {
         const failed = op.steps.find((s) => s.status === "failed");
@@ -361,7 +391,7 @@ export function ToolsPanel({
           error: {
             state: "guided_setup",
             code: failed?.error?.code ?? "UNKNOWN",
-            logExcerpt: failed?.error?.message,
+            logExcerpt: failed?.error?.detail ?? failed?.error?.message,
           },
         });
       } else {
@@ -371,9 +401,10 @@ export function ToolsPanel({
       }
       await refreshStatus();
     } catch (e) {
-      patchRun(tool, { error: toSetupError(e) });
+      if (!controller.signal.aborted) patchRun(tool, { error: toSetupError(e) });
     } finally {
-      patchRun(tool, { busy: false, op: null });
+      abortControllers.current.delete(controller);
+      if (!controller.signal.aborted) patchRun(tool, { busy: false, op: null });
     }
   };
 
@@ -417,12 +448,16 @@ export function ToolsPanel({
         </p>
         {gh?.authenticated === true ? (
           <Connected label="GitHub" />
+        ) : gh?.installed === false ? (
+          <p className="text-xs text-destructive">
+            GitHub CLI is missing. Install it on this server, then refresh this page.
+          </p>
         ) : (
           <Button
             size="sm"
             disabled={ghRun.busy}
             onClick={() =>
-              void runSteps("gh", gh?.installed ? ["auth_gh"] : ["install_gh", "auth_gh"])
+              void runSteps("gh", ["auth_gh"])
             }
           >
             {ghRun.busy ? "Waiting for GitHub…" : "Sign in to GitHub"}
@@ -431,7 +466,7 @@ export function ToolsPanel({
         {ghRun.op && <OperationActions op={ghRun.op} />}
         {ghRun.error && (
           <div className="mt-3">
-            <ErrorPanel error={ghRun.error} onDismiss={() => patchRun("gh", { error: null })} />
+            <ErrorPanel error={ghRun.error} onRetry={() => void runSteps("gh", ["auth_gh"])} />
           </div>
         )}
       </section>
@@ -455,6 +490,7 @@ export function ToolsPanel({
           <ClaudeSignIn
             client={resolvedClient}
             submitToken={submitClaudeToken}
+            onAttempt={() => patchRun("claude", { error: null })}
             onError={(message) =>
               patchRun("claude", {
                 error: { state: "guided_setup", code: "CLAUDE_PASTEBACK_BROKEN", logExcerpt: message },
@@ -464,7 +500,10 @@ export function ToolsPanel({
         )}
         {claudeRun.error && (
           <div className="mt-3">
-            <ErrorPanel error={claudeRun.error} onDismiss={() => patchRun("claude", { error: null })} />
+            <ErrorPanel
+              error={claudeRun.error}
+              onDismiss={() => patchRun("claude", { error: null })}
+            />
           </div>
         )}
       </section>
@@ -496,7 +535,12 @@ export function ToolsPanel({
         {codexRun.op && <OperationActions op={codexRun.op} />}
         {codexRun.error && (
           <div className="mt-3">
-            <ErrorPanel error={codexRun.error} onDismiss={() => patchRun("codex", { error: null })} />
+            <ErrorPanel
+              error={codexRun.error}
+              onRetry={() =>
+                void runSteps("codex", codex?.installed ? ["auth_codex"] : ["install_codex"])
+              }
+            />
           </div>
         )}
       </section>

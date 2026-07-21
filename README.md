@@ -90,13 +90,13 @@ Run Hive as a **local web app**, a **Tauri desktop app** (pointed at a local or 
 
 - **Node.js** ≥ 20
 - **Git** ≥ 2.17
-- **Claude CLI** installed and authenticated (`claude`)
-- **GitHub CLI** installed and authenticated for GitHub-backed flows (`gh`)
+- _Optional:_ **Claude CLI** (`claude`) for Anthropic model support
+- _Optional:_ **GitHub CLI** (`gh`) for GitHub-backed flows
 - _Optional:_ **Codex CLI** (`codex`) for OpenAI model support
 - _Optional (desktop build):_ **Rust** ≥ 1.77 for Tauri
 - _Optional (remote):_ **Tailscale**
 
-> The backend preflight requires `git`, `claude`, and `gh`. `codex` is optional and only affects its provider features.
+> The backend startup preflight requires `git`. Provider CLIs are detected independently; a missing CLI disables only that provider or integration.
 
 ### Install
 
@@ -150,10 +150,19 @@ Per-package commands (`backend`, `frontend`, `ios`) are documented in **[AGENTS.
 | `PORT` | `3000` | Backend HTTP port |
 | `DATA_DIR` | `~/.hive` | Root storage for projects, workspaces, sessions, prompts, Brain, config, and automations |
 | `HIVE_AUTH_TOKEN` | unset | Requires bearer/token auth for API and WS when set; `/health` stays public |
+| `HIVE_AUTH_TOKEN_SHA256` | unset | SHA-256 digest alternative to `HIVE_AUTH_TOKEN` for provisioned or manually secured servers |
+| `HIVE_ALLOWED_HOSTS` | unset | Additional comma-separated Host-header values allowed in tokenless mode |
+| `HIVE_ALLOWED_ORIGINS` | unset | Additional exact browser origins allowed by REST CORS and WebSocket upgrades |
 | `HIVE_RATE_LIMIT_MAX` | `120` | Max requests per IP per window |
 | `HIVE_RATE_LIMIT_WINDOW_MS` | `60000` | Rate-limit window (ms) |
 | `HIVE_CLAUDE_SKIP_PERMISSIONS` | `true` | Controls Claude `--dangerously-skip-permissions` |
 | `GITHUB_CLIENT_ID` | built in | Override GitHub OAuth app client id |
+
+The default browser-origin allowlist covers the Tauri origins and, outside
+production, the Vite development origin. Requests without an `Origin` header
+remain valid for native clients.
+The Host-header allowlist protects tokenless deployments; bearer-token mode
+does not impose that implicit host restriction.
 
 </details>
 
@@ -256,7 +265,7 @@ Public backend surface exposed by route modules under `backend/src/api/`.
 | Area | Endpoints |
 |---|---|
 | Health | `GET /health` |
-| Setup | `GET /api/setup/status`, `POST /api/setup/run`, `GET /api/setup/operations/:id`, `POST /api/setup/operations/:id/retry`, `POST /api/setup/auth/claude/token` |
+| Setup | `GET /api/setup/status`, `POST /api/setup/run`, `GET /api/setup/operations/:id`, `POST /api/setup/auth/claude/token` |
 | Projects | `GET/POST /api/projects`, `GET/DELETE /api/projects/:id`, `POST /api/projects/:id/fetch`, `GET /api/projects/:id/favicon`, `GET/PUT /api/projects/:id/env` |
 | Workspaces | `GET/POST /api/projects/:id/workspaces`, `GET/DELETE /api/workspaces/:wsId`, `GET /api/workspaces/:wsId/files`, `GET /api/workspaces/:wsId/file`, `GET /api/workspaces/:wsId/file/raw`, `GET /api/workspaces/:wsId/file-completions`, `GET /api/workspaces/:wsId/diff`, `GET /api/workspaces/:wsId/diff/stat`, `POST /api/workspaces/:wsId/merge`, `POST /api/workspaces/:wsId/archive` |
 | Sessions | `GET/POST/DELETE /api/workspaces/:wsId/session`, `GET /api/workspaces/:wsId/session/messages`, `GET/POST /api/workspaces/:wsId/sessions`, `POST /api/workspaces/:wsId/sessions/:sessionId/convert-to-terminal`, `DELETE /api/workspaces/:wsId/sessions/:sessionId`, `GET /api/workspaces/:wsId/sessions/:sessionId/messages`, `GET /api/workspaces/:wsId/sessions/:sessionId/attachments/:filename` |
@@ -295,7 +304,7 @@ Public backend surface exposed by route modules under `backend/src/api/`.
 
 - Backend/frontend tests use **Vitest**; iOS uses **Swift Testing**.
 - Tests live next to source: `backend/src/**/*.test.ts`, `frontend/tests/**`, `ios/Tests/**`.
-- CI runs Node lint, typecheck, build, and tests, plus iOS Swift package tests and an iOS app compile on every push/PR to `main`.
+- CI runs Node lint, typecheck, build, tests, release-archive validation, Rust checks, and iOS checks. Pull requests also run a full provisioning install/idempotency smoke test; scheduled and manual runs cover crash recovery and release rollback.
 
 Run the narrowest relevant checks during development, then the root checks before considering broad changes done. For iOS changes, also run `cd ios && swift test`.
 
@@ -315,9 +324,8 @@ Run the narrowest relevant checks during development, then the root checks befor
 - Support Claude Code session-scoped scheduling (`/loop` dynamic mode, `ScheduleWakeup`, `Monitor`, `CronCreate/List/Delete`) and background-task tools (`run_in_background` Bash/Agent). These depend on a persistent, idle harness process that fires wakeups between turns and listens for `task_notification` `system` events — neither exists in Hive's one-shot `claude --print` per-turn model. These tools are currently suppressed at the provider (`--disallowedTools` plus `CLAUDE_CODE_DISABLE_CRON=1` and `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1`) so the model stays synchronous; `CLAUDE_CODE_ENABLE_TASKS=true` keeps synchronous subagents working. Full support requires a per-session scheduler that persists wakeups, re-invokes `claude --resume -p` at the deadline, forwards `task_notification` to the UI, and surfaces background tasks — likely reusing the automation-scheduler timer infrastructure.
 
 **Install & updates**
-- Wire release CI to build the linux backend tarballs (x64 + arm64) into `dist-release/` before `tauri build`, so shipped apps bundle the backend they push over SSH (client-push distribution; no public GitHub release needed).
-- Implement the server-side updater (`update-hive.sh` swap + rollback) once public releases exist.
-- Update-available check in Settings > Connection (compare the app's bundled backend version against the server's) once real release versions exist — dev builds are all 0.0.0-dev, so the Update affordance is currently a discreet manual action.
+- Add explicit server-update orchestration on top of the existing versioned release activation and health-check rollback.
+- Add an update-available indicator once desktop and backend release cadence is established.
 - v2 auth: re-enable HIVE_AUTH_TOKEN provisioning with zero-friction pairing (fetch the token over SSH when connecting a new device). v1 installs are token-less: access control = tailnet/LAN reachability plus the backend host-header guard; the token plumbing (hash check, bearer headers, Settings field) is kept for manually-secured servers.
 
 **Automation**

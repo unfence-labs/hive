@@ -15,19 +15,20 @@ STATE_FILE="$HIVE_VAR_DIR/provision-state.json"
 LOG_FILE="${HIVE_LOG_FILE:-$HIVE_VAR_DIR/provision.log.ndjson}"
 LOCK_FILE="$HIVE_VAR_DIR/provision.lock"
 
-# Error taxonomy — MUST stay identical to shared/setup-errors.ts (contract test).
+# Provision-emitted error codes. The shared taxonomy also contains client and
+# guided-setup errors; the contract test asserts this list stays a subset.
 # shellcheck disable=SC2034  # read by the bash/TS contract test
 SETUP_ERROR_CODES="UNSUPPORTED_OS UNSUPPORTED_ARCH SERVER_NOT_PRISTINE EXISTING_INSTALL \
-APT_FAILURE NETWORK CHECKSUM_MISMATCH TS_AUTHKEY_INVALID TS_DAEMON_DOWN \
-UFW_FAILURE RELEASE_DOWNLOAD_FAILED SERVICE_START_FAILED HEALTH_TIMEOUT SSH_AUTH_FAILED \
-SSH_HOST_KEY_CHANGED SSH_UNREACHABLE SSH_NO_ROOT CLAUDE_PASTEBACK_BROKEN DEVICE_CODE_EXPIRED \
-CODEX_DEVICE_AUTH_DISABLED GH_POLL_STUCK INTERRUPTED CONCURRENT_RUN UNKNOWN"
+APT_FAILURE CHECKSUM_MISMATCH TS_AUTHKEY_INVALID TS_DAEMON_DOWN UFW_FAILURE \
+RELEASE_DOWNLOAD_FAILED SERVICE_START_FAILED HEALTH_TIMEOUT SSH_NO_ROOT CONCURRENT_RUN UNKNOWN"
 
 SEQ=0
 RUN_ID=""
 CURRENT_STEP=""
 STEP_DATA=""            # steps may set this to a JSON object string before returning
 STEPS_PLANNED=()
+SENSITIVE_FILE=""
+DOWNLOAD_FILE=""
 
 # --- JSON helpers (no jq dependency: emit runs before apt installs jq) ---
 
@@ -59,7 +60,15 @@ emit_run_start() {
     "$RUN_ID" "$SCRIPT_VERSION" "$resume" "$planned")"
 }
 
-emit_run_end() { emit "$(printf '"event":"run_end","status":"%s"' "$1")"; }
+emit_run_end() {
+  local status="$1" code="${2:-}" detail="${3:-}"
+  if [ -n "$code" ]; then
+    emit "$(printf '"event":"run_end","status":"%s","errorCode":"%s","detail":"%s"' \
+      "$status" "$code" "$(json_escape "$detail")")"
+  else
+    emit "$(printf '"event":"run_end","status":"%s"' "$status")"
+  fi
+}
 
 emit_step() {
   # emit_step <id> <status> [extra-json]
@@ -121,7 +130,7 @@ die() {
       "$rc" "$code" "$(json_escape "$msg")")"
     mark_step "$CURRENT_STEP" error
   fi
-  emit_run_end error
+  emit_run_end error "$code" "$msg"
   exit 1
 }
 
@@ -140,17 +149,18 @@ run_step() {
   local id="$1"
   local title; title="$(declare -f "title_$id" >/dev/null 2>&1 && "title_$id" || printf '%s' "$id")"
 
-  if [ "$(step_status "$id")" = "ok" ]; then
-    if ! declare -f "guard_$id" >/dev/null 2>&1 || guard_$id; then
-      # skipdata_<id> lets a skipped step still report data the client needs
-      # (e.g. tailscale_up's tailnet IP on a resume).
-      if declare -f "skipdata_$id" >/dev/null 2>&1; then
-        emit_step "$id" skip "$(printf '"reason":"already-satisfied","data":%s' "$(skipdata_$id)")"
-      else
-        emit_step "$id" skip '"reason":"already-satisfied"'
-      fi
-      return 0
+  local status; status="$(step_status "$id")"
+  if { declare -f "guard_$id" >/dev/null 2>&1 && guard_$id; } || \
+    { [ "$status" = "ok" ] && ! declare -f "guard_$id" >/dev/null 2>&1; }; then
+    [ "$status" = "ok" ] || mark_step "$id" ok
+    # skipdata_<id> lets a skipped step still report data the client needs
+    # (e.g. tailscale_up's tailnet IP on a resume).
+    if declare -f "skipdata_$id" >/dev/null 2>&1; then
+      emit_step "$id" skip "$(printf '"reason":"already-satisfied","data":%s' "$(skipdata_$id)")"
+    else
+      emit_step "$id" skip '"reason":"already-satisfied"'
     fi
+    return 0
   fi
 
   CURRENT_STEP="$id"
@@ -199,7 +209,10 @@ bootstrap() {
   chmod 700 "$HIVE_VAR_DIR"
   : >>"$LOG_FILE"
   acquire_lock
+  find "$HIVE_VAR_DIR" -maxdepth 1 -type f \
+    \( -name 'tailscale-auth.*' -o -name 'release.*.tar.gz' \) -delete
   trap on_err ERR
+  trap 'rm -f "${SENSITIVE_FILE:-}" "${DOWNLOAD_FILE:-}"' EXIT
 
   # A newer script version invalidates prior state (step semantics may change).
   if [ -f "$STATE_FILE" ] && ! grep -q "\"scriptVersion\": \"$SCRIPT_VERSION\"" "$STATE_FILE" 2>/dev/null; then

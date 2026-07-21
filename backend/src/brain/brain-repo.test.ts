@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { existsSync } from "node:fs";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -62,7 +62,7 @@ describe("createBrain", () => {
         owner: "octocat",
         name,
         fullName: `octocat/${name}`,
-        sshUrl: origin,
+        url: origin,
       }),
       deleteRemote: async () => {},
       now: () => new Date("2026-06-05T12:00:00.000Z"),
@@ -100,6 +100,22 @@ describe("connectBrain", () => {
     expect(existsSync(join(brainRepoPath(dataDir), ".git"))).toBe(true);
     const { stdout } = await git(["remote", "get-url", "origin"], brainRepoPath(dataDir));
     expect(stdout).toBe(origin);
+  });
+
+  it("normalizes a GitHub SSH URL before cloning and persisting it", async () => {
+    const gitModule = await import("../utils/git.js");
+    const gitSpy = vi.spyOn(gitModule, "git").mockResolvedValue({ stdout: "", stderr: "" });
+    try {
+      const state = await connectBrain("git@github.com:octocat/brain.git", dataDir);
+      expect(state.repoUrl).toBe("https://github.com/octocat/brain.git");
+      expect(gitSpy).toHaveBeenCalledWith([
+        "clone",
+        "https://github.com/octocat/brain.git",
+        brainRepoPath(dataDir),
+      ]);
+    } finally {
+      gitSpy.mockRestore();
+    }
   });
 
   it("rejects a second Brain", async () => {

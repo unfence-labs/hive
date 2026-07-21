@@ -7,8 +7,8 @@ interface HostTrustScreenProps {
   client: ProvisionClient;
   host: string;
   fingerprint: string;
-  /** The exact keyscan lines the fingerprint was computed from. */
-  hostKeys: string[];
+  /** The exact keyscan line the fingerprint was computed from. */
+  hostKey: string;
   onContinue: () => void;
   onBack: () => void;
   onContinueLater: () => void;
@@ -22,18 +22,22 @@ export function HostTrustScreen({
   client,
   host,
   fingerprint,
-  hostKeys,
+  hostKey,
   onContinue,
   onBack,
   onContinueLater,
 }: HostTrustScreenProps) {
   const [trusting, setTrusting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const handleTrust = async () => {
     setTrusting(true);
+    setError(null);
     try {
-      await client.trustHost(host, hostKeys);
+      await client.trustHost(host, hostKey);
       onContinue();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "The SSH host key could not be saved.");
     } finally {
       setTrusting(false);
     }
@@ -56,6 +60,7 @@ export function HostTrustScreen({
         </div>
         <p className="mt-3 break-all font-mono text-xs text-foreground">{fingerprint}</p>
       </div>
+      {error && <p role="alert" className="mt-3 text-xs text-destructive">{error}</p>}
     </SetupScreen>
   );
 }

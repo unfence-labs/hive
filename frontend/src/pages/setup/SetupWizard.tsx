@@ -8,22 +8,16 @@ import {
 } from "@/pages/setup/machine";
 import type { SetupErrorCode } from "@hive/shared/setup-errors";
 import { createProvisionClient, type ProvisionClient } from "@/lib/provision-client";
-import { saveSshConnection } from "@/lib/ssh-connection";
-import { useServerUrl } from "@/hooks/useServerUrl";
-import { useTailscaleConfig } from "@/hooks/useTailscaleConfig";
-import { useAuthToken } from "@/hooks/useAuthToken";
+import { switchServer } from "@/lib/server-connection";
 
 import { WelcomeScreen } from "./screens/WelcomeScreen";
-import { TailscaleIntroScreen } from "./screens/TailscaleIntroScreen";
 import { TailscaleKeyScreen } from "./screens/TailscaleKeyScreen";
-import { ServerChoiceScreen } from "./screens/ServerChoiceScreen";
 import { SshKeyScreen } from "./screens/SshKeyScreen";
 import { ServerIpScreen } from "./screens/ServerIpScreen";
 import { HostTrustScreen } from "./screens/HostTrustScreen";
 import { ProvisioningScreen } from "./screens/ProvisioningScreen";
 import { TailnetHandoffScreen } from "./screens/TailnetHandoffScreen";
 import { GuidedSetupScreen } from "./screens/GuidedSetupScreen";
-import { IosPairingScreen } from "./screens/IosPairingScreen";
 import { DoneScreen } from "./screens/DoneScreen";
 import { ErrorPanel } from "./screens/ErrorPanel";
 
@@ -34,14 +28,13 @@ interface SetupWizardProps {
   client?: ProvisionClient;
   /** Called when the wizard completes and the app should proceed. */
   onComplete?: () => void;
+  /** Leaves provisioning and opens the existing-server connection form. */
+  onConnectExisting?: () => void;
 }
 
-export function SetupWizard({ client: injectedClient, onComplete }: SetupWizardProps) {
+export function SetupWizard({ client: injectedClient, onComplete, onConnectExisting }: SetupWizardProps) {
   const client = useMemo(() => injectedClient ?? createProvisionClient(), [injectedClient]);
   const [machine, dispatch] = useReducer(reduce, undefined, loadMachineState);
-  const { setServerUrl } = useServerUrl();
-  const { setIp, setPort, setSshUser } = useTailscaleConfig();
-  const { setAuthToken } = useAuthToken();
 
   // Persist on every change so a reload resumes mid-flow.
   useEffect(() => {
@@ -60,7 +53,7 @@ export function SetupWizard({ client: injectedClient, onComplete }: SetupWizardP
   const startOver = useCallback(() => {
     if (
       window.confirm(
-        "Start the setup over from the beginning? This install's progress is discarded (the Tailscale key and SSH key choice are kept).",
+        "Start the setup over from the beginning? The saved wizard progress and Tailscale key are discarded.",
       )
     ) {
       dispatch({ type: "reset" });
@@ -77,55 +70,41 @@ export function SetupWizard({ client: injectedClient, onComplete }: SetupWizardP
     ? `http://${inputs.serverIp}:${DEFAULT_PORT}`
     : "";
 
-  const finish = useCallback(() => {
-    // Commit the runtime connection details to the app's stores.
-    // v1 installs are token-less (network access = tailnet or LAN, plus the
-    // backend's host-header guard); clear any token left from a previous
-    // connection so requests don't send a stale bearer.
-    if (inputs.serverIp) {
-      setServerUrl(`http://${inputs.serverIp}:${DEFAULT_PORT}`);
-      // Prefill Settings > Connection with the freshly-installed server.
-      setIp(inputs.serverIp);
-      setPort(String(DEFAULT_PORT));
-      setSshUser(inputs.sshUser ?? "");
-    }
-    setAuthToken("");
-    // Keep the SSH details so Settings > Connection can push backend updates later.
-    if (inputs.serverIp && inputs.sshKeyPath) {
-      saveSshConnection({
+  const finish = useCallback(async () => {
+    if (!inputs.serverIp) return;
+    try {
+      await switchServer({
         host: inputs.serverIp,
-        keyPath: inputs.sshKeyPath,
-        user: inputs.sshUser,
-        tailnet: Boolean(inputs.tailscaleAuthKey),
+        port: DEFAULT_PORT,
+        sshUser: inputs.sshUser,
       });
+      clearMachineState();
+      onComplete?.();
+    } catch (caught) {
+      fail("UNKNOWN", caught instanceof Error ? caught.message : String(caught));
     }
-    clearMachineState();
-    onComplete?.();
-  }, [inputs, setServerUrl, setIp, setPort, setSshUser, setAuthToken, onComplete]);
+  }, [fail, inputs.serverIp, inputs.sshUser, onComplete]);
 
   let screen: React.ReactNode;
   switch (state) {
     case "welcome":
-      screen = <WelcomeScreen onContinue={() => advance()} />;
-      break;
-    case "tailscale_intro":
       screen = (
-        <TailscaleIntroScreen onContinue={() => advance()} onBack={back} onContinueLater={continueLater} />
-      );
-      break;
-    case "tailscale_key":
-      screen = (
-        <TailscaleKeyScreen
-          initialValue={inputs.tailscaleAuthKey}
-          onContinue={(tailscaleAuthKey) => advance({ tailscaleAuthKey })}
-          onBack={back}
-          onContinueLater={continueLater}
+        <WelcomeScreen
+          onContinue={() => advance()}
+          onConnectExisting={onConnectExisting}
         />
       );
       break;
-    case "server_choice":
+    case "tailscale":
       screen = (
-        <ServerChoiceScreen onContinue={() => advance()} onBack={back} onContinueLater={continueLater} />
+        <TailscaleKeyScreen
+          initialValue={inputs.tailscaleAuthKey}
+          onContinue={(tailscaleAuthKey, skipTailscale) =>
+            advance({ tailscaleAuthKey, skipTailscale })
+          }
+          onBack={back}
+          onContinueLater={continueLater}
+        />
       );
       break;
     case "ssh_key":
@@ -139,13 +118,13 @@ export function SetupWizard({ client: injectedClient, onComplete }: SetupWizardP
         />
       );
       break;
-    case "server_ip":
+    case "server":
       screen = (
         <ServerIpScreen
           client={client}
           initialValue={inputs.sshUser && inputs.serverIp ? `${inputs.sshUser}@${inputs.serverIp}` : inputs.serverIp}
-          onContinue={(serverIp, hostFingerprint, hostKeys, sshUser) =>
-            advance({ serverIp, hostFingerprint, hostKeys, sshUser })
+          onContinue={(serverIp, hostFingerprint, hostKey, sshUser) =>
+            advance({ serverIp, hostFingerprint, hostKey, sshUser })
           }
           onBack={back}
           onContinueLater={continueLater}
@@ -159,7 +138,7 @@ export function SetupWizard({ client: injectedClient, onComplete }: SetupWizardP
           client={client}
           host={inputs.serverIp ?? ""}
           fingerprint={inputs.hostFingerprint ?? ""}
-          hostKeys={inputs.hostKeys ?? []}
+          hostKey={inputs.hostKey ?? ""}
           onContinue={() => advance()}
           onBack={back}
           onContinueLater={continueLater}
@@ -175,14 +154,10 @@ export function SetupWizard({ client: injectedClient, onComplete }: SetupWizardP
             user: inputs.sshUser,
             keyPath: inputs.sshKeyPath ?? "",
             tailscaleAuthKey: inputs.tailscaleAuthKey ?? "",
+            skipTailscale: inputs.skipTailscale ?? false,
             port: DEFAULT_PORT,
           }}
-          onDone={(tailnetIp) => {
-            // The wizard's TOFU ran against the pre-tailnet address; trust the
-            // tailnet IP too so later SSH (updates) passes strict checking.
-            if (tailnetIp) void client.trustHost(tailnetIp);
-            advance(tailnetIp ? { serverIp: tailnetIp } : undefined);
-          }}
+          onDone={(tailnetIp) => advance(tailnetIp ? { serverIp: tailnetIp } : undefined)}
           onBack={back}
           onStartOver={startOver}
           onContinueLater={continueLater}
@@ -192,9 +167,11 @@ export function SetupWizard({ client: injectedClient, onComplete }: SetupWizardP
     case "tailnet_handoff":
       screen = (
         <TailnetHandoffScreen
+          client={inputs.skipTailscale ? undefined : client}
+          host={inputs.serverIp ?? ""}
+          expectedHostKey={inputs.hostKey}
           baseUrl={serverBaseUrl}
           onContinue={() => advance()}
-          onBack={back}
           onContinueLater={continueLater}
         />
       );
@@ -210,19 +187,14 @@ export function SetupWizard({ client: injectedClient, onComplete }: SetupWizardP
         />
       );
       break;
-    case "ios_pairing":
+    case "done":
       screen = (
-        <IosPairingScreen
-          host={inputs.serverIp ?? ""}
-          port={DEFAULT_PORT}
-          onContinue={() => advance()}
-          onBack={back}
-          onSkip={() => advance()}
+        <DoneScreen
+          serverHost={inputs.serverIp}
+          serverPort={DEFAULT_PORT}
+          onFinish={() => void finish()}
         />
       );
-      break;
-    case "done":
-      screen = <DoneScreen serverHost={inputs.serverIp} onFinish={finish} />;
       break;
     default:
       screen = null;
@@ -236,7 +208,7 @@ export function SetupWizard({ client: injectedClient, onComplete }: SetupWizardP
       <div className="min-h-0 flex-1 overflow-auto">
         {/* Global error panel: rendered above the current screen when a step fails
             outside the provisioning screen's own inline panel. */}
-        {error && error.state !== "provisioning" && (
+        {error && (
           <div className="mx-auto max-w-xl px-6 pt-6">
             <ErrorPanel error={error} onDismiss={() => dispatch({ type: "clearError" })} />
           </div>

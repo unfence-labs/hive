@@ -7,6 +7,11 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 OUT="$HERE/dist/provision.sh"
 VERSION="${1:-0.0.0-dev}"
 
+if [[ ! "$VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$ ]]; then
+  echo "invalid semantic version: $VERSION" >&2
+  exit 2
+fi
+
 mkdir -p "$HERE/dist"
 {
   echo '#!/usr/bin/env bash'

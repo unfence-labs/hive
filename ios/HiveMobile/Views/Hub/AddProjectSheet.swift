@@ -115,7 +115,7 @@ struct AddProjectSheet: View {
                 .foregroundStyle(WhisperColor.textSecondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
-            TextField("git@github.com:user/repo.git", text: $url)
+            TextField("https://github.com/user/repo.git", text: $url)
                 .textFieldStyle(.roundedBorder)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()

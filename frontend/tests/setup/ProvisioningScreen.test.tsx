@@ -1,10 +1,11 @@
 import { render, screen, waitFor } from "@testing-library/react";
+import { StrictMode } from "react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { ProvisioningScreen } from "@/pages/setup/screens/ProvisioningScreen";
-import { createMockProvisionClient } from "@/lib/provision-client";
+import { createMockProvisionClient } from "./mock-provision-client";
 
-const params = { host: "1.2.3.4", keyPath: "/k", tailscaleAuthKey: "tskey-auth-x" };
+const params = { host: "1.2.3.4", keyPath: "/k", tailscaleAuthKey: "tskey-auth-x", skipTailscale: false };
 
 describe("ProvisioningScreen", () => {
   it("renders the checklist and completes on the happy path", async () => {
@@ -13,7 +14,7 @@ describe("ProvisioningScreen", () => {
     render(
       <ProvisioningScreen
         client={client}
-        params={params}
+        params={{ ...params, host: "1.2.3.5" }}
         onDone={onDone}
         onBack={() => {}}
         onContinueLater={() => {}}
@@ -25,14 +26,14 @@ describe("ProvisioningScreen", () => {
     await waitFor(() => expect(onDone).toHaveBeenCalled());
   });
 
-  it("shows an error panel with Retry on the error path, and resume succeeds", async () => {
+  it("shows an error panel and retries through the same idempotent start command", async () => {
     const client = createMockProvisionClient("error");
-    const resumeSpy = vi.spyOn(client, "resumeProvision");
+    const startSpy = vi.spyOn(client, "startProvision");
     const onDone = vi.fn();
     render(
       <ProvisioningScreen
         client={client}
-        params={params}
+        params={{ ...params, host: "1.2.3.6" }}
         onDone={onDone}
         onBack={() => {}}
         onContinueLater={() => {}}
@@ -46,8 +47,95 @@ describe("ProvisioningScreen", () => {
 
     await userEvent.click(retry);
 
-    // Retry calls resumeProvision with the full params and the run completes.
-    await waitFor(() => expect(resumeSpy).toHaveBeenCalledWith(params));
+    await waitFor(() => expect(startSpy).toHaveBeenCalledTimes(2));
     await waitFor(() => expect(onDone).toHaveBeenCalled());
+  });
+
+  it("starts only one run when React StrictMode remounts effects", async () => {
+    const client = createMockProvisionClient("happy");
+    const startSpy = vi.spyOn(client, "startProvision");
+    render(
+      <StrictMode>
+        <ProvisioningScreen
+          client={client}
+          params={{ ...params, host: "1.2.3.7" }}
+          onDone={() => {}}
+          onBack={() => {}}
+          onContinueLater={() => {}}
+          onStartOver={() => {}}
+        />
+      </StrictMode>,
+    );
+    await waitFor(() => expect(screen.getByText("Start Hive")).toBeInTheDocument());
+    expect(startSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("starts a fresh run when a completed same-host screen is mounted again", async () => {
+    const client = createMockProvisionClient("happy");
+    const startSpy = vi.spyOn(client, "startProvision");
+    const props = {
+      client,
+      params: { ...params, host: "1.2.3.8" },
+      onDone: vi.fn(),
+      onBack: () => {},
+      onContinueLater: () => {},
+      onStartOver: () => {},
+    };
+    const first = render(<ProvisioningScreen {...props} />);
+    await waitFor(() => expect(props.onDone).toHaveBeenCalledTimes(1));
+    first.unmount();
+
+    render(<ProvisioningScreen {...props} />);
+    await waitFor(() => expect(startSpy).toHaveBeenCalledTimes(2));
+  });
+
+  it("reattaches to an active run after reopening with a fresh client", async () => {
+    const firstClient = createMockProvisionClient({
+      events: [
+        {
+          kind: "run_start",
+          seq: 0,
+          runId: "active-run",
+          scriptVersion: "0.3.0",
+          resume: false,
+          stepsPlanned: ["probe_os"],
+        },
+        { kind: "step_start", seq: 1, step: "probe_os", title: "Check server OS" },
+        { kind: "step_ok", seq: 2, step: "probe_os" },
+        { kind: "run_end", seq: 3, status: "ok" },
+      ],
+      delayMs: 25,
+    });
+    const secondClient = createMockProvisionClient("happy");
+    const firstStart = vi.spyOn(firstClient, "startProvision");
+    const secondStart = vi.spyOn(secondClient, "startProvision");
+    const runParams = { ...params, host: "1.2.3.9" };
+    const first = render(
+      <ProvisioningScreen
+        client={firstClient}
+        params={runParams}
+        onDone={() => {}}
+        onBack={() => {}}
+        onContinueLater={() => {}}
+        onStartOver={() => {}}
+      />,
+    );
+    await waitFor(() => expect(firstStart).toHaveBeenCalledTimes(1));
+    first.unmount();
+
+    const onDone = vi.fn();
+    render(
+      <ProvisioningScreen
+        client={secondClient}
+        params={runParams}
+        onDone={onDone}
+        onBack={() => {}}
+        onContinueLater={() => {}}
+        onStartOver={() => {}}
+      />,
+    );
+
+    await waitFor(() => expect(onDone).toHaveBeenCalledTimes(1));
+    expect(secondStart).not.toHaveBeenCalled();
   });
 });

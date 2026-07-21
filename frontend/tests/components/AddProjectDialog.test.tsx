@@ -81,7 +81,7 @@ describe("AddProjectDialog", () => {
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 
-  it("normalizes scp-style git URLs to https before cloning", async () => {
+  it("leaves repository URL normalization to the backend", async () => {
     const user = userEvent.setup();
     const onClone = vi.fn().mockResolvedValue(undefined);
     renderDialog({ onClone, onOpenChange: vi.fn() });
@@ -93,7 +93,7 @@ describe("AddProjectDialog", () => {
     await user.click(screen.getByRole("button", { name: "Add" }));
 
     await waitFor(() => {
-      expect(onClone).toHaveBeenCalledWith("https://github.com/acme/repo.git");
+      expect(onClone).toHaveBeenCalledWith("git@github.com:acme/repo.git");
     });
   });
 

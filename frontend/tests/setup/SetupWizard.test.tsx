@@ -2,7 +2,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SetupWizard } from "@/pages/setup/SetupWizard";
-import { createMockProvisionClient } from "@/lib/provision-client";
+import { createMockProvisionClient } from "./mock-provision-client";
 import { SETUP_STATE_STORAGE_KEY, loadMachineState } from "@/pages/setup/machine";
 
 beforeEach(() => {
@@ -21,9 +21,22 @@ describe("SetupWizard", () => {
     expect(screen.getByText("Set up a Hive server")).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: /get started/i }));
 
-    // Now on tailscale_intro.
-    await waitFor(() => expect(screen.getByText("Create your Tailscale network")).toBeInTheDocument());
-    expect(loadMachineState().state).toBe("tailscale_intro");
+    await waitFor(() => expect(screen.getByText("Connect the server to Tailscale")).toBeInTheDocument());
+    expect(loadMachineState().state).toBe("tailscale");
+  });
+
+  it("can leave the welcome screen to connect an existing server", async () => {
+    const onConnectExisting = vi.fn();
+    render(
+      <SetupWizard
+        client={createMockProvisionClient("happy")}
+        onConnectExisting={onConnectExisting}
+      />,
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: /connect to an existing server/i }));
+
+    expect(onConnectExisting).toHaveBeenCalledOnce();
   });
 
   it("supports back navigation", async () => {
@@ -31,26 +44,26 @@ describe("SetupWizard", () => {
     render(<SetupWizard client={client} />);
 
     await userEvent.click(screen.getByRole("button", { name: /get started/i }));
-    await waitFor(() => expect(screen.getByText("Create your Tailscale network")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("Connect the server to Tailscale")).toBeInTheDocument());
 
     await userEvent.click(screen.getByRole("button", { name: /back/i }));
     await waitFor(() => expect(screen.getByText("Set up a Hive server")).toBeInTheDocument());
   });
 
-  it("resumes mid-flow after a reload from persisted state", () => {
+  it("asks for the non-persisted Tailscale key again before resuming provisioning", () => {
     localStorage.setItem(
       SETUP_STATE_STORAGE_KEY,
-      JSON.stringify({ schema: 1, state: "server_choice", inputs: { tailscaleAuthKey: "tskey-auth-z" }, error: null }),
+      JSON.stringify({ schema: 2, state: "server", inputs: { sshKeyPath: "/key" }, error: null }),
     );
     const client = createMockProvisionClient("happy");
     render(<SetupWizard client={client} />);
-    expect(screen.getByText("Get a server ready")).toBeInTheDocument();
+    expect(screen.getByText("Connect the server to Tailscale")).toBeInTheDocument();
   });
 
   it("validates the tailscale key before allowing continue", async () => {
     localStorage.setItem(
       SETUP_STATE_STORAGE_KEY,
-      JSON.stringify({ schema: 1, state: "tailscale_key", inputs: {}, error: null }),
+      JSON.stringify({ schema: 2, state: "tailscale", inputs: {}, error: null }),
     );
     const client = createMockProvisionClient("happy");
     render(<SetupWizard client={client} />);
@@ -60,5 +73,14 @@ describe("SetupWizard", () => {
 
     await userEvent.type(screen.getByLabelText("Tailscale auth key"), "tskey-auth-abc123CNTRL-s3cr3t");
     await waitFor(() => expect(continueBtn).toBeEnabled());
+  });
+
+  it("resets version 1 wizard state", () => {
+    localStorage.setItem(
+      SETUP_STATE_STORAGE_KEY,
+      JSON.stringify({ schema: 1, state: "server_choice", inputs: {}, error: null }),
+    );
+    render(<SetupWizard client={createMockProvisionClient()} />);
+    expect(screen.getByText("Set up a Hive server")).toBeInTheDocument();
   });
 });

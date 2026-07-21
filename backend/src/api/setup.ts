@@ -1,22 +1,19 @@
 import type { FastifyInstance } from "fastify";
 import type {
-  SetupStatus,
   RunSetupRequest,
   RunSetupResponse,
+  SetupStatus,
 } from "@hive/shared/setup-types";
 import { getDataDir } from "../state/state.js";
 import { detectTools } from "../services/setup/detect.js";
 import {
-  createOperation,
-  getOperation,
-  listOperations,
-  runOperation,
-  findRunningOperation,
+  ConcurrentOperationError,
+  createSetupOperationRunner,
   type RunnableStep,
 } from "../services/setup/operations.js";
 import {
   isValidClaudeToken,
-  defaultClaudeTokenWriter,
+  makeClaudeTokenWriter,
   type ClaudeTokenWriter,
 } from "../services/setup/auth-flows.js";
 import {
@@ -27,26 +24,26 @@ import {
 function resolveSteps(
   stepIds: string[],
   registry: Record<string, SetupStepDef>,
-): { steps: RunnableStep[]; unknown: string[] } {
+): RunnableStep[] | null {
   const steps: RunnableStep[] = [];
-  const unknown: string[] = [];
   for (const id of stepIds) {
-    const def = registry[id];
-    if (!def) {
-      unknown.push(id);
-      continue;
-    }
-    steps.push({ id, title: def.title, fn: def.fn });
+    if (!Object.hasOwn(registry, id)) return null;
+    const definition = registry[id];
+    steps.push({ id, title: definition.title, fn: definition.fn });
   }
-  return { steps, unknown };
+  return steps;
 }
 
 export interface SetupRoutesOptions {
   dataDir?: string;
-  /** Injectable Claude token writer; defaults to the env-file writer. */
   claudeTokenWriter?: ClaudeTokenWriter;
-  /** Injectable step registry; defaults to the real installer steps. */
   steps?: Record<string, SetupStepDef>;
+}
+
+function hasExactKeys(value: unknown, keys: string[]): value is Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const actual = Object.keys(value);
+  return actual.length === keys.length && keys.every((key) => Object.hasOwn(value, key));
 }
 
 export async function setupRoutes(
@@ -54,95 +51,118 @@ export async function setupRoutes(
   opts: SetupRoutesOptions = {},
 ): Promise<void> {
   const dataDir = opts.dataDir ?? getDataDir();
-  const claudeTokenWriter = opts.claudeTokenWriter ?? defaultClaudeTokenWriter;
+  const claudeTokenWriter = opts.claudeTokenWriter ?? makeClaudeTokenWriter(dataDir);
   const stepRegistry = opts.steps ?? SETUP_STEPS;
-
-  app.get("/api/setup/status", async (): Promise<SetupStatus> => {
-    const [detected, operations] = await Promise.all([
-      detectTools(),
-      listOperations(dataDir),
-    ]);
-    return { detected, operations };
+  const stepIds = Object.keys(stepRegistry);
+  const runner = createSetupOperationRunner({
+    onUnexpectedError: (operationId, error) => {
+      app.log.error({ err: error }, `setup operation ${operationId} failed`);
+    },
   });
 
-  app.post("/api/setup/run", async (req, reply) => {
-    const body = (req.body ?? {}) as RunSetupRequest;
-    const stepIds = Array.isArray(body.steps) ? body.steps : [];
-    if (stepIds.length === 0) {
-      return reply.status(400).send({ error: "No steps provided" });
-    }
+  app.get("/api/setup/status", async (): Promise<SetupStatus> => ({
+    detected: await detectTools(),
+  }));
 
-    const { steps, unknown } = resolveSteps(stepIds, stepRegistry);
-    if (unknown.length > 0) {
-      return reply.status(400).send({ error: `Unknown steps: ${unknown.join(", ")}` });
-    }
-
-    const running = await findRunningOperation("guided-setup", stepIds, dataDir);
-    if (running) {
-      return reply
-        .status(409)
-        .send({ code: "CONCURRENT_RUN", error: "This step is already running", operationId: running });
-    }
-
-    const op = await createOperation(
-      "guided-setup",
-      steps.map((s) => ({ id: s.id, title: s.title })),
-      dataDir,
-    );
-
-    // Fire and forget: the operation runs in-process; clients poll for progress.
-    void runOperation(op.id, steps, dataDir).catch((err) => {
-      req.log.error({ err }, `setup operation ${op.id} failed to run`);
-    });
-
-    const response: RunSetupResponse = { operationId: op.id };
-    return response;
-  });
-
-  app.get<{ Params: { id: string } }>("/api/setup/operations/:id", async (req, reply) => {
-    const op = await getOperation(req.params.id, dataDir);
-    if (!op) return reply.status(404).send({ error: "Operation not found" });
-    return op;
-  });
-
-  app.post<{ Params: { id: string } }>(
-    "/api/setup/operations/:id/retry",
+  app.post<{ Body: RunSetupRequest }>(
+    "/api/setup/run",
+    {
+      schema: {
+        body: {
+          type: "object",
+          additionalProperties: false,
+          required: ["steps"],
+          properties: {
+            steps: {
+              type: "array",
+              minItems: 1,
+              uniqueItems: true,
+              items: { type: "string", enum: stepIds },
+            },
+          },
+        },
+      },
+      preValidation: async (req, reply) => {
+        if (!hasExactKeys(req.body, ["steps"])) {
+          return reply.status(400).send({ error: "Invalid setup steps" });
+        }
+        const requested = req.body.steps;
+        if (
+          !Array.isArray(requested) ||
+          requested.length === 0 ||
+          requested.some((id) => typeof id !== "string" || !Object.hasOwn(stepRegistry, id)) ||
+          new Set(requested).size !== requested.length
+        ) {
+          return reply.status(400).send({ error: "Invalid setup steps" });
+        }
+      },
+    },
     async (req, reply) => {
-      const op = await getOperation(req.params.id, dataDir);
-      if (!op) return reply.status(404).send({ error: "Operation not found" });
+      const steps = resolveSteps(req.body.steps, stepRegistry);
+      if (!steps) return reply.status(400).send({ error: "Unknown setup step" });
 
-      // Rebuild the runnable steps for this op from the registry; retry re-runs
-      // from the first non-succeeded step (runOperation skips succeeded ones).
-      const { steps, unknown } = resolveSteps(op.steps.map((s) => s.id), stepRegistry);
-      if (unknown.length > 0) {
-        return reply.status(409).send({ error: `Operation references unknown steps: ${unknown.join(", ")}` });
+      try {
+        const operation = runner.start(steps);
+        const response: RunSetupResponse = { operationId: operation.id };
+        return response;
+      } catch (error) {
+        if (error instanceof ConcurrentOperationError) {
+          return reply.status(409).send({
+            code: "CONCURRENT_RUN",
+            error: "A requested step is already running",
+            operationId: error.existingOperationId,
+          });
+        }
+        throw error;
       }
-
-      const running = await findRunningOperation(op.kind, op.steps.map((s) => s.id), dataDir);
-      if (running && running !== op.id) {
-        return reply
-          .status(409)
-          .send({ code: "CONCURRENT_RUN", error: "This step is already running", operationId: running });
-      }
-
-      void runOperation(op.id, steps, dataDir).catch((err) => {
-        req.log.error({ err }, `setup operation ${op.id} retry failed`);
-      });
-
-      const response: RunSetupResponse = { operationId: op.id };
-      return response;
     },
   );
 
-  app.post<{ Body: { token?: string } }>(
-    "/api/setup/auth/claude/token",
+  app.get<{ Params: { id: string } }>(
+    "/api/setup/operations/:id",
+    {
+      schema: {
+        params: {
+          type: "object",
+          additionalProperties: false,
+          required: ["id"],
+          properties: {
+            id: { type: "string", pattern: "^op-[A-Za-z0-9_-]{8}$" },
+          },
+        },
+      },
+    },
     async (req, reply) => {
-      const token = (req.body?.token ?? "").trim();
+      const operation = runner.get(req.params.id);
+      if (!operation) return reply.status(404).send({ error: "Operation not found" });
+      return operation;
+    },
+  );
+
+  app.post<{ Body: { token: string } }>(
+    "/api/setup/auth/claude/token",
+    {
+      schema: {
+        body: {
+          type: "object",
+          additionalProperties: false,
+          required: ["token"],
+          properties: { token: { type: "string", minLength: 1 } },
+        },
+      },
+      preValidation: async (req, reply) => {
+        if (!hasExactKeys(req.body, ["token"]) || typeof req.body.token !== "string") {
+          return reply.status(400).send({ error: "Invalid Claude token" });
+        }
+      },
+    },
+    async (req, reply) => {
+      const token = req.body.token.trim();
       if (!isValidClaudeToken(token)) {
         return reply.status(400).send({ error: "Invalid Claude token format" });
       }
-      const { persisted } = await claudeTokenWriter(token);
-      return { ok: true, persisted };
+      await claudeTokenWriter(token);
+      return { ok: true };
     },
   );
 }

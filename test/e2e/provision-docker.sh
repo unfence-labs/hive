@@ -2,7 +2,7 @@
 # Tier-1 provision harness: run provision.sh inside a systemd container and
 # assert install, idempotency, and crash-resume.
 #
-# Usage: provision-docker.sh [install|chaos|reprovision]   (default: install)
+# Usage: provision-docker.sh [install|chaos|rollback]   (default: install)
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -11,29 +11,47 @@ IMAGE="hive-provision-test"
 VERSION="0.0.0-test"
 MODE="${1:-install}"
 CID=""
+TEST_SKIP_NODE="${TEST_SKIP_NODE:-1}"
 
 log() { printf '\n\033[1;36m== %s\033[0m\n' "$*" >&2; }
 cleanup() { [ -n "$CID" ] && docker rm -f "$CID" >/dev/null 2>&1 || true; }
 trap cleanup EXIT
 
 build_artifacts() {
+  local name="${1:-fake-release}" health="${2:-healthy}"
+  local release_version="${3:-$VERSION}"
+  local health_version="${4:-$release_version}"
   log "Build provision.sh"
   bash "$PROV/build.sh" "$VERSION" >/dev/null
   log "Build fake release tarball"
-  local rel="$PROV/dist/fake-release.tar.gz"
+  local rel="$PROV/dist/$name.tar.gz"
   # Mirror the real tarball layout: dist/index.js plus loadable node_modules
   # stubs for the natives install_release verifies (node-pty, sharp).
   local staging; staging="$(mktemp -d)"
   mkdir -p "$staging/dist"
-  cp "$ROOT/test/provision/fake-release/index.js" "$staging/dist/index.js"
+  if [ "$health" = unhealthy ]; then
+    sed 's/res.writeHead(200/res.writeHead(503/' \
+      "$ROOT/test/provision/fake-release/index.js" >"$staging/dist/index.js"
+  else
+    cp "$ROOT/test/provision/fake-release/index.js" "$staging/dist/index.js"
+  fi
+  printf '{"name":"hive-test-release","version":"%s","private":true,"type":"commonjs"}\n' \
+    "$release_version" >"$staging/package.json"
+  printf '%s\n' "$health_version" >"$staging/health-version"
   local m
   for m in node-pty sharp; do
     mkdir -p "$staging/node_modules/$m"
     printf '{"name":"%s","version":"0.0.0-test","main":"index.js"}\n' "$m" \
       >"$staging/node_modules/$m/package.json"
-    echo "module.exports = {};" >"$staging/node_modules/$m/index.js"
+    cat >"$staging/node_modules/$m/index.js" <<'EOF'
+if (typeof process.getuid === "function" && process.getuid() === 0) {
+  throw new Error("native release validation must not run as root");
+}
+module.exports = {};
+EOF
   done
-  tar -czf "$rel" -C "$staging" dist node_modules
+  COPYFILE_DISABLE=1 tar --no-xattrs -czf "$rel" -C "$staging" \
+    dist node_modules package.json health-version
   rm -rf "$staging"
   echo "$rel"
 }
@@ -65,17 +83,27 @@ run_provision() {
 # at a bumped SCRIPT_VERSION, to exercise the re-provision/update path).
 run_provision_script() {
   local prov="$1" rel="$2"; shift 2
+  local node_flag=""
+  [ "$TEST_SKIP_NODE" = 1 ] && node_flag="--test-skip-node"
   docker cp "$prov" "$CID:/root/provision.sh"
   docker cp "$rel" "$CID:/root/release.tar.gz"
-  docker exec ${DIE_AFTER:+-e HIVE_TEST_DIE_AFTER=$DIE_AFTER} "$CID" \
+  # shellcheck disable=SC2086 # node_flag is either empty or one fixed option
+  docker exec \
+    -e "HIVE_TEST_DIE_AFTER=${DIE_AFTER:-}" \
+    -e "HIVE_TEST_DIE_DURING=${DIE_DURING:-}" \
+    -e "HIVE_HEALTH_ATTEMPTS=${HEALTH_ATTEMPTS:-}" \
+    "$CID" \
     bash /root/provision.sh \
-      --skip-tailscale --skip-ufw --skip-node \
+      --local-dev --test-skip-ufw $node_flag \
       --host 127.0.0.1 --port 3000 \
-      --release-file /root/release.tar.gz "$@"
+      --dev-release-file /root/release.tar.gz "$@"
 }
 
 assert_healthy() {
-  if ! docker exec "$CID" curl -fsS http://127.0.0.1:3000/health | grep -q '"status":"ok"'; then
+  local expected
+  expected="$(docker exec "$CID" sh -c 'cat "$(readlink -f /opt/hive/current)/.hive-version"')"
+  if ! docker exec "$CID" sh -c \
+    "curl -fsS http://127.0.0.1:3000/health | jq -e --arg version '$expected' '.status == \"ok\" and .version == \$version' >/dev/null"; then
     echo "FAIL: health endpoint not ok — service journal:"
     docker exec "$CID" systemctl status hive --no-pager -l 2>&1 | tail -20 || true
     docker exec "$CID" journalctl -u hive --no-pager -n 30 2>&1 || true
@@ -84,6 +112,23 @@ assert_healthy() {
   docker exec "$CID" systemctl is-active --quiet hive \
     || { echo "FAIL: hive.service not active"; return 1; }
   echo "OK: hive healthy and active"
+}
+
+assert_installation() {
+  docker exec "$CID" sh -c 'command -v gh >/dev/null' \
+    || { echo "FAIL: GitHub CLI was not installed during provisioning"; return 1; }
+  [ "$(docker exec "$CID" node -p 'Number(process.versions.node.split(".")[0])')" -ge 22 ] \
+    || { echo "FAIL: Node.js 22 or newer was not installed"; return 1; }
+  docker exec "$CID" sh -c \
+    'grep -Rqs "deb.nodesource.com" /etc/apt/sources.list /etc/apt/sources.list.d' \
+    || { echo "FAIL: NodeSource repository was not bootstrapped"; return 1; }
+  [ "$(docker exec "$CID" systemctl show hive -p User --value)" = hive ]
+  [ "$(docker exec "$CID" systemctl show hive -p NoNewPrivileges --value)" = yes ]
+  [ "$(docker exec "$CID" systemctl show hive -p ProtectSystem --value)" = strict ]
+  [ "$(docker exec "$CID" systemctl show hive -p PrivateTmp --value)" = yes ]
+  docker exec "$CID" test ! -e /usr/lib/hive/helpers
+  docker exec "$CID" test ! -e /etc/sudoers.d/hive
+  echo "OK: GitHub CLI installed and service hardening active"
 }
 
 assert_all_skip() {
@@ -100,24 +145,66 @@ assert_all_skip() {
 mode_install() {
   local rel; rel="$(build_artifacts)"
   build_image; start_container
+  log "Remove prewarmed Node.js and its repository so provisioning must bootstrap both"
+  docker exec "$CID" apt-get purge -y nodejs >/dev/null
+  docker exec "$CID" sh -c '
+    rm -f /etc/apt/sources.list.d/nodesource* &&
+    find /etc/apt/keyrings /usr/share/keyrings -maxdepth 1 -iname "*nodesource*" -delete 2>/dev/null || true
+    apt-get update -qq
+    ! command -v node >/dev/null
+    ! grep -Rqs "deb.nodesource.com" /etc/apt/sources.list /etc/apt/sources.list.d
+  '
+  TEST_SKIP_NODE=0
   log "Run 1: full install"
   run_provision "$rel" | tail -5
   assert_healthy
-  log "Run 2: idempotency"
+  assert_installation
+  log "Run 2: remove legacy helper privileges"
+  docker exec "$CID" mkdir -p /usr/lib/hive/helpers
+  docker exec "$CID" touch /usr/lib/hive/helpers/legacy /etc/sudoers.d/hive
+  local cleanup_out
+  cleanup_out="$(run_provision "$rel" 2>&1)"
+  grep -q '"step":"remove_legacy_helpers","status":"start"' <<<"$cleanup_out"
+  docker exec "$CID" test ! -e /usr/lib/hive/helpers
+  docker exec "$CID" test ! -e /etc/sudoers.d/hive
+  log "Run 3: idempotency"
   assert_all_skip "$rel"
-  log "PASS (install + idempotency)"
+  log "Run 4: stopped-service recovery"
+  docker exec "$CID" systemctl stop hive
+  run_provision "$rel" >/tmp/prov-recover.log
+  assert_healthy
+  log "PASS (install + idempotency + service recovery)"
 }
 
 mode_chaos() {
   local rel; rel="$(build_artifacts)"
   build_image
+
+  log "Chaos: die inside the release activation window, then resume"
+  start_container
+  set +e
+  DIE_DURING=release_after_swap run_provision "$rel" >/tmp/prov-swap-die.log 2>&1
+  local rc=$?
+  set -e
+  [ "$rc" = 137 ] || { echo "FAIL: expected exit 137, got $rc"; cat /tmp/prov-swap-die.log; exit 1; }
+  docker exec "$CID" test -s /var/lib/hive/pending-release
+  docker exec "$CID" test -e /var/lib/hive/restart-required
+  docker exec "$CID" test ! -e /var/lib/hive/activated-release
+  DIE_DURING="" run_provision "$rel" >/tmp/prov-swap-resume.log 2>&1
+  assert_healthy
+  [ "$(docker exec "$CID" readlink -f /opt/hive/current)" = \
+    "$(docker exec "$CID" cat /var/lib/hive/activated-release)" ]
+  docker exec "$CID" test ! -e /var/lib/hive/pending-release
+  docker rm -f "$CID" >/dev/null 2>&1; CID=""
+  echo "OK: activation intent forced restart and health verification after swap crash"
+
   # Representative kill points (fast path): after the release swap, after units.
   for kp in install_release write_units enable_service; do
     log "Chaos: die after '$kp', then resume"
     start_container
     set +e
     DIE_AFTER="$kp" run_provision "$rel" >/tmp/prov-die.log 2>&1
-    local rc=$?
+    rc=$?
     set -e
     [ "$rc" = 137 ] || { echo "FAIL: expected exit 137, got $rc"; cat /tmp/prov-die.log; exit 1; }
     grep -q "\"step\":\"$kp\",\"status\":\"ok\"" /tmp/prov-die.log \
@@ -133,39 +220,39 @@ mode_chaos() {
   log "PASS (chaos/resume)"
 }
 
-# Install, then re-run a build at a bumped SCRIPT_VERSION against the same box:
-# the version bump wipes step markers, so probe_env re-runs — it must recognize
-# our own install (via the durable marker) and resume instead of dying
-# EXISTING_INSTALL.
-mode_reprovision() {
-  local rel; rel="$(build_artifacts)"
+mode_rollback() {
+  local rel; rel="$(build_artifacts stable healthy)"
   build_image; start_container
-  log "Run 1: full install (v $VERSION)"
+  log "Run 1: install the healthy release"
   run_provision "$rel" | tail -3
   assert_healthy
+  local previous
+  previous="$(docker exec "$CID" readlink -f /opt/hive/current)"
 
-  log "Run 2: re-provision with a bumped SCRIPT_VERSION (simulates an app update)"
-  local prov2="$PROV/dist/provision-v2.sh"
-  bash "$PROV/build.sh" "9.9.9-test" >/dev/null
+  log "Run 2: activate a release whose health response reports the wrong version"
+  local broken prov2="$PROV/dist/provision-rollback.sh"
+  broken="$(build_artifacts mismatched healthy 0.0.1-test 0.0.0-wrong)"
+  bash "$PROV/build.sh" "0.0.1-test" >/dev/null
   cp "$PROV/dist/provision.sh" "$prov2"
-  # Restore the $VERSION build so dist/ holds no stale test artifact.
-  bash "$PROV/build.sh" "$VERSION" >/dev/null
   local out
-  out="$(run_provision_script "$prov2" "$rel" 2>&1)" || {
-    echo "$out"; echo "FAIL: re-provision errored"; return 1;
-  }
-  if grep -q '"errorCode":"EXISTING_INSTALL"' <<<"$out"; then
-    echo "FAIL: re-provision hit EXISTING_INSTALL"; echo "$out"; return 1
-  fi
-  grep -q '"event":"run_end","status":"ok"' <<<"$out" \
-    || { echo "FAIL: re-provision did not finish ok"; echo "$out"; return 1; }
+  set +e
+  HEALTH_ATTEMPTS=2
+  out="$(run_provision_script "$prov2" "$broken" 2>&1)"
+  local rc=$?
+  HEALTH_ATTEMPTS=""
+  set -e
+  [ "$rc" != 0 ] || { echo "FAIL: unhealthy release unexpectedly succeeded"; return 1; }
+  grep -q '"errorCode":"HEALTH_TIMEOUT"' <<<"$out" \
+    || { echo "FAIL: rollback did not report HEALTH_TIMEOUT"; echo "$out"; return 1; }
+  [ "$(docker exec "$CID" readlink -f /opt/hive/current)" = "$previous" ] \
+    || { echo "FAIL: current symlink was not rolled back"; return 1; }
   assert_healthy
-  log "PASS (re-provision after version bump)"
+  log "PASS (unhealthy release rolled back)"
 }
 
 case "$MODE" in
   install)     mode_install ;;
   chaos)       mode_chaos ;;
-  reprovision) mode_reprovision ;;
-  *) echo "usage: $0 [install|chaos|reprovision]"; exit 2 ;;
+  rollback)    mode_rollback ;;
+  *) echo "usage: $0 [install|chaos|rollback]"; exit 2 ;;
 esac

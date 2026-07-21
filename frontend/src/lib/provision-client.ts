@@ -3,8 +3,7 @@ import { isTauri } from "@/lib/is-tauri";
 
 /**
  * Abstraction over the SSH sidecar (Tauri + Rust commands spawning the system
- * `ssh` binary) that drives `provision.sh` on the target server. The wizard is
- * fully testable without Tauri via {@link createMockProvisionClient}.
+ * `ssh` binary) that drives `provision.sh` on the target server.
  */
 
 /** A discovered SSH key candidate under ~/.ssh (or a picked file). */
@@ -15,8 +14,10 @@ export interface SshKey {
   label: string;
   /** Best-effort key type when known (ed25519, rsa, …). */
   type?: string;
-  /** True when the file is passphrase-protected (needs an SSH_ASKPASS prompt). */
+  /** True when the file is passphrase-protected. */
   encrypted?: boolean;
+  /** True when the encrypted key is already usable by non-interactive SSH. */
+  agentLoaded?: boolean;
   /** Public key text when readable without a passphrase. */
   publicKey?: string;
 }
@@ -26,14 +27,11 @@ export interface ProvisionParams {
   /** SSH user to connect as; defaults to root. Non-root users need passwordless sudo. */
   user?: string;
   keyPath: string;
-  /** Tailscale auth key (tskey-…), streamed over SSH stdin, never argv. */
+  /** Tailscale auth key (tskey-...), streamed over SSH stdin, never argv. */
   tailscaleAuthKey: string;
   port?: number;
-  /**
-   * Explicit tailnet-vs-local choice; defaults to "skip when no auth key".
-   * Updates on an already-joined server pass false with an empty key.
-   */
-  skipTailscale?: boolean;
+  /** Explicit local-development mode. Stable builds reject true. */
+  skipTailscale: boolean;
 }
 
 /**
@@ -71,7 +69,7 @@ export type ProvisionEvent =
     };
 
 export type TestConnectionResult =
-  | { fingerprint: string; keys: string[] }
+  | { fingerprint: string; hostKey: string }
   | { error: SetupErrorCode };
 
 export interface ProvisionClient {
@@ -79,22 +77,16 @@ export interface ProvisionClient {
   listKeys(): Promise<SshKey[]>;
   /**
    * Fetch the server's host key: the SHA256 fingerprint for the TOFU dialog
-   * plus the raw keyscan lines behind it, or an error code.
+   * plus the exact selected keyscan line behind it, or an error code.
    */
   testConnection(host: string): Promise<TestConnectionResult>;
   /**
-   * Persist host keys into known_hosts (TOFU commit). `keys` are the exact
-   * lines from testConnection the user approved; omitted only when trusting a
-   * new address of an already-provisioned server (re-scans).
+   * Persist the exact approved key. For a new tailnet address, omit hostKey and
+   * pass expectedHostKey so the rescan must identify the same server key.
    */
-  trustHost(host: string, keys?: string[]): Promise<void>;
+  trustHost(host: string, hostKey?: string, expectedHostKey?: string): Promise<void>;
   /** Start provisioning; yields NDJSON-derived events until run_end. */
   startProvision(params: ProvisionParams): AsyncIterable<ProvisionEvent>;
-  /**
-   * Resume a provision run after an error or app relaunch. provision.sh is
-   * idempotent, so this re-runs it: completed steps skip, the rest continue.
-   */
-  resumeProvision(params: ProvisionParams): AsyncIterable<ProvisionEvent>;
   /**
    * Local Claude sign-in, fully in-app: start spawns `claude setup-token` in a
    * PTY (the CLI opens the browser); the user pastes the browser's code into
@@ -143,12 +135,17 @@ export function ndjsonToEvent(o: NdjsonLine): ProvisionEvent | null {
     };
   }
   if (o.event === "run_end") {
+    const succeeded = o.status === "ok";
     return {
       kind: "run_end",
       seq: o.seq,
-      status: o.status === "error" ? "error" : "ok",
-      errorCode: o.errorCode,
-      detail: o.detail,
+      status: succeeded ? "ok" : "error",
+      errorCode: succeeded ? o.errorCode : (o.errorCode ?? "UNKNOWN"),
+      detail: succeeded
+        ? o.detail
+        : (o.detail ?? (o.status === "error"
+            ? "Provisioning failed without an error detail."
+            : `Invalid provision completion status: ${o.status ?? "missing"}`)),
     };
   }
   if (!o.step) return null;
@@ -178,8 +175,7 @@ export function ndjsonToEvent(o: NdjsonLine): ProvisionEvent | null {
 /**
  * Real client backed by the Rust SSH sidecar. `provision_start` streams NDJSON
  * over a Tauri Channel; we bridge that channel to an AsyncIterable and
- * normalize each line via {@link ndjsonToEvent}. Resume re-invokes the same
- * command: provision.sh is idempotent (completed steps skip).
+ * normalize each line via {@link ndjsonToEvent}.
  */
 export function createTauriProvisionClient(): ProvisionClient {
   async function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
@@ -228,13 +224,10 @@ export function createTauriProvisionClient(): ProvisionClient {
     async testConnection(host) {
       return invoke<TestConnectionResult>("provision_test_connection", { host });
     },
-    async trustHost(host, keys) {
-      await invoke("provision_trust_host", { host, keys });
+    async trustHost(host, hostKey, expectedHostKey) {
+      await invoke("provision_trust_host", { host, hostKey, expectedHostKey });
     },
     startProvision(params) {
-      return streamCommand(params);
-    },
-    resumeProvision(params) {
       return streamCommand(params);
     },
     async startClaudeAuth() {
@@ -255,189 +248,8 @@ export function createTauriProvisionClient(): ProvisionClient {
   };
 }
 
-// ── Mock implementation (dev + tests) ────────────────────────────────────────
-
-export type MockScenario = "happy" | "error";
-
-/** A scripted sequence used to build the mock's event stream. */
-export interface MockScript {
-  keys?: SshKey[];
-  connection?: TestConnectionResult;
-  events: ProvisionEvent[];
-  /** Delay between yielded events, ms (0 in tests). */
-  delayMs?: number;
-}
-
-const DEFAULT_KEYS: SshKey[] = [
-  { path: "/home/user/.ssh/id_ed25519", label: "id_ed25519", type: "ed25519" },
-  { path: "/home/user/.ssh/id_rsa", label: "id_rsa", type: "rsa", encrypted: true },
-];
-
-const HAPPY_STEPS: Array<{ step: string; title: string }> = [
-  { step: "probe_os", title: "Check server OS" },
-  { step: "tailscale_up", title: "Join the tailnet" },
-  { step: "apt_baseline", title: "Install Node, git, firewall" },
-  { step: "install_release", title: "Install the Hive release" },
-  { step: "start_service", title: "Start Hive" },
-];
-
-function buildHappyEvents(): ProvisionEvent[] {
-  let seq = 0;
-  const events: ProvisionEvent[] = [
-    {
-      kind: "run_start",
-      seq: seq++,
-      runId: "r-mock",
-      scriptVersion: "0.3.0",
-      resume: false,
-      stepsPlanned: HAPPY_STEPS.map((s) => s.step),
-    },
-  ];
-  for (const { step, title } of HAPPY_STEPS) {
-    events.push({ kind: "step_start", seq: seq++, step, title });
-    events.push({ kind: "step_log", seq: seq++, step, line: `Running ${step}…` });
-    events.push({ kind: "step_ok", seq: seq++, step, durationMs: 1000 });
-  }
-  events.push({ kind: "run_end", seq: seq++, status: "ok" });
-  return events;
-}
-
-function buildErrorEvents(): ProvisionEvent[] {
-  let seq = 0;
-  const failAt = 1; // fail on tailscale_up
-  const events: ProvisionEvent[] = [
-    {
-      kind: "run_start",
-      seq: seq++,
-      runId: "r-mock",
-      scriptVersion: "0.3.0",
-      resume: false,
-      stepsPlanned: HAPPY_STEPS.map((s) => s.step),
-    },
-  ];
-  for (let i = 0; i <= failAt; i++) {
-    const { step, title } = HAPPY_STEPS[i];
-    events.push({ kind: "step_start", seq: seq++, step, title });
-    if (i === failAt) {
-      events.push({ kind: "step_log", seq: seq++, step, line: "backend error: invalid key", stream: "stderr" });
-      events.push({
-        kind: "step_error",
-        seq: seq++,
-        step,
-        exitCode: 1,
-        errorCode: "TS_AUTHKEY_INVALID",
-        detail: "backend error: invalid key",
-      });
-    } else {
-      events.push({ kind: "step_ok", seq: seq++, step, durationMs: 1000 });
-    }
-  }
-  events.push({ kind: "run_end", seq: seq++, status: "error" });
-  return events;
-}
-
-/** Events for a resume after the error path: the failed step now succeeds. */
-function buildResumeEvents(): ProvisionEvent[] {
-  let seq = 100;
-  const events: ProvisionEvent[] = [
-    {
-      kind: "run_start",
-      seq: seq++,
-      runId: "r-mock",
-      scriptVersion: "0.3.0",
-      resume: true,
-      stepsPlanned: HAPPY_STEPS.map((s) => s.step),
-    },
-  ];
-  // Steps before the failure are skipped; the rest run and succeed.
-  events.push({ kind: "step_skip", seq: seq++, step: "probe_os", reason: "already-satisfied" });
-  for (let i = 1; i < HAPPY_STEPS.length; i++) {
-    const { step, title } = HAPPY_STEPS[i];
-    events.push({ kind: "step_start", seq: seq++, step, title });
-    events.push({ kind: "step_ok", seq: seq++, step, durationMs: 1000 });
-  }
-  events.push({ kind: "run_end", seq: seq++, status: "ok" });
-  return events;
-}
-
-function scenarioScript(scenario: MockScenario): MockScript {
-  if (scenario === "error") {
-    return {
-      keys: DEFAULT_KEYS,
-      connection: { fingerprint: "SHA256:mock-fingerprint", keys: ["mock-host ssh-ed25519 AAAA"] },
-      events: buildErrorEvents(),
-      delayMs: 0,
-    };
-  }
-  return {
-    keys: DEFAULT_KEYS,
-    connection: { fingerprint: "SHA256:mock-fingerprint", keys: ["mock-host ssh-ed25519 AAAA"] },
-    events: buildHappyEvents(),
-    delayMs: 0,
-  };
-}
-
-/**
- * A fully in-memory ProvisionClient that replays a scripted sequence of
- * ProvisionEvents. Used by dev and tests; the wizard depends only on the
- * ProvisionClient interface, so swapping this for the Tauri client is a
- * one-line change at the composition root.
- */
-export function createMockProvisionClient(
-  scenario: MockScenario | MockScript = "happy",
-): ProvisionClient {
-  const script: MockScript =
-    typeof scenario === "string" ? scenarioScript(scenario) : scenario;
-  const delay = script.delayMs ?? 0;
-
-  async function* stream(events: ProvisionEvent[]): AsyncIterable<ProvisionEvent> {
-    for (const event of events) {
-      if (delay > 0) await new Promise((r) => setTimeout(r, delay));
-      yield event;
-    }
-  }
-
-  return {
-    async listKeys() {
-      return script.keys ?? DEFAULT_KEYS;
-    },
-    async testConnection() {
-      return script.connection ?? { fingerprint: "SHA256:mock-fingerprint", keys: ["mock-host ssh-ed25519 AAAA"] };
-    },
-    async trustHost() {
-      // no-op in the mock
-    },
-    startProvision() {
-      return stream(script.events);
-    },
-    resumeProvision() {
-      // On resume, replay a run that skips completed steps and succeeds.
-      return stream(buildResumeEvents());
-    },
-    async startClaudeAuth() {
-      return { url: "https://claude.ai/oauth/mock" };
-    },
-    async completeClaudeAuth() {
-      // no-op in the mock; pollClaudeAuth delivers the token
-    },
-    async pollClaudeAuth() {
-      return { token: "sk-ant-oat01-mock", exited: true };
-    },
-    async cancelClaudeAuth() {
-      // no-op in the mock
-    },
-  };
-}
-
-/**
- * Choose the appropriate client for the current runtime. In Tauri, use the
- * real SSH sidecar; otherwise fall back to the mock so the web/dev build and
- * tests keep working.
- */
+/** Provisioning is a desktop-only capability. Tests inject their own client. */
 export function createProvisionClient(): ProvisionClient {
   if (isTauri()) return createTauriProvisionClient();
-  if (import.meta.env.DEV) {
-    console.warn("createProvisionClient: not running in Tauri — using the mock client");
-  }
-  return createMockProvisionClient("happy");
+  throw new Error("Server provisioning is only available in the Hive desktop app.");
 }

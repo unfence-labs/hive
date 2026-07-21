@@ -28,5 +28,6 @@ describe("looksLikeHost", () => {
     expect(looksLikeHost("")).toBe(false);
     expect(looksLikeHost("ubuntu@")).toBe(false);
     expect(looksLikeHost("bad user@1.2.3.4")).toBe(false);
+    expect(looksLikeHost("-oProxyCommand=bad")).toBe(false);
   });
 });

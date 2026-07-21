@@ -11,7 +11,27 @@ permissions:
   contents: read
 
 jobs:
+  validate-tag:
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: version
+        name: Validate tag against the desktop package version
+        shell: bash
+        run: |
+          version="$(awk '
+            /^\[package\]$/ { in_package=1; next }
+            /^\[/ && in_package { exit }
+            in_package && /^version = / { gsub(/["[:space:]]/, "", $3); print $3; exit }
+          ' frontend/src-tauri/Cargo.toml)"
+          [[ "$version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$ ]]
+          test "$GITHUB_REF_NAME" = "v$version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
   backend-tarball:
+    needs: validate-tag
     strategy:
       matrix:
         include:
@@ -26,25 +46,14 @@ jobs:
         with:
           node-version: 22
       - name: Build backend tarball
-        run: bash scripts/release/build-backend-tarball.sh "${GITHUB_REF_NAME#v}" "${{ matrix.arch }}"
+        run: bash scripts/release/build-backend-tarball.sh "${{ needs.validate-tag.outputs.version }}" "${{ matrix.arch }}"
       - uses: actions/upload-artifact@v4
         with:
           name: backend-${{ matrix.arch }}
           path: dist-release/*
 
-  provision-script:
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v4
-      - name: Build provision.sh
-        run: bash scripts/provision/build.sh "${GITHUB_REF_NAME#v}"
-      - uses: actions/upload-artifact@v4
-        with:
-          name: provision
-          path: scripts/provision/dist/provision.sh
-
   publish:
-    needs: [backend-tarball, provision-script]
+    needs: backend-tarball
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -57,7 +66,6 @@ jobs:
           mkdir -p release
           find artifacts -type f -exec cp {} release/ \;
           cd release
-          sha256sum provision.sh > provision.sh.sha256
           cat *.sha256 > SHA256SUMS
           ls -la
       - name: Publish GitHub release

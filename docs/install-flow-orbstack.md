@@ -40,9 +40,10 @@ ssh -o StrictHostKeyChecking=accept-new root@<VM_IP> uname -a
 
 ## 2. Build a backend release tarball (dev shortcut)
 
-There is no published GitHub release yet, so build one locally and point the
-sidecar at it. The Rust command will `scp` it to the VM and pass
-`--release-file`:
+Local development deliberately bypasses the production GitHub-release download.
+Build a development archive and point the debug sidecar at it; the sidecar
+uploads it to a unique remote path and invokes the explicit development release
+option:
 
 ```bash
 make release-tarball                          # → dist-release/hive-backend-0.0.0-dev-linux-<arch>.tar.gz
@@ -58,10 +59,9 @@ HIVE_DEV_RELEASE_TARBALL="$HIVE_DEV_RELEASE_TARBALL" npm run tauri dev
 ```
 
 In the wizard:
-1. **Tailscale** — for a purely local test, leave the auth key **empty**; the
-   sidecar then runs `provision.sh --skip-tailscale --host 0.0.0.0`, so the
-   backend is reachable on the VM's IP without a tailnet. (To test the real
-   tailnet path, paste a tagged auth key instead.)
+1. **Tailscale** — choose the visible **Local VM** development action. This is
+   the only path that invokes `provision.sh --local-dev`; an empty production
+   auth key is rejected. To test the real tailnet path, paste a tagged auth key.
 2. **SSH key** — pick the key whose public half you added to root.
 3. **Server IP** — the VM IP from step 1.
 4. **Trust** — accept the host fingerprint.
@@ -72,15 +72,14 @@ In the wizard:
 
 ## What works vs. what to expect
 
-- **Works:** SSH connect + host-key TOFU, streaming provision with live NDJSON
-  progress, crash-resume (kill the app mid-provision, relaunch, Retry), the real
-  Hive backend running under systemd, the wizard connecting over HTTP.
-- **Guided setup (Claude/Codex/GitHub, dev stacks):** the dev-stack installers
-  (mise/uv) run for real; `gh`/`docker` run via the root helpers on the VM.
-  **Claude** sign-in runs locally on your Mac (`claude setup-token`) — you need
-  the `claude` CLI installed on the Mac, or use the manual token paste.
-- **Not local-friendly:** the tailnet handoff and iOS QR assume Tailscale; skip
-  them for a pure-Orb test.
+- **Works:** SSH connect + single-key host TOFU, streaming provision with live
+  NDJSON progress, idempotent recovery (relaunch and press Retry), the real Hive
+  backend running under systemd, and the wizard connecting over HTTP.
+- **Guided setup:** `gh` is already installed by root provisioning. Claude and
+  Codex installers run as the `hive` service user. Claude sign-in runs locally
+  on your Mac (`claude setup-token`), or you can use the manual token field.
+- **Not local-friendly:** the tailnet handoff assumes Tailscale; use the VM IP
+  directly for a pure-Orb test.
 
 ## Faster inner loop (no Tauri)
 
@@ -89,4 +88,5 @@ To iterate on `provision.sh` alone without the desktop app:
 ```bash
 make provision-docker        # full install + idempotency in a systemd container
 make provision-docker-chaos  # crash-resume across kill points
+make provision-docker-rollback # unhealthy release restores the prior version
 ```

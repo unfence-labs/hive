@@ -197,7 +197,7 @@ describe("createGitHubRepository", () => {
       if (key === "repo view") {
         return handlers.view
           ? handlers.view()
-          : { stdout: "git@github.com:octocat/my-repo.git", stderr: "" };
+          : { stdout: "https://github.com/octocat/my-repo", stderr: "" };
       }
       if (key === "repo delete") return { stdout: "", stderr: "" };
       throw new Error(`unexpected gh args: ${args.join(" ")}`);
@@ -211,14 +211,36 @@ describe("createGitHubRepository", () => {
       owner: "octocat",
       name: "my-repo",
       fullName: "octocat/my-repo",
-      sshUrl: "git@github.com:octocat/my-repo.git",
+      url: "https://github.com/octocat/my-repo",
     });
+    expect(ghClient).toHaveBeenCalledWith([
+      "repo",
+      "view",
+      "octocat/my-repo",
+      "--json",
+      "url",
+      "--jq",
+      ".url",
+    ]);
     expect(ghClient.mock.calls.some((c) => c[0][0] === "repo" && c[0][1] === "delete")).toBe(false);
   });
 
-  it("deletes the just-created repo when the sshUrl fetch fails (no orphan)", async () => {
+  it("deletes the just-created repo when the HTTPS URL fetch fails (no orphan)", async () => {
     const ghClient = makeGhClient({ view: () => Promise.reject(new Error("replication lag")) });
     await expect(createGitHubRepository("my-repo", "private", ghClient)).rejects.toThrow();
+    expect(ghClient).toHaveBeenCalledWith(["repo", "delete", "octocat/my-repo", "--yes"]);
+  });
+
+  it("rejects a non-HTTPS clone URL and deletes the new remote", async () => {
+    const ghClient = makeGhClient({
+      view: async () => ({
+        stdout: "git@github.com:octocat/my-repo.git",
+        stderr: "",
+      }),
+    });
+    await expect(createGitHubRepository("my-repo", "private", ghClient)).rejects.toThrow(
+      "HTTPS URL",
+    );
     expect(ghClient).toHaveBeenCalledWith(["repo", "delete", "octocat/my-repo", "--yes"]);
   });
 });

@@ -1,6 +1,28 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 import type { FastifyReply, FastifyRequest } from "fastify";
 
+const DEFAULT_BROWSER_ORIGINS = [
+  "tauri://localhost",
+  "http://tauri.localhost",
+  "https://tauri.localhost",
+] as const;
+
+export function allowedBrowserOrigins(
+  nodeEnv = process.env.NODE_ENV,
+  configured = process.env.HIVE_ALLOWED_ORIGINS,
+): Set<string> {
+  const origins = new Set<string>(DEFAULT_BROWSER_ORIGINS);
+  if (nodeEnv !== "production") {
+    origins.add("http://localhost:5173");
+    origins.add("http://127.0.0.1:5173");
+  }
+  for (const origin of (configured ?? "").split(",")) {
+    const trimmed = origin.trim();
+    if (trimmed) origins.add(trimmed);
+  }
+  return origins;
+}
+
 function safeEqual(left: string, right: string): boolean {
   const leftBuf = Buffer.from(left);
   const rightBuf = Buffer.from(right);
@@ -109,6 +131,18 @@ export function createHostGuardHook(extraAllowed: readonly string[] = []) {
     if (req.url.startsWith("/health")) return;
     if (isAllowedHostHeader(headerString(req.headers.host), extraAllowed)) return;
     reply.status(403).send({ error: "Forbidden host" });
+  };
+}
+
+/** Reject browser-initiated WebSocket upgrades from untrusted origins. */
+export function createWebSocketOriginGuardHook(allowedOrigins: ReadonlySet<string>) {
+  return async (req: FastifyRequest, reply: FastifyReply): Promise<void> => {
+    const upgrade = headerString(req.headers.upgrade)?.toLowerCase();
+    if (upgrade !== "websocket") return;
+
+    const origin = headerString(req.headers.origin);
+    if (!origin || allowedOrigins.has(origin)) return;
+    reply.status(403).send({ error: "Forbidden origin" });
   };
 }
 

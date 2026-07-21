@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { createMockProvisionClient, ndjsonToEvent } from "@/lib/provision-client";
+import { ndjsonToEvent } from "@/lib/provision-client";
+import { createMockProvisionClient } from "./mock-provision-client";
 import type { ProvisionEvent } from "@/lib/provision-client";
 
 async function collect(iterable: AsyncIterable<ProvisionEvent>): Promise<ProvisionEvent[]> {
@@ -11,7 +12,7 @@ async function collect(iterable: AsyncIterable<ProvisionEvent>): Promise<Provisi
 describe("mock provision client", () => {
   it("replays a happy path ending in run_end ok", async () => {
     const client = createMockProvisionClient("happy");
-    const events = await collect(client.startProvision({ host: "h", keyPath: "k", tailscaleAuthKey: "t" }));
+    const events = await collect(client.startProvision({ host: "h", keyPath: "k", tailscaleAuthKey: "t", skipTailscale: false }));
     expect(events[0].kind).toBe("run_start");
     const end = events.at(-1);
     expect(end).toMatchObject({ kind: "run_end", status: "ok" });
@@ -21,25 +22,26 @@ describe("mock provision client", () => {
 
   it("replays an error path with a taxonomy error code", async () => {
     const client = createMockProvisionClient("error");
-    const events = await collect(client.startProvision({ host: "h", keyPath: "k", tailscaleAuthKey: "t" }));
+    const events = await collect(client.startProvision({ host: "h", keyPath: "k", tailscaleAuthKey: "t", skipTailscale: false }));
     const err = events.find((e) => e.kind === "step_error");
     expect(err).toMatchObject({ kind: "step_error", errorCode: "TS_AUTHKEY_INVALID" });
     expect(events.at(-1)).toMatchObject({ kind: "run_end", status: "error" });
   });
 
-  it("resume replays a run that skips completed steps and succeeds", async () => {
+  it("a second idempotent start succeeds after an interrupted attempt", async () => {
     const client = createMockProvisionClient("error");
+    await collect(client.startProvision({ host: "h", keyPath: "/k", tailscaleAuthKey: "", skipTailscale: false }));
     const events = await collect(
-      client.resumeProvision({ host: "h", keyPath: "/k", tailscaleAuthKey: "" }),
+      client.startProvision({ host: "h", keyPath: "/k", tailscaleAuthKey: "", skipTailscale: false }),
     );
-    expect(events.some((e) => e.kind === "step_skip")).toBe(true);
+    expect(events[0]).toMatchObject({ kind: "run_start", resume: true });
     expect(events.at(-1)).toMatchObject({ kind: "run_end", status: "ok" });
   });
 
   it("lists keys and tests a connection", async () => {
     const client = createMockProvisionClient("happy");
     expect((await client.listKeys()).length).toBeGreaterThan(0);
-    expect(await client.testConnection("h")).toEqual({ fingerprint: "SHA256:mock-fingerprint", keys: ["mock-host ssh-ed25519 AAAA"] });
+    expect(await client.testConnection("h")).toEqual({ fingerprint: "SHA256:mock-fingerprint", hostKey: "mock-host ssh-ed25519 AAAA" });
   });
 
   it("accepts a custom script", async () => {
@@ -52,7 +54,7 @@ describe("mock provision client", () => {
       connection: { error: "SSH_AUTH_FAILED" },
     });
     expect(await client.testConnection("h")).toEqual({ error: "SSH_AUTH_FAILED" });
-    const events = await collect(client.startProvision({ host: "h", keyPath: "k", tailscaleAuthKey: "t" }));
+    const events = await collect(client.startProvision({ host: "h", keyPath: "k", tailscaleAuthKey: "t", skipTailscale: false }));
     expect(events).toHaveLength(3);
   });
 });
@@ -72,6 +74,19 @@ describe("ndjsonToEvent (Rust sidecar → wizard normalization)", () => {
     expect(
       ndjsonToEvent({ seq: -1, event: "run_end", status: "error", errorCode: "SSH_AUTH_FAILED", detail: "denied" }),
     ).toMatchObject({ kind: "run_end", status: "error", errorCode: "SSH_AUTH_FAILED", detail: "denied" });
+  });
+
+  it("treats missing or unknown run_end statuses as failures", () => {
+    expect(ndjsonToEvent({ seq: 1, event: "run_end" })).toMatchObject({
+      kind: "run_end",
+      status: "error",
+      errorCode: "UNKNOWN",
+    });
+    expect(ndjsonToEvent({ seq: 2, event: "run_end", status: "done" })).toMatchObject({
+      kind: "run_end",
+      status: "error",
+      errorCode: "UNKNOWN",
+    });
   });
 
   it("maps step lifecycle statuses", () => {

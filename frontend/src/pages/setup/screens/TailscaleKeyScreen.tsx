@@ -2,10 +2,11 @@ import { useState } from "react";
 import { ExternalLink } from "lucide-react";
 import { SetupScreen } from "./SetupScreen";
 import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
 
 interface TailscaleKeyScreenProps {
   initialValue?: string;
-  onContinue: (authKey: string) => void;
+  onContinue: (authKey: string, skipTailscale: boolean) => void;
   onBack: () => void;
   onContinueLater: () => void;
 }
@@ -30,10 +31,11 @@ export function TailscaleKeyScreen({
 
   return (
     <SetupScreen
-      title="Paste your Tailscale auth key"
+      title="Connect the server to Tailscale"
       description={
         <>
-          Generate a key tagged <code className="rounded bg-muted px-1">tag:hive</code> in the{" "}
+          Install and sign in to Tailscale on this computer, then generate a key tagged{" "}
+          <code className="rounded bg-muted px-1">tag:hive</code> in the{" "}
           <a
             href="https://login.tailscale.com/admin/settings/keys"
             target="_blank"
@@ -42,10 +44,10 @@ export function TailscaleKeyScreen({
           >
             Tailscale admin console <ExternalLink className="h-3 w-3" />
           </a>
-          . Tagged keys never expire, so your server stays on the tailnet.
+          . Hive uses it once to add the server to your private network.
         </>
       }
-      onContinue={() => onContinue(value.trim())}
+      onContinue={() => onContinue(value.trim(), false)}
       continueDisabled={!valid}
       onBack={onBack}
       onContinueLater={onContinueLater}
@@ -65,6 +67,16 @@ export function TailscaleKeyScreen({
           <code>tskey-auth-&lt;id&gt;-&lt;secret&gt;</code>). Paste the complete key shown once
           when it was generated — not the key ID from the list.
         </p>
+      )}
+      {import.meta.env.DEV && (
+        <div className="mt-5 border-t border-border/40 pt-4">
+          <p className="mb-2 text-xs text-muted-foreground">
+            Local development only: provision a VM without joining a tailnet.
+          </p>
+          <Button type="button" size="sm" variant="outline" onClick={() => onContinue("", true)}>
+            Use a local VM
+          </Button>
+        </div>
       )}
     </SetupScreen>
   );

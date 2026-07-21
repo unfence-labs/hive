@@ -1,8 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { createHash } from "node:crypto";
+import Fastify from "fastify";
+import cors from "@fastify/cors";
+import websocket from "@fastify/websocket";
 import {
+  allowedBrowserOrigins,
   createAuthHook,
   createHostGuardHook,
+  createWebSocketOriginGuardHook,
   extractAuthToken,
   isAllowedHostHeader,
   isAuthorized,
@@ -260,5 +265,100 @@ describe("createHostGuardHook", () => {
     const { state, reply } = replyRecorder();
     await hook({ url: "/api/projects", headers: { host: "evil.example.com" } } as never, reply as never);
     expect(state.statusCode).toBe(403);
+  });
+});
+
+describe("createWebSocketOriginGuardHook", () => {
+  function run(headers: Record<string, string>) {
+    const state: { statusCode?: number; payload?: unknown } = {};
+    const reply = {
+      status(code: number) { state.statusCode = code; return this; },
+      send(payload: unknown) { state.payload = payload; },
+    };
+    return createWebSocketOriginGuardHook(new Set(["tauri://localhost"]))(
+      { headers } as never,
+      reply as never,
+    ).then(() => state);
+  }
+
+  it("allows non-upgrade requests and origin-less native upgrades", async () => {
+    expect((await run({ origin: "https://attacker.example" })).statusCode).toBeUndefined();
+    expect((await run({ upgrade: "websocket" })).statusCode).toBeUndefined();
+  });
+
+  it("allows exact trusted origins and rejects all others", async () => {
+    expect((await run({ upgrade: "websocket", origin: "tauri://localhost" })).statusCode)
+      .toBeUndefined();
+    expect(await run({ upgrade: "websocket", origin: "https://attacker.example" }))
+      .toEqual({ statusCode: 403, payload: { error: "Forbidden origin" } });
+  });
+
+  async function buildWsApp(origins: ReadonlySet<string>) {
+    const app = Fastify();
+    await app.register(cors, {
+      origin: (origin, callback) => {
+        callback(null, origin === undefined || origins.has(origin));
+      },
+    });
+    await app.register(websocket);
+    app.addHook("onRequest", createWebSocketOriginGuardHook(origins));
+    app.get("/ws", { websocket: true }, () => {});
+    await app.ready();
+    return app;
+  }
+
+  it("rejects an attacker origin before the WebSocket upgrade", async () => {
+    const app = await buildWsApp(allowedBrowserOrigins("production", ""));
+    try {
+      await expect(app.injectWS("/ws", {
+        headers: { origin: "https://attacker.example" },
+      })).rejects.toThrow("Unexpected server response: 403");
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("accepts origin-less native clients and trusted Tauri origins", async () => {
+    const app = await buildWsApp(allowedBrowserOrigins("production", ""));
+    try {
+      const native = await app.injectWS("/ws");
+      native.close();
+      const tauri = await app.injectWS("/ws", {
+        headers: { origin: "tauri://localhost" },
+      });
+      tauri.close();
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("accepts an exact configured origin and no lookalike", async () => {
+    const app = await buildWsApp(
+      allowedBrowserOrigins("production", "https://hive.example.com"),
+    );
+    try {
+      const configured = await app.injectWS("/ws", {
+        headers: { origin: "https://hive.example.com" },
+      });
+      configured.close();
+      await expect(app.injectWS("/ws", {
+        headers: { origin: "https://hive.example.com.attacker.test" },
+      })).rejects.toThrow("Unexpected server response: 403");
+    } finally {
+      await app.close();
+    }
+  });
+});
+
+describe("allowedBrowserOrigins", () => {
+  it("adds localhost origins only outside production", () => {
+    expect(allowedBrowserOrigins("development", "")).toContain("http://localhost:5173");
+    expect(allowedBrowserOrigins("production", "")).not.toContain("http://localhost:5173");
+  });
+
+  it("trims comma-separated configured origins", () => {
+    const origins = allowedBrowserOrigins("production", " https://one.test,https://two.test ");
+    expect(origins.has("https://one.test")).toBe(true);
+    expect(origins.has("https://two.test")).toBe(true);
   });
 });

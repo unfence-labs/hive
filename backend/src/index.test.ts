@@ -43,6 +43,9 @@ beforeEach(async () => {
 
 afterEach(async () => {
   delete process.env.HIVE_AUTH_TOKEN;
+  delete process.env.HIVE_AUTH_TOKEN_SHA256;
+  delete process.env.HIVE_ALLOWED_HOSTS;
+  delete process.env.HIVE_ALLOWED_ORIGINS;
   delete process.env.HIVE_RATE_LIMIT_MAX;
   delete process.env.HIVE_RATE_LIMIT_WINDOW_MS;
   delete process.env.HIVE_CLAUDE_SKIP_PERMISSIONS;
@@ -185,6 +188,39 @@ describe("buildApp", () => {
     expect(res.headers["access-control-allow-methods"]).toContain("GET");
   });
 
+  it("does not grant CORS to arbitrary web origins", async () => {
+    app = await buildApp();
+    const request = await app.inject({
+      method: "GET",
+      url: "/api/projects",
+      headers: { origin: "https://attacker.example" },
+    });
+    expect(request.statusCode).toBe(200);
+    expect(request.headers).not.toHaveProperty("access-control-allow-origin");
+
+    const preflight = await app.inject({
+      method: "OPTIONS",
+      url: "/api/projects",
+      headers: {
+        origin: "https://attacker.example",
+        "access-control-request-method": "GET",
+      },
+    });
+    expect(preflight.statusCode).not.toBe(204);
+    expect(preflight.headers).not.toHaveProperty("access-control-allow-origin");
+  });
+
+  it("allows an exact origin configured through HIVE_ALLOWED_ORIGINS", async () => {
+    process.env.HIVE_ALLOWED_ORIGINS = "https://hive.example.com";
+    app = await buildApp();
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/projects",
+      headers: { origin: "https://hive.example.com" },
+    });
+    expect(res.headers["access-control-allow-origin"]).toBe("https://hive.example.com");
+  });
+
   it("allows DELETE in CORS preflight", async () => {
     app = await buildApp();
     const res = await app.inject({
@@ -261,6 +297,30 @@ describe("buildApp", () => {
       headers: { authorization: "Bearer secret" },
     });
     expect(authorized.statusCode).toBe(200);
+  });
+
+  it("does not apply the tokenless Host allowlist when auth is configured", async () => {
+    process.env.HIVE_AUTH_TOKEN = "secret";
+    app = await buildApp();
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/projects",
+      headers: {
+        host: "hive.example.com",
+        authorization: "Bearer secret",
+      },
+    });
+    expect(response.statusCode).toBe(200);
+  });
+
+  it("keeps the Host allowlist in tokenless mode", async () => {
+    app = await buildApp();
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/projects",
+      headers: { host: "hive.example.com" },
+    });
+    expect(response.statusCode).toBe(403);
   });
 
   it("keeps /health public even when auth is configured", async () => {

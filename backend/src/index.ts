@@ -14,7 +14,12 @@ import { completionRoutes } from "./api/completions.js";
 import { modelRoutes } from "./api/models.js";
 import { sessionRoutes } from "./api/agents.js";
 import { streamRoutes } from "./ws/stream.js";
-import { createAuthHook, createHostGuardHook } from "./utils/auth.js";
+import {
+  allowedBrowserOrigins,
+  createAuthHook,
+  createHostGuardHook,
+  createWebSocketOriginGuardHook,
+} from "./utils/auth.js";
 import { createRateLimitHook } from "./utils/rate-limit.js";
 import { parsePositiveNumber } from "./utils/env.js";
 import { ensureDataDir, getDataDir, loadAllProjects, saveProject } from "./state/state.js";
@@ -27,7 +32,7 @@ import { stopProviderUsagePolling } from "./services/provider-usage.js";
 import { accountRoutes } from "./api/account.js";
 import { getBackendVersion } from "./api/version.js";
 import { setupRoutes } from "./api/setup.js";
-import { reapStaleOperations } from "./services/setup/operations.js";
+import { loadSetupSecrets } from "./services/setup/auth-flows.js";
 import { scriptRoutes } from "./api/scripts.js";
 import { scriptWsRoutes } from "./ws/script.js";
 import { terminalWsRoutes } from "./ws/terminal.js";
@@ -56,7 +61,6 @@ const HOST = process.env.HOST ?? "127.0.0.1";
 const PORT = Number(process.env.PORT ?? 3000);
 const DEFAULT_RATE_LIMIT_MAX = 120;
 const DEFAULT_RATE_LIMIT_WINDOW_MS = 60_000;
-
 function parseBoolean(value: string | undefined, fallback: boolean): boolean {
   if (!value) return fallback;
   const normalized = value.trim().toLowerCase();
@@ -275,11 +279,15 @@ export async function buildApp(opts: BuildAppOptions = {}) {
     skipPermissions: parseBoolean(process.env.HIVE_CLAUDE_SKIP_PERMISSIONS, true),
   };
   const app = Fastify({ logger: true });
+  const corsOrigins = allowedBrowserOrigins();
   await app.register(cors, {
-    origin: true,
+    origin: (origin, callback) => {
+      callback(null, origin === undefined || corsOrigins.has(origin));
+    },
     methods: ["GET", "HEAD", "PUT", "PATCH", "POST", "DELETE"],
   });
   await app.register(websocket, { options: { maxPayload: 10 * 1024 * 1024 } });
+  app.addHook("onRequest", createWebSocketOriginGuardHook(corsOrigins));
 
   app.addHook("onSend", async (req, reply, payload) => {
     if (req.method !== "GET" || reply.statusCode !== 200) return payload;
@@ -309,7 +317,9 @@ export async function buildApp(opts: BuildAppOptions = {}) {
     .split(",")
     .map((h) => h.trim().toLowerCase())
     .filter(Boolean);
-  app.addHook("onRequest", createHostGuardHook(allowedHosts));
+  if (!authToken && !authTokenSha256) {
+    app.addHook("onRequest", createHostGuardHook(allowedHosts));
+  }
   app.addHook("onRequest", createAuthHook(authExpectation));
   app.addHook(
     "onRequest",
@@ -428,13 +438,12 @@ async function main() {
     );
   }
 
-  await preflight();
-  await detectAvailableProviders();
-
   const dataDir = getDataDir();
   await ensureDataDir(dataDir);
+  await loadSetupSecrets(dataDir);
+  await preflight();
+  await detectAvailableProviders();
   await reconcileStaleWorkspaces(dataDir);
-  await reapStaleOperations(dataDir);
   await initWorkspaceIndex(dataDir);
 
   const config = await loadConfig(dataDir);
