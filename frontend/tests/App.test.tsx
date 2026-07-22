@@ -175,11 +175,11 @@ describe("App", () => {
     window.history.pushState({}, "", "/projects");
   });
 
-  it("lets a first-run desktop user connect to an existing server", async () => {
+  it("lets a first-run desktop user leave the wizard for connection settings", async () => {
     (window as Window & { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ = {};
     renderApp();
 
-    await userEvent.click(await screen.findByRole("button", { name: /connect to an existing server/i }));
+    await userEvent.click(await screen.findByRole("button", { name: /back/i }));
 
     expect(window.location.pathname).toBe("/settings/connection");
     expect(screen.getByRole("button", { name: "refresh connection" })).toBeInTheDocument();
