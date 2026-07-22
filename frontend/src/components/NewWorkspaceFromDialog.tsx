@@ -200,12 +200,20 @@ export default function NewWorkspaceFromDialog({
   }
 
   const activeQuery = tab === "pulls" ? pulls : tab === "branches" ? branches : issues;
+  const embeddedError =
+    tab === "pulls" ? pulls.data?.error : tab === "issues" ? issues.data?.error : undefined;
+  const queryErrorMessage: Record<SourceTab, string> = {
+    pulls: "Failed to load pull requests",
+    branches: "Failed to load branches",
+    issues: "Failed to load issues",
+  };
   const sourceError =
-    tab === "pulls"
-      ? pulls.data?.error
-      : tab === "issues"
-        ? issues.data?.error
-        : undefined;
+    embeddedError ??
+    (activeQuery.isError
+      ? activeQuery.error instanceof Error && activeQuery.error.message
+        ? activeQuery.error.message
+        : queryErrorMessage[tab]
+      : undefined);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

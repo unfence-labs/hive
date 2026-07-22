@@ -169,4 +169,21 @@ describe("NewWorkspaceFromDialog", () => {
 
     expect(await screen.findByText("gh not authenticated")).toBeInTheDocument();
   });
+
+  it("shows a real error on the branches tab instead of 'No results found.'", async () => {
+    const user = userEvent.setup();
+    apiGet.mockImplementation((url: string) => {
+      if (url === "/api/projects") return Promise.resolve(projects);
+      if (url === "/api/projects/p1/branches") {
+        return Promise.reject(new Error("Failed to list branches"));
+      }
+      return Promise.resolve({ pulls: [], issues: [] });
+    });
+    renderDialog();
+
+    await user.click(screen.getByRole("button", { name: "Branches" }));
+
+    expect(await screen.findByText("Failed to list branches")).toBeInTheDocument();
+    expect(screen.queryByText("No results found.")).not.toBeInTheDocument();
+  });
 });
