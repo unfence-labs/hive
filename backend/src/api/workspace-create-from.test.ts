@@ -165,6 +165,11 @@ describe("POST /api/projects/:id/workspaces with source kind 'pr'", () => {
     const wsPath = join(dataDir, projectId, "workspaces", ws.name);
     const { stdout } = await git(["rev-parse", "--abbrev-ref", "HEAD"], wsPath);
     expect(stdout).toBe("pr/7");
+
+    // The Hive-owned temp ref used to fetch the PR head must not leak.
+    const bare = join(dataDir, projectId, "repo.git");
+    const { stdout: hiveRefs } = await git(["for-each-ref", "refs/hive"], bare);
+    expect(hiveRefs).toBe("");
   });
 
   it("does not move an existing local branch when a fork PR reuses its name", async () => {

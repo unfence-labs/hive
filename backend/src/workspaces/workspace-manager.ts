@@ -77,25 +77,42 @@ async function assertBranchNotCheckedOut(
 }
 
 /**
- * Check out `branch` into a new worktree. `fetched` means FETCH_HEAD holds the
- * remote tip of the branch (the bare clone has no fetch refspec, so remote
- * state only exists via FETCH_HEAD).
+ * Fetch a remote ref into a unique Hive-owned temp ref and return its name.
+ * The shared fetch-tracking ref is a single file per repo and other
+ * components (git-sync, diff endpoints) fetch into the same bare repo
+ * concurrently; a private ref makes the fetched tip immune to those writes.
+ * Callers must delete the ref via deleteTempRef() when done.
+ */
+async function fetchToTempRef(bare: string, remoteRef: string): Promise<string> {
+  const tempRef = `refs/hive/incoming/${nanoid(8)}`;
+  await git(["fetch", "--no-tags", "origin", `+${remoteRef}:${tempRef}`], bare);
+  return tempRef;
+}
+
+async function deleteTempRef(bare: string, ref: string): Promise<void> {
+  await git(["update-ref", "-d", ref], bare).catch(() => {});
+}
+
+/**
+ * Check out `branch` into a new worktree. `fetchedRef` is the Hive-owned temp
+ * ref holding the remote tip of the branch (see fetchToTempRef), or null if
+ * the branch is local-only / unreachable on the remote.
  */
 async function addWorktreeOnBranch(
   bare: string,
   wsPath: string,
   branch: string,
-  fetched: boolean,
+  fetchedRef: string | null,
 ): Promise<void> {
   const hasLocal = await git(["show-ref", "--verify", `refs/heads/${branch}`], bare)
     .then(() => true)
     .catch(() => false);
   if (hasLocal) {
-    if (fetched) {
+    if (fetchedRef) {
       // Fast-forward to the remote tip when possible; keep a diverged local ref.
       try {
-        await git(["merge-base", "--is-ancestor", `refs/heads/${branch}`, "FETCH_HEAD"], bare);
-        await git(["update-ref", `refs/heads/${branch}`, "FETCH_HEAD"], bare);
+        await git(["merge-base", "--is-ancestor", `refs/heads/${branch}`, fetchedRef], bare);
+        await git(["update-ref", `refs/heads/${branch}`, fetchedRef], bare);
       } catch {
         // Diverged or unrelated — keep the local ref as-is.
       }
@@ -103,8 +120,8 @@ async function addWorktreeOnBranch(
     await addWorktreeFromBranch(bare, wsPath, branch);
     return;
   }
-  if (!fetched) throw new BadRequestError(`Branch "${branch}" not found`);
-  await addWorktreeWithNewBranch(bare, wsPath, branch, "FETCH_HEAD");
+  if (!fetchedRef) throw new BadRequestError(`Branch "${branch}" not found`);
+  await addWorktreeWithNewBranch(bare, wsPath, branch, fetchedRef);
 }
 
 async function checkoutSourceBranch(
@@ -116,13 +133,17 @@ async function checkoutSourceBranch(
 ): Promise<void> {
   validateBranchName(branch);
   await assertBranchNotCheckedOut(state, bare, branch, dataDir);
-  let fetched = true;
+  let fetchedRef: string | null = null;
   try {
-    await git(["fetch", "origin", branch], bare);
+    fetchedRef = await fetchToTempRef(bare, `refs/heads/${branch}`);
   } catch {
-    fetched = false; // Local-only branch or unreachable remote.
+    // Local-only branch or unreachable remote.
   }
-  await addWorktreeOnBranch(bare, wsPath, branch, fetched);
+  try {
+    await addWorktreeOnBranch(bare, wsPath, branch, fetchedRef);
+  } finally {
+    if (fetchedRef) await deleteTempRef(bare, fetchedRef);
+  }
 }
 
 /**
@@ -140,16 +161,21 @@ async function checkoutPullRequestHead(
 ): Promise<string> {
   const branch = `pr/${prNumber}`;
   await assertBranchNotCheckedOut(state, bare, branch, dataDir);
+  let fetchedRef: string;
   try {
-    await git(["fetch", "origin", `pull/${prNumber}/head`], bare);
+    fetchedRef = await fetchToTempRef(bare, `refs/pull/${prNumber}/head`);
   } catch {
     throw new BadRequestError(`Could not fetch pull request #${prNumber} from origin`);
   }
-  // A stale pr/<n> branch left behind by an older workspace is safe to reset:
-  // the namespace is Hive-owned and the assert above proved nothing has it
-  // checked out.
-  await git(["branch", "-D", branch], bare).catch(() => {});
-  await addWorktreeWithNewBranch(bare, wsPath, branch, "FETCH_HEAD");
+  try {
+    // A stale pr/<n> branch left behind by an older workspace is safe to reset:
+    // the namespace is Hive-owned and the assert above proved nothing has it
+    // checked out.
+    await git(["branch", "-D", branch], bare).catch(() => {});
+    await addWorktreeWithNewBranch(bare, wsPath, branch, fetchedRef);
+  } finally {
+    await deleteTempRef(bare, fetchedRef);
+  }
   return branch;
 }
 
