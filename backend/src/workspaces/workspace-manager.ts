@@ -9,6 +9,7 @@ import {
   removeWorktreeOrDeleteDirectory,
 } from "../utils/git-worktree.js";
 import { parseGitHubRepo, fetchPrDetail, fetchIssueDetail } from "../utils/github.js";
+import type { PullRequestDetail, IssueDetail } from "../utils/github.js";
 import { mapBranchesToWorkspaces } from "./workspace-sources.js";
 import { buildFileTree } from "../utils/file-tree.js";
 import { MAX_TEXT_FILE_SIZE, resolveSafeRepoFilePath } from "../utils/repo-files.js";
@@ -184,6 +185,21 @@ export async function createWorkspace(
   dataDir = getDataDir(),
   source?: CreateWorkspaceSourceInput,
 ): Promise<Workspace> {
+  // Resolve PR/issue details before taking the lock: gh can stall for up to
+  // 10s and the same lock serializes session-state persistence.
+  let prDetail: PullRequestDetail | undefined;
+  let issueDetail: IssueDetail | undefined;
+  if (source?.kind === "pr" || source?.kind === "issue") {
+    const state = await loadProject(projectId, dataDir);
+    if (!state) throw new NotFoundError(`Project ${projectId} not found`);
+    const repo = requireGitHubRepo(state);
+    if (source.kind === "pr") {
+      prDetail = await fetchPrDetail(repo.owner, repo.repo, source.number);
+    } else {
+      issueDetail = await fetchIssueDetail(repo.owner, repo.repo, source.number);
+    }
+  }
+
   return withProjectStateLock(
     projectId,
     async () => {
@@ -211,8 +227,7 @@ export async function createWorkspace(
         await checkoutSourceBranch(state, bare, wsPath, branch, dataDir);
         wsSource = { kind: "branch", branch };
       } else if (source.kind === "pr") {
-        const repo = requireGitHubRepo(state);
-        const pr = await fetchPrDetail(repo.owner, repo.repo, source.number);
+        const pr = prDetail!;
         if (pr.isCrossRepository) {
           branch = await checkoutPullRequestHead(state, bare, wsPath, pr.number, dataDir);
         } else {
@@ -222,8 +237,7 @@ export async function createWorkspace(
         wsSource = { kind: "pr", branch, number: pr.number, title: pr.title, url: pr.url };
         draftPrompt = buildDraftPrompt(`pull request #${pr.number}`, pr.title, pr.url, pr.body);
       } else if (source.kind === "issue") {
-        const repo = requireGitHubRepo(state);
-        const issue = await fetchIssueDetail(repo.owner, repo.repo, source.number);
+        const issue = issueDetail!;
         // Issues have no code: branch off the default branch like the default flow.
         branch = `workspace/${cityName}`;
         await refreshDefaultBranchFromOrigin(bare, defaultBranch);
