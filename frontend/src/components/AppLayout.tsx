@@ -132,7 +132,8 @@ export default function AppLayout({ onAddProject, onAddAutomation, onNewWorkspac
   const context: LayoutContext = { collapsed, toggleSidebar };
 
   return (
-    <div className="flex h-screen flex-col bg-sidebar">
+    // h-full, not h-screen: vh units don't rescale under CSS zoom (useAppZoom).
+    <div className="flex h-full flex-col bg-sidebar">
       {import.meta.env.DEV && (
         <div className="shrink-0 bg-warning/90 px-3 py-0.5 text-center text-xs font-medium text-warning-contrast">
           Dev frontend → {backendEnv ? `${backendEnv} backend` : "connecting…"}
