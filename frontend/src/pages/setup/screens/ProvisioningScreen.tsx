@@ -73,6 +73,17 @@ interface ProvisionRunEntry {
 
 const provisionRuns = new Map<string, ProvisionRunEntry>();
 
+export async function abandonProvisionRuns(client: ProvisionClient): Promise<void> {
+  const hasActive = [...provisionRuns.values()].some((run) => !run.finished);
+  provisionRuns.clear();
+  if (!hasActive) return;
+  try {
+    await client.cancelProvision();
+  } catch {
+    // Best-effort: the sidecar may have no active process to cancel.
+  }
+}
+
 function provisionRunKey(params: ProvisionParams): string {
   return JSON.stringify({
     host: params.host,

@@ -15,7 +15,7 @@ import { TailscaleKeyScreen } from "./screens/TailscaleKeyScreen";
 import { SshKeyScreen } from "./screens/SshKeyScreen";
 import { ServerIpScreen } from "./screens/ServerIpScreen";
 import { HostTrustScreen } from "./screens/HostTrustScreen";
-import { ProvisioningScreen } from "./screens/ProvisioningScreen";
+import { ProvisioningScreen, abandonProvisionRuns } from "./screens/ProvisioningScreen";
 import { TailnetHandoffScreen } from "./screens/TailnetHandoffScreen";
 import { GuidedSetupScreen } from "./screens/GuidedSetupScreen";
 import { DoneScreen } from "./screens/DoneScreen";
@@ -58,8 +58,9 @@ export function SetupWizard({ client: injectedClient, onComplete, onConnectExist
   const back = useCallback(() => dispatch({ type: "back" }), []);
   const continueLater = useCallback(() => {
     // State is already persisted; hand control back to the app.
+    void abandonProvisionRuns(client);
     onComplete?.();
-  }, [onComplete]);
+  }, [client, onComplete]);
   const [confirmingStartOver, setConfirmingStartOver] = useState(false);
   const startOver = useCallback(() => setConfirmingStartOver(true), []);
   const fail = useCallback(
@@ -232,6 +233,7 @@ export function SetupWizard({ client: injectedClient, onComplete, onConnectExist
             <AlertDialogAction
               onClick={() => {
                 setConfirmingStartOver(false);
+                void abandonProvisionRuns(client);
                 dispatch({ type: "reset" });
               }}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
