@@ -1,4 +1,4 @@
-import { readFile, writeFile, rename, mkdir } from "node:fs/promises";
+import { readFile, writeFile, rename, mkdir, chmod } from "node:fs/promises";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { getDataDir } from "./state.js";
@@ -131,8 +131,11 @@ export async function saveConfig(config: AppConfig, dataDir = getDataDir()): Pro
   await mkdir(dataDir, { recursive: true });
   const target = configFilePath(dataDir);
   const tmp = join(dataDir, `config.${randomUUID()}.tmp`);
-  await writeFile(tmp, JSON.stringify(config, null, 2), "utf-8");
+  // Owner-only permissions: config.json holds credentials (Kimi API key,
+  // notification tokens). Same pattern as project-env.ts.
+  await writeFile(tmp, JSON.stringify(config, null, 2), { encoding: "utf-8", mode: 0o600 });
   await rename(tmp, target);
+  await chmod(target, 0o600).catch(() => {});
 }
 
 // Serializes read-modify-write cycles so concurrent writers (settings routes,

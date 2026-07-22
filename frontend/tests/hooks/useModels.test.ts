@@ -288,6 +288,42 @@ describe("useModels", () => {
     expect(result.current.selectedModelId).toBe("codex:gpt-5.5");
   });
 
+  it("a stale in-flight initial load cannot overwrite a completed refresh", async () => {
+    let resolveInitial!: (value: ModelCatalogResponse) => void;
+    mockApi.get.mockReturnValueOnce(new Promise((resolve) => { resolveInitial = resolve; }));
+    const { result } = renderHook(() => useModels());
+    expect(result.current.isLoading).toBe(true);
+
+    // The Kimi key was saved while the slow initial request was in flight:
+    // the refresh fetches a newer catalog and completes first.
+    const refreshed: ModelCatalogResponse = {
+      ...MOCK_CATALOG,
+      models: [
+        ...MOCK_CATALOG.models,
+        {
+          id: "kimi:k3",
+          label: "K3",
+          provider: "kimi",
+          providerLabel: "Kimi",
+          capabilities: { thinkingLevels: [], planMode: true, blockingTools: true, completions: true, goals: false },
+        },
+      ],
+    };
+    mockApi.get.mockResolvedValue(refreshed);
+    await act(() => refreshModelCatalog());
+    expect(result.current.models).toHaveLength(4);
+
+    // The superseded initial request finally resolves with the stale catalog.
+    await act(async () => { resolveInitial(MOCK_CATALOG); });
+
+    // The fresh catalog wins in the mounted hook…
+    expect(result.current.models).toHaveLength(4);
+    // …and in the cache later mounts seed from (no third fetch).
+    const second = renderHook(() => useModels());
+    expect(second.result.current.models).toHaveLength(4);
+    expect(mockApi.get).toHaveBeenCalledTimes(2);
+  });
+
   it("stops receiving catalog refreshes after unmount", async () => {
     mockApi.get.mockResolvedValue(MOCK_CATALOG);
     const { result, unmount } = renderHook(() => useModels());

@@ -25,7 +25,6 @@ const PROVIDER_LABELS: Record<string, string> = {
 const NPM_PACKAGES: Record<string, string> = {
   claude: "@anthropic-ai/claude-code",
   codex: "@openai/codex",
-  kimi: "", // rides the claude CLI — no package of its own to update
 };
 
 const DEFAULT_PROVIDER_PRIORITY = ["codex", "claude"];
@@ -217,7 +216,8 @@ export interface AgentProviderInfo {
 
 /** Return info about all known providers (installed or not). */
 export function getAllProviderInfo(): AgentProviderInfo[] {
-  return ALL_PROVIDERS.map((p) => ({
+  // Kimi rides the claude CLI and has no binary of its own to list or update.
+  return ALL_PROVIDERS.filter((p) => p.id !== "kimi").map((p) => ({
     id: p.id,
     label: PROVIDER_LABELS[p.id] ?? p.id,
     npmPackage: NPM_PACKAGES[p.id] ?? "",

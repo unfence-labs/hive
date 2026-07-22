@@ -5,6 +5,7 @@ import {
   type ModelDefinition,
   type ProviderCapabilities,
   type ProviderMessageOptions,
+  type ProviderSessionState,
 } from "./types.js";
 
 const KIMI_MODELS: ModelDefinition[] = [
@@ -34,6 +35,17 @@ export class KimiProvider extends ClaudeProvider {
   override readonly id: string = "kimi";
   override readonly models: ModelDefinition[] = KIMI_MODELS;
   override readonly capabilities: ProviderCapabilities = KIMI_CAPABILITIES;
+
+  override buildArgs(
+    content: string,
+    options: ProviderMessageOptions,
+    session: ProviderSessionState,
+  ): string[] {
+    // No effort levels: drop any thinkingLevel that leaks in (e.g. from a
+    // stale client or stored agent) so --effort is never emitted.
+    const { thinkingLevel: _drop, ...rest } = options;
+    return super.buildArgs(content, rest, session);
+  }
 
   override buildEnv(options: ProviderMessageOptions): Record<string, string> {
     const contextWindow = findModel(this.models, options.model)?.contextWindow

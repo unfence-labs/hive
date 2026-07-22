@@ -45,7 +45,10 @@ export async function refreshModelCatalog(): Promise<void> {
   catalogPromise = null;
   try {
     const data = await loadCatalog();
-    catalogListeners.forEach((listener) => listener(data));
+    // A newer refresh may have superseded this one; the cache always holds the
+    // current response (see loadCatalog), so prefer it.
+    const current = catalogCache ?? data;
+    catalogListeners.forEach((listener) => listener(current));
   } catch {
     // Keep whatever the hooks already show; the next mount retries.
   }
@@ -61,9 +64,19 @@ export function setCachedDefaultModelId(defaultModelId: string): void {
 
 function loadCatalog(): Promise<ModelCatalogResponse> {
   if (!catalogPromise) {
-    catalogPromise = api.get<ModelCatalogResponse>("/api/models")
-      .then((data) => { catalogCache = data; return data; })
-      .catch((err) => { catalogPromise = null; throw err; });
+    // Only the promise currently stored in catalogPromise may write the cache:
+    // a request superseded by refreshModelCatalog (which resets catalogPromise)
+    // must not overwrite the fresher response when it finally resolves.
+    const promise: Promise<ModelCatalogResponse> = api.get<ModelCatalogResponse>("/api/models")
+      .then((data) => {
+        if (catalogPromise === promise) catalogCache = data;
+        return data;
+      })
+      .catch((err) => {
+        if (catalogPromise === promise) catalogPromise = null;
+        throw err;
+      });
+    catalogPromise = promise;
   }
   return catalogPromise;
 }
@@ -109,10 +122,13 @@ export function useModels(lockedProvider?: string, preferredModelId?: string): U
     loadCatalog()
       .then((data) => {
         if (cancelled) return;
-        setModels(data.models);
-        setDefaultModelId(data.defaultModelId);
+        // If a refresh superseded this request, the cache already holds the
+        // fresher response — adopt it instead of our stale one.
+        const current = catalogCache ?? data;
+        setModels(current.models);
+        setDefaultModelId(current.defaultModelId);
         setSelectedModelId((prev) =>
-          prev || seedModelId(data, lockedProviderRef.current, preferredModelIdRef.current));
+          prev || seedModelId(current, lockedProviderRef.current, preferredModelIdRef.current));
         setIsLoading(false);
       })
       .catch(() => {

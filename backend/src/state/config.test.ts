@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { loadConfig, saveConfig, updateConfig, type AppConfig } from "./config.js";
@@ -181,6 +181,17 @@ describe("saveConfig", () => {
     const loaded = await loadConfig(dataDir);
     expect(loaded).toEqual(config);
   });
+
+  // File modes are meaningless on Windows.
+  it.skipIf(process.platform === "win32")(
+    "writes config.json with owner-only permissions (it holds credentials)",
+    async () => {
+      await saveConfig({ ...DEFAULT_CONFIG, kimi: { apiKey: "sk-secret" } }, dataDir);
+
+      const { mode } = await stat(join(dataDir, "config.json"));
+      expect(mode & 0o777).toBe(0o600);
+    },
+  );
 });
 
 describe("updateConfig", () => {

@@ -90,6 +90,11 @@ describe("KimiProvider", () => {
     expect(args[idx + 1]).toBe("k3[1m]");
   });
 
+  it("never emits --effort even if a stale thinkingLevel leaks in", () => {
+    const args = provider.buildArgs("Hello", { model: "k3", thinkingLevel: "high" }, baseSession());
+    expect(args).not.toContain("--effort");
+  });
+
   it("supports plan mode via --permission-mode plan", () => {
     const args = provider.buildArgs("Hello", { model: "k3", planMode: true }, baseSession());
     expect(args).toContain("--permission-mode");

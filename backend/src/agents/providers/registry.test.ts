@@ -473,9 +473,16 @@ describe("getAllProviderInfo", () => {
     await detectAvailableProviders();
 
     const info = getAllProviderInfo();
-    expect(info).toHaveLength(3);
+    expect(info).toHaveLength(2);
     expect(info.every((p) => !p.installed)).toBe(true);
     expect(info.every((p) => p.version === null)).toBe(true);
+  });
+
+  it("excludes kimi, which rides the claude CLI and has no binary of its own", async () => {
+    mockNoProviderCli();
+    await detectAvailableProviders();
+
+    expect(getAllProviderInfo().some((p) => p.id === "kimi")).toBe(false);
   });
 
   it("includes detected version for installed providers", async () => {
@@ -503,14 +510,11 @@ describe("getAllProviderInfo", () => {
     const info = getAllProviderInfo();
     const claude = info.find((p) => p.id === "claude")!;
     const codex = info.find((p) => p.id === "codex")!;
-    const kimi = info.find((p) => p.id === "kimi")!;
 
     expect(claude.label).toBe("Claude Code");
     expect(claude.npmPackage).toBe("@anthropic-ai/claude-code");
     expect(codex.label).toBe("Codex");
     expect(codex.npmPackage).toBe("@openai/codex");
-    expect(kimi.label).toBe("Kimi");
-    expect(kimi.npmPackage).toBe(""); // rides the claude CLI
   });
 
   it("sets version null when CLI output is unparseable", async () => {
