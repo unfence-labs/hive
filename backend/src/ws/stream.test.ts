@@ -19,7 +19,7 @@ import {
   _clearActiveSessions,
 } from "../agents/agent-manager.js";
 import type { SessionOptions } from "../agents/agent-manager.js";
-import { streamRoutes, broadcastToWorkspace, _getChannelsForTests, _getHubSocketsForTests, _tickHubLivenessForTests } from "./stream.js";
+import { streamRoutes, broadcastToWorkspace, completionProviderForMessage, _getChannelsForTests, _getHubSocketsForTests, _tickHubLivenessForTests } from "./stream.js";
 import {
   _setScriptStatusForTests,
   _clearAll as clearScripts,
@@ -2103,5 +2103,29 @@ describe("WS /ws/hub", () => {
     expect(ws.readyState).toBe(ws.OPEN);
 
     ws.close();
+  });
+});
+
+describe("completionProviderForMessage", () => {
+  it("maps claude model ids to the claude scan", () => {
+    expect(completionProviderForMessage("claude:opus-4-8", undefined)).toBe("claude");
+  });
+
+  it("maps codex model ids to the codex scan", () => {
+    expect(completionProviderForMessage("codex:gpt-5.5", undefined)).toBe("codex");
+  });
+
+  it("maps kimi model ids to the claude scan (kimi rides the claude CLI)", () => {
+    expect(completionProviderForMessage("kimi:k3", undefined)).toBe("claude");
+  });
+
+  it("prefers the session's locked provider over the message model", () => {
+    expect(completionProviderForMessage("claude:opus-4-8", "codex")).toBe("codex");
+    expect(completionProviderForMessage("codex:gpt-5.5", "kimi")).toBe("claude");
+  });
+
+  it("returns null for unknown or missing providers", () => {
+    expect(completionProviderForMessage(undefined, undefined)).toBeNull();
+    expect(completionProviderForMessage("mystery:model", undefined)).toBeNull();
   });
 });

@@ -1024,7 +1024,16 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
     });
 
     runner.on("stderr", ({ text }) => {
-      const stderrLine = `stderr: ${sanitizeErrorDetail(text)}`;
+      // Expected CLI notice when we inject ANTHROPIC_API_KEY (Kimi sessions):
+      // claude.ai connectors can't work against a third-party endpoint anyway,
+      // so don't surface it as an error in the conversation. Filter per line —
+      // a chunk can bundle the notice with real errors.
+      const kept = text
+        .split("\n")
+        .filter((line) => !line.includes("connectors are disabled because ANTHROPIC_API_KEY"))
+        .join("\n");
+      if (!kept.trim()) return;
+      const stderrLine = `stderr: ${sanitizeErrorDetail(kept)}`;
       lastStderr = stderrLine;
       this.emit("message", { type: "error", message: stderrLine, sessionId: this.sessionId } as WsOutgoing);
     });

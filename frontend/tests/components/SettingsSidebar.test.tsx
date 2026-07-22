@@ -171,7 +171,7 @@ describe("SettingsSidebar", () => {
       </MemoryRouter>,
     );
 
-    await user.click(screen.getByRole("link", { name: /CLI/i }));
+    await user.click(screen.getByRole("link", { name: /Harness/i }));
     await waitFor(() => {
       expect(screen.getByText("CLI settings")).toBeInTheDocument();
     });
@@ -227,7 +227,7 @@ describe("SettingsSidebar", () => {
     );
 
     await screen.findByText("CLI settings");
-    expect(screen.getByRole("link", { name: /CLI/i })).toHaveClass("bg-primary/10");
+    expect(screen.getByRole("link", { name: /Harness/i })).toHaveClass("bg-primary/10");
   });
 
   it("groups agent settings in their own section", () => {
@@ -243,7 +243,7 @@ describe("SettingsSidebar", () => {
 
     expect(screen.getByRole("heading", { name: "General" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Agents" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /CLI/i })).toHaveAttribute("href", "/settings/cli");
+    expect(screen.getByRole("link", { name: /Harness/i })).toHaveAttribute("href", "/settings/cli");
     expect(screen.getByRole("link", { name: /Subagents/i })).toHaveAttribute("href", "/settings/subagents");
     expect(screen.getByRole("link", { name: /Instructions/i })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /Prompt/i })).toBeInTheDocument();

@@ -1,7 +1,9 @@
 import { execFile as execFileCb } from "node:child_process";
 import { promisify } from "node:util";
+import { getKimiApiKey } from "../../state/config.js";
 import { ClaudeProvider } from "./claude.js";
 import { CodexProvider } from "./codex.js";
+import { KimiProvider } from "./kimi.js";
 import {
   findModel,
   type AgentProvider,
@@ -16,6 +18,7 @@ const execFile = promisify(execFileCb);
 const PROVIDER_LABELS: Record<string, string> = {
   claude: "Claude Code",
   codex: "Codex",
+  kimi: "Kimi",
 };
 
 /** npm package name for each provider, used to check for updates. */
@@ -30,6 +33,7 @@ const DEFAULT_PROVIDER_PRIORITY = ["codex", "claude"];
 const ALL_PROVIDERS: AgentProvider[] = [
   new ClaudeProvider(),
   new CodexProvider(),
+  new KimiProvider(),
 ];
 
 const providerMap = new Map<string, AgentProvider>(
@@ -156,6 +160,11 @@ export function getModelCatalog(): ModelCatalogResponse {
 
   for (const provider of ALL_PROVIDERS) {
     if (!availableProviderIds.has(provider.id)) continue;
+    // Kimi needs a stored API key on top of the (claude) CLI: without one the
+    // Moonshot endpoint can't authenticate, so hide it from the picker. Checked
+    // at catalog build time so saving a key takes effect without a restart.
+    // resolveProvider is intentionally not gated — stored sessions must resolve.
+    if (provider.id === "kimi" && !getKimiApiKey()) continue;
     const providerLabel = PROVIDER_LABELS[provider.id] ?? provider.id;
 
     for (const model of provider.models) {
@@ -207,7 +216,8 @@ export interface AgentProviderInfo {
 
 /** Return info about all known providers (installed or not). */
 export function getAllProviderInfo(): AgentProviderInfo[] {
-  return ALL_PROVIDERS.map((p) => ({
+  // Kimi rides the claude CLI and has no binary of its own to list or update.
+  return ALL_PROVIDERS.filter((p) => p.id !== "kimi").map((p) => ({
     id: p.id,
     label: PROVIDER_LABELS[p.id] ?? p.id,
     npmPackage: NPM_PACKAGES[p.id] ?? "",

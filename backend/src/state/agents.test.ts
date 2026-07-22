@@ -72,4 +72,11 @@ describe("agents persistence", () => {
     const loaded = await loadAgents(dataDir);
     expect(loaded[0].thinkingLevel).toBe("high");
   });
+
+  it("clears a stale thinkingLevel for models with no thinking-level control", async () => {
+    await saveAgents([makeAgent({ modelId: "kimi:k3", thinkingLevel: "high" })], dataDir);
+
+    const loaded = await loadAgents(dataDir);
+    expect(loaded[0].thinkingLevel).toBeUndefined();
+  });
 });

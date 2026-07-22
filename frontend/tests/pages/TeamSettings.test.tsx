@@ -1,8 +1,9 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import TeamSettings from "@/pages/settings/TeamSettings";
+import { __resetModelCatalogCacheForTests, refreshModelCatalog } from "@/hooks/useModels";
 import type { Agent, ModelCatalogResponse } from "@/types";
 
 const mocks = vi.hoisted(() => ({
@@ -81,6 +82,19 @@ const catalog: ModelCatalogResponse = {
         goals: false,
       },
     },
+    {
+      id: "kimi:k3",
+      label: "K3",
+      provider: "kimi",
+      providerLabel: "Kimi",
+      capabilities: {
+        thinkingLevels: [],
+        planMode: true,
+        blockingTools: true,
+        completions: true,
+        goals: false,
+      },
+    },
   ],
 };
 
@@ -98,13 +112,16 @@ function makeAgent(overrides: Partial<Agent> = {}): Agent {
   };
 }
 
-function renderPage() {
-  const queryClient = new QueryClient({
+function createQueryClient() {
+  return new QueryClient({
     defaultOptions: {
       queries: { retry: false },
       mutations: { retry: false },
     },
   });
+}
+
+function renderPage(queryClient = createQueryClient()) {
   return render(
     <QueryClientProvider client={queryClient}>
       <TeamSettings />
@@ -115,6 +132,7 @@ function renderPage() {
 describe("TeamSettings", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    __resetModelCatalogCacheForTests();
     mocks.apiGet.mockResolvedValue(catalog);
     mocks.useAgents.mockReturnValue({ data: [], isLoading: false });
     mocks.useCreateAgent.mockReturnValue({
@@ -180,5 +198,51 @@ describe("TeamSettings", () => {
         }),
       );
     });
+  });
+
+  it("hides the thinking control and omits thinkingLevel for a level-less model (kimi)", async () => {
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(screen.getByRole("button", { name: "Add Agent" }));
+    await user.type(screen.getByPlaceholderText("e.g. Code Auditor"), "Kimi Agent");
+    await user.type(screen.getByPlaceholderText("You are a code auditor..."), "Do things.");
+
+    expect(screen.getByText("Thinking")).toBeInTheDocument();
+    await user.selectOptions(screen.getByRole("combobox"), "kimi:k3");
+    await waitFor(() => expect(screen.queryByText("Thinking")).not.toBeInTheDocument());
+
+    await user.click(screen.getByRole("button", { name: "Create" }));
+
+    await waitFor(() => {
+      expect(mocks.createMutateAsync).toHaveBeenCalledWith({
+        name: "Kimi Agent",
+        systemPrompt: "Do things.",
+        modelId: "kimi:k3",
+        readOnly: false,
+      });
+    });
+    expect(mocks.createMutateAsync.mock.calls[0][0]).not.toHaveProperty("thinkingLevel");
+  });
+
+  it("uses the refreshed model catalog after the Kimi key changes", async () => {
+    const withoutKimi: ModelCatalogResponse = {
+      ...catalog,
+      models: catalog.models.filter((model) => model.provider !== "kimi"),
+    };
+    mocks.apiGet.mockResolvedValueOnce(withoutKimi).mockResolvedValueOnce(catalog);
+    const queryClient = createQueryClient();
+
+    const firstRender = renderPage(queryClient);
+    await userEvent.click(screen.getByRole("button", { name: "Add Agent" }));
+    await screen.findByRole("option", { name: "Sonnet 4.6 (Claude Code)" });
+    expect(screen.queryByRole("option", { name: "K3 (Kimi)" })).not.toBeInTheDocument();
+    firstRender.unmount();
+
+    await act(() => refreshModelCatalog());
+    renderPage(queryClient);
+    await userEvent.click(screen.getByRole("button", { name: "Add Agent" }));
+
+    expect(screen.getByRole("option", { name: "K3 (Kimi)" })).toBeInTheDocument();
   });
 });

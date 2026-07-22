@@ -35,7 +35,8 @@ export async function completionRoutes(
 }
 
 function parseCompletionProvider(value: string | undefined): CompletionProvider | null {
-  if (value === undefined || value === "" || value === "claude") return "claude";
+  // Kimi rides the Claude CLI, so its skills/agents live in the claude scan.
+  if (value === undefined || value === "" || value === "claude" || value === "kimi") return "claude";
   if (value === "codex") return "codex";
   return null;
 }
