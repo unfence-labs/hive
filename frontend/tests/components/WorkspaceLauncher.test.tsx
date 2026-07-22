@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
@@ -19,13 +20,26 @@ const singleProject: Project[] = [
   { id: "p1", name: "hive", createdAt: "2026-01-01T00:00:00.000Z", workspaces: [] },
 ];
 
+function LauncherHarness() {
+  const [picker, setPicker] = useState<{ open: boolean; projectId?: string }>({ open: false });
+  return (
+    <WorkspaceLauncher
+      pickerOpen={picker.open}
+      pickerProjectId={picker.projectId}
+      onPickerOpenChange={(open) =>
+        setPicker((prev) => (open ? { ...prev, open: true } : { open: false }))
+      }
+    />
+  );
+}
+
 function renderLauncher(projects: Project[]) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   queryClient.setQueryData(["projects"], projects);
   render(
     <QueryClientProvider client={queryClient}>
       <MemoryRouter>
-        <WorkspaceLauncher />
+        <LauncherHarness />
       </MemoryRouter>
     </QueryClientProvider>,
   );

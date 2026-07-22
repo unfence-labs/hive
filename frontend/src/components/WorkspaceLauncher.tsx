@@ -6,15 +6,25 @@ import { ProjectPickerDialog } from "@/components/ProjectPickerDialog";
 import NewWorkspaceFromDialog from "@/components/NewWorkspaceFromDialog";
 import { useProjects } from "@/hooks/useProjects";
 
+interface WorkspaceLauncherProps {
+  /** "New workspace from…" picker state — owned by App so the sidebar can open it too. */
+  pickerOpen: boolean;
+  pickerProjectId?: string;
+  onPickerOpenChange: (open: boolean) => void;
+}
+
 /**
  * Global workspace-creation surface: ⌘K spotlight, ⌘N instant create from the
  * default branch, ⌘⇧N "new workspace from…" picker. ⌘N resolves the project
  * from the active workspace (or the only project); when ambiguous it asks for
  * the project only — the source stays the default branch.
  */
-export default function WorkspaceLauncher() {
+export default function WorkspaceLauncher({
+  pickerOpen,
+  pickerProjectId,
+  onPickerOpenChange,
+}: WorkspaceLauncherProps) {
   const [spotlightOpen, setSpotlightOpen] = useState(false);
-  const [pickerOpen, setPickerOpen] = useState(false);
   const [projectPickerOpen, setProjectPickerOpen] = useState(false);
   const { projects, createWorkspace } = useProjects();
   const navigate = useNavigate();
@@ -60,7 +70,7 @@ export default function WorkspaceLauncher() {
       const key = e.key.toLowerCase();
       if (key === "k" && !e.shiftKey) {
         e.preventDefault();
-        setPickerOpen(false);
+        onPickerOpenChange(false);
         setProjectPickerOpen(false);
         setSpotlightOpen((prev) => !prev);
       } else if (key === "n") {
@@ -68,7 +78,7 @@ export default function WorkspaceLauncher() {
         setSpotlightOpen(false);
         setProjectPickerOpen(false);
         if (e.shiftKey) {
-          setPickerOpen(true);
+          onPickerOpenChange(true);
         } else {
           instantCreate();
         }
@@ -76,7 +86,7 @@ export default function WorkspaceLauncher() {
     }
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [instantCreate]);
+  }, [instantCreate, onPickerOpenChange]);
 
   return (
     <>
@@ -84,7 +94,7 @@ export default function WorkspaceLauncher() {
         open={spotlightOpen}
         onOpenChange={setSpotlightOpen}
         onNewWorkspace={instantCreate}
-        onNewWorkspaceFrom={() => setPickerOpen(true)}
+        onNewWorkspaceFrom={() => onPickerOpenChange(true)}
       />
       <ProjectPickerDialog
         open={projectPickerOpen}
@@ -93,8 +103,8 @@ export default function WorkspaceLauncher() {
       />
       <NewWorkspaceFromDialog
         open={pickerOpen}
-        onOpenChange={setPickerOpen}
-        defaultProjectId={contextProject?.id}
+        onOpenChange={onPickerOpenChange}
+        defaultProjectId={pickerProjectId ?? contextProject?.id}
       />
     </>
   );
