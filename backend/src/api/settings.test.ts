@@ -121,6 +121,63 @@ describe("defaults routes", () => {
   });
 });
 
+describe("kimi routes", () => {
+  it("GET /api/settings/kimi returns an empty key by default", async () => {
+    const res = await app.inject({ method: "GET", url: "/api/settings/kimi" });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ apiKey: "" });
+  });
+
+  it("PUT /api/settings/kimi rejects non-string payloads", async () => {
+    const res = await app.inject({
+      method: "PUT",
+      url: "/api/settings/kimi",
+      payload: { apiKey: 42 },
+    });
+
+    expect(res.statusCode).toBe(400);
+    expect(res.json()).toEqual({ error: "Invalid payload" });
+  });
+
+  it("PUT /api/settings/kimi saves the trimmed key and GET returns it", async () => {
+    const res = await app.inject({
+      method: "PUT",
+      url: "/api/settings/kimi",
+      payload: { apiKey: "  sk-kimi-key  " },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ apiKey: "sk-kimi-key" });
+
+    const config = await loadConfig(tempDir);
+    expect(config.kimi.apiKey).toBe("sk-kimi-key");
+
+    const getRes = await app.inject({ method: "GET", url: "/api/settings/kimi" });
+    expect(getRes.json()).toEqual({ apiKey: "sk-kimi-key" });
+  });
+
+  it("PUT /api/settings/kimi with an empty string clears the saved key", async () => {
+    await app.inject({
+      method: "PUT",
+      url: "/api/settings/kimi",
+      payload: { apiKey: "sk-kimi-key" },
+    });
+
+    const res = await app.inject({
+      method: "PUT",
+      url: "/api/settings/kimi",
+      payload: { apiKey: "" },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ apiKey: "" });
+
+    const config = await loadConfig(tempDir);
+    expect(config.kimi.apiKey).toBe("");
+  });
+});
+
 describe("settings routes", () => {
   it("GET /api/settings/notifications returns default config", async () => {
     const res = await app.inject({
@@ -168,6 +225,7 @@ describe("settings routes", () => {
         telegram: { enabled: true, botToken: "bot-token", chatId: "chat-id" },
         apns: { ...DEFAULT_APNS },
       },
+      kimi: { apiKey: "" },
     });
 
     expect(mocks.rebuildNotifier).toHaveBeenCalledTimes(1);
@@ -228,6 +286,7 @@ describe("settings routes", () => {
         telegram: { enabled: false, botToken: "", chatId: "" },
         apns: { ...DEFAULT_APNS, deviceTokens: ["deadbeef"] },
       },
+      kimi: { apiKey: "" },
     }, tempDir);
 
     const res = await app.inject({
@@ -266,6 +325,7 @@ describe("settings routes", () => {
         telegram: { enabled: false, botToken: "", chatId: "" },
         apns: { ...DEFAULT_APNS, deviceTokens: ["aabbccdd11223344aabbccdd11223344"] },
       },
+      kimi: { apiKey: "" },
     }, tempDir);
 
     const res = await app.inject({

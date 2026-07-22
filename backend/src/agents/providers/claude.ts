@@ -39,10 +39,12 @@ const CLAUDE_CAPABILITIES: ProviderCapabilities = {
 };
 
 export class ClaudeProvider implements AgentProvider {
-  readonly id = "claude";
-  readonly command = "claude";
-  readonly models = CLAUDE_MODELS;
-  readonly capabilities = CLAUDE_CAPABILITIES;
+  // Annotated (not inferred literals) so subclasses like KimiProvider can
+  // override id/models/capabilities while reusing the CLI plumbing.
+  readonly id: string = "claude";
+  readonly command: string = "claude";
+  readonly models: ModelDefinition[] = CLAUDE_MODELS;
+  readonly capabilities: ProviderCapabilities = CLAUDE_CAPABILITIES;
 
   buildArgs(
     content: string,

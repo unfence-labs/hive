@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
 vi.mock("node:child_process", () => ({
   execFile: vi.fn(
@@ -9,6 +9,9 @@ vi.mock("node:child_process", () => ({
 }));
 
 import { execFile } from "node:child_process";
+import { rm } from "node:fs/promises";
+import { loadConfig, updateConfig } from "../../state/config.js";
+import { createTempDir } from "../../utils/test-helpers.js";
 import {
   resolveProvider,
   getProvider,
@@ -276,6 +279,9 @@ describe("detectAvailableProviders", () => {
     const providers = new Set(catalog.models.map((m) => m.provider));
     expect(providers.has("claude")).toBe(true);
     expect(providers.has("codex")).toBe(true);
+    // Kimi's CLI (claude) was detected too, but the catalog gates it on a
+    // stored API key.
+    expect(providers.has("kimi")).toBe(false);
   });
 
   it("ignores providers whose CLI is not found", async () => {
@@ -317,6 +323,86 @@ describe("markProviderAvailable", () => {
     markProviderAvailable("codex");
 
     expect(getModelCatalog().models.some((m) => m.provider === "codex")).toBe(true);
+  });
+});
+
+describe("kimi in catalog", () => {
+  let tempDir: string;
+
+  beforeEach(async () => {
+    tempDir = await createTempDir("hive-registry-kimi-");
+    // Warm the module-level key cache from an empty config (key = "").
+    await loadConfig(tempDir);
+  });
+
+  afterEach(async () => {
+    await rm(tempDir, { recursive: true, force: true });
+    // Leave the cache empty for the other describe blocks.
+    await loadConfig(tempDir);
+  });
+
+  it("is absent when the CLI is available but no API key is stored", () => {
+    markProviderAvailable("kimi");
+    const catalog = getModelCatalog();
+    expect(catalog.models.some((m) => m.provider === "kimi")).toBe(false);
+  });
+
+  it("is absent when a key is stored but the CLI is unavailable", async () => {
+    await updateConfig((c) => { c.kimi.apiKey = "sk-kimi"; }, tempDir);
+    const catalog = getModelCatalog();
+    expect(catalog.models.some((m) => m.provider === "kimi")).toBe(false);
+  });
+
+  it("appears once the CLI is available and a key is stored, without a re-detect", async () => {
+    markProviderAvailable("kimi");
+    await updateConfig((c) => { c.kimi.apiKey = "sk-kimi"; }, tempDir);
+
+    const catalog = getModelCatalog();
+    const kimiIds = catalog.models.filter((m) => m.provider === "kimi").map((m) => m.id);
+    expect(kimiIds).toEqual(["kimi:k3", "kimi:k3-1m", "kimi:kimi-for-coding"]);
+
+    // Clearing the key hides it again on the next catalog build.
+    await updateConfig((c) => { c.kimi.apiKey = ""; }, tempDir);
+    expect(getModelCatalog().models.some((m) => m.provider === "kimi")).toBe(false);
+  });
+
+  it("exposes label, contextWindow, and effort-free capabilities", async () => {
+    markProviderAvailable("kimi");
+    await updateConfig((c) => { c.kimi.apiKey = "sk-kimi"; }, tempDir);
+
+    const byId = new Map(getModelCatalog().models.map((m) => [m.id, m]));
+    const k3 = byId.get("kimi:k3")!;
+    expect(k3.label).toBe("K3");
+    expect(k3.providerLabel).toBe("Kimi");
+    expect(k3.isDefault).toBe(true);
+    expect(k3.contextWindow).toBe(262_144);
+    expect(k3.capabilities.thinkingLevels).toEqual([]);
+    expect(k3.capabilities.planMode).toBe(true);
+    expect(k3.supportsFastMode).toBeUndefined();
+    expect(byId.get("kimi:k3-1m")?.contextWindow).toBe(1_048_576);
+    expect(byId.get("kimi:kimi-for-coding")?.contextWindow).toBe(262_144);
+  });
+
+  it("never becomes the catalog default", async () => {
+    markProviderAvailable("kimi");
+    markProviderAvailable("claude");
+    await updateConfig((c) => { c.kimi.apiKey = "sk-kimi"; }, tempDir);
+
+    const catalog = getModelCatalog();
+    expect(catalog.defaultModelId).toMatch(/^claude:/);
+  });
+
+  it("resolves kimi:model ids without a stored key", () => {
+    const { provider, modelId } = resolveProvider("kimi:k3");
+    expect(provider.id).toBe("kimi");
+    expect(modelId).toBe("k3");
+    expect(getProvider("kimi")?.id).toBe("kimi");
+    expect(isKnownModelId("kimi:k3-1m")).toBe(true);
+  });
+
+  it("has no default thinking level (no effort control)", () => {
+    expect(getDefaultThinkingLevelForModel("kimi:k3")).toBeUndefined();
+    expect(isThinkingLevelSupportedForModel("kimi:k3", "high")).toBe(false);
   });
 });
 
@@ -387,7 +473,7 @@ describe("getAllProviderInfo", () => {
     await detectAvailableProviders();
 
     const info = getAllProviderInfo();
-    expect(info).toHaveLength(2);
+    expect(info).toHaveLength(3);
     expect(info.every((p) => !p.installed)).toBe(true);
     expect(info.every((p) => p.version === null)).toBe(true);
   });
@@ -417,11 +503,14 @@ describe("getAllProviderInfo", () => {
     const info = getAllProviderInfo();
     const claude = info.find((p) => p.id === "claude")!;
     const codex = info.find((p) => p.id === "codex")!;
+    const kimi = info.find((p) => p.id === "kimi")!;
 
     expect(claude.label).toBe("Claude Code");
     expect(claude.npmPackage).toBe("@anthropic-ai/claude-code");
     expect(codex.label).toBe("Codex");
     expect(codex.npmPackage).toBe("@openai/codex");
+    expect(kimi.label).toBe("Kimi");
+    expect(kimi.npmPackage).toBe(""); // rides the claude CLI
   });
 
   it("sets version null when CLI output is unparseable", async () => {

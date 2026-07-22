@@ -115,12 +115,14 @@ function replaceFileMentionsWithAbsolutePaths(
   return resolved;
 }
 
-function completionProviderForMessage(
+export function completionProviderForMessage(
   modelId: string | undefined,
   lockedProvider: string | undefined,
 ): CompletionProvider | null {
   const provider = lockedProvider ?? modelId?.split(":")[0];
-  return provider === "claude" || provider === "codex" ? provider : null;
+  // Kimi rides the Claude CLI, so its aliases resolve via the claude scan.
+  if (provider === "claude" || provider === "kimi") return "claude";
+  return provider === "codex" ? "codex" : null;
 }
 
 // ── Sending helpers ─────────────────────────────────────────────────
