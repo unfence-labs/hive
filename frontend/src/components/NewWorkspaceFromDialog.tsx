@@ -68,7 +68,9 @@ export default function NewWorkspaceFromDialog({
   const [tab, setTab] = useState<SourceTab>("pulls");
   const [query, setQuery] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
-  const [creating, setCreating] = useState(false);
+  /** Key of the row being created/opened; the whole picker is inert while set. */
+  const [creatingKey, setCreatingKey] = useState<string | null>(null);
+  const creating = creatingKey !== null;
   const inputRef = useRef<HTMLInputElement>(null);
 
   const activeProjectId = projectId ?? defaultProjectId ?? projects[0]?.id;
@@ -185,7 +187,7 @@ export default function NewWorkspaceFromDialog({
       return;
     }
     if (!row.source || !activeProjectId || creating) return;
-    setCreating(true);
+    setCreatingKey(row.key);
     try {
       const ws = await createWorkspace(activeProjectId, row.source);
       onOpenChange(false);
@@ -193,7 +195,7 @@ export default function NewWorkspaceFromDialog({
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to create workspace");
     } finally {
-      setCreating(false);
+      setCreatingKey(null);
     }
   }
 
@@ -250,9 +252,13 @@ export default function NewWorkspaceFromDialog({
             className="h-12 w-full bg-transparent text-sm outline-hidden placeholder:text-muted-foreground"
             disabled={creating}
           />
-          {creating && <Spinner className="size-4 shrink-0" />}
         </div>
-        <div className="flex items-center justify-between border-b px-3 py-2">
+        <div
+          className={cn(
+            "flex items-center justify-between border-b px-3 py-2",
+            creating && "pointer-events-none opacity-50",
+          )}
+        >
           <div className="inline-flex items-center gap-0.5 rounded-lg bg-muted/60 p-0.5">
             {TABS.map(({ id, label }) => (
               <button
@@ -311,6 +317,7 @@ export default function NewWorkspaceFromDialog({
           ) : (
             rows.map((row, index) => {
               const selected = index === clampedIndex;
+              const isCreating = row.key === creatingKey;
               return (
                 <Fragment key={row.key}>
                   {row.sectionHeader && (
@@ -325,18 +332,23 @@ export default function NewWorkspaceFromDialog({
                   className={cn(
                     "flex w-full items-center gap-2 rounded-sm px-2 py-2 text-left text-sm",
                     selected && "bg-accent text-accent-foreground",
+                    creating && !isCreating && "opacity-50",
                   )}
                   onMouseMove={() => setSelectedIndex(index)}
                   onClick={() => void activateRow(row)}
                   disabled={creating}
                 >
-                  <RowIcon icon={row.icon} />
+                  {isCreating ? <Spinner className="size-4 shrink-0" /> : <RowIcon icon={row.icon} />}
                   {row.prefix && (
                     <span className="shrink-0 tabular-nums text-muted-foreground">{row.prefix}</span>
                   )}
                   <span className="min-w-0 truncate">{row.label}</span>
-                  {row.detail && (
-                    <span className="ml-auto shrink-0 text-xs text-muted-foreground">{row.detail}</span>
+                  {isCreating ? (
+                    <span className="ml-auto shrink-0 text-xs text-muted-foreground">Creating…</span>
+                  ) : (
+                    row.detail && (
+                      <span className="ml-auto shrink-0 text-xs text-muted-foreground">{row.detail}</span>
+                    )
                   )}
                 </button>
                 </Fragment>
