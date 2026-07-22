@@ -61,6 +61,7 @@ Run Hive as a **local web app**, a **Tauri desktop app** (pointed at a local or 
 ### 🔌 Providers
 - **Claude** via streaming JSON from the Claude CLI.
 - **Codex** interactive chat via `codex app-server`; automations via `codex exec --json`.
+- **Kimi** (Moonshot K3 / Kimi for Coding) through the Claude CLI pointed at Moonshot's Anthropic-compatible Kimi Code subscription endpoint. Requires a [Kimi Code subscription](https://www.kimi.com/membership/pricing) API key (Settings → Models); models appear in the picker once the key is saved. The `k3-1m` 1M-context model needs the Allegretto tier or above. WebFetch is not supported by the endpoint and fails at runtime.
 - Command execution, file changes, plans, goals, diagnostics, image views, token usage, and collaborative tool calls normalized into Hive events.
 
 ### 🤖 Automation

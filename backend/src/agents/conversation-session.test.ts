@@ -3064,6 +3064,24 @@ describe("ConversationSession", () => {
     }
   });
 
+  it("suppresses the benign claude.ai connectors stderr notice but keeps real errors", () => {
+    const session = createSession();
+    const messages: WsOutgoing[] = [];
+    session.on("message", (msg) => messages.push(msg));
+
+    session.sendMessage("Hi");
+    mockProc._stderr.push("⚠ claude.ai connectors are disabled because ANTHROPIC_API_KEY or another auth source is set and takes precedence over your claude.ai login · Unset it to load your organization's connectors");
+    expect(messages.filter((m) => m.type === "error")).toHaveLength(0);
+
+    mockProc._stderr.push("⚠ claude.ai connectors are disabled because ANTHROPIC_API_KEY is set\nreal failure");
+    const errors = messages.filter((m) => m.type === "error");
+    expect(errors).toHaveLength(1);
+    if (errors[0].type === "error") {
+      expect(errors[0].message).toContain("real failure");
+      expect(errors[0].message).not.toContain("connectors");
+    }
+  });
+
   it("defaults command to claude", () => {
     const session = createSession();
     session.sendMessage("Hi");
