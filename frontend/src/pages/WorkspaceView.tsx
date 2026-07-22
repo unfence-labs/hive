@@ -24,11 +24,13 @@ import { PageHeader } from "@/components/AppLayout";
 import { CenterCard } from "@/components/CenterCard";
 import { ResizeHandle } from "@/components/ResizeHandle";
 import { PathCopyButton } from "@/components/PathCopyButton";
+import { QuickOpenFileDialog } from "@/components/QuickOpenFileDialog";
 import { wsTransport } from "@/lib/ws-transport";
 import { hasPendingExitPlanModeInput, isPlanAwaitingUserInput, findPlanContent } from "@/lib/plan-state";
 import { buildInitialExpanded, countFiles, DEFAULT_EXPANDED, findFirstFilePath } from "@/lib/file-tree";
 import { PlanActionBar } from "@/components/chat/PlanActionBar";
 import { useScripts } from "@/hooks/useScripts";
+import { useAppCommand } from "@/hooks/useAppCommand";
 import type { DiffFileStat, DiffScope, DiffStatResponse, FileMention, ImageAttachment, MessageOptions, Workspace, WorkspaceFileTreeNode } from "@/types";
 
 function matchesDiffStat(filePath: string | null | undefined, stat: DiffFileStat): boolean {
@@ -318,6 +320,12 @@ export default function WorkspaceView() {
     openFileTab(path);
   }, [openFileTab]);
 
+  const [quickOpenFileOpen, setQuickOpenFileOpen] = useState(false);
+  const openQuickFile = useCallback(() => setQuickOpenFileOpen(true), []);
+  const closeQuickFile = useCallback(() => setQuickOpenFileOpen(false), []);
+  useAppCommand("quick-open-file", openQuickFile);
+  useAppCommand("dismiss-view-dialogs", closeQuickFile);
+
   const handleModifiedFileClick = useCallback((filePath: string, scope: DiffScope) => {
     setSelectedPath(filePath);
     openDiffTab(filePath, scope);
@@ -442,6 +450,14 @@ export default function WorkspaceView() {
 
   return (
     <div className="flex h-full flex-col">
+      {wsId && (
+        <QuickOpenFileDialog
+          open={quickOpenFileOpen}
+          onOpenChange={setQuickOpenFileOpen}
+          workspaceId={wsId}
+          onSelect={handleFileTreeSelect}
+        />
+      )}
       {/* Chat area + right panel */}
       <Group
         orientation="horizontal"
