@@ -161,10 +161,60 @@ describe("POST /api/projects/:id/workspaces with source kind 'pr'", () => {
     const res = await createFromSource({ kind: "pr", number: 7 });
     expect(res.statusCode).toBe(201);
     const ws = res.json();
-    expect(ws.branch).toBe("fork-feature");
+    expect(ws.branch).toBe("pr/7");
     const wsPath = join(dataDir, projectId, "workspaces", ws.name);
     const { stdout } = await git(["rev-parse", "--abbrev-ref", "HEAD"], wsPath);
-    expect(stdout).toBe("fork-feature");
+    expect(stdout).toBe("pr/7");
+  });
+
+  it("does not move an existing local branch when a fork PR reuses its name", async () => {
+    await setProjectGitHubUrl();
+    const bare = join(dataDir, projectId, "repo.git");
+    const { stdout: mainShaBefore } = await git(["rev-parse", "refs/heads/main"], bare);
+
+    const { stdout: sha } = await git(["rev-parse", "main"], fixtureRepoUrl);
+    await git(["update-ref", "refs/pull/9/head", sha], fixtureRepoUrl);
+    vi.mocked(fetchPrDetail).mockResolvedValue({
+      number: 9,
+      title: "Fork reuses main",
+      body: "",
+      url: "https://github.com/acme/demo/pull/9",
+      headRefName: "main",
+      isCrossRepository: true,
+    });
+
+    const res = await createFromSource({ kind: "pr", number: 9 });
+    expect(res.statusCode).toBe(201);
+    const ws = res.json();
+    expect(ws.branch).toBe("pr/9");
+
+    const { stdout: mainShaAfter } = await git(["rev-parse", "refs/heads/main"], bare);
+    expect(mainShaAfter).toBe(mainShaBefore);
+  });
+
+  it("deletes the pr/<n> branch when the workspace is deleted", async () => {
+    await setProjectGitHubUrl();
+    const { stdout: sha } = await git(["rev-parse", "main"], fixtureRepoUrl);
+    await git(["update-ref", "refs/pull/11/head", sha], fixtureRepoUrl);
+    vi.mocked(fetchPrDetail).mockResolvedValue({
+      number: 11,
+      title: "Fork contribution",
+      body: "",
+      url: "https://github.com/acme/demo/pull/11",
+      headRefName: "fork-feature",
+      isCrossRepository: true,
+    });
+
+    const created = await createFromSource({ kind: "pr", number: 11 });
+    expect(created.statusCode).toBe(201);
+    const ws = created.json();
+    expect(ws.branch).toBe("pr/11");
+
+    const res = await app.inject({ method: "DELETE", url: `/api/workspaces/${ws.id}` });
+    expect(res.statusCode).toBe(204);
+
+    const bare = join(dataDir, projectId, "repo.git");
+    await expect(git(["show-ref", "--verify", "refs/heads/pr/11"], bare)).rejects.toBeTruthy();
   });
 
   it("returns 400 when the project has no GitHub remote", async () => {

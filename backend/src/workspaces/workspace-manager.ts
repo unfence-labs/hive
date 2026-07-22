@@ -125,22 +125,32 @@ async function checkoutSourceBranch(
   await addWorktreeOnBranch(bare, wsPath, branch, fetched);
 }
 
+/**
+ * Check out a cross-repository PR on a Hive-owned local branch `pr/<number>`.
+ * Never reuses the fork's headRefName: a fork can name its branch anything
+ * (including "main"), and reusing the name could repoint an unrelated local
+ * branch at the fork's commits.
+ */
 async function checkoutPullRequestHead(
   state: ProjectState,
   bare: string,
   wsPath: string,
-  branch: string,
   prNumber: number,
   dataDir: string,
-): Promise<void> {
-  validateBranchName(branch);
+): Promise<string> {
+  const branch = `pr/${prNumber}`;
   await assertBranchNotCheckedOut(state, bare, branch, dataDir);
   try {
     await git(["fetch", "origin", `pull/${prNumber}/head`], bare);
   } catch {
     throw new BadRequestError(`Could not fetch pull request #${prNumber} from origin`);
   }
-  await addWorktreeOnBranch(bare, wsPath, branch, true);
+  // A stale pr/<n> branch left behind by an older workspace is safe to reset:
+  // the namespace is Hive-owned and the assert above proved nothing has it
+  // checked out.
+  await git(["branch", "-D", branch], bare).catch(() => {});
+  await addWorktreeWithNewBranch(bare, wsPath, branch, "FETCH_HEAD");
+  return branch;
 }
 
 export async function createWorkspace(
@@ -177,10 +187,10 @@ export async function createWorkspace(
       } else if (source.kind === "pr") {
         const repo = requireGitHubRepo(state);
         const pr = await fetchPrDetail(repo.owner, repo.repo, source.number);
-        branch = pr.headRefName;
         if (pr.isCrossRepository) {
-          await checkoutPullRequestHead(state, bare, wsPath, branch, pr.number, dataDir);
+          branch = await checkoutPullRequestHead(state, bare, wsPath, pr.number, dataDir);
         } else {
+          branch = pr.headRefName;
           await checkoutSourceBranch(state, bare, wsPath, branch, dataDir);
         }
         wsSource = { kind: "pr", branch, number: pr.number, title: pr.title, url: pr.url };
@@ -271,8 +281,13 @@ export async function deleteWorkspace(
       await removeWorktreeOrDeleteDirectory(bare, wsPath);
 
       // Remove the branch — but keep branches that pre-existed the workspace
-      // (created from an existing branch or PR head).
-      const keepBranch = workspace.source?.kind === "branch" || workspace.source?.kind === "pr";
+      // (created from an existing branch or a same-repo PR head). Cross-repo PR
+      // checkouts live on the Hive-owned `pr/<n>` branch and are deleted with
+      // the workspace.
+      const src = workspace.source;
+      const keepBranch =
+        src?.kind === "branch" ||
+        (src?.kind === "pr" && workspace.branch !== `pr/${src.number}`);
       if (!keepBranch) {
         try {
           await git(["branch", "-D", workspace.branch], bare);
