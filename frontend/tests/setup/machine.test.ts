@@ -186,5 +186,25 @@ describe("setup machine", () => {
       clearMachineState();
       expect(localStorage.getItem(SETUP_STATE_STORAGE_KEY)).toBeNull();
     });
+
+    it("strips the log excerpt and the Tailscale key from persisted errors", () => {
+      const s: SetupMachineState = {
+        schema: SETUP_STATE_SCHEMA,
+        state: "guided_setup",
+        inputs: { tailscaleAuthKey: "tskey-auth-z", serverIp: "100.64.0.1" },
+        error: { state: "guided_setup", code: "UNKNOWN", logExcerpt: "stderr: connection refused" },
+      };
+      saveMachineState(s);
+
+      const raw = localStorage.getItem(SETUP_STATE_STORAGE_KEY);
+      expect(raw).not.toContain("tskey-auth-z");
+      expect(raw).not.toContain("connection refused");
+      expect(raw).not.toContain("logExcerpt");
+
+      const restored = loadMachineState();
+      expect(restored.state).toBe("guided_setup");
+      expect(restored.inputs.tailscaleAuthKey).toBeUndefined();
+      expect(restored.error).toEqual({ state: "guided_setup", code: "UNKNOWN" });
+    });
   });
 });

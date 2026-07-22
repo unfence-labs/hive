@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useReducer, useState } from "react";
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import {
   reduce,
   loadMachineState,
@@ -74,18 +74,24 @@ export function SetupWizard({ client: injectedClient, onComplete, onConnectExist
     ? `http://${inputs.serverIp}:${DEFAULT_PORT}`
     : "";
 
+  const finishingRef = useRef(false);
   const finish = useCallback(async () => {
-    if (!inputs.serverIp) return;
+    if (finishingRef.current || !inputs.serverIp) return;
+    finishingRef.current = true;
     try {
-      await switchServer({
-        host: inputs.serverIp,
-        port: DEFAULT_PORT,
-        sshUser: inputs.sshUser,
-      });
-      clearMachineState();
-      onComplete?.();
-    } catch (caught) {
-      fail("UNKNOWN", caught instanceof Error ? caught.message : String(caught));
+      try {
+        await switchServer({
+          host: inputs.serverIp,
+          port: DEFAULT_PORT,
+          sshUser: inputs.sshUser,
+        });
+        clearMachineState();
+        onComplete?.();
+      } catch (caught) {
+        fail("UNKNOWN", caught instanceof Error ? caught.message : String(caught));
+      }
+    } finally {
+      finishingRef.current = false;
     }
   }, [fail, inputs.serverIp, inputs.sshUser, onComplete]);
 

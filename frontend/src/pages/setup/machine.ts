@@ -143,7 +143,11 @@ export function saveMachineState(state: SetupMachineState): void {
   try {
     localStorage.setItem(
       SETUP_STATE_STORAGE_KEY,
-      JSON.stringify({ ...state, inputs: { ...state.inputs, tailscaleAuthKey: undefined } }),
+      JSON.stringify({
+        ...state,
+        inputs: { ...state.inputs, tailscaleAuthKey: undefined },
+        error: state.error ? { ...state.error, logExcerpt: undefined } : null,
+      }),
     );
   } catch {
     // ignore quota / serialization errors — persistence is best-effort
