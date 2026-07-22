@@ -297,6 +297,11 @@ guard_install_release() {
 }
 step_install_release() {
   local tarball checksum arch_tag base_url asset_url expected actual rel staging current
+  # The marker must exist before $HIVE_OPT does: a run that dies mid-step would
+  # otherwise read as a foreign install on the next version-bumped re-run.
+  install -d -m 755 /etc/hive
+  : >"$HIVE_INSTALL_MARKER"
+  chmod 600 "$HIVE_INSTALL_MARKER"
   install -d -o hive -g hive "$HIVE_OPT/releases" "$HIVE_OPT/shared"
   ln -sfn "$HIVE_DATA_DIR" "$HIVE_OPT/shared/data"
 

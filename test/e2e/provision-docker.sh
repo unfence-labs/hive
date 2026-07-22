@@ -317,10 +317,46 @@ EOF
   log "PASS (download + checksum verification)"
 }
 
+# The EXISTING_INSTALL false positive: a run that died at install_release left
+# /opt/hive but no state (a version bump wipes it); the re-run must resume, not
+# reject the box as a foreign install.
+mode_reprovision() {
+  local rel; rel="$(build_artifacts)"
+  build_image; start_container
+
+  log "Run 1: die right after install_release (marker written, no secrets yet)"
+  set +e
+  DIE_AFTER=install_release run_provision "$rel" >/tmp/prov-reprov-die.log 2>&1
+  local rc=$?
+  set -e
+  [ "$rc" = 137 ] || { echo "FAIL: expected exit 137, got $rc"; cat /tmp/prov-reprov-die.log; exit 1; }
+  docker exec "$CID" test -d /opt/hive
+  docker exec "$CID" test -e /etc/hive/.hive-install
+
+  log "Run 2: version-bumped re-run must resume, not die EXISTING_INSTALL"
+  local prov2="$PROV/dist/provision-v2.sh"
+  bash "$PROV/build.sh" "9.9.9-test" >/dev/null
+  cp "$PROV/dist/provision.sh" "$prov2"
+  local rel2; rel2="$(build_artifacts release-v2 healthy 9.9.9-test)"
+  local out
+  set +e
+  out="$(run_provision_script "$prov2" "$rel2" 2>&1)"
+  rc=$?
+  set -e
+  ! grep -q '"errorCode":"EXISTING_INSTALL"' <<<"$out" \
+    || { echo "FAIL: re-provision died EXISTING_INSTALL"; echo "$out"; exit 1; }
+  [ "$rc" = 0 ] || { echo "FAIL: re-provision exited $rc"; echo "$out"; exit 1; }
+  grep -q '"event":"run_end","status":"ok"' <<<"$out" \
+    || { echo "FAIL: re-provision did not finish ok"; echo "$out"; exit 1; }
+  assert_healthy
+  log "PASS (interrupted install re-provisions across a version bump)"
+}
+
 case "$MODE" in
   install)     mode_install ;;
   chaos)       mode_chaos ;;
   rollback)    mode_rollback ;;
   download)    mode_download ;;
-  *) echo "usage: $0 [install|chaos|rollback|download]"; exit 2 ;;
+  reprovision) mode_reprovision ;;
+  *) echo "usage: $0 [install|chaos|rollback|download|reprovision]"; exit 2 ;;
 esac

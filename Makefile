@@ -1,5 +1,5 @@
 # Hive install-flow developer entry points.
-.PHONY: provision-build provision-docker provision-docker-chaos provision-docker-rollback provision-docker-download provision-contract release-tarball
+.PHONY: provision-build provision-docker provision-docker-chaos provision-docker-rollback provision-docker-download provision-docker-reprovision provision-contract release-tarball
 
 provision-build:
 	bash scripts/provision/build.sh $(or $(VERSION),0.0.0-dev)
@@ -22,6 +22,11 @@ provision-docker-rollback:
 # (404, bad checksum, tampered tarball, then a good install) via a local origin.
 provision-docker-download:
 	bash test/e2e/provision-docker.sh download
+
+# Re-provision harness: an interrupted install must resume across a
+# SCRIPT_VERSION bump instead of dying EXISTING_INSTALL.
+provision-docker-reprovision:
+	bash test/e2e/provision-docker.sh reprovision
 
 # Assert every bash-emitted error exists in the shared taxonomy.
 provision-contract:
