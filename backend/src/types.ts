@@ -94,6 +94,9 @@ export interface PrStatusResponse {
 
 export interface ProjectBranchItem {
   name: string;
+  /** True when the branch only exists in the local bare repo (e.g. archived,
+   *  never pushed). Omitted when the remote is unreachable. */
+  localOnly?: boolean;
   /** Set when the branch is already checked out in an existing workspace. */
   workspaceId?: string;
   workspaceName?: string;

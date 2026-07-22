@@ -120,6 +120,8 @@ export type CreateWorkspaceSource =
 
 export interface ProjectBranchItem {
   name: string;
+  /** True when the branch only exists in the local bare repo (archived, unpushed). */
+  localOnly?: boolean;
   workspaceId?: string;
   workspaceName?: string;
 }

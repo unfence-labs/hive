@@ -324,6 +324,16 @@ describe("GET /api/projects/:id/branches", () => {
     expect(branch.workspaceName).toBe(ws.name);
   });
 
+  it("flags branches that only exist in the local bare repo", async () => {
+    await git(["branch", "archived-work", "main"], join(dataDir, projectId, "repo.git"));
+    const res = await app.inject({ method: "GET", url: `/api/projects/${projectId}/branches` });
+    const branches = res.json().branches;
+    expect(branches.find((b: { name: string }) => b.name === "archived-work").localOnly).toBe(true);
+    expect(
+      branches.find((b: { name: string }) => b.name === "feature-x").localOnly,
+    ).toBeUndefined();
+  });
+
   it("returns 404 for a non-existent project", async () => {
     const res = await app.inject({ method: "GET", url: "/api/projects/nonexistent/branches" });
     expect(res.statusCode).toBe(404);

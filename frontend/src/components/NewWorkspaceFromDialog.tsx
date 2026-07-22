@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { ChevronDownIcon, CircleDot, GitBranch, GitPullRequest, SearchIcon } from "lucide-react";
@@ -35,6 +35,8 @@ interface PickerRow {
   icon: "pr" | "pr-draft" | "branch" | "issue";
   prefix?: string;
   label: string;
+  /** Non-selectable section heading rendered above this row (e.g. "Local"). */
+  sectionHeader?: string;
   detail?: string;
   /** Set when the branch/PR is already checked out — row opens that workspace. */
   workspaceId?: string;
@@ -131,16 +133,25 @@ export default function NewWorkspaceFromDialog({
       return result;
     }
     if (tab === "branches") {
-      return (branches.data?.branches ?? [])
-        .filter((b) => matches(b.name))
-        .map((b) => ({
+      // Grouped: checked-out branches (Enter navigates) first, then the
+      // creatable ones — remote, then local-only.
+      const filtered = (branches.data?.branches ?? []).filter((b) => matches(b.name));
+      const groups = [
+        { header: "Existing", items: filtered.filter((b) => b.workspaceId) },
+        { header: "Remote", items: filtered.filter((b) => !b.workspaceId && !b.localOnly) },
+        { header: "Local", items: filtered.filter((b) => !b.workspaceId && b.localOnly) },
+      ];
+      return groups.flatMap(({ header, items }) =>
+        items.map((b, index) => ({
           key: `branch-${b.name}`,
           icon: "branch" as const,
           label: b.name,
+          sectionHeader: index === 0 ? header : undefined,
           detail: b.workspaceName,
           workspaceId: b.workspaceId,
-          source: { kind: "branch", branch: b.name },
-        }));
+          source: { kind: "branch" as const, branch: b.name },
+        })),
+      );
     }
     const items = issues.data?.issues ?? [];
     const result: PickerRow[] = items
@@ -301,8 +312,13 @@ export default function NewWorkspaceFromDialog({
             rows.map((row, index) => {
               const selected = index === clampedIndex;
               return (
+                <Fragment key={row.key}>
+                  {row.sectionHeader && (
+                    <div className="mt-2 px-2 pt-1 pb-1.5 text-xs font-medium text-muted-foreground first:mt-0.5">
+                      {row.sectionHeader}
+                    </div>
+                  )}
                 <button
-                  key={row.key}
                   type="button"
                   role="option"
                   aria-selected={selected}
@@ -318,11 +334,12 @@ export default function NewWorkspaceFromDialog({
                   {row.prefix && (
                     <span className="shrink-0 tabular-nums text-muted-foreground">{row.prefix}</span>
                   )}
-                  <span className="min-w-0 flex-1 truncate">{row.label}</span>
+                  <span className="min-w-0 truncate">{row.label}</span>
                   {row.detail && (
                     <span className="ml-auto shrink-0 text-xs text-muted-foreground">{row.detail}</span>
                   )}
                 </button>
+                </Fragment>
               );
             })
           )}

@@ -61,12 +61,16 @@ export async function listProjectBranches(
   const defaultBranch = await resolveDefaultBranch(bare);
 
   const names = new Set<string>();
+  const remoteNames = new Set<string>();
+  let remoteReachable = false;
   try {
     const { stdout } = await git(["ls-remote", "--heads", "origin"], bare);
+    remoteReachable = true;
     for (const line of stdout.split("\n").filter(Boolean)) {
       const ref = line.split("\t")[1];
-      if (ref?.startsWith("refs/heads/")) names.add(ref.slice("refs/heads/".length));
+      if (ref?.startsWith("refs/heads/")) remoteNames.add(ref.slice("refs/heads/".length));
     }
+    for (const name of remoteNames) names.add(name);
   } catch {
     // No reachable remote — fall back to local branches only.
   }
@@ -80,6 +84,13 @@ export async function listProjectBranches(
   const workspaceByBranch = await mapBranchesToWorkspaces(state, bare, dataDir);
   return [...names].sort((a, b) => a.localeCompare(b)).map((name) => {
     const ws = workspaceByBranch.get(name);
-    return ws ? { name, workspaceId: ws.id, workspaceName: ws.name } : { name };
+    // Only flag local-only branches when the remote answered; with the remote
+    // unreachable every branch would be a false positive.
+    const localOnly = remoteReachable && !remoteNames.has(name);
+    return {
+      name,
+      ...(localOnly ? { localOnly: true } : {}),
+      ...(ws ? { workspaceId: ws.id, workspaceName: ws.name } : {}),
+    };
   });
 }

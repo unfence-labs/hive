@@ -43,7 +43,13 @@ function mockSourceRoutes() {
       });
     }
     if (url === "/api/projects/p1/branches") {
-      return Promise.resolve({ branches: [{ name: "fix/stream" }, { name: "feat/picker" }] });
+      return Promise.resolve({
+        branches: [
+          { name: "fix/stream", localOnly: true },
+          { name: "feat/picker" },
+          { name: "wip/ui", workspaceId: "ws-1", workspaceName: "lyon" },
+        ],
+      });
     }
     if (url === "/api/projects/p1/issues") {
       return Promise.resolve({ issues: [{ number: 45, title: "Sidebar flickers", url: "u", author: "flo" }] });
@@ -113,6 +119,14 @@ describe("NewWorkspaceFromDialog", () => {
     renderDialog();
 
     await user.click(screen.getByRole("button", { name: "Branches" }));
+    // Grouped: checked-out branches that navigate, then Remote, then Local.
+    expect(await screen.findByText("Remote")).toBeInTheDocument();
+    expect(screen.getByText("Local")).toBeInTheDocument();
+    expect(screen.getByText("Existing")).toBeInTheDocument();
+    const options = screen.getAllByRole("option");
+    expect(options[0]).toHaveTextContent("wip/ui");
+    expect(options[1]).toHaveTextContent("feat/picker");
+    expect(options[2]).toHaveTextContent("fix/stream");
     await user.click(await screen.findByText("feat/picker"));
 
     await waitFor(() => {
