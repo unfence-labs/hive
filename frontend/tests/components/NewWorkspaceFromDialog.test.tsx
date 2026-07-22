@@ -77,6 +77,9 @@ describe("NewWorkspaceFromDialog", () => {
     expect(await screen.findByText("Fix streaming")).toBeInTheDocument();
     expect(screen.getByText("#12")).toBeInTheDocument();
     expect(screen.getByText("flo")).toBeInTheDocument();
+    // Checked-out PRs show their workspace name instead of the author.
+    expect(screen.getByText("lyon")).toBeInTheDocument();
+    expect(screen.queryByText("sam")).not.toBeInTheDocument();
   });
 
   it("creates a workspace from the selected pull request", async () => {

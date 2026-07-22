@@ -66,10 +66,10 @@ export function WorkspaceCommandPalette({
       title="Command palette"
       description="Type a command or search"
       showCloseButton={false}
-      className="top-[20%] translate-y-0 sm:max-w-md"
+      className="top-[20%] translate-y-0 sm:max-w-2xl"
     >
       <CommandInput placeholder="Type a command or search..." />
-      <CommandList>
+      <CommandList className="max-h-[min(420px,60vh)]">
         <CommandEmpty>No results found.</CommandEmpty>
         <CommandGroup heading="Workspace actions">
           <CommandItem

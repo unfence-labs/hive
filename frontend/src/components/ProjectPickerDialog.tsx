@@ -29,10 +29,10 @@ export function ProjectPickerDialog({ open, onOpenChange, onSelect }: ProjectPic
       title="New workspace"
       description="Choose a project"
       showCloseButton={false}
-      className="top-[20%] translate-y-0 sm:max-w-md"
+      className="top-[20%] translate-y-0 sm:max-w-2xl"
     >
       <CommandInput placeholder="Choose a project for the new workspace…" />
-      <CommandList>
+      <CommandList className="max-h-[min(420px,60vh)]">
         <CommandEmpty>No projects found.</CommandEmpty>
         <CommandGroup heading="Projects">
           {projects.map((project) => (

@@ -45,7 +45,7 @@ export function QuickOpenFileDialog({
       title="Quick open file"
       description="Search workspace files"
       showCloseButton={false}
-      className="top-[20%] translate-y-0 sm:max-w-xl"
+      className="top-[20%] translate-y-0 sm:max-w-2xl"
       shouldFilter={false}
     >
       <CommandInput
@@ -53,7 +53,7 @@ export function QuickOpenFileDialog({
         value={query}
         onValueChange={setQuery}
       />
-      <CommandList>
+      <CommandList className="max-h-[min(420px,60vh)]">
         <CommandEmpty>No files found.</CommandEmpty>
         <CommandGroup heading="Files">
           {results.map(({ path, basename }) => {

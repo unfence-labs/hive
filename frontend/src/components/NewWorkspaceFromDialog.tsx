@@ -114,7 +114,8 @@ export default function NewWorkspaceFromDialog({
           icon: p.isDraft ? ("pr-draft" as const) : ("pr" as const),
           prefix: `#${p.number}`,
           label: p.title,
-          detail: p.author,
+          // Checked-out PRs open their workspace: surface its name like the branches tab does.
+          detail: p.workspaceId ? p.workspaceName : p.author,
           workspaceId: p.workspaceId,
           source: { kind: "pr", number: p.number },
         }));
@@ -218,7 +219,7 @@ export default function NewWorkspaceFromDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
-        className="top-[22%] translate-y-0 gap-0 p-0 sm:max-w-xl"
+        className="top-[20%] translate-y-0 gap-0 bg-popover p-0 text-popover-foreground sm:max-w-2xl"
         showCloseButton={false}
         aria-describedby={undefined}
         onOpenAutoFocus={(e) => {
@@ -286,7 +287,7 @@ export default function NewWorkspaceFromDialog({
             </DropdownMenu>
           )}
         </div>
-        <div className="max-h-[320px] overflow-y-auto p-1" role="listbox" aria-label="Workspace sources">
+        <div className="max-h-[min(420px,60vh)] overflow-y-auto p-1" role="listbox" aria-label="Workspace sources">
           {activeQuery.isLoading ? (
             <div className="flex items-center justify-center gap-2 py-8 text-sm text-muted-foreground">
               <Spinner className="size-4" />
@@ -317,14 +318,9 @@ export default function NewWorkspaceFromDialog({
                   {row.prefix && (
                     <span className="shrink-0 tabular-nums text-muted-foreground">{row.prefix}</span>
                   )}
-                  <span className="min-w-0 truncate">{row.label}</span>
+                  <span className="min-w-0 flex-1 truncate">{row.label}</span>
                   {row.detail && (
-                    <span className="shrink-0 text-xs text-muted-foreground">{row.detail}</span>
-                  )}
-                  {selected && (
-                    <span className="ml-auto shrink-0 text-xs text-muted-foreground">
-                      {row.workspaceId ? "Open ↵" : "Create ↵"}
-                    </span>
+                    <span className="ml-auto shrink-0 text-xs text-muted-foreground">{row.detail}</span>
                   )}
                 </button>
               );
