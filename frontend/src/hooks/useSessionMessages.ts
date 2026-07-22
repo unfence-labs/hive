@@ -63,9 +63,12 @@ function mergeFetchedMessagesWithCachedUserEchoes(
     ) {
       continue;
     }
-    if (getSendState(message.id) === "sending" && newServerUserContents.has(message.content)) {
+    if (getSendState(message.id) !== undefined && newServerUserContents.has(message.content)) {
       // Delivery confirmed by a newly-appeared server copy: drop the local
-      // echo so it doesn't duplicate the fetched message.
+      // echo so it doesn't duplicate the fetched message. This also resolves
+      // a send that timed out to "failed" locally but actually reached the
+      // server — otherwise it would render twice (server copy + a stale
+      // "Not delivered" local copy) after this refetch.
       resolveOptimisticSend(message.id);
       continue;
     }

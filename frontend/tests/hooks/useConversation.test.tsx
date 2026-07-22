@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useConversation, _resetSavedSessions, setSavedSession } from "@/hooks/useConversation";
 import { sessionMessagesKey, getCachedSessionMessages } from "@/hooks/useSessionMessages";
-import { _resetOptimisticSends } from "@/lib/optimistic-sends";
+import { SEND_CONFIRM_TIMEOUT_MS, _resetOptimisticSends } from "@/lib/optimistic-sends";
 import type { ChatMessage, WsOutgoing } from "@/types";
 
 vi.mock("@/hooks/useApi", () => {
@@ -550,6 +550,28 @@ describe("useConversation", () => {
 
       expect(result.current.messages).toHaveLength(2);
       expect(result.current.sendStates[localId]).toBe("sending");
+    });
+
+    it("times out to failed when no echo arrives within SEND_CONFIRM_TIMEOUT_MS", async () => {
+      const { result } = renderConversation("ws-1");
+      await activateSession("ws-1", "sess-1");
+
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      try {
+        act(() => {
+          expect(result.current.sendMessage("hello")).toBe(true);
+        });
+        const localId = result.current.messages[0]!.id;
+        expect(result.current.sendStates[localId]).toBe("sending");
+
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(SEND_CONFIRM_TIMEOUT_MS);
+        });
+
+        expect(result.current.sendStates[localId]).toBe("failed");
+      } finally {
+        vi.useRealTimers();
+      }
     });
   });
 

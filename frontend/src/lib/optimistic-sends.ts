@@ -21,9 +21,17 @@ export interface OptimisticSendPayload {
   sessionId: string;
 }
 
+/**
+ * A send unconfirmed after this long is marked failed so the user gets the
+ * Retry affordance instead of a permanent "Sending…". Generous because the
+ * echo can lag behind cold-session activation and image persistence.
+ */
+export const SEND_CONFIRM_TIMEOUT_MS = 15_000;
+
 interface OptimisticSend {
   state: SendState;
   payload: OptimisticSendPayload;
+  timer?: ReturnType<typeof setTimeout>;
 }
 
 const sends = new Map<string, OptimisticSend>();
@@ -53,7 +61,9 @@ export function getSendState(messageId: string): SendState | undefined {
 
 /** Track a locally-appended user message as sending. Also re-marks a retry. */
 export function trackOptimisticSend(messageId: string, payload: OptimisticSendPayload): void {
-  sends.set(messageId, { state: "sending", payload });
+  clearTimeout(sends.get(messageId)?.timer);
+  const timer = setTimeout(() => markOptimisticSendFailed(messageId), SEND_CONFIRM_TIMEOUT_MS);
+  sends.set(messageId, { state: "sending", payload, timer });
   notify();
 }
 
@@ -61,6 +71,8 @@ export function trackOptimisticSend(messageId: string, payload: OptimisticSendPa
 export function markOptimisticSendFailed(messageId: string): void {
   const send = sends.get(messageId);
   if (!send || send.state === "failed") return;
+  clearTimeout(send.timer);
+  send.timer = undefined;
   send.state = "failed";
   notify();
 }
@@ -72,6 +84,7 @@ export function getOptimisticSendPayload(messageId: string): OptimisticSendPaylo
 
 /** Stop tracking a message (delivery confirmed, or the user discarded it). */
 export function resolveOptimisticSend(messageId: string): void {
+  clearTimeout(sends.get(messageId)?.timer);
   if (sends.delete(messageId)) notify();
 }
 
@@ -89,6 +102,7 @@ export function findOptimisticSend(sessionId: string, content: string): string |
 
 /** @internal Test-only: clear all tracked sends between tests. */
 export function _resetOptimisticSends(): void {
+  for (const send of sends.values()) clearTimeout(send.timer);
   sends.clear();
   snapshot = {};
 }

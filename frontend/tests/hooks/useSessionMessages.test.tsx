@@ -255,6 +255,39 @@ describe("useSessionMessages", () => {
       expect(merged).toEqual([unrelated, local]);
       expect(getSendState("local-1")).toBe("failed");
     });
+
+    it("drops a failed local message when a NEW server copy with the same content is fetched", async () => {
+      const { __apiMock } = await getApiMock();
+      const serverCopy = userMessage("srv-1", "hello");
+      __apiMock.getMock.mockResolvedValue([serverCopy]);
+
+      const queryClient = newClient();
+      queryClient.setQueryData(sessionMessagesKey("ws-1", "sess-1"), [userMessage("local-1", "hello")]);
+      trackOptimisticSend("local-1", { content: "hello", sessionId: "sess-1" });
+      markOptimisticSendFailed("local-1");
+
+      const merged = await fetchAndMergeSessionMessages(queryClient, "ws-1", "sess-1");
+
+      expect(merged).toEqual([serverCopy]);
+      expect(getSendState("local-1")).toBeUndefined();
+    });
+
+    it("carries a failed local message whose content never appears server-side", async () => {
+      const { __apiMock } = await getApiMock();
+      const unrelated = userMessage("srv-1", "unrelated content");
+      __apiMock.getMock.mockResolvedValue([unrelated]);
+
+      const queryClient = newClient();
+      const local = userMessage("local-1", "hello");
+      queryClient.setQueryData(sessionMessagesKey("ws-1", "sess-1"), [local]);
+      trackOptimisticSend("local-1", { content: "hello", sessionId: "sess-1" });
+      markOptimisticSendFailed("local-1");
+
+      const merged = await fetchAndMergeSessionMessages(queryClient, "ws-1", "sess-1");
+
+      expect(merged).toEqual([unrelated, local]);
+      expect(getSendState("local-1")).toBe("failed");
+    });
   });
 
   describe("resolveCachedOptimisticEcho", () => {
