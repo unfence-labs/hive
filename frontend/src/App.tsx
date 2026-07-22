@@ -11,6 +11,7 @@ import ModelsSettings from "@/pages/settings/ModelsSettings";
 import ProjectDetail from "@/pages/settings/ProjectDetail";
 import BrainView from "@/pages/BrainView";
 import AddProjectDialog from "@/components/AddProjectDialog";
+import WorkspaceLauncher from "@/components/WorkspaceLauncher";
 import HomeView from "@/pages/HomeView";
 import { useProjects } from "@/hooks/useProjects";
 import { BRAIN_WORKSPACE_ID } from "@/lib/brain";
@@ -70,6 +71,7 @@ export default function App() {
     <BrowserRouter>
       <WorkspaceLiveDataProvider workspaceIds={workspaceIds}>
         <HiveToaster />
+        <WorkspaceLauncher />
         <NotificationToastsBridge projects={projects} />
         <AddProjectDialog
           open={showAddProject}

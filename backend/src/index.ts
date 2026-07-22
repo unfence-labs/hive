@@ -10,6 +10,7 @@ import { projectRoutes } from "./api/projects.js";
 import { brainRoutes } from "./api/brain.js";
 import { projectEnvRoutes } from "./api/project-env.js";
 import { workspaceRoutes } from "./api/workspaces.js";
+import { workspaceSourceRoutes } from "./api/workspace-sources.js";
 import { completionRoutes } from "./api/completions.js";
 import { modelRoutes } from "./api/models.js";
 import { sessionRoutes } from "./api/agents.js";
@@ -332,6 +333,7 @@ export async function buildApp(opts: BuildAppOptions = {}) {
   await app.register((instance: FastifyInstance) => brainRoutes(instance));
   await app.register((instance: FastifyInstance) => projectEnvRoutes(instance));
   await app.register((instance: FastifyInstance) => workspaceRoutes(instance));
+  await app.register((instance: FastifyInstance) => workspaceSourceRoutes(instance));
   await app.register((instance: FastifyInstance) => completionRoutes(instance));
   await app.register((instance: FastifyInstance) => modelRoutes(instance));
   await app.register((instance: FastifyInstance) =>

@@ -4,9 +4,12 @@ import { join, resolve } from "node:path";
 import { nanoid } from "nanoid";
 import { git } from "../utils/git.js";
 import {
+  addWorktreeFromBranch,
   addWorktreeWithNewBranch,
   removeWorktreeOrDeleteDirectory,
 } from "../utils/git-worktree.js";
+import { parseGitHubRepo, fetchPrDetail, fetchIssueDetail } from "../utils/github.js";
+import { mapBranchesToWorkspaces } from "./workspace-sources.js";
 import { buildFileTree } from "../utils/file-tree.js";
 import { MAX_TEXT_FILE_SIZE, resolveSafeRepoFilePath } from "../utils/repo-files.js";
 import { buildDiffResponse, getUntrackedDiff } from "../utils/git-diff.js";
@@ -19,7 +22,7 @@ import { copyProjectEnvToWorkspace } from "../state/project-env.js";
 import { BadRequestError, ConflictError, NotFoundError } from "../utils/errors.js";
 import { stopAllForWorkspace } from "../services/script-runner.js";
 import { stopAllTerminalsForWorkspace } from "../services/terminal-runner.js";
-import type { Workspace, ProjectState, WorkspaceFileTreeNode, DiffFileStat, DiffFileStatus, DiffScope, DiffResponse, DiffStatResponse } from "../types.js";
+import type { Workspace, WorkspaceSource, CreateWorkspaceSourceInput, ProjectState, WorkspaceFileTreeNode, DiffFileStat, DiffFileStatus, DiffScope, DiffResponse, DiffStatResponse } from "../types.js";
 
 function findWorkspace(state: ProjectState, wsId: string): Workspace | undefined {
   return state.workspaces.find((ws) => ws.id === wsId);
@@ -36,9 +39,114 @@ function findProjectByWorkspace(
   return undefined;
 }
 
+// Reject option-like or malformed branch names before they reach git argv.
+const INVALID_BRANCH_CHARS_RE = /[\s~^:?*[\\]/;
+
+function validateBranchName(branch: string): void {
+  if (!branch || branch.startsWith("-") || branch.includes("..") || INVALID_BRANCH_CHARS_RE.test(branch)) {
+    throw new BadRequestError(`Invalid branch name: ${branch}`);
+  }
+}
+
+function requireGitHubRepo(state: ProjectState): { owner: string; repo: string } {
+  const repo = state.url ? parseGitHubRepo(state.url) : null;
+  if (!repo) throw new BadRequestError("This project has no GitHub remote");
+  return repo;
+}
+
+function buildDraftPrompt(ref: string, title: string, url: string, body: string): string {
+  const lines = [`Work on ${ref}: ${title}`, url];
+  const description = body.trim();
+  if (description) lines.push("", description);
+  return lines.join("\n");
+}
+
+async function assertBranchNotCheckedOut(
+  state: ProjectState,
+  bare: string,
+  branch: string,
+  dataDir: string,
+): Promise<void> {
+  const workspaceByBranch = await mapBranchesToWorkspaces(state, bare, dataDir);
+  const existing = workspaceByBranch.get(branch);
+  if (existing) {
+    throw new ConflictError(
+      `Branch "${branch}" is already checked out in workspace "${existing.name}"`,
+    );
+  }
+}
+
+/**
+ * Check out `branch` into a new worktree. `fetched` means FETCH_HEAD holds the
+ * remote tip of the branch (the bare clone has no fetch refspec, so remote
+ * state only exists via FETCH_HEAD).
+ */
+async function addWorktreeOnBranch(
+  bare: string,
+  wsPath: string,
+  branch: string,
+  fetched: boolean,
+): Promise<void> {
+  const hasLocal = await git(["show-ref", "--verify", `refs/heads/${branch}`], bare)
+    .then(() => true)
+    .catch(() => false);
+  if (hasLocal) {
+    if (fetched) {
+      // Fast-forward to the remote tip when possible; keep a diverged local ref.
+      try {
+        await git(["merge-base", "--is-ancestor", `refs/heads/${branch}`, "FETCH_HEAD"], bare);
+        await git(["update-ref", `refs/heads/${branch}`, "FETCH_HEAD"], bare);
+      } catch {
+        // Diverged or unrelated — keep the local ref as-is.
+      }
+    }
+    await addWorktreeFromBranch(bare, wsPath, branch);
+    return;
+  }
+  if (!fetched) throw new BadRequestError(`Branch "${branch}" not found`);
+  await addWorktreeWithNewBranch(bare, wsPath, branch, "FETCH_HEAD");
+}
+
+async function checkoutSourceBranch(
+  state: ProjectState,
+  bare: string,
+  wsPath: string,
+  branch: string,
+  dataDir: string,
+): Promise<void> {
+  validateBranchName(branch);
+  await assertBranchNotCheckedOut(state, bare, branch, dataDir);
+  let fetched = true;
+  try {
+    await git(["fetch", "origin", branch], bare);
+  } catch {
+    fetched = false; // Local-only branch or unreachable remote.
+  }
+  await addWorktreeOnBranch(bare, wsPath, branch, fetched);
+}
+
+async function checkoutPullRequestHead(
+  state: ProjectState,
+  bare: string,
+  wsPath: string,
+  branch: string,
+  prNumber: number,
+  dataDir: string,
+): Promise<void> {
+  validateBranchName(branch);
+  await assertBranchNotCheckedOut(state, bare, branch, dataDir);
+  try {
+    await git(["fetch", "origin", `pull/${prNumber}/head`], bare);
+  } catch {
+    throw new BadRequestError(`Could not fetch pull request #${prNumber} from origin`);
+  }
+  await addWorktreeOnBranch(bare, wsPath, branch, true);
+}
+
 export async function createWorkspace(
   projectId: string,
-  dataDir = getDataDir()
+  dataDir = getDataDir(),
+  source?: CreateWorkspaceSourceInput,
 ): Promise<Workspace> {
   return withProjectStateLock(
     projectId,
@@ -48,16 +156,48 @@ export async function createWorkspace(
 
       const usedNames = state.workspaces.map((ws) => ws.name);
       const cityName = pickCityName(usedNames);
-      const branch = `workspace/${cityName}`;
       const wsPath = join(workspacesDir(dataDir, projectId), cityName);
       const bare = bareRepoPath(dataDir, projectId);
 
       const defaultBranch = await resolveDefaultBranch(bare);
 
-      await refreshDefaultBranchFromOrigin(bare, defaultBranch);
+      let branch: string;
+      let wsSource: WorkspaceSource | undefined;
+      let draftPrompt: string | undefined;
 
-      // Create worktree from the default branch
-      await addWorktreeWithNewBranch(bare, wsPath, branch, defaultBranch);
+      if (!source) {
+        // Default flow: new branch off the refreshed default branch.
+        branch = `workspace/${cityName}`;
+        await refreshDefaultBranchFromOrigin(bare, defaultBranch);
+        await addWorktreeWithNewBranch(bare, wsPath, branch, defaultBranch);
+      } else if (source.kind === "branch") {
+        branch = source.branch;
+        await checkoutSourceBranch(state, bare, wsPath, branch, dataDir);
+        wsSource = { kind: "branch", branch };
+      } else if (source.kind === "pr") {
+        const repo = requireGitHubRepo(state);
+        const pr = await fetchPrDetail(repo.owner, repo.repo, source.number);
+        branch = pr.headRefName;
+        if (pr.isCrossRepository) {
+          await checkoutPullRequestHead(state, bare, wsPath, branch, pr.number, dataDir);
+        } else {
+          await checkoutSourceBranch(state, bare, wsPath, branch, dataDir);
+        }
+        wsSource = { kind: "pr", branch, number: pr.number, title: pr.title, url: pr.url };
+        draftPrompt = buildDraftPrompt(`pull request #${pr.number}`, pr.title, pr.url, pr.body);
+      } else if (source.kind === "issue") {
+        const repo = requireGitHubRepo(state);
+        const issue = await fetchIssueDetail(repo.owner, repo.repo, source.number);
+        // Issues have no code: branch off the default branch like the default flow.
+        branch = `workspace/${cityName}`;
+        await refreshDefaultBranchFromOrigin(bare, defaultBranch);
+        await addWorktreeWithNewBranch(bare, wsPath, branch, defaultBranch);
+        wsSource = { kind: "issue", number: issue.number, title: issue.title, url: issue.url };
+        draftPrompt = buildDraftPrompt(`issue #${issue.number}`, issue.title, issue.url, issue.body);
+      } else {
+        throw new BadRequestError("Invalid workspace source");
+      }
+
       await copyProjectEnvToWorkspace(projectId, wsPath, dataDir);
 
       const workspace: Workspace = {
@@ -67,6 +207,8 @@ export async function createWorkspace(
         branch,
         status: "idle",
         createdAt: new Date().toISOString(),
+        ...(wsSource ? { source: wsSource } : {}),
+        ...(draftPrompt ? { draftPrompt } : {}),
       };
       state.workspaces.push(workspace);
       await saveProject(state, dataDir);
@@ -128,11 +270,15 @@ export async function deleteWorkspace(
       // Remove the worktree
       await removeWorktreeOrDeleteDirectory(bare, wsPath);
 
-      // Remove the branch
-      try {
-        await git(["branch", "-D", workspace.branch], bare);
-      } catch {
-        // Branch may not exist
+      // Remove the branch — but keep branches that pre-existed the workspace
+      // (created from an existing branch or PR head).
+      const keepBranch = workspace.source?.kind === "branch" || workspace.source?.kind === "pr";
+      if (!keepBranch) {
+        try {
+          await git(["branch", "-D", workspace.branch], bare);
+        } catch {
+          // Branch may not exist
+        }
       }
 
       // Update state
