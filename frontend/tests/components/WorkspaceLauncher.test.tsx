@@ -69,14 +69,25 @@ describe("WorkspaceLauncher", () => {
     expect(apiPost).not.toHaveBeenCalled();
   });
 
-  it("falls back to the picker on Cmd+N when the project is ambiguous", async () => {
+  it("asks only for the project on Cmd+N when it is ambiguous, then creates from main", async () => {
+    apiPost.mockResolvedValue({ id: "ws-new", name: "nantes" });
     renderLauncher([
       ...singleProject,
       { id: "p2", name: "other", createdAt: "2026-01-01T00:00:00.000Z", workspaces: [] },
     ]);
     pressShortcut("n");
 
-    expect(await screen.findByPlaceholderText("Search by title, number, or author")).toBeInTheDocument();
+    // Project chooser, not the full "from…" picker with source tabs.
+    expect(
+      await screen.findByPlaceholderText("Choose a project for the new workspace…"),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Branches" })).not.toBeInTheDocument();
     expect(apiPost).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByText("other"));
+
+    await waitFor(() => {
+      expect(apiPost).toHaveBeenCalledWith("/api/projects/p2/workspaces");
+    });
   });
 });
