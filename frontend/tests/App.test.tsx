@@ -198,6 +198,34 @@ describe("App", () => {
     expect(screen.getByRole("button", { name: "refresh connection" })).toBeInTheDocument();
     expect(screen.queryByText("Set up a Hive server")).not.toBeInTheDocument();
     expect(mocks.syncWorkspaces).not.toHaveBeenCalled();
+    expect(screen.getByTestId("app-layout")).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/settings/connection");
+  });
+
+  it("redirects non-settings routes to the connection page while unconfigured", async () => {
+    (window as Window & { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ = {};
+    replaceConnection({ host: "100.64.0.10", port: 3000 });
+    window.history.pushState({}, "", "/home");
+    renderApp();
+
+    await act(async () => replaceConnection(null));
+
+    expect(window.location.pathname).toBe("/settings/connection");
+    expect(screen.getByTestId("app-layout")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "refresh connection" })).toBeInTheDocument();
+  });
+
+  it("keeps the appearance settings route reachable while unconfigured", async () => {
+    (window as Window & { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ = {};
+    replaceConnection({ host: "100.64.0.10", port: 3000 });
+    window.history.pushState({}, "", "/settings/appearance");
+    renderApp();
+
+    await act(async () => replaceConnection(null));
+
+    expect(screen.getByText("appearance settings")).toBeInTheDocument();
+    expect(screen.getByTestId("app-layout")).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/settings/appearance");
   });
 
   it("syncs unique workspace IDs and disconnects all sockets on unmount", () => {

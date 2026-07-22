@@ -72,7 +72,11 @@ export default function App() {
       <BrowserRouter>
         <HiveToaster />
         <Routes>
-          <Route path="*" element={<ConnectionSettings />} />
+          <Route element={<AppLayout onAddProject={() => {}} />}>
+            <Route path="settings/connection" element={<ConnectionSettings />} />
+            <Route path="settings/appearance" element={<AppearanceSettings />} />
+            <Route path="*" element={<Navigate to="/settings/connection" replace />} />
+          </Route>
         </Routes>
       </BrowserRouter>
     );
