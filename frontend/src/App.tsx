@@ -58,7 +58,7 @@ export default function App() {
       <Suspense fallback={null}>
         <SetupWizard
           onComplete={closeWizard}
-          onConnectExisting={() => {
+          onExit={() => {
             window.history.replaceState({}, "", "/settings/connection");
             closeWizard();
           }}

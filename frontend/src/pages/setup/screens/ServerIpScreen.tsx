@@ -2,7 +2,6 @@ import { useState } from "react";
 import { SetupScreen } from "./SetupScreen";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
-import { ExternalLink } from "lucide-react";
 import type { ProvisionClient } from "@/lib/provision-client";
 import type { SetupErrorCode } from "@hive/shared/setup-errors";
 
@@ -63,7 +62,7 @@ export function ServerIpScreen({
   return (
     <SetupScreen
       title="Connect to your server"
-      description="Use a fresh Ubuntu 22.04/24.04 or Debian 12 server. Hive connects over SSH as root; use user@host for a user with passwordless sudo."
+      description="Use an Ubuntu 22.04/24.04 or Debian 12 server. Hive connects over SSH as root; use user@host for a user with passwordless sudo."
       onContinue={() => void handleContinue()}
       continueDisabled={!looksLikeHost(value) || checking}
       continueLabel={checking ? "Connecting…" : "Connect"}
@@ -71,16 +70,6 @@ export function ServerIpScreen({
       onContinueLater={onContinueLater}
       footer={checking ? <Spinner className="h-4 w-4" /> : undefined}
     >
-      <div className="mb-4 text-xs text-muted-foreground">
-        Need a server? Create one with your SSH key at{" "}
-        <a href="https://www.hetzner.com/cloud" target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-primary hover:underline">
-          Hetzner <ExternalLink className="h-3 w-3" />
-        </a>{" "}
-        or{" "}
-        <a href="https://www.digitalocean.com/products/droplets" target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-primary hover:underline">
-          DigitalOcean <ExternalLink className="h-3 w-3" />
-        </a>.
-      </div>
       <Input
         aria-label="Server IP or hostname"
         value={value}

@@ -39,10 +39,10 @@ interface SetupWizardProps {
   /** Called when the wizard completes and the app should proceed. */
   onComplete?: () => void;
   /** Leaves provisioning and opens the existing-server connection form. */
-  onConnectExisting?: () => void;
+  onExit?: () => void;
 }
 
-export function SetupWizard({ client: injectedClient, onComplete, onConnectExisting }: SetupWizardProps) {
+export function SetupWizard({ client: injectedClient, onComplete, onExit }: SetupWizardProps) {
   const client = useMemo(() => injectedClient ?? createProvisionClient(), [injectedClient]);
   const [machine, dispatch] = useReducer(reduce, undefined, loadMachineState);
 
@@ -101,7 +101,7 @@ export function SetupWizard({ client: injectedClient, onComplete, onConnectExist
       screen = (
         <WelcomeScreen
           onContinue={() => advance()}
-          onConnectExisting={onConnectExisting}
+          onBack={onExit}
         />
       );
       break;

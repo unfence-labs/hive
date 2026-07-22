@@ -25,18 +25,18 @@ describe("SetupWizard", () => {
     expect(loadMachineState().state).toBe("tailscale");
   });
 
-  it("can leave the welcome screen to connect an existing server", async () => {
-    const onConnectExisting = vi.fn();
+  it("can leave the welcome screen via the back button", async () => {
+    const onExit = vi.fn();
     render(
       <SetupWizard
         client={createMockProvisionClient("happy")}
-        onConnectExisting={onConnectExisting}
+        onExit={onExit}
       />,
     );
 
-    await userEvent.click(screen.getByRole("button", { name: /connect to an existing server/i }));
+    await userEvent.click(screen.getByRole("button", { name: /back/i }));
 
-    expect(onConnectExisting).toHaveBeenCalledOnce();
+    expect(onExit).toHaveBeenCalledOnce();
   });
 
   it("supports back navigation", async () => {

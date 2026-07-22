@@ -52,7 +52,6 @@ export default function ConnectionSettings({ onRefreshConnection }: ConnectionSe
   const [hostDraft, setHostDraft] = useState("");
   const [portDraft, setPortDraft] = useState("3000");
   const [sshUserDraft, setSshUserDraft] = useState("");
-  const [tokenDraft, setTokenDraft] = useState("");
   const [connecting, setConnecting] = useState(false);
   const [checking, setChecking] = useState(false);
   const [confirmingDisconnect, setConfirmingDisconnect] = useState(false);
@@ -68,11 +67,9 @@ export default function ConnectionSettings({ onRefreshConnection }: ConnectionSe
           host: hostDraft.trim(),
           port,
           sshUser: sshUserDraft.trim() || undefined,
-          authToken: tokenDraft.trim() || undefined,
         },
         { verify: true },
       );
-      setTokenDraft("");
       onRefreshConnection?.();
     } catch (error) {
       setConnectionError(error instanceof Error ? error.message : "The server could not be reached.");
@@ -99,7 +96,6 @@ export default function ConnectionSettings({ onRefreshConnection }: ConnectionSe
     setHostDraft("");
     setPortDraft("3000");
     setSshUserDraft("");
-    setTokenDraft("");
     setConnectionError(null);
     onRefreshConnection?.();
   };
@@ -164,37 +160,21 @@ export default function ConnectionSettings({ onRefreshConnection }: ConnectionSe
                     />
                   </div>
                 </div>
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <div>
-                    <label htmlFor="ssh-user" className="mb-1.5 block text-xs font-medium text-muted-foreground">
-                      SSH user <span className="font-normal">(optional)</span>
-                    </label>
-                    <Input
-                      id="ssh-user"
-                      value={sshUserDraft}
-                      onChange={(event) => setSshUserDraft(event.target.value)}
-                      placeholder="root"
-                      autoComplete="username"
-                      className="font-mono text-xs"
-                    />
-                  </div>
-                  <div>
-                    <label htmlFor="server-token" className="mb-1.5 block text-xs font-medium text-muted-foreground">
-                      Access token <span className="font-normal">(optional)</span>
-                    </label>
-                    <Input
-                      id="server-token"
-                      type="password"
-                      value={tokenDraft}
-                      onChange={(event) => setTokenDraft(event.target.value)}
-                      placeholder="Legacy secured servers"
-                      autoComplete="off"
-                      className="font-mono text-xs"
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter" && canConnect && !connecting) void connect();
-                      }}
-                    />
-                  </div>
+                <div>
+                  <label htmlFor="ssh-user" className="mb-1.5 block text-xs font-medium text-muted-foreground">
+                    SSH user <span className="font-normal">(optional)</span>
+                  </label>
+                  <Input
+                    id="ssh-user"
+                    value={sshUserDraft}
+                    onChange={(event) => setSshUserDraft(event.target.value)}
+                    placeholder="root"
+                    autoComplete="username"
+                    className="font-mono text-xs"
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" && canConnect && !connecting) void connect();
+                    }}
+                  />
                 </div>
                 {connectionError && (
                   <p role="alert" className="text-xs text-destructive">{connectionError}</p>
