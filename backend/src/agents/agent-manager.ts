@@ -12,7 +12,7 @@ import { extractSummary, extractPreview } from "../utils/summary-extractor.js";
 import { withKeyedLock } from "../utils/async-lock.js";
 import { parseJsonlMessages, sortByUpdatedAtDesc } from "./session-utils.js";
 import { removeTerminal } from "../services/terminal-runner.js";
-import type { ChatMessage, SessionKind, SessionMetadata } from "../types.js";
+import type { ChatMessage, SessionKind, SessionMetadata, WorkspaceSource } from "../types.js";
 import { Notifier } from "../notifications/notifier.js";
 import { TelegramChannel } from "../notifications/telegram.js";
 import { ApnsChannel } from "../notifications/apns.js";
@@ -403,7 +403,7 @@ async function resolveWorkspaceContext(wsId: string, dataDir: string) {
 /** Build a system prompt for a session (extracted from getOrCreateSession). */
 async function buildSessionPrompt(
   wsPath: string,
-  workspace: { name: string },
+  workspace: { name: string; source?: WorkspaceSource },
   projectState: { name: string; id: string },
   dataDir: string,
   options?: SessionOptions,
@@ -432,6 +432,7 @@ async function buildSessionPrompt(
     git: ctx,
     projectName: projectState.name,
     workspaceName: workspace.name,
+    source: workspace.source,
   }).text;
 }
 

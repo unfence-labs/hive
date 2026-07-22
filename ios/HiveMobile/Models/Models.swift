@@ -125,6 +125,7 @@ struct WorkspaceSource: Codable, Hashable {
     let number: Int?
     let title: String?
     let url: String?
+    let baseBranch: String?  // PR base branch, present for "pr" kind
 }
 
 // MARK: - UI Preferences

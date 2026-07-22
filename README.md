@@ -43,6 +43,7 @@ Run Hive as a **local web app**, a **Tauri desktop app** (pointed at a local or 
 
 ### 🌳 Agent workspaces
 - Clone or create git-backed projects, then spin up isolated workspaces from them.
+- Create workspaces from an existing branch, pull request, or issue: the workspace source is injected into the agent's git context (PR workspaces carry the base branch), and issue workspaces pre-fill the composer from the editable issue draft prompt.
 - Run **Claude** and **Codex** sessions with provider-aware model selection and per-session provider locking.
 - Up to **4 sessions per workspace**, with REST-fetched per-session history, queued follow-ups, unread indicators, and interrupt/stop handling.
 - Stream live assistant text, thinking, tool calls, file changes, diagnostics, tasks, images, plan updates, branch info, and diff stats over the hub WebSocket.
@@ -218,6 +219,7 @@ $DATA_DIR/
 |-- prompts/
 |   |-- base.md
 |   |-- brain.md
+|   |-- issue-draft.md
 |   `-- <template-id>.md
 |-- brain/
 |   |-- state.json
@@ -264,7 +266,7 @@ Public backend surface exposed by route modules under `backend/src/api/`.
 | Completions | `GET /api/workspaces/:wsId/completions?provider=claude\|codex` |
 | Automations | `GET/POST /api/automations`, `GET/PUT/DELETE /api/automations/:id`, `POST /api/automations/:id/trigger`, `GET /api/automations/:id/runs`, `GET /api/automations/:id/runs/:runId/messages` |
 | Team agents | `GET/POST /api/agents`, `PATCH/DELETE /api/agents/:id` |
-| Prompts | `GET/POST /api/prompt-templates`, `PUT/DELETE /api/prompt-templates/:id`, `GET/PUT/DELETE /api/prompts/base`, `GET/PUT/DELETE /api/prompts/brain` |
+| Prompts | `GET/POST /api/prompt-templates`, `PUT/DELETE /api/prompt-templates/:id`, `GET/PUT/DELETE /api/prompts/base`, `GET/PUT/DELETE /api/prompts/brain`, `GET/PUT/DELETE /api/prompts/issue-draft` |
 | Settings | `GET/PUT /api/settings/defaults`, `GET/PUT /api/settings/notifications`, `POST /api/settings/notifications/test`, `POST /api/settings/notifications/test-apns`, `POST /api/devices/apns`, `GET /api/settings/cli`, `GET/PUT/DELETE /api/settings/instructions`, `POST /api/settings/instructions/sync`, `GET/POST /api/settings/skills`, `GET/PUT/DELETE /api/settings/skills/:id`, `POST /api/settings/skills/:id/sync`, `POST /api/settings/skills/sync-missing`, `GET/POST /api/settings/subagents`, `GET /api/settings/subagents/:id`, `PUT/DELETE /api/settings/subagents/:id/providers/:provider`, `POST /api/settings/subagents/:id/providers/:provider/counterpart` |
 | Account | `GET /api/account/status`, `POST /api/account/connect`, `POST /api/account/connect/poll`, `POST /api/account/disconnect` |
 | Scripts & prefs | `GET /api/workspaces/:wsId/scripts`, `POST /api/workspaces/:wsId/scripts/:type/start`, `POST /api/workspaces/:wsId/scripts/:type/stop`, `POST /api/workspaces/:wsId/terminal/start`, `POST /api/workspaces/:wsId/terminal/stop`, `POST /api/workspaces/:wsId/terminal-tabs/:sessionId/start`, `POST /api/workspaces/:wsId/terminal-tabs/:sessionId/stop`, `GET/PUT /api/ui-preferences` |

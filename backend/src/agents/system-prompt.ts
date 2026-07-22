@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { SessionKind } from "../types.js";
+import type { SessionKind, WorkspaceSource } from "../types.js";
 import { git } from "../utils/git.js";
 
 export interface GitContext {
@@ -74,12 +74,45 @@ export async function getGitContext(cwd: string, defaultBranchOverride?: string)
 }
 
 /**
+ * Format the workspace-source lines for the git block. Fields may be missing
+ * on old workspaces — omit lines rather than printing "undefined".
+ */
+function formatWorkspaceSourceLines(source: WorkspaceSource): string[] {
+  const referenceLine = (label: string): string | undefined => {
+    if (source.number === undefined) return undefined;
+    let line = `Workspace source: ${label} #${source.number}`;
+    if (source.title) line += ` — "${source.title}"`;
+    if (source.url) line += ` (${source.url})`;
+    return line;
+  };
+
+  const lines: string[] = [];
+  if (source.kind === "branch") {
+    if (source.branch) lines.push(`Workspace source: existing branch "${source.branch}"`);
+  } else if (source.kind === "issue") {
+    const line = referenceLine("issue");
+    if (line) lines.push(line);
+  } else if (source.kind === "pr") {
+    const line = referenceLine("pull request");
+    if (line) lines.push(line);
+    if (source.baseBranch) lines.push(`PR base branch: ${source.baseBranch}`);
+    let instruction =
+      "This workspace works on an existing pull request: push to its head branch to update the PR; do not create a new pull request.";
+    if (source.baseBranch) {
+      instruction += ` The PR merges into ${source.baseBranch}, not necessarily the main branch.`;
+    }
+    lines.push(instruction);
+  }
+  return lines;
+}
+
+/**
  * Format a git context block from already-resolved GitContext.
  * Pure formatting — no async, no git calls.
  */
 export function formatGitContextBlock(
   ctx: GitContext,
-  opts?: { projectName?: string; workspaceName?: string },
+  opts?: { projectName?: string; workspaceName?: string; source?: WorkspaceSource },
 ): string {
   const gitLines: string[] = [
     "# Git Context (snapshot at session start)",
@@ -93,6 +126,8 @@ export function formatGitContextBlock(
     `Current branch: ${ctx.branch || "unknown"}`,
     `Main branch: ${ctx.defaultBranch}`,
   );
+
+  if (opts?.source) gitLines.push(...formatWorkspaceSourceLines(opts.source));
 
   if (ctx.status) {
     gitLines.push("", "Status:", ctx.status);
@@ -204,6 +239,8 @@ export interface PromptMaterials {
   projectName?: string;
   /** Header line for the git block. */
   workspaceName?: string;
+  /** Workspace origin (branch/PR/issue); emitted in the git block when present. */
+  source?: WorkspaceSource;
 }
 
 /**
@@ -232,6 +269,7 @@ export function buildPrompt(kind: SessionKind, materials: PromptMaterials): Prom
         content: formatGitContextBlock(materials.git, {
           projectName: materials.projectName,
           workspaceName: materials.workspaceName,
+          source: materials.source,
         }),
       });
     }

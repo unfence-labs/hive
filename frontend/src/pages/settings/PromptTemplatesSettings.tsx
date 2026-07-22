@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { Loader2, Trash2, Save, X, RotateCcw, ChevronRight, HelpCircle, Sparkles, Brain, FileText } from "lucide-react";
+import { Loader2, Trash2, Save, X, RotateCcw, ChevronRight, HelpCircle, Sparkles, Brain, CircleDot, FileText } from "lucide-react";
 import type { UseQueryResult, UseMutationResult } from "@tanstack/react-query";
 import {
   AlertDialog,
@@ -49,9 +49,14 @@ import {
   useUpdateBrainPrompt,
   useResetBrainPrompt,
 } from "@/hooks/useBrainPrompt";
+import {
+  useIssueDraftPrompt,
+  useUpdateIssueDraftPrompt,
+  useResetIssueDraftPrompt,
+} from "@/hooks/useIssueDraftPrompt";
 import { PromptEditor } from "@/components/PromptEditor";
 import { PromptFlowExplainer } from "@/components/PromptFlowExplainer";
-import { TEMPLATE_VARIABLES } from "@/lib/prompt-variables";
+import { ISSUE_DRAFT_VARIABLES, TEMPLATE_VARIABLES } from "@/lib/prompt-variables";
 import { cn } from "@/lib/utils";
 import type { BasePromptData, PromptTemplate } from "@/types";
 
@@ -60,6 +65,7 @@ import type { BasePromptData, PromptTemplate } from "@/types";
 type Selection =
   | { kind: "base" }
   | { kind: "brain" }
+  | { kind: "issue-draft" }
   | { kind: "template"; id: string }
   | { kind: "create" }
   | null;
@@ -70,6 +76,7 @@ export default function PromptTemplatesSettings() {
   const { data: templates, isLoading: templatesLoading } = usePromptTemplates();
   const { data: baseData, isLoading: baseLoading } = useBasePrompt();
   const { data: brainData, isLoading: brainLoading } = useBrainPrompt();
+  const { data: issueDraftData, isLoading: issueDraftLoading } = useIssueDraftPrompt();
   const [selection, setSelection] = useState<Selection>({ kind: "base" });
   const [deleteTarget, setDeleteTarget] = useState<PromptTemplate | null>(null);
   const [showFlowDialog, setShowFlowDialog] = useState(false);
@@ -87,7 +94,7 @@ export default function PromptTemplatesSettings() {
     setSelection({ kind: "base" });
   }
 
-  if (templatesLoading || baseLoading || brainLoading) return null;
+  if (templatesLoading || baseLoading || brainLoading || issueDraftLoading) return null;
 
   const handleDelete = (template: PromptTemplate) => {
     setDeleteTarget(template);
@@ -127,6 +134,7 @@ export default function PromptTemplatesSettings() {
           onSelect={setSelection}
           baseData={baseData ?? null}
           brainData={brainData ?? null}
+          issueDraftData={issueDraftData ?? null}
           userTemplates={userTemplates}
         />
 
@@ -187,12 +195,14 @@ function LeftPanel({
   onSelect,
   baseData,
   brainData,
+  issueDraftData,
   userTemplates,
 }: {
   selection: Selection;
   onSelect: (s: Selection) => void;
   baseData: BasePromptSummary | null;
   brainData: BasePromptSummary | null;
+  issueDraftData: BasePromptSummary | null;
   userTemplates: PromptTemplate[];
 }) {
   return (
@@ -233,6 +243,22 @@ function LeftPanel({
         }
         selected={selection?.kind === "brain"}
         onClick={() => onSelect({ kind: "brain" })}
+      />
+
+      {/* Pinned: Issue Draft Prompt */}
+      <SettingsResourceListItem
+        icon={<CircleDot className="h-3 w-3 text-primary" />}
+        title="Issue Draft Prompt"
+        trailing={
+          <Badge
+            variant={issueDraftData?.isDefault ? "secondary" : "default"}
+            className="shrink-0 px-1.5 py-0 text-[10px]"
+          >
+            {issueDraftData?.isDefault ? "Default" : "Custom"}
+          </Badge>
+        }
+        selected={selection?.kind === "issue-draft"}
+        onClick={() => onSelect({ kind: "issue-draft" })}
       />
 
       <div className="my-2 border-t border-border/30" />
@@ -281,6 +307,10 @@ function RightPanel({
     return <BrainPromptDetail />;
   }
 
+  if (selection?.kind === "issue-draft") {
+    return <IssueDraftPromptDetail />;
+  }
+
   if (selection?.kind === "template" && selectedTemplate) {
     return (
       <TemplateDetail
@@ -309,10 +339,10 @@ type PromptVariable = { token: string; desc: string };
 
 /**
  * Shared master-detail editor for an editable prompt resource (Build Agent
- * Prompt, Brain Agent Prompt). Owns the header/badge/description, the
- * `PromptEditor`, an optional template-variables hint, the collapsible
- * "View default prompt" section, the Save/Reset actions, and the reset-confirm
- * dialog. Base and brain plug in by passing their own resource hooks + copy.
+ * Prompt, Brain Agent Prompt, Issue Draft Prompt). Owns the header/badge/
+ * description, the `PromptEditor`, an optional template-variables hint, the
+ * collapsible "View default prompt" section, the Save/Reset actions, and the
+ * reset-confirm dialog. Callers plug in their own resource hooks + copy.
  */
 function EditablePromptDetail({
   title,
@@ -489,6 +519,24 @@ function BrainPromptDetail() {
       usePrompt={useBrainPrompt}
       useUpdatePrompt={useUpdateBrainPrompt}
       useResetPrompt={useResetBrainPrompt}
+    />
+  );
+}
+
+/**
+ * Issue Draft Prompt editor — the prompt pre-filled into the composer when a
+ * workspace is created from a GitHub issue.
+ */
+function IssueDraftPromptDetail() {
+  return (
+    <EditablePromptDetail
+      title="Issue Draft Prompt"
+      description="Pre-filled into the composer when a workspace is created from a GitHub issue."
+      variables={ISSUE_DRAFT_VARIABLES}
+      resetDescription="Your custom issue draft prompt will be removed and replaced with the default. This cannot be undone."
+      usePrompt={useIssueDraftPrompt}
+      useUpdatePrompt={useUpdateIssueDraftPrompt}
+      useResetPrompt={useResetIssueDraftPrompt}
     />
   );
 }

@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import Fastify, { type FastifyInstance } from "fastify";
-import { mkdir, rm } from "node:fs/promises";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createTempDir, createFixtureRepo } from "../utils/test-helpers.js";
 import { projectRoutes } from "./projects.js";
@@ -119,14 +119,14 @@ describe("POST /api/projects/:id/workspaces with source kind 'branch'", () => {
 });
 
 describe("POST /api/projects/:id/workspaces with source kind 'pr'", () => {
-  it("checks out the PR head branch and seeds a draft prompt", async () => {
+  it("checks out the PR head branch without seeding a draft prompt", async () => {
     await setProjectGitHubUrl();
     vi.mocked(fetchPrDetail).mockResolvedValue({
       number: 12,
       title: "Fix streaming",
-      body: "Steps and details",
       url: "https://github.com/acme/demo/pull/12",
       headRefName: "feature-x",
+      baseRefName: "main",
       isCrossRepository: false,
     });
 
@@ -140,9 +140,10 @@ describe("POST /api/projects/:id/workspaces with source kind 'pr'", () => {
       number: 12,
       title: "Fix streaming",
       url: "https://github.com/acme/demo/pull/12",
+      baseBranch: "main",
     });
-    expect(ws.draftPrompt).toContain("pull request #12");
-    expect(ws.draftPrompt).toContain("Steps and details");
+    // PR context reaches the agent via system-prompt injection, not a draft prompt.
+    expect(ws.draftPrompt).toBeUndefined();
   });
 
   it("checks out a cross-repository PR via refs/pull/<n>/head", async () => {
@@ -152,9 +153,9 @@ describe("POST /api/projects/:id/workspaces with source kind 'pr'", () => {
     vi.mocked(fetchPrDetail).mockResolvedValue({
       number: 7,
       title: "Fork contribution",
-      body: "",
       url: "https://github.com/acme/demo/pull/7",
       headRefName: "fork-feature",
+      baseRefName: "develop",
       isCrossRepository: true,
     });
 
@@ -162,6 +163,7 @@ describe("POST /api/projects/:id/workspaces with source kind 'pr'", () => {
     expect(res.statusCode).toBe(201);
     const ws = res.json();
     expect(ws.branch).toBe("pr/7");
+    expect(ws.source.baseBranch).toBe("develop");
     const wsPath = join(dataDir, projectId, "workspaces", ws.name);
     const { stdout } = await git(["rev-parse", "--abbrev-ref", "HEAD"], wsPath);
     expect(stdout).toBe("pr/7");
@@ -188,9 +190,9 @@ describe("POST /api/projects/:id/workspaces with source kind 'pr'", () => {
     vi.mocked(fetchPrDetail).mockResolvedValue({
       number: 9,
       title: "Fork reuses main",
-      body: "",
       url: "https://github.com/acme/demo/pull/9",
       headRefName: "main",
+      baseRefName: "main",
       isCrossRepository: true,
     });
 
@@ -214,9 +216,9 @@ describe("POST /api/projects/:id/workspaces with source kind 'pr'", () => {
     vi.mocked(fetchPrDetail).mockResolvedValue({
       number: 11,
       title: "Fork contribution",
-      body: "",
       url: "https://github.com/acme/demo/pull/11",
       headRefName: "fork-feature",
+      baseRefName: "main",
       isCrossRepository: true,
     });
 
@@ -259,8 +261,26 @@ describe("POST /api/projects/:id/workspaces with source kind 'issue'", () => {
       title: "Sidebar flickers",
       url: "https://github.com/acme/demo/issues/45",
     });
-    expect(ws.draftPrompt).toContain("issue #45");
-    expect(ws.draftPrompt).toContain("Repro steps");
+    expect(ws.draftPrompt).toBe(
+      "Work on issue #45: Sidebar flickers\nhttps://github.com/acme/demo/issues/45\n\nRepro steps",
+    );
+  });
+
+  it("honors a customized issue-draft.md template", async () => {
+    await setProjectGitHubUrl();
+    const promptsDir = join(dataDir, "prompts");
+    await mkdir(promptsDir, { recursive: true });
+    await writeFile(join(promptsDir, "issue-draft.md"), "Fix issue {NUMBER} ({TITLE}) now", "utf-8");
+    vi.mocked(fetchIssueDetail).mockResolvedValue({
+      number: 45,
+      title: "Sidebar flickers",
+      body: "Repro steps",
+      url: "https://github.com/acme/demo/issues/45",
+    });
+
+    const res = await createFromSource({ kind: "issue", number: 45 });
+    expect(res.statusCode).toBe(201);
+    expect(res.json().draftPrompt).toBe("Fix issue 45 (Sidebar flickers) now");
   });
 });
 
@@ -349,9 +369,9 @@ describe("GET /api/projects/:id/pulls", () => {
     vi.mocked(fetchPrDetail).mockResolvedValue({
       number: 7,
       title: "Fork PR",
-      body: "",
       url: "https://github.com/acme/demo/pull/7",
       headRefName: "fork-main",
+      baseRefName: "main",
       isCrossRepository: true,
     });
 

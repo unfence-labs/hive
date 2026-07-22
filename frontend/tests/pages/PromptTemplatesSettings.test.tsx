@@ -54,13 +54,20 @@ function makePromptData(overrides: Partial<BasePromptData> = {}): BasePromptData
 }
 
 // Route GET calls to the right endpoint.
-function mockGets(opts?: { base?: BasePromptData; brain?: BasePromptData }) {
+function mockGets(opts?: {
+  base?: BasePromptData;
+  brain?: BasePromptData;
+  issueDraft?: BasePromptData;
+}) {
   const base = opts?.base ?? makePromptData({ content: "build agent content" });
   const brain = opts?.brain ?? makePromptData({ content: "brain agent content" });
+  const issueDraft =
+    opts?.issueDraft ?? makePromptData({ content: "issue draft content" });
   vi.mocked(api.get).mockImplementation((url: string) => {
     if (url === "/api/prompt-templates") return Promise.resolve([]);
     if (url === "/api/prompts/base") return Promise.resolve(base);
     if (url === "/api/prompts/brain") return Promise.resolve(brain);
+    if (url === "/api/prompts/issue-draft") return Promise.resolve(issueDraft);
     return Promise.reject(new Error(`unexpected GET ${url}`));
   });
 }
@@ -81,6 +88,7 @@ describe("PromptTemplatesSettings — Brain prompt entry", () => {
       expect(screen.getAllByText("Build Agent Prompt").length).toBeGreaterThanOrEqual(1);
     });
     expect(screen.getByText("Brain Agent Prompt")).toBeInTheDocument();
+    expect(screen.getByText("Issue Draft Prompt")).toBeInTheDocument();
   });
 
   it("defaults to the Build Agent Prompt detail", async () => {
@@ -144,6 +152,83 @@ describe("PromptTemplatesSettings — Brain prompt entry", () => {
       expect(api.put).toHaveBeenCalledWith("/api/prompts/brain", {
         content: "edited brain",
       });
+    });
+  });
+
+  it("selecting the Issue Draft entry shows its editor, description, and variables", async () => {
+    mockGets();
+    const { wrapper } = createWrapper();
+    render(<PromptTemplatesSettings />, { wrapper });
+
+    await waitFor(() => {
+      expect(screen.getByText("Issue Draft Prompt")).toBeInTheDocument();
+    });
+
+    await userEvent.click(screen.getByText("Issue Draft Prompt"));
+
+    await waitFor(() => {
+      expect(screen.getByRole("textbox", { name: "prompt-editor" })).toHaveValue(
+        "issue draft content",
+      );
+    });
+    expect(
+      screen.getByText(/Pre-filled into the composer when a workspace is created from a GitHub issue/i),
+    ).toBeInTheDocument();
+    // Issue draft variable hints.
+    expect(screen.getByText("Variables:")).toBeInTheDocument();
+    for (const token of ["{NUMBER}", "{TITLE}", "{URL}", "{BODY}"]) {
+      expect(screen.getByText(token)).toBeInTheDocument();
+    }
+    expect(screen.getByText("issue number")).toBeInTheDocument();
+  });
+
+  it("saving the issue draft prompt calls the issue-draft update endpoint", async () => {
+    mockGets();
+    vi.mocked(api.put).mockResolvedValue(
+      makePromptData({ content: "edited draft", isDefault: false }),
+    );
+    const { wrapper } = createWrapper();
+    render(<PromptTemplatesSettings />, { wrapper });
+
+    await waitFor(() => {
+      expect(screen.getByText("Issue Draft Prompt")).toBeInTheDocument();
+    });
+    await userEvent.click(screen.getByText("Issue Draft Prompt"));
+
+    const editor = await screen.findByRole("textbox", { name: "prompt-editor" });
+    await waitFor(() => expect(editor).toHaveValue("issue draft content"));
+
+    await userEvent.clear(editor);
+    await userEvent.type(editor, "edited draft");
+    await userEvent.click(screen.getByRole("button", { name: /save/i }));
+
+    await waitFor(() => {
+      expect(api.put).toHaveBeenCalledWith("/api/prompts/issue-draft", {
+        content: "edited draft",
+      });
+    });
+  });
+
+  it("resetting a customized issue draft prompt calls the issue-draft delete endpoint", async () => {
+    mockGets({
+      issueDraft: makePromptData({ content: "custom draft", isDefault: false }),
+    });
+    vi.mocked(api.delete).mockResolvedValue(undefined);
+    const { wrapper } = createWrapper();
+    render(<PromptTemplatesSettings />, { wrapper });
+
+    await waitFor(() => {
+      expect(screen.getByText("Issue Draft Prompt")).toBeInTheDocument();
+    });
+    await userEvent.click(screen.getByText("Issue Draft Prompt"));
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: /reset to default/i }),
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Reset" }));
+
+    await waitFor(() => {
+      expect(api.delete).toHaveBeenCalledWith("/api/prompts/issue-draft");
     });
   });
 

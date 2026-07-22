@@ -14,6 +14,7 @@ import {
   BRAIN_BASE_PROMPT,
 } from "./system-prompt.js";
 import type { GitContext } from "./system-prompt.js";
+import type { WorkspaceSource } from "../types.js";
 
 let tempDir: string;
 let repoDir: string;
@@ -206,6 +207,86 @@ describe("formatGitContextBlock", () => {
     expect(block).toContain("Current branch: unknown");
   });
 
+  it("omits workspace source lines when no source is provided", () => {
+    const block = formatGitContextBlock(baseCtx, { projectName: "hive" });
+    expect(block).not.toContain("Workspace source:");
+    expect(block).not.toContain("PR base branch:");
+  });
+
+  it("emits the branch source line right after the main branch line", () => {
+    const source: WorkspaceSource = { kind: "branch", branch: "feature-x" };
+    const block = formatGitContextBlock(baseCtx, { source });
+    expect(block).toContain('Main branch: main\nWorkspace source: existing branch "feature-x"');
+  });
+
+  it("emits the issue source line with title and url", () => {
+    const source: WorkspaceSource = {
+      kind: "issue",
+      number: 45,
+      title: "Sidebar flickers",
+      url: "https://github.com/acme/demo/issues/45",
+    };
+    const block = formatGitContextBlock(baseCtx, { source });
+    expect(block).toContain(
+      'Workspace source: issue #45 — "Sidebar flickers" (https://github.com/acme/demo/issues/45)',
+    );
+  });
+
+  it("omits the url parens on an issue source without url", () => {
+    const source: WorkspaceSource = { kind: "issue", number: 45, title: "Sidebar flickers" };
+    const block = formatGitContextBlock(baseCtx, { source });
+    expect(block).toMatch(/^Workspace source: issue #45 — "Sidebar flickers"$/m);
+  });
+
+  it("emits PR source, base branch, and instruction lines", () => {
+    const source: WorkspaceSource = {
+      kind: "pr",
+      branch: "feature-x",
+      number: 12,
+      title: "Fix streaming",
+      url: "https://github.com/acme/demo/pull/12",
+      baseBranch: "develop",
+    };
+    const block = formatGitContextBlock(baseCtx, { source });
+    expect(block).toContain(
+      'Workspace source: pull request #12 — "Fix streaming" (https://github.com/acme/demo/pull/12)',
+    );
+    expect(block).toContain("PR base branch: develop");
+    expect(block).toContain(
+      "This workspace works on an existing pull request: push to its head branch to update the PR; do not create a new pull request. The PR merges into develop, not necessarily the main branch.",
+    );
+  });
+
+  it("emits the PR instruction without the merge sentence when baseBranch is absent", () => {
+    const source: WorkspaceSource = {
+      kind: "pr",
+      branch: "feature-x",
+      number: 12,
+      title: "Fix streaming",
+      url: "https://github.com/acme/demo/pull/12",
+    };
+    const block = formatGitContextBlock(baseCtx, { source });
+    expect(block).not.toContain("PR base branch:");
+    expect(block).toContain(
+      "This workspace works on an existing pull request: push to its head branch to update the PR; do not create a new pull request.",
+    );
+    expect(block).not.toContain("The PR merges into");
+  });
+
+  it("degrades gracefully on sources with missing fields", () => {
+    // Old workspaces may persist partial sources — never print "undefined".
+    const block = formatGitContextBlock(baseCtx, { source: { kind: "pr" } });
+    expect(block).not.toContain("undefined");
+    expect(block).not.toContain("Workspace source:");
+    expect(block).toContain(
+      "This workspace works on an existing pull request: push to its head branch to update the PR; do not create a new pull request.",
+    );
+
+    const branchBlock = formatGitContextBlock(baseCtx, { source: { kind: "branch" } });
+    expect(branchBlock).not.toContain("undefined");
+    expect(branchBlock).not.toContain("Workspace source:");
+  });
+
   it("produces identical output to what buildPrompt appends", async () => {
     // buildPrompt("chat") calls formatGitContextBlock internally — verify consistency
     const ctx = await getGitContext(repoDir);
@@ -314,6 +395,22 @@ describe("buildPrompt", () => {
     const gitBlock = result.blocks.find((b) => b.label === "git")!;
     expect(gitBlock.content).toContain("Project: hive");
     expect(gitBlock.content).toContain("Workspace: geneva");
+  });
+
+  it("passes the workspace source into the git block", () => {
+    const result = buildPrompt("chat", {
+      base,
+      interpolation,
+      git: gitCtx,
+      source: { kind: "branch", branch: "feature-x" },
+    });
+    const gitBlock = result.blocks.find((b) => b.label === "git")!;
+    expect(gitBlock.content).toContain('Workspace source: existing branch "feature-x"');
+  });
+
+  it("emits no source lines when materials have no source", () => {
+    const result = buildPrompt("chat", { base, interpolation, git: gitCtx });
+    expect(result.text).not.toContain("Workspace source:");
   });
 
   it("text equals blocks joined with double newline for every recipe", () => {

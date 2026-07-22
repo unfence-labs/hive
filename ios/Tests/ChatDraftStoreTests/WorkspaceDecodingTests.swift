@@ -37,6 +37,37 @@ struct WorkspaceDecodingTests {
     }
 
     @Test
+    func decodesPullRequestSourceWithBaseBranch() throws {
+        let data = """
+        {
+          "id": "workspace-4",
+          "name": "pr-77",
+          "branch": "feature/dark-mode",
+          "status": "idle",
+          "createdAt": "2026-01-01T00:00:00.000Z",
+          "activeSessionId": null,
+          "projectName": "hive",
+          "defaultBranch": "main",
+          "source": {
+            "kind": "pr",
+            "branch": "feature/dark-mode",
+            "number": 77,
+            "title": "Add dark mode",
+            "url": "https://github.com/example/hive/pull/77",
+            "baseBranch": "develop"
+          }
+        }
+        """.data(using: .utf8)!
+
+        let workspace = try JSONDecoder().decode(Workspace.self, from: data)
+
+        #expect(workspace.source?.kind == "pr")
+        #expect(workspace.source?.branch == "feature/dark-mode")
+        #expect(workspace.source?.number == 77)
+        #expect(workspace.source?.baseBranch == "develop")
+    }
+
+    @Test
     func decodesWorkspaceWithoutSourceOrDraftPrompt() throws {
         let data = """
         {
@@ -83,5 +114,6 @@ struct WorkspaceDecodingTests {
         #expect(workspace.source?.kind == "some-future-kind")
         #expect(workspace.source?.branch == nil)
         #expect(workspace.source?.number == nil)
+        #expect(workspace.source?.baseBranch == nil)
     }
 }

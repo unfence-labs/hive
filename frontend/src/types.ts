@@ -96,7 +96,7 @@ export interface Workspace {
   worktreePath?: string;
   /** Present when the workspace was created from a branch, PR, or issue. */
   source?: WorkspaceSource;
-  /** Prompt pre-filled into the composer of a freshly created workspace. */
+  /** Prompt pre-filled into the composer of a workspace created from an issue. */
   draftPrompt?: string;
 }
 
@@ -104,6 +104,8 @@ export interface WorkspaceSource {
   kind: "branch" | "pr" | "issue";
   branch?: string;
   number?: number;
+  /** Base branch of the PR ("pr" kind). */
+  baseBranch?: string;
   title?: string;
   url?: string;
 }

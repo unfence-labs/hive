@@ -17,7 +17,7 @@ export interface Workspace {
   lastActivityAt?: string;
   /** Present when the workspace was created from a branch, PR, or issue. */
   source?: WorkspaceSource;
-  /** Prompt pre-filled into the composer of a freshly created workspace. */
+  /** Prompt pre-filled into the composer of a workspace created from an issue. */
   draftPrompt?: string;
 }
 
@@ -29,6 +29,8 @@ export interface WorkspaceSource {
   branch?: string;
   /** PR or issue number ("pr" and "issue" kinds). */
   number?: number;
+  /** Base branch of the PR ("pr" kind). */
+  baseBranch?: string;
   title?: string;
   url?: string;
 }

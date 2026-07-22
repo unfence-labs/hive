@@ -9,6 +9,7 @@ import {
   removeWorktreeOrDeleteDirectory,
 } from "../utils/git-worktree.js";
 import { parseGitHubRepo, fetchPrDetail, fetchIssueDetail } from "../utils/github.js";
+import { loadIssueDraftPrompt, interpolateIssueDraftPrompt } from "../agents/issue-draft-prompt.js";
 import type { PullRequestDetail, IssueDetail } from "../utils/github.js";
 import { mapBranchesToWorkspaces } from "./workspace-sources.js";
 import { buildFileTree } from "../utils/file-tree.js";
@@ -53,13 +54,6 @@ function requireGitHubRepo(state: ProjectState): { owner: string; repo: string }
   const repo = state.url ? parseGitHubRepo(state.url) : null;
   if (!repo) throw new BadRequestError("This project has no GitHub remote");
   return repo;
-}
-
-function buildDraftPrompt(ref: string, title: string, url: string, body: string): string {
-  const lines = [`Work on ${ref}: ${title}`, url];
-  const description = body.trim();
-  if (description) lines.push("", description);
-  return lines.join("\n");
 }
 
 async function assertBranchNotCheckedOut(
@@ -234,8 +228,7 @@ export async function createWorkspace(
           branch = pr.headRefName;
           await checkoutSourceBranch(state, bare, wsPath, branch, dataDir);
         }
-        wsSource = { kind: "pr", branch, number: pr.number, title: pr.title, url: pr.url };
-        draftPrompt = buildDraftPrompt(`pull request #${pr.number}`, pr.title, pr.url, pr.body);
+        wsSource = { kind: "pr", branch, number: pr.number, title: pr.title, url: pr.url, baseBranch: pr.baseRefName };
       } else if (source.kind === "issue") {
         const issue = issueDetail!;
         // Issues have no code: branch off the default branch like the default flow.
@@ -243,7 +236,14 @@ export async function createWorkspace(
         await refreshDefaultBranchFromOrigin(bare, defaultBranch);
         await addWorktreeWithNewBranch(bare, wsPath, branch, defaultBranch);
         wsSource = { kind: "issue", number: issue.number, title: issue.title, url: issue.url };
-        draftPrompt = buildDraftPrompt(`issue #${issue.number}`, issue.title, issue.url, issue.body);
+        const template = await loadIssueDraftPrompt(join(dataDir, "prompts"));
+        const rendered = interpolateIssueDraftPrompt(template, {
+          number: issue.number,
+          title: issue.title,
+          url: issue.url,
+          body: issue.body,
+        });
+        if (rendered) draftPrompt = rendered;
       } else {
         throw new BadRequestError("Invalid workspace source");
       }

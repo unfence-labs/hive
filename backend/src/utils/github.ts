@@ -364,9 +364,9 @@ export interface IssueListEntry {
 export interface PullRequestDetail {
   number: number;
   title: string;
-  body: string;
   url: string;
   headRefName: string;
+  baseRefName: string;
   isCrossRepository: boolean;
 }
 
@@ -440,18 +440,18 @@ export async function fetchPrDetail(
   ghClient: GhClient = gh,
 ): Promise<PullRequestDetail> {
   const item = await ghJson<{
-    number: number; title: string; body?: string; url: string;
-    headRefName: string; isCrossRepository: boolean;
+    number: number; title: string; url: string;
+    headRefName: string; baseRefName: string; isCrossRepository: boolean;
   }>([
     "pr", "view", String(number), "--repo", `${owner}/${repo}`,
-    "--json", "number,title,body,url,headRefName,isCrossRepository",
+    "--json", "number,title,url,headRefName,baseRefName,isCrossRepository",
   ], ghClient);
   return {
     number: item.number,
     title: item.title,
-    body: item.body ?? "",
     url: item.url,
     headRefName: item.headRefName,
+    baseRefName: item.baseRefName,
     isCrossRepository: item.isCrossRepository,
   };
 }
