@@ -189,6 +189,19 @@ describe("getOrCreateSession", () => {
     await expect(getOrCreateSession("nonexistent", dataDir, CONV_CMD)).rejects.toThrow("not found");
   });
 
+  it("clears a pending draftPrompt once a session starts", async () => {
+    const state = await loadProject(projectId, dataDir);
+    const ws = state!.workspaces.find((w) => w.id === wsId)!;
+    ws.draftPrompt = "Fix the bug in #42";
+    await saveProject(state!, dataDir);
+
+    await getOrCreateSession(wsId, dataDir, CONV_CMD);
+
+    const after = await loadProject(projectId, dataDir);
+    const afterWs = after!.workspaces.find((w) => w.id === wsId);
+    expect(afterWs!.draftPrompt).toBeUndefined();
+  });
+
   it("recovers stale busy workspace state and creates a new session", async () => {
     const state = await loadProject(projectId, dataDir);
     const ws = state!.workspaces.find((w) => w.id === wsId)!;
@@ -406,6 +419,19 @@ describe("endSession", () => {
     const state = await loadProject(projectId, dataDir);
     const ws = state!.workspaces.find((w) => w.id === wsId);
     expect(ws!.status).toBe("idle");
+  });
+
+  it("leaves a draftPrompt untouched for an idle-only persist without a session", async () => {
+    const state = await loadProject(projectId, dataDir);
+    const ws = state!.workspaces.find((w) => w.id === wsId)!;
+    ws.draftPrompt = "Fix the bug in #42";
+    await saveProject(state!, dataDir);
+
+    await endSession(wsId, dataDir);
+
+    const after = await loadProject(projectId, dataDir);
+    const afterWs = after!.workspaces.find((w) => w.id === wsId);
+    expect(afterWs!.draftPrompt).toBe("Fix the bug in #42");
   });
 });
 

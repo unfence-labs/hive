@@ -60,6 +60,7 @@ import type { Automation, DiffStatResponse, Project } from "@/types";
 interface SidebarProps {
   onAddProject: () => void;
   onAddAutomation?: () => void;
+  onNewWorkspaceFrom?: (projectId: string) => void;
 }
 
 type SidebarDropTarget = { type: "folder"; folderId: string };
@@ -158,7 +159,7 @@ function SidebarPanelScroll({
   );
 }
 
-export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps) {
+export default function Sidebar({ onAddProject, onAddAutomation, onNewWorkspaceFrom }: SidebarProps) {
   const {
     projects,
     loading,
@@ -517,6 +518,7 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
         draggingProjectId={draggingProjectId}
         projectInsertIndicator={projectInsertIndicator}
         onAddWorkspace={(projectId) => { void handleAddWorkspace(projectId); }}
+        onAddWorkspaceFrom={onNewWorkspaceFrom}
         onArchiveWorkspace={(wsId) => { void handleArchiveClick(wsId); }}
         onProjectDragStart={handleProjectDragStart}
         onProjectDragEnd={handleProjectDragEnd}

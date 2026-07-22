@@ -1,7 +1,7 @@
 import { useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "./useApi";
-import type { Project, Workspace } from "@/types";
+import type { CreateWorkspaceSource, Project, Workspace } from "@/types";
 
 const PROJECTS_FETCH_TIMEOUT_MS = 10_000;
 const PROJECTS_RECOVERY_INTERVAL_MS = 5_000;
@@ -146,9 +146,11 @@ export function useProjects() {
   });
 
   const createWorkspace = useMutation({
-    mutationFn: (projectId: string) =>
-      api.post<Workspace>(`/api/projects/${projectId}/workspaces`),
-    onSuccess: (workspace, projectId) => {
+    mutationFn: ({ projectId, source }: { projectId: string; source?: CreateWorkspaceSource }) =>
+      source
+        ? api.post<Workspace>(`/api/projects/${projectId}/workspaces`, { source })
+        : api.post<Workspace>(`/api/projects/${projectId}/workspaces`),
+    onSuccess: (workspace, { projectId }) => {
       queryClient.setQueryData<Project[]>(["projects"], (prev) =>
         prev?.map((p) =>
           p.id !== projectId
@@ -198,8 +200,8 @@ export function useProjects() {
       createProjectWithWorkspace.mutateAsync(url),
     createNewProjectWithWorkspace: (params: { name: string; visibility?: "public" | "private" }) =>
       createNewProjectWithWorkspace.mutateAsync(params),
-    createWorkspace: (projectId: string) =>
-      createWorkspace.mutateAsync(projectId),
+    createWorkspace: (projectId: string, source?: CreateWorkspaceSource) =>
+      createWorkspace.mutateAsync({ projectId, source }),
     deleteProject: (id: string) => deleteProject.mutateAsync(id),
     archiveWorkspace: (wsId: string) => archiveWorkspace.mutateAsync(wsId),
   };

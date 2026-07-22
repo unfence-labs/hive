@@ -11,6 +11,7 @@ import ModelsSettings from "@/pages/settings/ModelsSettings";
 import ProjectDetail from "@/pages/settings/ProjectDetail";
 import BrainView from "@/pages/BrainView";
 import AddProjectDialog from "@/components/AddProjectDialog";
+import WorkspaceLauncher from "@/components/WorkspaceLauncher";
 import HomeView from "@/pages/HomeView";
 import { useProjects } from "@/hooks/useProjects";
 import { BRAIN_WORKSPACE_ID } from "@/lib/brain";
@@ -39,6 +40,9 @@ export default function App() {
   const { projects, loading, fetchProjects, createProjectWithWorkspace, createNewProjectWithWorkspace } = useProjects();
   const [showAddProject, setShowAddProject] = useState(false);
   const [showAddAutomation, setShowAddAutomation] = useState(false);
+  // "New workspace from…" picker — owned here so both the global shortcuts
+  // (WorkspaceLauncher) and the sidebar "+" context menu can open it.
+  const [workspaceFrom, setWorkspaceFrom] = useState<{ open: boolean; projectId?: string }>({ open: false });
   const workspaceIds = useMemo(
     () =>
       Array.from(
@@ -70,6 +74,13 @@ export default function App() {
     <BrowserRouter>
       <WorkspaceLiveDataProvider workspaceIds={workspaceIds}>
         <HiveToaster />
+        <WorkspaceLauncher
+          pickerOpen={workspaceFrom.open}
+          pickerProjectId={workspaceFrom.projectId}
+          onPickerOpenChange={(open) =>
+            setWorkspaceFrom((prev) => (open ? { ...prev, open: true } : { open: false }))
+          }
+        />
         <NotificationToastsBridge projects={projects} />
         <AddProjectDialog
           open={showAddProject}
@@ -91,6 +102,7 @@ export default function App() {
               <AppLayout
                 onAddProject={() => setShowAddProject(true)}
                 onAddAutomation={() => setShowAddAutomation(true)}
+                onNewWorkspaceFrom={(projectId) => setWorkspaceFrom({ open: true, projectId })}
               />
             }
           >

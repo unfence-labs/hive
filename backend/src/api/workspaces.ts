@@ -24,7 +24,7 @@ import { readHiveConfig } from "../utils/hive-config.js";
 import { startScript } from "../services/script-runner.js";
 import { broadcastToWorkspace } from "../ws/stream.js";
 import { headerFilename, rawFileContentType } from "../utils/raw-file.js";
-import type { DiffScope } from "../types.js";
+import type { CreateWorkspaceSourceInput, DiffScope } from "../types.js";
 
 const DIFF_SCOPES = new Set<DiffScope>(["combined", "committed", "uncommitted"]);
 
@@ -36,10 +36,32 @@ function parseDiffScope(scope: unknown): DiffScope {
   throw new BadRequestError("Invalid diff scope");
 }
 
+function parseCreateSource(body: unknown): CreateWorkspaceSourceInput | undefined {
+  if (body === undefined || body === null || typeof body !== "object") return undefined;
+  const source = (body as { source?: unknown }).source;
+  if (source === undefined || source === null) return undefined;
+  if (typeof source !== "object") throw new BadRequestError("Invalid workspace source");
+  const { kind, branch, number } = source as { kind?: unknown; branch?: unknown; number?: unknown };
+  if (kind === "branch") {
+    if (typeof branch !== "string" || !branch.trim()) {
+      throw new BadRequestError("Workspace source of kind 'branch' requires a branch name");
+    }
+    return { kind, branch: branch.trim() };
+  }
+  if (kind === "pr" || kind === "issue") {
+    if (typeof number !== "number" || !Number.isInteger(number) || number <= 0) {
+      throw new BadRequestError(`Workspace source of kind '${kind}' requires a positive number`);
+    }
+    return { kind, number };
+  }
+  throw new BadRequestError("Invalid workspace source kind");
+}
+
 export async function workspaceRoutes(app: FastifyInstance, dataDir?: string) {
-  app.post<{ Params: { id: string } }>("/api/projects/:id/workspaces", async (req, reply) => {
+  app.post<{ Params: { id: string }; Body: unknown }>("/api/projects/:id/workspaces", async (req, reply) => {
     try {
-      const workspace = await createWorkspace(req.params.id, dataDir);
+      const source = parseCreateSource(req.body);
+      const workspace = await createWorkspace(req.params.id, dataDir, source);
 
       // Auto-start setup script if hive.json defines one
       const dir = dataDir ?? getDataDir();

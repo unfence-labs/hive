@@ -94,6 +94,52 @@ export interface Workspace {
   projectName?: string;
   defaultBranch?: string;
   worktreePath?: string;
+  /** Present when the workspace was created from a branch, PR, or issue. */
+  source?: WorkspaceSource;
+  /** Prompt pre-filled into the composer of a freshly created workspace. */
+  draftPrompt?: string;
+}
+
+export interface WorkspaceSource {
+  kind: "branch" | "pr" | "issue";
+  branch?: string;
+  number?: number;
+  title?: string;
+  url?: string;
+}
+
+/** Body of `POST /api/projects/:id/workspaces`. */
+export type CreateWorkspaceSource =
+  | { kind: "branch"; branch: string }
+  | { kind: "pr"; number: number }
+  | { kind: "issue"; number: number };
+
+// ── Workspace source listing types (new-workspace-from picker) ──────
+
+export interface ProjectBranchItem {
+  name: string;
+  workspaceId?: string;
+  workspaceName?: string;
+}
+
+export interface ProjectPullItem {
+  number: number;
+  title: string;
+  branch: string;
+  url: string;
+  isDraft: boolean;
+  author?: string;
+  updatedAt?: string;
+  workspaceId?: string;
+  workspaceName?: string;
+}
+
+export interface ProjectIssueItem {
+  number: number;
+  title: string;
+  url: string;
+  author?: string;
+  updatedAt?: string;
 }
 
 // ── Tab types ───────────────────────────────────────────────────────

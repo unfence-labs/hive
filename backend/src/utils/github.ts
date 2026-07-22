@@ -339,6 +339,136 @@ export async function fetchPrForBranch(
   }
 }
 
+// ── Listing / detail helpers for the new-workspace-from picker ──────
+
+const GH_LIST_TIMEOUT_MS = 10_000;
+
+export interface PullRequestListEntry {
+  number: number;
+  title: string;
+  url: string;
+  headRefName: string;
+  isDraft: boolean;
+  author?: string;
+  updatedAt?: string;
+}
+
+export interface IssueListEntry {
+  number: number;
+  title: string;
+  url: string;
+  author?: string;
+  updatedAt?: string;
+}
+
+export interface PullRequestDetail {
+  number: number;
+  title: string;
+  body: string;
+  url: string;
+  headRefName: string;
+  isCrossRepository: boolean;
+}
+
+export interface IssueDetail {
+  number: number;
+  title: string;
+  body: string;
+  url: string;
+}
+
+async function ghJson<T>(args: string[], ghClient: GhClient): Promise<T> {
+  try {
+    const { stdout } = await ghClient(args, { timeoutMs: GH_LIST_TIMEOUT_MS });
+    return JSON.parse(stdout) as T;
+  } catch (err) {
+    if (err instanceof SyntaxError) throw new Error("GitHub CLI returned unexpected output");
+    throw new Error(formatGhFailure(err));
+  }
+}
+
+export async function listOpenPullRequests(
+  owner: string,
+  repo: string,
+  ghClient: GhClient = gh,
+): Promise<PullRequestListEntry[]> {
+  const items = await ghJson<
+    Array<{ number: number; title: string; url: string; headRefName: string; isDraft: boolean; author?: { login?: string }; updatedAt?: string }>
+  >([
+    "pr", "list", "--repo", `${owner}/${repo}`,
+    "--state", "open",
+    "--json", "number,title,url,headRefName,isDraft,author,updatedAt",
+    "--limit", "100",
+  ], ghClient);
+  return items.map((item) => ({
+    number: item.number,
+    title: item.title,
+    url: item.url,
+    headRefName: item.headRefName,
+    isDraft: item.isDraft,
+    author: item.author?.login,
+    updatedAt: item.updatedAt,
+  }));
+}
+
+export async function listOpenIssues(
+  owner: string,
+  repo: string,
+  ghClient: GhClient = gh,
+): Promise<IssueListEntry[]> {
+  const items = await ghJson<
+    Array<{ number: number; title: string; url: string; author?: { login?: string }; updatedAt?: string }>
+  >([
+    "issue", "list", "--repo", `${owner}/${repo}`,
+    "--state", "open",
+    "--json", "number,title,url,author,updatedAt",
+    "--limit", "100",
+  ], ghClient);
+  return items.map((item) => ({
+    number: item.number,
+    title: item.title,
+    url: item.url,
+    author: item.author?.login,
+    updatedAt: item.updatedAt,
+  }));
+}
+
+export async function fetchPrDetail(
+  owner: string,
+  repo: string,
+  number: number,
+  ghClient: GhClient = gh,
+): Promise<PullRequestDetail> {
+  const item = await ghJson<{
+    number: number; title: string; body?: string; url: string;
+    headRefName: string; isCrossRepository: boolean;
+  }>([
+    "pr", "view", String(number), "--repo", `${owner}/${repo}`,
+    "--json", "number,title,body,url,headRefName,isCrossRepository",
+  ], ghClient);
+  return {
+    number: item.number,
+    title: item.title,
+    body: item.body ?? "",
+    url: item.url,
+    headRefName: item.headRefName,
+    isCrossRepository: item.isCrossRepository,
+  };
+}
+
+export async function fetchIssueDetail(
+  owner: string,
+  repo: string,
+  number: number,
+  ghClient: GhClient = gh,
+): Promise<IssueDetail> {
+  const item = await ghJson<{ number: number; title: string; body?: string; url: string }>([
+    "issue", "view", String(number), "--repo", `${owner}/${repo}`,
+    "--json", "number,title,body,url",
+  ], ghClient);
+  return { number: item.number, title: item.title, body: item.body ?? "", url: item.url };
+}
+
 /** Reset module-level state (for tests). */
 export function _resetGhState(): void {
   ghAvailable = null;

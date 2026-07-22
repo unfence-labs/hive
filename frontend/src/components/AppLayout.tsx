@@ -72,10 +72,11 @@ export function SettingsHeader({ children }: { children: React.ReactNode }) {
 
 interface AppLayoutProps {
   onAddProject: () => void;
+  onNewWorkspaceFrom?: (projectId: string) => void;
   onAddAutomation?: () => void;
 }
 
-export default function AppLayout({ onAddProject, onAddAutomation }: AppLayoutProps) {
+export default function AppLayout({ onAddProject, onAddAutomation, onNewWorkspaceFrom }: AppLayoutProps) {
   const { pathname } = useLocation();
   const isSettings = pathname.startsWith("/settings");
   const { backendEnv } = useConnectionStatus();
@@ -158,7 +159,7 @@ export default function AppLayout({ onAddProject, onAddAutomation }: AppLayoutPr
           {isSettings ? (
             <SettingsSidebar />
           ) : (
-            <Sidebar onAddProject={onAddProject} onAddAutomation={onAddAutomation} />
+            <Sidebar onAddProject={onAddProject} onAddAutomation={onAddAutomation} onNewWorkspaceFrom={onNewWorkspaceFrom} />
           )}
         </Panel>
         <ResizeHandle orientation="vertical" cardSide="right" />
