@@ -76,6 +76,44 @@ describe("codexAuthStep", () => {
     await login;
   });
 
+  it("lets a clean authenticated exit win over a mid-flight expiry notice", async () => {
+    mocks.detectTools
+      .mockResolvedValueOnce({ codex: { installed: true, authenticated: false } })
+      .mockResolvedValueOnce({ codex: { installed: true, authenticated: true } });
+    let onData: ((chunk: string) => void) | undefined;
+    let onExit: ((code: number) => void) | undefined;
+    const spawn: SpawnPty = () => ({
+      onData: (callback) => { onData = callback; return () => {}; },
+      onExit: (callback) => { onExit = callback; return () => {}; },
+      kill: () => {},
+    });
+
+    const login = codexAuthStep({ spawn, timeoutMs: 5_000 })(context().ctx);
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    onData?.("The device code has expired. Requesting a new code...\n");
+    onExit?.(0);
+
+    await expect(login).resolves.toBeUndefined();
+  });
+
+  it("still throws DEVICE_CODE_EXPIRED when a clean exit is not authenticated", async () => {
+    mocks.detectTools.mockResolvedValue({ codex: { installed: true, authenticated: false } });
+    let onData: ((chunk: string) => void) | undefined;
+    let onExit: ((code: number) => void) | undefined;
+    const spawn: SpawnPty = () => ({
+      onData: (callback) => { onData = callback; return () => {}; },
+      onExit: (callback) => { onExit = callback; return () => {}; },
+      kill: () => {},
+    });
+
+    const login = codexAuthStep({ spawn, timeoutMs: 5_000 })(context().ctx);
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    onData?.("The device code has expired. Requesting a new code...\n");
+    onExit?.(0);
+
+    await expect(login).rejects.toMatchObject({ code: "DEVICE_CODE_EXPIRED" });
+  });
+
   it("fails when exit zero did not produce authenticated credentials", async () => {
     mocks.detectTools.mockResolvedValue({ codex: { installed: true, authenticated: false } });
     const { spawn } = makeFakePty("codex-auth-success.sh");
