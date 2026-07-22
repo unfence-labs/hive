@@ -114,6 +114,17 @@ struct Workspace: Codable, Identifiable, Hashable {
     var sessionCount: Int? = nil
     var projectId: String? = nil
     var hasFavicon: Bool? = nil
+    var source: WorkspaceSource? = nil
+    var draftPrompt: String? = nil
+}
+
+/// Present when the workspace was created from a branch, PR, or issue.
+struct WorkspaceSource: Codable, Hashable {
+    let kind: String  // "branch" | "pr" | "issue" — kept as String so unknown kinds never fail decoding
+    let branch: String?
+    let number: Int?
+    let title: String?
+    let url: String?
 }
 
 // MARK: - UI Preferences
