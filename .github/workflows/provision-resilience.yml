@@ -32,3 +32,5 @@ jobs:
         run: make provision-docker-rollback
       - name: Verify download and checksum handling
         run: make provision-docker-download
+      - name: Verify interrupted installs re-provision
+        run: make provision-docker-reprovision

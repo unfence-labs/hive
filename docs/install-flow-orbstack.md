@@ -89,4 +89,6 @@ To iterate on `provision.sh` alone without the desktop app:
 make provision-docker        # full install + idempotency in a systemd container
 make provision-docker-chaos  # crash-resume across kill points
 make provision-docker-rollback # unhealthy release restores the prior version
+make provision-docker-download # GitHub-download branch: 404 / bad checksum / tampered tarball
+make provision-docker-reprovision # interrupted install resumes across a version bump
 ```
