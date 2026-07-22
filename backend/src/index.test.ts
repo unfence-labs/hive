@@ -74,6 +74,17 @@ describe("buildApp", () => {
     expect(body).toHaveProperty("env");
   });
 
+  it("serves /health with an open CORS header for any origin", async () => {
+    app = await buildApp();
+    const res = await app.inject({
+      method: "GET",
+      url: "/health",
+      headers: { origin: "http://localhost:5173" },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.headers["access-control-allow-origin"]).toBe("*");
+  });
+
   it("registers project routes", async () => {
     app = await buildApp();
     const res = await app.inject({ method: "GET", url: "/api/projects" });

@@ -390,8 +390,11 @@ export function ToolsPanel({
     abortControllers.current.clear();
   }, []);
 
-  useEffect(() => () => {
-    unmountedRef.current = true;
+  useEffect(() => {
+    unmountedRef.current = false;
+    return () => {
+      unmountedRef.current = true;
+    };
   }, []);
 
   /** Run backend setup steps for one tool; other tools stay usable. */

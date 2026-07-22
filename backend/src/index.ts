@@ -329,7 +329,10 @@ export async function buildApp(opts: BuildAppOptions = {}) {
     }),
   );
 
-  app.get("/health", async () => {
+  app.get("/health", async (_req, reply) => {
+    // /health is already public (auth- and host-guard-exempt); an open CORS
+    // header lets setup screens poll it from webview origins CORS would block.
+    reply.header("access-control-allow-origin", "*");
     const totalMem = os.totalmem();
     const freeMem = os.freemem();
     const disk = statfsSync("/");
