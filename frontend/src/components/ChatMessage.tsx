@@ -8,8 +8,9 @@ import { ThinkingBlock } from "@/components/chat/ThinkingBlock";
 import { AgentActivityList, getInlineAgentActivities } from "@/components/chat/AgentActivityList";
 import { CopyButton } from "@/components/chat/CopyButton";
 import { ImageLightbox } from "@/components/chat/ImageLightbox";
-import { FileIcon, TargetIcon } from "lucide-react";
+import { FileIcon, RotateCwIcon, TargetIcon, XIcon } from "lucide-react";
 import type { PlanStatus } from "@/components/chat/PlanProposal";
+import type { SendState } from "@/lib/optimistic-sends";
 import { AT_MENTION_RE, splitByAllMentions } from "@/lib/file-mentions";
 
 function renderContentWithMentions(
@@ -60,6 +61,10 @@ interface ChatMessageProps {
   dismissedToolCallIds?: Set<string>;
   onQuestionAnswer?: (toolCallId: string, answers: QuestionAnswer[]) => void;
   onFileMentionClick?: (relativePath: string) => void;
+  /** Delivery state when this is an optimistically-appended user message. */
+  sendState?: SendState;
+  onRetrySend?: (messageId: string) => void;
+  onDiscardSend?: (messageId: string) => void;
 }
 
 const ChatMessage = memo(function ChatMessage({
@@ -69,6 +74,9 @@ const ChatMessage = memo(function ChatMessage({
   dismissedToolCallIds,
   onQuestionAnswer,
   onFileMentionClick,
+  sendState,
+  onRetrySend,
+  onDiscardSend,
 }: ChatMessageProps) {
   const isUser = message.role === "user";
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
@@ -125,6 +133,39 @@ const ChatMessage = memo(function ChatMessage({
                 className="absolute -top-2 -right-2 opacity-0 transition-opacity group-hover/user-msg:opacity-100"
               />
               {renderContentWithMentions(message.content, message.fileMentions, onFileMentionClick)}
+            </div>
+          )}
+          {sendState === "sending" && (
+            <span className="mt-1 text-[10px] text-muted-foreground" data-testid="send-state-sending">
+              Sending…
+            </span>
+          )}
+          {sendState === "failed" && (
+            <div
+              className="mt-1 flex items-center gap-2 text-[10px] font-medium"
+              data-testid="send-state-failed"
+            >
+              <span className="text-destructive">Not delivered</span>
+              {onRetrySend && (
+                <button
+                  type="button"
+                  onClick={() => onRetrySend(message.id)}
+                  className="inline-flex items-center gap-1 text-destructive hover:underline"
+                >
+                  <RotateCwIcon className="size-3" />
+                  Retry
+                </button>
+              )}
+              {onDiscardSend && (
+                <button
+                  type="button"
+                  onClick={() => onDiscardSend(message.id)}
+                  className="text-muted-foreground hover:text-destructive"
+                  aria-label="Discard message"
+                >
+                  <XIcon className="size-3" />
+                </button>
+              )}
             </div>
           )}
           {message.goalCommand && (

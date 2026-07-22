@@ -1,5 +1,10 @@
 import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { api } from "@/hooks/useApi";
+import {
+  findOptimisticSend,
+  getSendState,
+  resolveOptimisticSend,
+} from "@/lib/optimistic-sends";
 import type { ChatMessage } from "@/types";
 
 /**
@@ -35,13 +40,39 @@ function mergeFetchedMessagesWithCachedUserEchoes(
 ): ChatMessage[] {
   if (!cached?.length) return fetched;
 
+  const cachedIds = new Set(cached.map((message) => message.id));
   const fetchedIds = new Set(fetched.map((message) => message.id));
-  const missingUserMessages = cached.filter((message) =>
-    message.role === "user" &&
-    message.sessionId === sessionId &&
-    message.id &&
-    !fetchedIds.has(message.id)
+  // Server user messages absent from the previous cache state. Each can confirm
+  // delivery of an optimistic send with the same content whose WS echo was
+  // missed (backgrounded tab, zombie socket) — mirroring the iOS history
+  // reconciliation. Only NEW messages confirm, so an older identical message
+  // already in the cache never falsely resolves a pending send.
+  const newServerUserContents = new Set(
+    fetched
+      .filter((message) => message.role === "user" && !cachedIds.has(message.id))
+      .map((message) => message.content),
   );
+
+  const missingUserMessages: ChatMessage[] = [];
+  for (const message of cached) {
+    if (
+      message.role !== "user" ||
+      message.sessionId !== sessionId ||
+      !message.id ||
+      fetchedIds.has(message.id)
+    ) {
+      continue;
+    }
+    if (getSendState(message.id) === "sending" && newServerUserContents.has(message.content)) {
+      // Delivery confirmed by a newly-appeared server copy: drop the local
+      // echo so it doesn't duplicate the fetched message.
+      resolveOptimisticSend(message.id);
+      continue;
+    }
+    // Unconfirmed (pending/failed) sends and plain user echoes are carried
+    // across the refetch so a message never silently vanishes.
+    missingUserMessages.push(message);
+  }
 
   return missingUserMessages.length > 0 ? [...fetched, ...missingUserMessages] : fetched;
 }
@@ -131,6 +162,45 @@ export function appendCachedSessionMessage(
     if (message.id && list.some((m) => m.id === message.id)) return list;
     return [...list, message];
   });
+}
+
+/**
+ * Swap an optimistic local user message for its server echo, in place. Returns
+ * true when a swap happened — the caller must then skip its own append. The
+ * echo carries no client id, so the match is by session + content (like iOS).
+ */
+export function resolveCachedOptimisticEcho(
+  queryClient: QueryClient,
+  workspaceId: string | undefined,
+  sessionId: string | undefined,
+  serverMessage: ChatMessage,
+): boolean {
+  if (!workspaceId || !sessionId || serverMessage.role !== "user") return false;
+  const localId = findOptimisticSend(sessionId, serverMessage.content);
+  if (!localId) return false;
+  resolveOptimisticSend(localId);
+  let swapped = false;
+  queryClient.setQueryData<ChatMessage[]>(sessionMessagesKey(workspaceId, sessionId), (prev) => {
+    const list = prev ?? [];
+    const idx = list.findIndex((message) => message.id === localId);
+    if (idx < 0) return list;
+    swapped = true;
+    return [...list.slice(0, idx), serverMessage, ...list.slice(idx + 1)];
+  });
+  return swapped;
+}
+
+/** Remove a single message (e.g. a discarded failed send) from a session's cache. */
+export function removeCachedSessionMessage(
+  queryClient: QueryClient,
+  workspaceId: string | undefined,
+  sessionId: string | undefined,
+  messageId: string,
+): void {
+  if (!workspaceId || !sessionId) return;
+  queryClient.setQueryData<ChatMessage[]>(sessionMessagesKey(workspaceId, sessionId), (prev) =>
+    prev?.filter((message) => message.id !== messageId),
+  );
 }
 
 /** Mark a session's messages stale so the authoritative server copy is refetched. */

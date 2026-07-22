@@ -7,7 +7,17 @@ import {
   getCachedSessionMessages,
   appendCachedSessionMessage,
   invalidateSessionMessages,
+  resolveCachedOptimisticEcho,
+  removeCachedSessionMessage,
 } from "@/hooks/useSessionMessages";
+import {
+  trackOptimisticSend,
+  markOptimisticSendFailed,
+  getOptimisticSendPayload,
+  resolveOptimisticSend,
+  subscribeSendStates,
+  getSendStates,
+} from "@/lib/optimistic-sends";
 
 export interface PendingToolInput {
   requestId: string;
@@ -580,6 +590,10 @@ export function useConversation(workspaceId: string | undefined) {
     () => (workspaceId ? wsTransport.getStatus(workspaceId) : "disconnected"),
   );
 
+  // Per-message delivery state for optimistic sends. Module-level store so a
+  // pending/failed send survives workspace navigation (see lib/optimistic-sends).
+  const sendStates = useSyncExternalStore(subscribeSendStates, getSendStates);
+
   useEffect(() => {
     if (!workspaceId) {
       dispatch({ type: "reset" });
@@ -645,7 +659,11 @@ export function useConversation(workspaceId: string | undefined) {
 
       if (msg.type === "user_message") {
         const sid = msg.message.sessionId ?? stateRef.current.sessionId;
-        appendCachedSessionMessage(queryClient, workspaceId, sid, msg.message);
+        // The echo confirms delivery of an optimistically-appended message:
+        // swap it in place instead of appending a duplicate.
+        if (!resolveCachedOptimisticEcho(queryClient, workspaceId, sid, msg.message)) {
+          appendCachedSessionMessage(queryClient, workspaceId, sid, msg.message);
+        }
       }
 
       dispatch(msg);
@@ -697,20 +715,80 @@ export function useConversation(workspaceId: string | undefined) {
       return false;
     }
     const targetSessionId = sessionId ?? state.sessionId;
+    const normalizedImages = images?.length ? images : undefined;
+    const normalizedMentions = fileMentions?.length ? fileMentions : undefined;
+
+    // Append the message to the transcript immediately (before the server
+    // echo) so sending feels instant. Requires a known target session — the
+    // messages cache is keyed by session — otherwise fall back to echo-only
+    // rendering (first message of a brand-new conversation).
+    let localId: string | undefined;
+    if (targetSessionId) {
+      localId = `local-${newMessageId()}`;
+      trackOptimisticSend(localId, {
+        content,
+        images: normalizedImages,
+        fileMentions: normalizedMentions,
+        options,
+        sessionId: targetSessionId,
+      });
+      appendCachedSessionMessage(queryClient, workspaceId, targetSessionId, {
+        id: localId,
+        sessionId: targetSessionId,
+        role: "user",
+        content,
+        images: normalizedImages,
+        fileMentions: normalizedMentions,
+        timestamp: new Date().toISOString(),
+      });
+    }
+
     const sent = wsTransport.send(workspaceId, {
       type: "user_message",
       content,
-      images: images?.length ? images : undefined,
-      fileMentions: fileMentions?.length ? fileMentions : undefined,
+      images: normalizedImages,
+      fileMentions: normalizedMentions,
       options,
       ...sessionIdField(targetSessionId),
     });
     if (!sent) {
+      if (localId) {
+        // The message stays in the transcript as "Not delivered" with a retry
+        // affordance, so the composer/queue can treat it as handled.
+        markOptimisticSendFailed(localId);
+        return true;
+      }
       dispatch({ type: "error", message: "Message not sent: disconnected from server." });
       return false;
     }
     return true;
-  }, [workspaceId, state.sessionId]);
+  }, [workspaceId, state.sessionId, queryClient]);
+
+  /** Resend a failed optimistic message through the normal send path; delivery
+   * is re-confirmed by the server echo, like the original send. */
+  const retrySend = useCallback((messageId: string) => {
+    if (!workspaceId) return;
+    const payload = getOptimisticSendPayload(messageId);
+    if (!payload) return;
+    trackOptimisticSend(messageId, payload); // back to "sending"
+    const sent = wsTransport.send(workspaceId, {
+      type: "user_message",
+      content: payload.content,
+      images: payload.images,
+      fileMentions: payload.fileMentions,
+      options: payload.options,
+      sessionId: payload.sessionId,
+    });
+    if (!sent) markOptimisticSendFailed(messageId);
+  }, [workspaceId]);
+
+  /** Remove a failed local message the user no longer wants to deliver. */
+  const discardSend = useCallback((messageId: string) => {
+    const payload = getOptimisticSendPayload(messageId);
+    if (!payload) return;
+    resolveOptimisticSend(messageId);
+    removeCachedSessionMessage(queryClient, workspaceId, payload.sessionId, messageId);
+  }, [workspaceId, queryClient]);
 
   const stopStreaming = useCallback(() => {
     if (!workspaceId) return;
@@ -843,7 +921,10 @@ export function useConversation(workspaceId: string | undefined) {
     agentPlanMode: activeStream?.agentPlanMode,
     lockedProvider: state.lockedProvider,
     switchCounter: state.switchCounter,
+    sendStates,
     sendMessage,
+    retrySend,
+    discardSend,
     stopStreaming,
     clearChat,
     switchSession,

@@ -20,6 +20,7 @@ import { Trash2Icon } from "lucide-react";
 import type { AgentActivity, ChatMessage as ChatMessageType, QueuedMessage, ReasoningSegment, ToolCall, QuestionAnswer } from "@/types";
 import type { PendingToolInput } from "@/hooks/useConversation";
 import type { PlanStatus } from "@/components/chat/PlanProposal";
+import type { SendState } from "@/lib/optimistic-sends";
 
 interface ChatConversationProps {
   messages: ChatMessageType[];
@@ -37,6 +38,10 @@ interface ChatConversationProps {
   activeToolCalls: ToolCall[];
   activeAgentActivities: AgentActivity[];
   pendingToolInputs?: PendingToolInput[];
+  /** Delivery state of optimistically-sent user messages, keyed by message id. */
+  sendStates?: Record<string, SendState>;
+  onRetrySend?: (messageId: string) => void;
+  onDiscardSend?: (messageId: string) => void;
   onQuestionAnswer?: (toolCallId: string, answers: QuestionAnswer[]) => void;
   onFileMentionClick?: (relativePath: string) => void;
   /** When set, the workspace welcome offers a button to open a terminal tab. */
@@ -71,6 +76,9 @@ export default function ChatConversation({
   activeToolCalls,
   activeAgentActivities = [],
   pendingToolInputs = [],
+  sendStates,
+  onRetrySend,
+  onDiscardSend,
   onQuestionAnswer,
   onFileMentionClick,
   onStartTerminal,
@@ -258,6 +266,9 @@ export default function ChatConversation({
               dismissedToolCallIds={dismissedToolCallIds}
               onQuestionAnswer={onQuestionAnswer}
               onFileMentionClick={onFileMentionClick}
+              sendState={sendStates?.[msg.id]}
+              onRetrySend={onRetrySend}
+              onDiscardSend={onDiscardSend}
             />
           );
         })}

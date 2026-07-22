@@ -9,9 +9,17 @@ import {
   appendCachedSessionMessage,
   invalidateSessionMessages,
   removeCachedSessionMessages,
+  removeCachedSessionMessage,
+  resolveCachedOptimisticEcho,
   prefetchSessionMessages,
   fetchAndMergeSessionMessages,
 } from "@/hooks/useSessionMessages";
+import {
+  _resetOptimisticSends,
+  getSendState,
+  markOptimisticSendFailed,
+  trackOptimisticSend,
+} from "@/lib/optimistic-sends";
 import type { ChatMessage } from "@/types";
 
 vi.mock("@/hooks/useApi", () => {
@@ -67,6 +75,7 @@ describe("useSessionMessages", () => {
   beforeEach(async () => {
     const { __apiMock } = await getApiMock();
     __apiMock.reset();
+    _resetOptimisticSends();
   });
 
   it("fetches the session messages once a sessionId is provided", async () => {
@@ -195,6 +204,96 @@ describe("useSessionMessages", () => {
       const merged = await fetchAndMergeSessionMessages(queryClient, "ws-1", "sess-1");
 
       expect(merged).toEqual([firstUser, firstAssistant, followUp]);
+    });
+  });
+
+  describe("optimistic send reconciliation", () => {
+    it("drops a sending local message when a NEW server copy with the same content is fetched", async () => {
+      const { __apiMock } = await getApiMock();
+      const serverCopy = userMessage("srv-1", "hello");
+      __apiMock.getMock.mockResolvedValue([serverCopy]);
+
+      const queryClient = newClient();
+      queryClient.setQueryData(sessionMessagesKey("ws-1", "sess-1"), [userMessage("local-1", "hello")]);
+      trackOptimisticSend("local-1", { content: "hello", sessionId: "sess-1" });
+
+      const merged = await fetchAndMergeSessionMessages(queryClient, "ws-1", "sess-1");
+
+      expect(merged).toEqual([serverCopy]);
+      expect(getSendState("local-1")).toBeUndefined();
+    });
+
+    it("does not confirm a pending send from an already-cached identical message", async () => {
+      const { __apiMock } = await getApiMock();
+      const oldServerCopy = userMessage("srv-0", "hello");
+      __apiMock.getMock.mockResolvedValue([oldServerCopy]);
+
+      const queryClient = newClient();
+      const local = userMessage("local-1", "hello");
+      queryClient.setQueryData(sessionMessagesKey("ws-1", "sess-1"), [oldServerCopy, local]);
+      trackOptimisticSend("local-1", { content: "hello", sessionId: "sess-1" });
+
+      const merged = await fetchAndMergeSessionMessages(queryClient, "ws-1", "sess-1");
+
+      expect(merged).toEqual([oldServerCopy, local]);
+      expect(getSendState("local-1")).toBe("sending");
+    });
+
+    it("carries a failed local message across refetches without confirming it", async () => {
+      const { __apiMock } = await getApiMock();
+      const unrelated = message("a1", "assistant answer");
+      __apiMock.getMock.mockResolvedValue([unrelated]);
+
+      const queryClient = newClient();
+      const local = userMessage("local-1", "hello");
+      queryClient.setQueryData(sessionMessagesKey("ws-1", "sess-1"), [local]);
+      trackOptimisticSend("local-1", { content: "hello", sessionId: "sess-1" });
+      markOptimisticSendFailed("local-1");
+
+      const merged = await fetchAndMergeSessionMessages(queryClient, "ws-1", "sess-1");
+
+      expect(merged).toEqual([unrelated, local]);
+      expect(getSendState("local-1")).toBe("failed");
+    });
+  });
+
+  describe("resolveCachedOptimisticEcho", () => {
+    it("swaps the tracked local message in place and stops tracking it", () => {
+      const queryClient = newClient();
+      const assistant = message("a1", "earlier answer");
+      const local = userMessage("local-1", "hello");
+      queryClient.setQueryData(sessionMessagesKey("ws-1", "sess-1"), [assistant, local]);
+      trackOptimisticSend("local-1", { content: "hello", sessionId: "sess-1" });
+
+      const echo = userMessage("srv-1", "hello");
+      const swapped = resolveCachedOptimisticEcho(queryClient, "ws-1", "sess-1", echo);
+
+      expect(swapped).toBe(true);
+      expect(getCachedSessionMessages(queryClient, "ws-1", "sess-1")).toEqual([assistant, echo]);
+      expect(getSendState("local-1")).toBeUndefined();
+    });
+
+    it("returns false for untracked content so the caller appends normally", () => {
+      const queryClient = newClient();
+      queryClient.setQueryData(sessionMessagesKey("ws-1", "sess-1"), [userMessage("u1", "other")]);
+
+      const swapped = resolveCachedOptimisticEcho(queryClient, "ws-1", "sess-1", userMessage("srv-1", "hello"));
+
+      expect(swapped).toBe(false);
+      expect(getCachedSessionMessages(queryClient, "ws-1", "sess-1")).toEqual([userMessage("u1", "other")]);
+    });
+  });
+
+  describe("removeCachedSessionMessage", () => {
+    it("removes only the targeted message", () => {
+      const queryClient = newClient();
+      const keep = message("a1", "keep");
+      const drop = userMessage("local-1", "drop");
+      queryClient.setQueryData(sessionMessagesKey("ws-1", "sess-1"), [keep, drop]);
+
+      removeCachedSessionMessage(queryClient, "ws-1", "sess-1", "local-1");
+
+      expect(getCachedSessionMessages(queryClient, "ws-1", "sess-1")).toEqual([keep]);
     });
   });
 
