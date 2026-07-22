@@ -40,7 +40,8 @@ export async function workspaceSourceRoutes(app: FastifyInstance, dataDir?: stri
       const bare = bareRepoPath(dir, req.params.id);
       const workspaceByBranch = await mapBranchesToWorkspaces(loaded.state, bare, dir);
       const pulls = entries.map((entry) => {
-        const ws = workspaceByBranch.get(entry.headRefName);
+        const ws =
+          workspaceByBranch.get(entry.headRefName) ?? workspaceByBranch.get(`pr/${entry.number}`);
         return {
           number: entry.number,
           title: entry.title,

@@ -341,6 +341,34 @@ describe("GET /api/projects/:id/pulls", () => {
     expect(res.statusCode).toBe(200);
     expect(res.json()).toEqual({ pulls: [], error: "gh not authenticated" });
   });
+
+  it("annotates a cross-repository PR whose workspace lives on pr/<n>", async () => {
+    await setProjectGitHubUrl();
+    const { stdout: sha } = await git(["rev-parse", "main"], fixtureRepoUrl);
+    await git(["update-ref", "refs/pull/7/head", sha], fixtureRepoUrl);
+    vi.mocked(fetchPrDetail).mockResolvedValue({
+      number: 7,
+      title: "Fork PR",
+      body: "",
+      url: "https://github.com/acme/demo/pull/7",
+      headRefName: "fork-main",
+      isCrossRepository: true,
+    });
+
+    const created = await createFromSource({ kind: "pr", number: 7 });
+    expect(created.statusCode).toBe(201);
+    const ws = created.json();
+    expect(ws.branch).toBe("pr/7");
+
+    vi.mocked(listOpenPullRequests).mockResolvedValue([
+      { number: 7, title: "Fork PR", url: "https://github.com/acme/demo/pull/7", headRefName: "fork-main", isDraft: false },
+    ]);
+
+    const res = await app.inject({ method: "GET", url: `/api/projects/${projectId}/pulls` });
+    expect(res.statusCode).toBe(200);
+    const { pulls } = res.json();
+    expect(pulls[0]).toMatchObject({ number: 7, workspaceId: ws.id, workspaceName: ws.name });
+  });
 });
 
 describe("GET /api/projects/:id/issues", () => {
