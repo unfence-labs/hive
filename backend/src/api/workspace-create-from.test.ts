@@ -172,8 +172,14 @@ describe("POST /api/projects/:id/workspaces with source kind 'pr'", () => {
     const bare = join(dataDir, projectId, "repo.git");
     const { stdout: mainShaBefore } = await git(["rev-parse", "refs/heads/main"], bare);
 
-    const { stdout: sha } = await git(["rev-parse", "main"], fixtureRepoUrl);
-    await git(["update-ref", "refs/pull/9/head", sha], fixtureRepoUrl);
+    // Fork's PR head must be a strict descendant of main: if it were the same
+    // sha as main, the old buggy fast-forward would write an identical value
+    // and the assertions below would pass vacuously either way.
+    const { stdout: prHeadSha } = await git(
+      ["commit-tree", "HEAD^{tree}", "-p", "HEAD", "-m", "fork commit on top of main"],
+      fixtureRepoUrl,
+    );
+    await git(["update-ref", "refs/pull/9/head", prHeadSha.trim()], fixtureRepoUrl);
     vi.mocked(fetchPrDetail).mockResolvedValue({
       number: 9,
       title: "Fork reuses main",
@@ -190,6 +196,10 @@ describe("POST /api/projects/:id/workspaces with source kind 'pr'", () => {
 
     const { stdout: mainShaAfter } = await git(["rev-parse", "refs/heads/main"], bare);
     expect(mainShaAfter).toBe(mainShaBefore);
+
+    const wsPath = join(dataDir, projectId, "workspaces", ws.name);
+    const { stdout: wsHeadSha } = await git(["rev-parse", "HEAD"], wsPath);
+    expect(wsHeadSha).toBe(prHeadSha.trim());
   });
 
   it("deletes the pr/<n> branch when the workspace is deleted", async () => {
