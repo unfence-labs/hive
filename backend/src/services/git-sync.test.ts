@@ -5,7 +5,6 @@ import { createTempDir, createFixtureRepo } from "../utils/test-helpers.js";
 import { createProject } from "../projects/project-manager.js";
 import { createWorkspace } from "../workspaces/workspace-manager.js";
 import { git } from "../utils/git.js";
-import { _resetDefaultBranchRefreshCache } from "../utils/git-default-branch.js";
 import { loadProject } from "../state/state.js";
 import { bareRepoPath, workspacesDir } from "../utils/paths.js";
 import { getBranchName, GitSyncService } from "./git-sync.js";
@@ -54,8 +53,6 @@ async function pushRemoteMainFile(
   await git(["add", "."], pushClone);
   await git(["commit", "-m", `add ${fileName}`], pushClone);
   await git(["push", "origin", "main"], pushClone);
-  // The remote moved: drop the refresh TTL so the next refresh refetches.
-  _resetDefaultBranchRefreshCache();
 }
 
 beforeEach(async () => {

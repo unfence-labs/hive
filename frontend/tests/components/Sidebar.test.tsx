@@ -118,13 +118,11 @@ function SettingsStateProbe() {
   return <div data-testid="settings-from">{from}</div>;
 }
 
-const onNewWorkspaceFromMock = vi.fn();
-
 function SidebarRoute() {
   const location = useLocation();
   return (
     <>
-      <Sidebar onAddProject={vi.fn()} onNewWorkspaceFrom={onNewWorkspaceFromMock} />
+      <Sidebar onAddProject={vi.fn()} />
       <div data-testid="location-path">{location.pathname}</div>
     </>
   );
@@ -1243,19 +1241,6 @@ describe("Sidebar", () => {
     await waitFor(() => {
       expect(screen.getByTestId("location-path")).toHaveTextContent("/workspaces/w-new");
     });
-  });
-
-  it("offers 'New workspace from…' in the add button context menu", async () => {
-    onNewWorkspaceFromMock.mockClear();
-    const user = userEvent.setup();
-    renderSidebar("/projects", projects);
-    await screen.findByText(withTextContent("acme/alpha"));
-
-    fireEvent.contextMenu(screen.getByRole("button", { name: "Add workspace to acme/alpha" }));
-    await user.click(await screen.findByText("New workspace from…"));
-
-    expect(onNewWorkspaceFromMock).toHaveBeenCalledWith("p1");
-    expect(api.post).not.toHaveBeenCalledWith("/api/projects/p1/workspaces");
   });
 
   it("shows the streaming indicator on a streaming workspace and hides it when idle", async () => {

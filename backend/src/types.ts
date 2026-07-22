@@ -15,29 +15,7 @@ export interface Workspace {
   createdAt: string;
   activeSessionId?: string;
   lastActivityAt?: string;
-  /** Present when the workspace was created from a branch, PR, or issue. */
-  source?: WorkspaceSource;
-  /** Prompt pre-filled into the composer of a freshly created workspace. */
-  draftPrompt?: string;
 }
-
-export type WorkspaceSourceKind = "branch" | "pr" | "issue";
-
-export interface WorkspaceSource {
-  kind: WorkspaceSourceKind;
-  /** Git branch the workspace was created on ("branch" and "pr" kinds). */
-  branch?: string;
-  /** PR or issue number ("pr" and "issue" kinds). */
-  number?: number;
-  title?: string;
-  url?: string;
-}
-
-/** Body of `POST /api/projects/:id/workspaces`. */
-export type CreateWorkspaceSourceInput =
-  | { kind: "branch"; branch: string }
-  | { kind: "pr"; number: number }
-  | { kind: "issue"; number: number };
 
 // ── Completion / autocomplete types ─────────────────────────────────
 
@@ -86,36 +64,6 @@ export interface BranchInfo {
 export interface PrStatusResponse {
   pr: PullRequestInfo | null;
   error?: string;
-}
-
-// ── Workspace source listing types (new-workspace-from picker) ──────
-
-export interface ProjectBranchItem {
-  name: string;
-  /** Set when the branch is already checked out in an existing workspace. */
-  workspaceId?: string;
-  workspaceName?: string;
-}
-
-export interface ProjectPullItem {
-  number: number;
-  title: string;
-  branch: string;
-  url: string;
-  isDraft: boolean;
-  author?: string;
-  updatedAt?: string;
-  /** Set when the PR head branch is already checked out in a workspace. */
-  workspaceId?: string;
-  workspaceName?: string;
-}
-
-export interface ProjectIssueItem {
-  number: number;
-  title: string;
-  url: string;
-  author?: string;
-  updatedAt?: string;
 }
 
 export interface WorkspaceFileTreeNode {

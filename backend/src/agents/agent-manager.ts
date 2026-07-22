@@ -177,9 +177,6 @@ async function persistWorkspaceSessionState(
       if (!ws) throw new NotFoundError(`Workspace ${wsId} not found`);
       ws.status = status;
       ws.activeSessionId = activeSessionId;
-      // The draft prompt is a one-shot seed for the composer; once a session
-      // exists the workspace no longer needs it.
-      if (activeSessionId && ws.draftPrompt) delete ws.draftPrompt;
       await saveProject(latest, dataDir);
     },
     dataDir,

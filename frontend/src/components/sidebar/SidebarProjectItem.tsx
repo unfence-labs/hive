@@ -1,6 +1,4 @@
-import { GitBranch, Plus } from "lucide-react";
 import { Collapsible, CollapsibleContent } from "@/components/ui/collapsible";
-import { ContextMenuItem } from "@/components/ui/context-menu";
 import { SidebarGroupHeader } from "@/components/sidebar/SidebarHeaders";
 import { SidebarActivityDot } from "@/components/sidebar/SidebarActivityDot";
 import { SidebarWorkspaceItem } from "@/components/sidebar/SidebarWorkspaceItem";
@@ -30,7 +28,6 @@ interface SidebarProjectItemProps {
   draggingProjectId: string | null;
   projectInsertIndicator: ProjectInsertIndicator;
   onAddWorkspace: (projectId: string) => void;
-  onAddWorkspaceFrom?: (projectId: string) => void;
   onArchiveWorkspace: (wsId: string) => void;
   onProjectDragStart: (event: React.DragEvent<HTMLButtonElement>, projectId: string) => void;
   onProjectDragEnd: () => void;
@@ -64,7 +61,6 @@ export function SidebarProjectItem({
   draggingProjectId,
   projectInsertIndicator,
   onAddWorkspace,
-  onAddWorkspaceFrom,
   onArchiveWorkspace,
   onProjectDragStart,
   onProjectDragEnd,
@@ -108,20 +104,6 @@ export function SidebarProjectItem({
           isLoading={creatingProjectId === project.id}
           onAdd={() => { onAddWorkspace(project.id); }}
           addLabel={`Add workspace to ${displayLabelPlain}`}
-          addMenu={
-            onAddWorkspaceFrom ? (
-              <>
-                <ContextMenuItem onSelect={() => onAddWorkspace(project.id)}>
-                  <Plus />
-                  New workspace
-                </ContextMenuItem>
-                <ContextMenuItem onSelect={() => onAddWorkspaceFrom(project.id)}>
-                  <GitBranch />
-                  New workspace from…
-                </ContextMenuItem>
-              </>
-            ) : undefined
-          }
           variant="plain"
           buttonClassName={cn(
             "rounded py-1 pl-0 hover:bg-sidebar-accent/35",

@@ -105,7 +105,7 @@ describe("POST /api/projects/:id/workspaces auto-setup", () => {
     });
 
     expect(res.statusCode).toBe(201);
-    expect(mocks.createWorkspace).toHaveBeenCalledWith(PROJECT_ID, DATA_DIR, undefined);
+    expect(mocks.createWorkspace).toHaveBeenCalledWith(PROJECT_ID, DATA_DIR);
 
     const wsPath = join(DATA_DIR, PROJECT_ID, "workspaces", workspace.name);
     expect(mocks.readHiveConfig).toHaveBeenCalledWith(wsPath);
