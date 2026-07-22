@@ -97,6 +97,23 @@ class WsTransport {
     this.sendSyncWorkspaces();
   }
 
+  /**
+   * Ask the backend to replay the live status + in-progress stream snapshots
+   * of currently streaming sessions for a single workspace.
+   *
+   * Stream frames that arrive while a workspace's conversation view is
+   * unmounted are consumed by the app-level cache hooks (which keep
+   * `messageHandlers` non-empty, so nothing is buffered) and are gone for the
+   * chat UI. A conversation view that mounts mid-stream must therefore ask for
+   * the snapshot replay explicitly, scoped to just the workspace it opened —
+   * unlike iOS foreground `forceBootstrap`, this must not refresh every
+   * subscribed workspace. No-op when the socket is not open: a (re)connecting
+   * socket gets the full bootstrap from the backend anyway.
+   */
+  requestStreamSnapshots(workspaceId: string): void {
+    this.send(workspaceId, { type: "request_stream_snapshots" });
+  }
+
   syncPrWorkspaces(workspaceIds: string[]): void {
     this.prWorkspaceIds = new Set(workspaceIds);
     this.ensureHubConnected();

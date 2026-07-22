@@ -8,6 +8,7 @@ import { createTempDir, createFixtureRepo } from "../utils/test-helpers.js";
 import { createProject } from "../projects/project-manager.js";
 import { createWorkspace } from "../workspaces/workspace-manager.js";
 import {
+  getSession,
   getOrCreateSession,
   getSessionById,
   createNewSession,
@@ -2024,5 +2025,83 @@ describe("WS /ws/hub", () => {
     ws.close();
     await local.app.close();
     await endSession(wsId, dataDir).catch(() => {});
+  });
+
+  it("replays the streaming snapshot only for the targeted workspace via request_stream_snapshots", async () => {
+    const fakeClaudePath = join(tempDir, "fake-claude-request-stream-snapshots.sh");
+    await writeFile(fakeClaudePath, "#!/bin/sh\nsleep 5\n", "utf-8");
+    await chmod(fakeClaudePath, 0o755);
+    const slowCmd = { command: fakeClaudePath, systemPrompt: false as const };
+    const local = await startWsApp(undefined, slowCmd);
+
+    const other = await createWorkspace(projectId, dataDir);
+
+    const { session: targetSession } = await getOrCreateSession(wsId, dataDir, slowCmd);
+    targetSession.sendMessage("streaming on target");
+    const targetSnapshotData = targetSession.getStreamingSnapshot();
+    if (!targetSnapshotData) throw new Error("Expected a streaming snapshot on target");
+    vi.spyOn(targetSession, "getStreamingSnapshot").mockReturnValue({
+      ...targetSnapshotData,
+      text: "target snapshot text",
+    });
+
+    const { session: otherSession } = await getOrCreateSession(other.id, dataDir, slowCmd);
+    otherSession.sendMessage("streaming on other");
+    if (!otherSession.getStreamingSnapshot()) throw new Error("Expected a streaming snapshot on other");
+
+    const { wsReady, allEnvelopes } = connectHub([wsId, other.id], {
+      app: local.app,
+      collectAll: true,
+    });
+    const ws = await wsReady;
+
+    const snapshotsFor = (id: string) =>
+      allEnvelopes.filter((e) => e.workspaceId === id && e.event.type === "stream_snapshot");
+
+    // Initial bootstrap ships exactly one snapshot per streaming workspace.
+    await waitForCondition(
+      () => snapshotsFor(wsId).length === 1 && snapshotsFor(other.id).length === 1,
+    );
+
+    const otherEnvelopeCountBefore = allEnvelopes.filter((e) => e.workspaceId === other.id).length;
+
+    ws.send(hubEvent(wsId, { type: "request_stream_snapshots" }));
+
+    await waitForCondition(() => snapshotsFor(wsId).length === 2);
+    const replayed = snapshotsFor(wsId)[1]?.event as Extract<WsOutgoing, { type: "stream_snapshot" }>;
+    expect(replayed.sessionId).toBe(targetSession.sessionId);
+    expect(replayed.text).toBe("target snapshot text");
+
+    // The untargeted workspace must not receive any additional event (snapshot,
+    // status, branch, diff, script, browser, or PR) purely because a sibling
+    // workspace was targeted -- unlike forceBootstrap, this request is scoped
+    // to exactly the addressed workspace.
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    expect(allEnvelopes.filter((e) => e.workspaceId === other.id).length).toBe(otherEnvelopeCountBefore);
+    expect(snapshotsFor(wsId).length).toBe(2);
+    expect(ws.readyState).toBe(ws.OPEN);
+
+    ws.close();
+    await local.app.close();
+    await endSession(wsId, dataDir).catch(() => {});
+    await endSession(other.id, dataDir).catch(() => {});
+  });
+
+  it("request_stream_snapshots on an idle workspace emits nothing and does not create or activate a session", async () => {
+    const { wsReady, allEnvelopes } = connectHub([wsId], { collectAll: true });
+    const ws = await wsReady;
+
+    await waitForCondition(() => allEnvelopes.some((e) => e.event.type === "status"));
+    expect(getSession(wsId)).toBeUndefined();
+
+    const countBefore = allEnvelopes.length;
+    ws.send(hubEvent(wsId, { type: "request_stream_snapshots" }));
+
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    expect(allEnvelopes.length).toBe(countBefore);
+    expect(getSession(wsId)).toBeUndefined();
+    expect(ws.readyState).toBe(ws.OPEN);
+
+    ws.close();
   });
 });

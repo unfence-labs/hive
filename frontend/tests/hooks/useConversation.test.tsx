@@ -69,6 +69,7 @@ vi.mock("@/lib/ws-transport", () => {
       statusListeners.clear();
     }),
     send: vi.fn(() => true),
+    requestStreamSnapshots: vi.fn(),
     onMessage: vi.fn((workspaceId: string, handler: (msg: WsOutgoing) => void) => {
       getSet(messageHandlers, workspaceId).add(handler);
       for (const msg of replayMessages.get(workspaceId) ?? []) {
@@ -110,6 +111,7 @@ vi.mock("@/lib/ws-transport", () => {
       wsTransport.syncWorkspaces.mockClear();
       wsTransport.disconnectAll.mockClear();
       wsTransport.send.mockClear();
+      wsTransport.requestStreamSnapshots.mockClear();
       wsTransport.onMessage.mockClear();
       wsTransport.clearCachedData.mockClear();
     },
@@ -122,6 +124,7 @@ vi.mock("@/lib/ws-transport", () => {
     sendMock: wsTransport.send,
     connectMock: wsTransport.connect,
     disconnectMock: wsTransport.disconnect,
+    requestStreamSnapshotsMock: wsTransport.requestStreamSnapshots,
   };
 
   return { wsTransport, __wsMock };
@@ -137,6 +140,7 @@ const getWsMock = async () =>
       sendMock: ReturnType<typeof vi.fn>;
       connectMock: ReturnType<typeof vi.fn>;
       disconnectMock: ReturnType<typeof vi.fn>;
+      requestStreamSnapshotsMock: ReturnType<typeof vi.fn>;
     };
   };
 
@@ -205,6 +209,46 @@ describe("useConversation", () => {
     unmount();
 
     expect(__wsMock.disconnectMock).not.toHaveBeenCalled();
+  });
+
+  it("requests a targeted stream-snapshot replay for the mounted workspace so a mid-stream turn is recovered", async () => {
+    const { __wsMock } = await getWsMock();
+    const { rerender } = renderConversation("ws-1");
+
+    // Frames streamed while this view was unmounted are unrecoverable (the
+    // app-level cache hooks consume them), so mounting must ask the backend
+    // to replay the streaming snapshot -- scoped to just the opened workspace.
+    expect(__wsMock.requestStreamSnapshotsMock).toHaveBeenCalledTimes(1);
+    expect(__wsMock.requestStreamSnapshotsMock).toHaveBeenNthCalledWith(1, "ws-1");
+
+    rerender({ wsId: "ws-2" });
+
+    expect(__wsMock.requestStreamSnapshotsMock).toHaveBeenCalledTimes(2);
+    expect(__wsMock.requestStreamSnapshotsMock).toHaveBeenNthCalledWith(2, "ws-2");
+  });
+
+  it("applies a stream_snapshot arriving after mount to the live stream state", async () => {
+    const { __wsMock } = await getWsMock();
+    const { result } = renderConversation("ws-1");
+
+    act(() => {
+      __wsMock.emit("ws-1", {
+        type: "stream_snapshot",
+        sessionId: "sess-1",
+        text: "already streamed text",
+        thinking: "",
+        toolCalls: [
+          { id: "t1", name: "Read", input: "{}" },
+          { id: "t2", name: "Bash", input: "{}" },
+        ],
+        agentActivities: [],
+        agentPlanMode: false,
+      });
+    });
+
+    expect(result.current.isStreaming).toBe(true);
+    expect(result.current.currentStreamingText).toBe("already streamed text");
+    expect(result.current.activeToolCalls).toHaveLength(2);
   });
 
   it("sends user messages through transport without optimistic local append", async () => {

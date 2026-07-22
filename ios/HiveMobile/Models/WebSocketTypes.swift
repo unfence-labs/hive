@@ -84,6 +84,11 @@ enum WsIncoming: Encodable {
     case userMessage(content: String, images: [ImageAttachment]?, fileMentions: [FileMention]?, options: MessageOptions?, sessionId: String?)
     case stop(sessionId: String?)
     case toolInputResponse(requestId: String, toolName: String, result: ToolInputResult, sessionId: String?)
+    /// Ask the backend to replay live status + full snapshot for every currently
+    /// streaming session in the addressed workspace (no session id: every
+    /// streaming session in that workspace is replayed). Narrow web/mobile-view
+    /// recovery path; does not run full workspace bootstrap or touch subscriptions.
+    case requestStreamSnapshots
 
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
@@ -107,6 +112,8 @@ enum WsIncoming: Encodable {
             try container.encode(toolName, forKey: .toolName)
             try container.encode(result, forKey: .result)
             try container.encodeIfPresent(sessionId, forKey: .sessionId)
+        case .requestStreamSnapshots:
+            try container.encode("request_stream_snapshots", forKey: .type)
         }
     }
 
