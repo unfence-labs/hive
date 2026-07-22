@@ -147,11 +147,13 @@ export function ClaudeSignIn({
     if (!client || (phase !== "code" && phase !== "verifying")) return;
     if (!authActiveRef.current) return;
     let done = false;
+    let consecutiveFailures = 0;
     const timer = setInterval(() => {
       void (async () => {
         try {
           const r = await client.pollClaudeAuth();
           if (done) return;
+          consecutiveFailures = 0;
           if (r.token) {
             done = true;
             authActiveRef.current = false;
@@ -175,7 +177,15 @@ export function ClaudeSignIn({
             );
           }
         } catch {
-          // transient poll error — keep trying until phase changes
+          if (done) return;
+          consecutiveFailures += 1;
+          if (consecutiveFailures >= CLAUDE_POLL_MAX_FAILURES) {
+            done = true;
+            authActiveRef.current = false;
+            clearInterval(timer);
+            setPhase("idle");
+            errorRef.current("Claude sign-in status could not be checked. Try again.");
+          }
         }
       })();
     }, 1200);
@@ -319,6 +329,7 @@ interface ToolRun {
 }
 
 const IDLE_RUN: ToolRun = { busy: false, op: null, error: null };
+export const CLAUDE_POLL_MAX_FAILURES = 5;
 
 function toSetupError(e: unknown): SetupError {
   const message = e instanceof Error ? e.message : String(e);
@@ -350,6 +361,7 @@ export function ToolsPanel({
   const [runs, setRuns] = useState<Record<string, ToolRun>>({});
   const [claudeDone, setClaudeDone] = useState(false);
   const abortControllers = useRef(new Set<AbortController>());
+  const unmountedRef = useRef(false);
 
   const setupApi = useMemo(() => createSetupApi({ baseUrl }), [baseUrl]);
 
@@ -359,9 +371,12 @@ export function ToolsPanel({
 
   const refreshStatus = useCallback(async () => {
     try {
-      setStatus(await setupApi.getStatus());
+      const s = await setupApi.getStatus();
+      if (unmountedRef.current) return;
+      setStatus(s);
       setStatusError(null);
     } catch (e) {
+      if (unmountedRef.current) return;
       setStatusError(toSetupError(e));
     }
   }, [setupApi]);
@@ -373,6 +388,10 @@ export function ToolsPanel({
   useEffect(() => () => {
     for (const controller of abortControllers.current) controller.abort();
     abortControllers.current.clear();
+  }, []);
+
+  useEffect(() => () => {
+    unmountedRef.current = true;
   }, []);
 
   /** Run backend setup steps for one tool; other tools stay usable. */
@@ -411,7 +430,7 @@ export function ToolsPanel({
 
   const submitClaudeToken = async (token: string) => {
     await setupApi.submitClaudeToken(token);
-    setClaudeDone(true);
+    if (!unmountedRef.current) setClaudeDone(true);
     invalidateModelCatalog();
     await refreshStatus();
   };

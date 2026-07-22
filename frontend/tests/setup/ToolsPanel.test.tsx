@@ -1,7 +1,7 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
-import { ClaudeSignIn, ToolsPanel } from "@/pages/setup/screens/ToolsPanel";
+import { CLAUDE_POLL_MAX_FAILURES, ClaudeSignIn, ToolsPanel } from "@/pages/setup/screens/ToolsPanel";
 import { createMockProvisionClient } from "./mock-provision-client";
 
 describe("ClaudeSignIn", () => {
@@ -52,6 +52,24 @@ describe("ClaudeSignIn", () => {
     expect(onError).not.toHaveBeenCalled();
     expect(submitToken).toHaveBeenCalledTimes(1);
   }, 15000);
+
+  it("stops polling and surfaces an error after persistent poll failures", async () => {
+    const client = createMockProvisionClient();
+    client.pollClaudeAuth = vi.fn().mockRejectedValue(new Error("ipc dead"));
+    const onError = vi.fn();
+
+    render(<ClaudeSignIn client={client} submitToken={async () => {}} onError={onError} />);
+    await userEvent.click(screen.getByRole("button", { name: "Sign in with Claude" }));
+    await waitFor(() => expect(screen.getByPlaceholderText("Paste the authorization code")).toBeInTheDocument());
+
+    await waitFor(() => expect(onError).toHaveBeenCalled(), { timeout: 12000 });
+    expect(onError).toHaveBeenCalledWith(expect.stringContaining("sign-in status could not be checked"));
+    expect(client.pollClaudeAuth).toHaveBeenCalledTimes(CLAUDE_POLL_MAX_FAILURES);
+
+    const callsAfterStop = (client.pollClaudeAuth as ReturnType<typeof vi.fn>).mock.calls.length;
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    expect(client.pollClaudeAuth).toHaveBeenCalledTimes(callsAfterStop);
+  }, 20000);
 
   it("lets Claude authentication restart without rerunning the installer", async () => {
     const client = createMockProvisionClient();
