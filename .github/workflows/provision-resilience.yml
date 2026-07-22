@@ -1,0 +1,34 @@
+name: provision-resilience
+
+# Heavy Docker lanes (chaos/resume, rollback, download+checksum). Path-filtered
+# on PRs so unrelated changes don't pay minutes for them; the weekly run keeps
+# them honest against environment drift either way.
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "scripts/provision/**"
+      - "scripts/release/**"
+      - "test/e2e/**"
+      - "test/provision/**"
+      - "test/images/**"
+      - "shared/setup-errors.ts"
+      - "Makefile"
+      - ".github/workflows/provision-resilience.yml"
+  schedule:
+    - cron: "17 3 * * 1"
+  workflow_dispatch:
+
+jobs:
+  provision-resilience:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Install shellcheck
+        run: sudo apt-get update && sudo apt-get install -y shellcheck
+      - name: Crash and resume provisioning
+        run: make provision-docker-chaos
+      - name: Verify failed release rollback
+        run: make provision-docker-rollback
+      - name: Verify download and checksum handling
+        run: make provision-docker-download

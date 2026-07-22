@@ -5,13 +5,10 @@ on:
     branches: [main]
   push:
     branches: [main]
-  schedule:
-    - cron: "17 3 * * 1"
   workflow_dispatch:
 
 jobs:
   ci:
-    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
 
     steps:
@@ -50,7 +47,6 @@ jobs:
           bash test/provision/contract.sh
 
   ios:
-    if: github.event_name != 'schedule'
     runs-on: macos-26
 
     steps:
@@ -65,7 +61,6 @@ jobs:
         run: xcodebuild -project HiveMobile.xcodeproj -scheme HiveMobile -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build
 
   rust:
-    if: github.event_name != 'schedule'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -90,16 +85,5 @@ jobs:
       - name: Install and re-run provisioning
         run: make provision-docker
 
-  provision-resilience:
-    if: github.event_name == 'pull_request' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - name: Install shellcheck
-        run: sudo apt-get update && sudo apt-get install -y shellcheck
-      - name: Crash and resume provisioning
-        run: make provision-docker-chaos
-      - name: Verify failed release rollback
-        run: make provision-docker-rollback
-      - name: Verify download and checksum handling
-        run: make provision-docker-download
+  # Chaos/rollback/download lanes live in provision-resilience.yml: they run
+  # on PRs only when provision code changes, plus weekly and on dispatch.
