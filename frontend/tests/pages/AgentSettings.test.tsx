@@ -36,7 +36,7 @@ describe("AgentSettings", () => {
   it("renders heading with drag region", async () => {
     mocks.get.mockResolvedValueOnce({ agents: [] });
     renderPage();
-    const heading = await screen.findByRole("heading", { name: "CLI" });
+    const heading = await screen.findByRole("heading", { name: "Harness" });
     expect(heading.closest("div")).toHaveAttribute("data-tauri-drag-region");
   });
 
@@ -50,7 +50,7 @@ describe("AgentSettings", () => {
     mocks.get.mockResolvedValueOnce({ agents: [] });
     renderPage();
 
-    await screen.findByRole("heading", { name: "CLI" });
+    await screen.findByRole("heading", { name: "Harness" });
     expect(mocks.get).toHaveBeenCalledWith("/api/settings/cli");
   });
 
@@ -84,7 +84,7 @@ describe("AgentSettings", () => {
       ],
     });
     renderPage();
-    expect(await screen.findByText("Codex")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Codex" })).toBeInTheDocument();
     expect(screen.getByText("Not installed")).toBeInTheDocument();
   });
 
@@ -123,8 +123,23 @@ describe("AgentSettings", () => {
       ],
     });
     renderPage();
-    await screen.findByText("Codex");
+    await screen.findByRole("heading", { name: "Codex" });
     expect(screen.queryByText(/^v/)).not.toBeInTheDocument();
+  });
+
+  it("shows provider pills for the models each harness runs", async () => {
+    mocks.get.mockResolvedValueOnce({
+      agents: [
+        { id: "claude", label: "Claude Code", installed: true, version: "1.0.35", latestVersion: "1.0.35", updateAvailable: false },
+        { id: "codex", label: "Codex", installed: true, version: "0.1.2", latestVersion: "0.1.2", updateAvailable: false },
+      ],
+    });
+    renderPage();
+
+    await screen.findByText("Claude Code");
+    expect(screen.getByTitle("Runs Claude sessions")).toBeInTheDocument();
+    expect(screen.getByTitle("Runs Kimi sessions")).toBeInTheDocument();
+    expect(screen.getByTitle("Runs Codex sessions")).toBeInTheDocument();
   });
 
   it("renders multiple agents", async () => {
@@ -136,6 +151,6 @@ describe("AgentSettings", () => {
     });
     renderPage();
     expect(await screen.findByText("Claude Code")).toBeInTheDocument();
-    expect(screen.getByText("Codex")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Codex" })).toBeInTheDocument();
   });
 });

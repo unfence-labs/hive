@@ -2,8 +2,18 @@ import { useQuery } from "@tanstack/react-query";
 import { Loader2, CheckCircle2, ArrowUpCircle, CircleSlash } from "lucide-react";
 import { SettingsHeader } from "@/components/AppLayout";
 import { CenterCard } from "@/components/CenterCard";
+import { ProviderIcon, type KnownProvider } from "@/components/chat/ProviderIcon";
 import { api } from "@/hooks/useApi";
 import { cn } from "@/lib/utils";
+
+/** Model providers that run on each harness (the Claude CLI also runs Kimi sessions). */
+const HARNESS_PROVIDERS: Record<string, { id: KnownProvider; label: string }[]> = {
+  claude: [
+    { id: "claude", label: "Claude" },
+    { id: "kimi", label: "Kimi" },
+  ],
+  codex: [{ id: "codex", label: "Codex" }],
+};
 
 interface AgentStatusEntry {
   id: string;
@@ -27,13 +37,13 @@ export default function AgentSettings() {
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden">
       <SettingsHeader>
-        <h1 className="text-sm font-medium">CLI</h1>
+        <h1 className="text-sm font-medium">Harness</h1>
       </SettingsHeader>
 
       <CenterCard scroll>
       <div className="max-w-2xl space-y-4 px-4 py-5">
         <p className="text-xs text-muted-foreground">
-          Agent CLI tools detected on this server.
+          Agent harnesses detected on this server.
         </p>
 
         {isLoading && (
@@ -75,7 +85,23 @@ function AgentCard({ agent }: { agent: AgentStatusEntry }) {
             </p>
           )}
         </div>
-        <StatusBadge agent={agent} />
+        <div className="flex flex-col items-end gap-2">
+          <StatusBadge agent={agent} />
+          {HARNESS_PROVIDERS[agent.id] && (
+            <div className="flex flex-wrap items-center justify-end gap-1.5">
+              {HARNESS_PROVIDERS[agent.id].map((provider) => (
+                <span
+                  key={provider.id}
+                  title={`Runs ${provider.label} sessions`}
+                  className="inline-flex items-center gap-1.5 rounded-full border border-border/50 bg-muted/30 px-2 py-0.5 text-[11px] font-medium text-muted-foreground"
+                >
+                  <ProviderIcon provider={provider.id} colored className="size-3" />
+                  {provider.label}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
     </section>
   );

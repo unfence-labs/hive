@@ -156,7 +156,7 @@ function KimiSection() {
         <p className="mt-1 text-xs text-muted-foreground">
           API key from the{" "}
           <a
-            href="https://www.kimi.com/code"
+            href="https://www.kimi.com/code/console"
             target="_blank"
             rel="noreferrer"
             className="underline hover:text-foreground"
