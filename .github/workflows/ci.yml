@@ -38,6 +38,9 @@ jobs:
         run: npm run build --workspace=frontend
 
   ios:
+    # Temporarily disabled to avoid paid macOS runner usage on the private repository.
+    # Remove this condition to restore Swift tests and the iOS build.
+    if: ${{ false }}
     runs-on: macos-26
 
     steps:

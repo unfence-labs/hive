@@ -64,7 +64,7 @@ describe("ConversationTabs", () => {
     const user = userEvent.setup();
     const { onCreateSession } = renderTabs();
 
-    await user.click(screen.getByTitle("New conversation"));
+    await user.click(screen.getByRole("button", { name: "New conversation" }));
 
     expect(onCreateSession).toHaveBeenCalledTimes(1);
   });
@@ -79,7 +79,7 @@ describe("ConversationTabs", () => {
       { ...makeSession("term-2", "2026-02-12T00:02:00.000Z"), kind: "terminal" },
     ];
     renderTabs({ sessions, activeSessionId: "chat-0" });
-    expect(screen.getByTitle("New conversation")).not.toBeDisabled();
+    expect(screen.getByRole("button", { name: "New conversation" })).not.toBeDisabled();
   });
 
   it("disables the + button at the chat-session cap regardless of terminals", () => {
@@ -163,9 +163,9 @@ describe("ConversationTabs", () => {
     expect(inactiveTab.className).not.toContain("after:bg-primary");
   });
 
-  it("renders the + button with 'New conversation' title", () => {
+  it("renders the + button with an accessible name", () => {
     renderTabs();
-    const plusBtn = screen.getByTitle("New conversation");
+    const plusBtn = screen.getByRole("button", { name: "New conversation" });
     expect(plusBtn).toBeInTheDocument();
   });
 
@@ -174,7 +174,7 @@ describe("ConversationTabs", () => {
 
     // Empty state still shows an active Untitled tab
     expect(screen.getByText("Untitled")).toBeInTheDocument();
-    expect(screen.getByTitle("New conversation")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "New conversation" })).toBeInTheDocument();
   });
 
   it("shows streaming indicator on empty Untitled tab when streaming", () => {
