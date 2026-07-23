@@ -108,6 +108,9 @@ let kimiUsageCache:
   | { apiKey: string; value: ProviderUsageEntry; expiresAt: number }
   | null = null;
 let claudeBackoffUntil = 0;
+let kimiBackoff:
+  | { apiKey: string; until: number }
+  | null = null;
 
 export async function getProviderUsageSnapshot(): Promise<ProviderUsageResponse> {
   const providerInfo = getAllProviderInfo();
@@ -227,7 +230,7 @@ async function getClaudeUsage(label: string, installed: boolean, version: string
     claudeBackoffUntil = 0;
     return entry;
   } catch (err) {
-    if (err instanceof ClaudeUsageHttpError && err.status === 429) {
+    if (err instanceof UsageHttpError && err.status === 429) {
       claudeBackoffUntil = Date.now() + Math.max(err.retryAfterMs ?? 0, CLAUDE_USAGE_CACHE_TTL_MS);
     }
     return {
@@ -245,10 +248,14 @@ async function getKimiUsage(label: string): Promise<ProviderUsageEntry> {
   const apiKey = getKimiApiKey();
   if (!apiKey) {
     kimiUsageCache = null;
+    kimiBackoff = null;
     return unavailableProvider("kimi", label, "Kimi API key is not configured.");
   }
 
   const now = Date.now();
+  if (kimiBackoff && kimiBackoff.apiKey !== apiKey) {
+    kimiBackoff = null;
+  }
   if (
     kimiUsageCache
     && kimiUsageCache.apiKey === apiKey
@@ -257,10 +264,23 @@ async function getKimiUsage(label: string): Promise<ProviderUsageEntry> {
     return kimiUsageCache.value;
   }
 
+  if (kimiBackoff && kimiBackoff.until > now) {
+    return {
+      id: "kimi",
+      label,
+      status: "unknown",
+      buckets: [],
+      lastUpdatedAt: null,
+      message: `Kimi usage polling is backing off after a rate limit. Try again ${formatRetryTime(kimiBackoff.until)}.`,
+    };
+  }
+  kimiBackoff = null;
+
   try {
     const buckets = parseKimiUsageBuckets(await fetchKimiUsage(apiKey));
     if (buckets.length === 0) {
       kimiUsageCache = null;
+      kimiBackoff = null;
       return {
         id: "kimi",
         label,
@@ -283,9 +303,16 @@ async function getKimiUsage(label: string): Promise<ProviderUsageEntry> {
       value: entry,
       expiresAt: now + KIMI_USAGE_CACHE_TTL_MS,
     };
+    kimiBackoff = null;
     return entry;
   } catch (err) {
     kimiUsageCache = null;
+    kimiBackoff = err instanceof UsageHttpError && err.status === 429
+      ? {
+          apiKey,
+          until: Date.now() + Math.max(err.retryAfterMs ?? 0, KIMI_USAGE_CACHE_TTL_MS),
+        }
+      : null;
     return {
       id: "kimi",
       label,
@@ -338,7 +365,7 @@ async function fetchClaudeUsage(token: string, version: string | null): Promise<
       "anthropic-beta": CLAUDE_OAUTH_BETA_HEADER,
       "User-Agent": `claude-code/${version ?? "2.0"}`,
     },
-    createHttpError: (response, body) => new ClaudeUsageHttpError(
+    createHttpError: (response, body) => new UsageHttpError(
       response.status,
       errorMessageFromBody(body) ?? `Claude usage API returned HTTP ${response.status}.`,
       retryAfterMs(response.headers.get("retry-after")),
@@ -356,6 +383,11 @@ async function fetchKimiUsage(apiKey: string): Promise<unknown> {
       Accept: "application/json",
       Authorization: `Bearer ${apiKey}`,
     },
+    createHttpError: (response, body) => new UsageHttpError(
+      response.status,
+      errorMessageFromBody(body) ?? `Kimi usage API returned HTTP ${response.status}.`,
+      retryAfterMs(response.headers.get("retry-after")),
+    ),
   });
 }
 
@@ -391,7 +423,7 @@ async function fetchUsageJson(request: UsageFetchRequest): Promise<unknown> {
 
     return body;
   } catch (err) {
-    if (err instanceof ClaudeUsageHttpError) throw err;
+    if (err instanceof UsageHttpError) throw err;
     if (err instanceof Error && err.name === "AbortError") {
       throw new Error(`${request.providerLabel} usage API timed out.`);
     }
@@ -444,7 +476,7 @@ function parseKimiUsageBuckets(result: unknown): ProviderUsageBucket[] {
   const buckets: ProviderUsageBucket[] = [];
   const weekly = parseKimiUsageBucket(
     "weekly",
-    "Weekly",
+    "7d",
     10_080,
     asRecord(record.usage),
   );
@@ -454,17 +486,15 @@ function parseKimiUsageBuckets(result: unknown): ProviderUsageBucket[] {
   for (const rawLimit of limits) {
     const limit = asRecord(rawLimit);
     if (!limit) continue;
-    const detail = asRecord(limit.detail) ?? limit;
+    const detail = asRecord(limit.detail);
     const window = asRecord(limit.window);
-    if (!isKimiFiveHourWindow(limit, detail, window)) continue;
+    if (!detail || !isKimiFiveHourWindow(window)) continue;
 
     const fiveHour = parseKimiUsageBucket(
       "five_hour",
       "5h",
       300,
       detail,
-      limit,
-      window,
     );
     if (fiveHour) {
       buckets.push(fiveHour);
@@ -480,17 +510,12 @@ function parseKimiUsageBucket(
   label: string,
   windowDurationMins: number,
   usage: Record<string, unknown> | null,
-  ...resetSources: Array<Record<string, unknown> | null>
 ): ProviderUsageBucket | null {
   if (!usage) return null;
-  const limit = asNumericValue(usage.limit);
+  const limit = asNumericString(usage.limit);
   if (limit === null || limit <= 0) return null;
 
-  let used = asNumericValue(usage.used);
-  if (used === null) {
-    const remaining = asNumericValue(usage.remaining);
-    if (remaining !== null) used = limit - remaining;
-  }
+  const used = asNumericString(usage.used);
   if (used === null) return null;
 
   return {
@@ -498,53 +523,13 @@ function parseKimiUsageBucket(
     label,
     usedPercent: normalizePercentNumber((used / limit) * 100),
     windowDurationMins,
-    resetsAt: parseKimiResetTimestamp(usage, ...resetSources),
+    resetsAt: parseResetTimestamp(usage.resetTime ?? usage.reset_time),
   };
 }
 
-function isKimiFiveHourWindow(
-  limit: Record<string, unknown>,
-  detail: Record<string, unknown>,
-  window: Record<string, unknown> | null,
-): boolean {
-  const duration = asNumericValue(window?.duration ?? limit.duration ?? detail.duration);
-  const unit = asString(
-    window?.timeUnit
-    ?? window?.time_unit
-    ?? limit.timeUnit
-    ?? limit.time_unit
-    ?? detail.timeUnit
-    ?? detail.time_unit,
-  )?.toUpperCase() ?? "";
-  if (duration !== null) {
-    if (unit.includes("MINUTE") && duration === 300) return true;
-    if (unit.includes("HOUR") && duration === 5) return true;
-    if (unit.includes("SECOND") && duration === 18_000) return true;
-    if (!unit && duration === 18_000) return true;
-  }
-
-  const label = [
-    limit.name,
-    limit.title,
-    limit.scope,
-    detail.name,
-    detail.title,
-    detail.scope,
-  ].find((value) => typeof value === "string");
-  return typeof label === "string" && /\b5[\s-]*(?:h|hours?)\b/i.test(label);
-}
-
-function parseKimiResetTimestamp(
-  usage: Record<string, unknown>,
-  ...sources: Array<Record<string, unknown> | null>
-): number | null {
-  for (const source of [usage, ...sources]) {
-    if (!source) continue;
-    const reset = source.reset_at ?? source.resetAt ?? source.reset_time ?? source.resetTime;
-    const parsed = parseResetTimestamp(reset);
-    if (parsed !== null) return parsed;
-  }
-  return null;
+function isKimiFiveHourWindow(window: Record<string, unknown> | null): boolean {
+  return asNumber(window?.duration) === 300
+    && asString(window?.timeUnit ?? window?.time_unit) === "TIME_UNIT_MINUTE";
 }
 
 function parseCodexRateLimitBuckets(result: unknown): ProviderUsageBucket[] {
@@ -654,14 +639,13 @@ function asNumber(value: unknown): number | null {
   return value;
 }
 
-function asNumericValue(value: unknown): number | null {
-  if (typeof value === "number") return Number.isFinite(value) ? value : null;
+function asNumericString(value: unknown): number | null {
   if (typeof value !== "string" || !value.trim()) return null;
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-class ClaudeUsageHttpError extends Error {
+class UsageHttpError extends Error {
   constructor(
     readonly status: number,
     message: string,
@@ -681,6 +665,7 @@ export const __providerUsageTestHooks = {
     claudeUsageCache = null;
     kimiUsageCache = null;
     claudeBackoffUntil = 0;
+    kimiBackoff = null;
     stopProviderUsagePolling();
   },
 };

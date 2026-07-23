@@ -102,6 +102,29 @@ function mockFetchJson(status: number, body: unknown, headers: Record<string, st
   vi.stubGlobal("fetch", vi.fn(async () => response));
 }
 
+// Quota values and timestamps are synthetic. Field names, nesting, and scalar
+// types match the live /coding/v1/usages response captured on 2026-07-23.
+const SANITIZED_KIMI_LIVE_USAGE_RESPONSE = {
+  usage: {
+    limit: "100",
+    used: "5",
+    remaining: "95",
+    resetTime: "2026-07-29T12:00:00Z",
+  },
+  limits: [{
+    detail: {
+      limit: "100",
+      used: "20",
+      remaining: "80",
+      resetTime: "2026-07-23T17:00:00Z",
+    },
+    window: {
+      duration: 300,
+      timeUnit: "TIME_UNIT_MINUTE",
+    },
+  }],
+};
+
 describe("provider usage", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
@@ -499,55 +522,50 @@ describe("provider usage", () => {
     });
   });
 
-  it("parses Kimi weekly and rolling 5-hour usage variants", () => {
+  it("parses the sanitized live Kimi usage contract", () => {
+    expect(__providerUsageTestHooks.parseKimiUsageBuckets(
+      SANITIZED_KIMI_LIVE_USAGE_RESPONSE,
+    )).toEqual([
+      {
+        id: "weekly",
+        label: "7d",
+        usedPercent: 5,
+        windowDurationMins: 10_080,
+        resetsAt: 1785326400,
+      },
+      {
+        id: "five_hour",
+        label: "5h",
+        usedPercent: 20,
+        windowDurationMins: 300,
+        resetsAt: 1784826000,
+      },
+    ]);
+  });
+
+  it("accepts snake_case aliases for confirmed Kimi fields", () => {
     expect(__providerUsageTestHooks.parseKimiUsageBuckets({
       usage: {
-        name: "Weekly limit",
-        used: "375",
-        limit: "1000",
-        resetAt: "2026-06-15T17:00:00Z",
+        used: "25",
+        limit: "100",
+        reset_time: "2026-06-15T17:00:00Z",
       },
-      limits: [
-        {
-          detail: {
-            used: "1",
-            limit: "0",
-          },
-          window: {
-            duration: 300,
-            timeUnit: "TIME_UNIT_MINUTE",
-          },
+      limits: [{
+        detail: {
+          used: "65",
+          limit: "100",
+          reset_time: "2026-06-10T17:00:00Z",
         },
-        {
-          detail: {
-            remaining: "35",
-            limit: "100",
-            reset_at: "2026-06-10T17:00:00Z",
-          },
-          window: {
-            duration: 300,
-            time_unit: "TIME_UNIT_MINUTE",
-          },
+        window: {
+          duration: 300,
+          time_unit: "TIME_UNIT_MINUTE",
         },
-        {
-          detail: {
-            name: "Parallel requests",
-            used: 1,
-            limit: 4,
-          },
-        },
-      ],
-      boosterWallet: {
-        balance: {
-          type: "BOOSTER",
-          amountLeft: 50_000_000,
-        },
-      },
+      }],
     })).toEqual([
       {
         id: "weekly",
-        label: "Weekly",
-        usedPercent: 38,
+        label: "7d",
+        usedPercent: 25,
         windowDurationMins: 10_080,
         resetsAt: 1781542800,
       },
@@ -555,41 +573,6 @@ describe("provider usage", () => {
         id: "five_hour",
         label: "5h",
         usedPercent: 65,
-        windowDurationMins: 300,
-        resetsAt: 1781110800,
-      },
-    ]);
-
-    expect(__providerUsageTestHooks.parseKimiUsageBuckets({
-      usage: {
-        remaining: 8,
-        limit: 10,
-        reset_time: 1781542800,
-      },
-      limits: [
-        {
-          title: "Rolling 5-hour limit",
-          used: 1,
-          limit: 8,
-          resetTime: 1781110800000,
-          window: {
-            duration: 18_000,
-            timeUnit: "TIME_UNIT_SECOND",
-          },
-        },
-      ],
-    })).toEqual([
-      {
-        id: "weekly",
-        label: "Weekly",
-        usedPercent: 20,
-        windowDurationMins: 10_080,
-        resetsAt: 1781542800,
-      },
-      {
-        id: "five_hour",
-        label: "5h",
-        usedPercent: 13,
         windowDurationMins: 300,
         resetsAt: 1781110800,
       },
@@ -618,24 +601,7 @@ describe("provider usage", () => {
     vi.useFakeTimers();
     mocks.getAllProviderInfo.mockReturnValue([]);
     mocks.getKimiApiKey.mockReturnValue("test-kimi-key");
-    mockFetchJson(200, {
-      usage: {
-        used: 25,
-        limit: 100,
-        resetAt: "2026-06-15T17:00:00Z",
-      },
-      limits: [{
-        detail: {
-          used: 45,
-          limit: 100,
-          resetAt: "2026-06-10T17:00:00Z",
-        },
-        window: {
-          duration: 5,
-          timeUnit: "HOUR",
-        },
-      }],
-    });
+    mockFetchJson(200, SANITIZED_KIMI_LIVE_USAGE_RESPONSE);
 
     const first = await getProviderUsageSnapshot();
     const cached = await getProviderUsageSnapshot();
@@ -644,8 +610,8 @@ describe("provider usage", () => {
       id: "kimi",
       status: "available",
       buckets: [
-        { id: "weekly", usedPercent: 25 },
-        { id: "five_hour", usedPercent: 45 },
+        { id: "weekly", usedPercent: 5 },
+        { id: "five_hour", usedPercent: 20 },
       ],
     });
     expect(cached.providers[0]).toEqual(first.providers[0]);
@@ -681,24 +647,16 @@ describe("provider usage", () => {
     mocks.getAllProviderInfo.mockReturnValue([]);
     mocks.getKimiApiKey.mockReturnValue("test-kimi-key");
     const responses = [
+      SANITIZED_KIMI_LIVE_USAGE_RESPONSE,
       {
-        usage: { used: 25, limit: 100 },
-        limits: [{
-          detail: { used: 45, limit: 100 },
-          window: { duration: 300, timeUnit: "MINUTE" },
-        }],
-      },
-      {
-        usage: { used: 10, limit: 0 },
+        usage: { used: "10", limit: "0" },
         limits: [],
-        boosterWallet: { balance: { type: "BOOSTER", amount: 100_000_000 } },
       },
     ];
-    vi.stubGlobal("fetch", vi.fn(async () => ({
-      ok: true,
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify(responses.shift()), {
       status: 200,
-      json: async () => responses.shift(),
-    } as Response)));
+      headers: { "Content-Type": "application/json" },
+    })));
 
     const first = await getProviderUsageSnapshot();
     expect(first.providers[0].buckets).toHaveLength(2);
@@ -722,13 +680,7 @@ describe("provider usage", () => {
     const responses = [
       {
         status: 200,
-        body: {
-          usage: { used: 25, limit: 100 },
-          limits: [{
-            detail: { used: 45, limit: 100 },
-            window: { duration: 300, timeUnit: "MINUTE" },
-          }],
-        },
+        body: SANITIZED_KIMI_LIVE_USAGE_RESPONSE,
       },
       {
         status: 401,
@@ -741,11 +693,10 @@ describe("provider usage", () => {
     ];
     vi.stubGlobal("fetch", vi.fn(async () => {
       const response = responses.shift()!;
-      return {
-        ok: response.status >= 200 && response.status < 300,
+      return new Response(JSON.stringify(response.body), {
         status: response.status,
-        json: async () => response.body,
-      } as Response;
+        headers: { "Content-Type": "application/json" },
+      });
     }));
 
     const first = await getProviderUsageSnapshot();
@@ -763,16 +714,75 @@ describe("provider usage", () => {
     });
   });
 
+  it("backs off Kimi polling after a 429 and honors Retry-After", async () => {
+    vi.useFakeTimers();
+    mocks.getAllProviderInfo.mockReturnValue([]);
+    mocks.getKimiApiKey.mockReturnValue("test-kimi-key");
+    const fetchMock = vi.fn(async () => {
+      if (fetchMock.mock.calls.length === 1) {
+        return new Response(JSON.stringify({
+          error: {
+            message: "Rate limited.",
+          },
+        }), {
+          status: 429,
+          headers: {
+            "Content-Type": "application/json",
+            "Retry-After": "600",
+          },
+        });
+      }
+      return new Response(JSON.stringify(SANITIZED_KIMI_LIVE_USAGE_RESPONSE), {
+        status: 200,
+        headers: {
+          "Content-Type": "application/json",
+        },
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const limited = await getProviderUsageSnapshot();
+    const backedOff = await getProviderUsageSnapshot();
+
+    expect(limited.providers[0]).toMatchObject({
+      id: "kimi",
+      status: "error",
+      buckets: [],
+      message: "Rate limited.",
+    });
+    expect(backedOff.providers[0]).toMatchObject({
+      id: "kimi",
+      status: "unknown",
+      buckets: [],
+      message: "Kimi usage polling is backing off after a rate limit. Try again in 10m.",
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(180_001);
+    await getProviderUsageSnapshot();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    mocks.getKimiApiKey.mockReturnValue("replacement-kimi-key");
+    const recovered = await getProviderUsageSnapshot();
+
+    expect(recovered.providers[0]).toMatchObject({
+      id: "kimi",
+      status: "available",
+      buckets: [
+        { id: "weekly", usedPercent: 5 },
+        { id: "five_hour", usedPercent: 20 },
+      ],
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
   it("reports an invalid successful Kimi response as an error", async () => {
     mocks.getAllProviderInfo.mockReturnValue([]);
     mocks.getKimiApiKey.mockReturnValue("test-kimi-key");
-    vi.stubGlobal("fetch", vi.fn(async () => ({
-      ok: true,
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("{invalid", {
       status: 200,
-      json: async () => {
-        throw new SyntaxError("invalid JSON");
-      },
-    } as Response)));
+      headers: { "Content-Type": "application/json" },
+    })));
 
     const result = await getProviderUsageSnapshot();
 

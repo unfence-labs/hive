@@ -69,12 +69,34 @@ describe("ProviderUsage", () => {
     expect(container).toBeEmptyDOMElement();
   });
 
-  it("uses Kimi's most-consumed window in the compact bar and shows both windows", async () => {
+  it("uses Kimi's most-consumed window and orders 5h before 7d for Claude and Kimi", async () => {
     const user = userEvent.setup();
     mocks.useProviderUsage.mockReturnValue({
       data: {
         generatedAt: "2026-06-10T00:00:00.000Z",
         providers: [
+          {
+            id: "claude",
+            label: "Claude Code",
+            status: "available",
+            lastUpdatedAt: "2026-06-10T00:00:00.000Z",
+            buckets: [
+              {
+                id: "seven_day",
+                label: "7d",
+                usedPercent: 30,
+                windowDurationMins: 10_080,
+                resetsAt: null,
+              },
+              {
+                id: "five_hour",
+                label: "5h",
+                usedPercent: 20,
+                windowDurationMins: 300,
+                resetsAt: null,
+              },
+            ],
+          },
           {
             id: "kimi",
             label: "Kimi",
@@ -83,7 +105,7 @@ describe("ProviderUsage", () => {
             buckets: [
               {
                 id: "weekly",
-                label: "Weekly",
+                label: "7d",
                 usedPercent: 38,
                 windowDurationMins: 10_080,
                 resetsAt: null,
@@ -108,8 +130,13 @@ describe("ProviderUsage", () => {
     expect(compactFill).toHaveStyle({ width: "72%" });
 
     await user.hover(label);
-    expect(await screen.findAllByText("Kimi Weekly")).not.toHaveLength(0);
-    expect(screen.getAllByText("Kimi 5h")).not.toHaveLength(0);
+    await screen.findAllByText("Kimi 5h");
+    expect(screen.getAllByText("Claude 5h")[0].compareDocumentPosition(
+      screen.getAllByText("Claude 7d")[0],
+    ) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getAllByText("Kimi 5h")[0].compareDocumentPosition(
+      screen.getAllByText("Kimi 7d")[0],
+    ) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(screen.getAllByText("38%")).not.toHaveLength(0);
     expect(screen.getAllByText("72%")).not.toHaveLength(0);
   });
