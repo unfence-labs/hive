@@ -912,6 +912,48 @@ describe("AutomationScheduler", () => {
 
       scheduler.stop();
     });
+
+    it("runs a level-less K2.7 agent without forwarding stale effort", async () => {
+      const { loadProject } = await import("../state/state.js");
+      vi.mocked(loadProject).mockResolvedValue(null as never);
+
+      await saveAgents([makeAgent({
+        modelId: "kimi:kimi-for-coding-highspeed",
+        thinkingLevel: "high",
+      })], dataDir);
+      await saveAutomations([makeAutomation({ projectId: undefined })], dataDir);
+
+      const scheduler = new AutomationScheduler(dataDir);
+      const run = await scheduler.triggerNow("auto-1");
+
+      expect(run.status).toBe("success");
+      const lastSend = sessionSendCalls[sessionSendCalls.length - 1];
+      expect(lastSend.options?.model).toBe("kimi:kimi-for-coding-highspeed");
+      expect(lastSend.options?.thinkingLevel).toBeUndefined();
+
+      scheduler.stop();
+    });
+
+    it("forwards a supported K3 effort from an automation agent", async () => {
+      const { loadProject } = await import("../state/state.js");
+      vi.mocked(loadProject).mockResolvedValue(null as never);
+
+      await saveAgents([makeAgent({
+        modelId: "kimi:k3",
+        thinkingLevel: "low",
+      })], dataDir);
+      await saveAutomations([makeAutomation({ projectId: undefined })], dataDir);
+
+      const scheduler = new AutomationScheduler(dataDir);
+      const run = await scheduler.triggerNow("auto-1");
+
+      expect(run.status).toBe("success");
+      const lastSend = sessionSendCalls[sessionSendCalls.length - 1];
+      expect(lastSend.options?.model).toBe("kimi:k3");
+      expect(lastSend.options?.thinkingLevel).toBe("low");
+
+      scheduler.stop();
+    });
   });
 
   describe("session lifecycle", () => {

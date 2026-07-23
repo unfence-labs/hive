@@ -1900,6 +1900,48 @@ describe("ConversationSession", () => {
     expect(args).not.toContain("--effort");
   });
 
+  it("routes K3 model and effort through every Claude harness path", () => {
+    const session = createSession({ sessionId: "sess-kimi-k3" });
+
+    session.sendMessage("Hello", { model: "kimi:k3-1m", thinkingLevel: "low" });
+
+    const [command, args, spawnOptions] = mockSpawn.mock.calls[0] as [
+      string,
+      string[],
+      { env?: Record<string, string> },
+    ];
+    expect(command).toBe("claude");
+    expect(args).toEqual(expect.arrayContaining(["--model", "k3[1m]", "--effort", "low"]));
+    expect(spawnOptions.env).toMatchObject({
+      ANTHROPIC_MODEL: "k3[1m]",
+      ANTHROPIC_DEFAULT_HAIKU_MODEL: "k3[1m]",
+      ANTHROPIC_DEFAULT_SONNET_MODEL: "k3[1m]",
+      ANTHROPIC_DEFAULT_OPUS_MODEL: "k3[1m]",
+      ANTHROPIC_DEFAULT_FABLE_MODEL: "k3[1m]",
+      CLAUDE_CODE_SUBAGENT_MODEL: "k3[1m]",
+      CLAUDE_CODE_EFFORT_LEVEL: "low",
+    });
+  });
+
+  it("pins K2.7 for parent and subagents without selectable effort", () => {
+    const session = createSession({ sessionId: "sess-kimi-k27" });
+
+    session.sendMessage("Hello", {
+      model: "kimi:kimi-for-coding-highspeed",
+      thinkingLevel: "high",
+    });
+
+    const args = mockSpawn.mock.calls[0]?.[1] as string[];
+    const spawnOptions = mockSpawn.mock.calls[0]?.[2] as { env?: Record<string, string> };
+    expect(args).toEqual(expect.arrayContaining(["--model", "kimi-for-coding-highspeed"]));
+    expect(args).not.toContain("--effort");
+    expect(spawnOptions.env).toMatchObject({
+      ANTHROPIC_MODEL: "kimi-for-coding-highspeed",
+      CLAUDE_CODE_SUBAGENT_MODEL: "kimi-for-coding-highspeed",
+    });
+    expect(spawnOptions.env?.CLAUDE_CODE_EFFORT_LEVEL).toBeUndefined();
+  });
+
   it("always includes CLAUDE_CODE_ENABLE_TASKS in env", () => {
     const session = createSession({ sessionId: "sess-think-default", command: "claude" });
 
@@ -4179,6 +4221,16 @@ describe("ConversationSession", () => {
       thinkingLevel: "low",
       fastMode: false,
     });
+  });
+
+  it("normalizes K3 effort to high by default and preserves supported selections", () => {
+    const defaultSession = createSession({ sessionId: "lock-kimi-default" });
+    defaultSession.sendMessage("Hello", { model: "kimi:k3" });
+    expect(defaultSession.metadata.lastRunOptions?.thinkingLevel).toBe("high");
+
+    const selectedSession = createSession({ sessionId: "lock-kimi-selected" });
+    selectedSession.sendMessage("Hello", { model: "kimi:k3", thinkingLevel: "low" });
+    expect(selectedSession.metadata.lastRunOptions?.thinkingLevel).toBe("low");
   });
 
   it("defaults to claude provider when model has no prefix", () => {

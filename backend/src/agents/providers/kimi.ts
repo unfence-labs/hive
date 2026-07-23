@@ -9,14 +9,15 @@ import {
 } from "./types.js";
 
 const KIMI_MODELS: ModelDefinition[] = [
-  { id: "k3", label: "K3", cliValue: "k3", isDefault: true, contextWindow: 262_144 },
-  { id: "k3-1m", label: "K3 1M", cliValue: "k3[1m]", contextWindow: 1_048_576 },
-  { id: "kimi-for-coding", label: "Kimi for Coding", cliValue: "kimi-for-coding", contextWindow: 262_144 },
+  { id: "k3", label: "K3", cliValue: "k3", isDefault: true, contextWindow: 262_144, thinkingLevels: ["low", "high", "max"] },
+  { id: "k3-1m", label: "K3 1M", cliValue: "k3[1m]", contextWindow: 1_048_576, thinkingLevels: ["low", "high", "max"] },
+  { id: "kimi-for-coding", label: "K2.7 Coding", cliValue: "kimi-for-coding", contextWindow: 262_144 },
+  { id: "kimi-for-coding-highspeed", label: "K2.7 Coding Highspeed", cliValue: "kimi-for-coding-highspeed", contextWindow: 262_144 },
 ];
 
 const KIMI_CAPABILITIES: ProviderCapabilities = {
-  // No reasoning-effort control: with an empty list callers never pick a
-  // thinking level, so the inherited buildArgs never emits --effort.
+  // K2.7 has always-on thinking but no selectable effort. K3 opts into effort
+  // control through its per-model thinkingLevels above.
   thinkingLevels: [],
   planMode: true,
   blockingTools: true,
@@ -36,24 +37,44 @@ export class KimiProvider extends ClaudeProvider {
   override readonly models: ModelDefinition[] = KIMI_MODELS;
   override readonly capabilities: ProviderCapabilities = KIMI_CAPABILITIES;
 
+  private resolveModelOptions(options: ProviderMessageOptions): {
+    model: ModelDefinition | undefined;
+    thinkingLevel: ProviderMessageOptions["thinkingLevel"];
+  } {
+    const model = findModel(this.models, options.model);
+    const thinkingLevels = model?.thinkingLevels ?? this.capabilities.thinkingLevels;
+    const thinkingLevel = options.thinkingLevel && thinkingLevels.includes(options.thinkingLevel)
+      ? options.thinkingLevel
+      : undefined;
+    return { model, thinkingLevel };
+  }
+
   override buildArgs(
     content: string,
     options: ProviderMessageOptions,
     session: ProviderSessionState,
   ): string[] {
-    // No effort levels: drop any thinkingLevel that leaks in (e.g. from a
-    // stale client or stored agent) so --effort is never emitted.
-    const { thinkingLevel: _drop, ...rest } = options;
-    return super.buildArgs(content, rest, session);
+    const { thinkingLevel } = this.resolveModelOptions(options);
+    return super.buildArgs(content, { ...options, thinkingLevel }, session);
   }
 
   override buildEnv(options: ProviderMessageOptions): Record<string, string> {
-    const contextWindow = findModel(this.models, options.model)?.contextWindow
-      ?? DEFAULT_CONTEXT_WINDOW;
+    const { model, thinkingLevel } = this.resolveModelOptions(options);
+    const contextWindow = model?.contextWindow ?? DEFAULT_CONTEXT_WINDOW;
+    const cliModel = model?.cliValue;
     return {
-      ...super.buildEnv(options),
+      ...super.buildEnv({ ...options, thinkingLevel }),
       ANTHROPIC_BASE_URL: "https://api.kimi.com/coding/",
       ANTHROPIC_API_KEY: getKimiApiKey(),
+      ...(cliModel ? {
+        ANTHROPIC_MODEL: cliModel,
+        ANTHROPIC_DEFAULT_HAIKU_MODEL: cliModel,
+        ANTHROPIC_DEFAULT_SONNET_MODEL: cliModel,
+        ANTHROPIC_DEFAULT_OPUS_MODEL: cliModel,
+        ANTHROPIC_DEFAULT_FABLE_MODEL: cliModel,
+        CLAUDE_CODE_SUBAGENT_MODEL: cliModel,
+      } : {}),
+      ...(thinkingLevel ? { CLAUDE_CODE_EFFORT_LEVEL: thinkingLevel } : {}),
       // Moonshot's endpoint 400s on tool_reference content blocks, so keep the
       // CLI's tool-search feature off.
       ENABLE_TOOL_SEARCH: "false",

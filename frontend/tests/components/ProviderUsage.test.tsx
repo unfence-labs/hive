@@ -1,4 +1,5 @@
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { ProviderUsage } from "@/components/ProviderUsage";
 
@@ -53,8 +54,8 @@ describe("ProviderUsage", () => {
         generatedAt: "2026-06-10T00:00:00.000Z",
         providers: [
           {
-            id: "codex",
-            label: "Codex",
+            id: "kimi",
+            label: "Kimi",
             status: "unavailable",
             lastUpdatedAt: null,
             buckets: [],
@@ -66,5 +67,130 @@ describe("ProviderUsage", () => {
     const { container } = render(<ProviderUsage />);
 
     expect(container).toBeEmptyDOMElement();
+  });
+
+  it("uses Kimi's most-consumed window and orders 5h before 7d for Claude and Kimi", async () => {
+    const user = userEvent.setup();
+    mocks.useProviderUsage.mockReturnValue({
+      data: {
+        generatedAt: "2026-06-10T00:00:00.000Z",
+        providers: [
+          {
+            id: "claude",
+            label: "Claude Code",
+            status: "available",
+            lastUpdatedAt: "2026-06-10T00:00:00.000Z",
+            buckets: [
+              {
+                id: "seven_day",
+                label: "7d",
+                usedPercent: 30,
+                windowDurationMins: 10_080,
+                resetsAt: null,
+              },
+              {
+                id: "five_hour",
+                label: "5h",
+                usedPercent: 20,
+                windowDurationMins: 300,
+                resetsAt: null,
+              },
+            ],
+          },
+          {
+            id: "kimi",
+            label: "Kimi",
+            status: "available",
+            lastUpdatedAt: "2026-06-10T00:00:00.000Z",
+            buckets: [
+              {
+                id: "weekly",
+                label: "7d",
+                usedPercent: 38,
+                windowDurationMins: 10_080,
+                resetsAt: null,
+              },
+              {
+                id: "five_hour",
+                label: "5h",
+                usedPercent: 72,
+                windowDurationMins: 300,
+                resetsAt: null,
+              },
+            ],
+          },
+        ],
+      },
+    });
+
+    render(<ProviderUsage />);
+
+    const label = screen.getByText("Kimi");
+    const compactFill = label.nextElementSibling?.firstElementChild;
+    expect(compactFill).toHaveStyle({ width: "72%" });
+
+    await user.hover(label);
+    await screen.findAllByText("Kimi 5h");
+    expect(screen.getAllByText("Claude 5h")[0].compareDocumentPosition(
+      screen.getAllByText("Claude 7d")[0],
+    ) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getAllByText("Kimi 5h")[0].compareDocumentPosition(
+      screen.getAllByText("Kimi 7d")[0],
+    ) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getAllByText("38%")).not.toHaveLength(0);
+    expect(screen.getAllByText("72%")).not.toHaveLength(0);
+  });
+
+  it("shows n/a and the explanatory message for unknown Kimi usage", async () => {
+    const user = userEvent.setup();
+    mocks.useProviderUsage.mockReturnValue({
+      data: {
+        generatedAt: "2026-06-10T00:00:00.000Z",
+        providers: [
+          {
+            id: "kimi",
+            label: "Kimi",
+            status: "unknown",
+            lastUpdatedAt: null,
+            buckets: [],
+            message: "Kimi usage API returned no weekly or 5-hour usage windows.",
+          },
+        ],
+      },
+    });
+
+    render(<ProviderUsage />);
+
+    await user.hover(screen.getByText("Kimi"));
+    expect(await screen.findAllByText("n/a")).not.toHaveLength(0);
+    expect(screen.getAllByText("Kimi usage API returned no weekly or 5-hour usage windows.")).not.toHaveLength(0);
+  });
+
+  it("shows Kimi errors without a stale compact bar", async () => {
+    const user = userEvent.setup();
+    mocks.useProviderUsage.mockReturnValue({
+      data: {
+        generatedAt: "2026-06-10T00:00:00.000Z",
+        providers: [
+          {
+            id: "kimi",
+            label: "Kimi",
+            status: "error",
+            lastUpdatedAt: null,
+            buckets: [],
+            message: "Invalid API key.",
+          },
+        ],
+      },
+    });
+
+    render(<ProviderUsage />);
+
+    const label = screen.getByText("Kimi");
+    const compactFill = label.nextElementSibling?.firstElementChild;
+    expect(compactFill).toHaveStyle({ width: "0%" });
+
+    await user.hover(label);
+    expect(await screen.findAllByText("Invalid API key.")).not.toHaveLength(0);
   });
 });

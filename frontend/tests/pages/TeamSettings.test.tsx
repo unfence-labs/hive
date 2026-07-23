@@ -88,6 +88,19 @@ const catalog: ModelCatalogResponse = {
       provider: "kimi",
       providerLabel: "Kimi",
       capabilities: {
+        thinkingLevels: ["low", "high", "max"],
+        planMode: true,
+        blockingTools: true,
+        completions: true,
+        goals: false,
+      },
+    },
+    {
+      id: "kimi:kimi-for-coding",
+      label: "K2.7 Coding",
+      provider: "kimi",
+      providerLabel: "Kimi",
+      capabilities: {
         thinkingLevels: [],
         planMode: true,
         blockingTools: true,
@@ -200,7 +213,29 @@ describe("TeamSettings", () => {
     });
   });
 
-  it("hides the thinking control and omits thinkingLevel for a level-less model (kimi)", async () => {
+  it("defaults K3 to high thinking", async () => {
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(screen.getByRole("button", { name: "Add Agent" }));
+    await user.type(screen.getByPlaceholderText("e.g. Code Auditor"), "K3 Agent");
+    await user.type(screen.getByPlaceholderText("You are a code auditor..."), "Do things.");
+    await user.selectOptions(screen.getByRole("combobox"), "kimi:k3");
+
+    expect(screen.getByRole("button", { name: "High" })).toHaveAttribute("aria-pressed", "true");
+    await user.click(screen.getByRole("button", { name: "Create" }));
+
+    await waitFor(() => {
+      expect(mocks.createMutateAsync).toHaveBeenCalledWith(
+        expect.objectContaining({
+          modelId: "kimi:k3",
+          thinkingLevel: "high",
+        }),
+      );
+    });
+  });
+
+  it("hides the thinking control and omits thinkingLevel for K2.7", async () => {
     const user = userEvent.setup();
     renderPage();
 
@@ -209,7 +244,7 @@ describe("TeamSettings", () => {
     await user.type(screen.getByPlaceholderText("You are a code auditor..."), "Do things.");
 
     expect(screen.getByText("Thinking")).toBeInTheDocument();
-    await user.selectOptions(screen.getByRole("combobox"), "kimi:k3");
+    await user.selectOptions(screen.getByRole("combobox"), "kimi:kimi-for-coding");
     await waitFor(() => expect(screen.queryByText("Thinking")).not.toBeInTheDocument());
 
     await user.click(screen.getByRole("button", { name: "Create" }));
@@ -218,7 +253,7 @@ describe("TeamSettings", () => {
       expect(mocks.createMutateAsync).toHaveBeenCalledWith({
         name: "Kimi Agent",
         systemPrompt: "Do things.",
-        modelId: "kimi:k3",
+        modelId: "kimi:kimi-for-coding",
         readOnly: false,
       });
     });
