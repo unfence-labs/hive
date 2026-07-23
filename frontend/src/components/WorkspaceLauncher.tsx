@@ -126,13 +126,8 @@ export default function WorkspaceLauncher({
         setSpotlightOpen((prev) => !prev);
       } else if (key === "n") {
         e.preventDefault();
-        setSpotlightOpen(false);
         setProjectPickerOpen(false);
-        if (e.shiftKey) {
-          onPickerOpenChange(true);
-        } else {
-          instantCreate();
-        }
+        executeCommand(e.shiftKey ? "new-workspace-from" : "new-workspace");
       } else if (key === "," && !e.shiftKey) {
         e.preventDefault();
         executeCommand("settings");
@@ -169,7 +164,7 @@ export default function WorkspaceLauncher({
     }
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [executeCommand, instantCreate, onPickerOpenChange, workspaceCommandsEnabled]);
+  }, [executeCommand, onPickerOpenChange, workspaceCommandsEnabled]);
 
   return (
     <>

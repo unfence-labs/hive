@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { ChevronDownIcon, CircleDot, GitBranch, GitPullRequest, SearchIcon } from "lucide-react";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import { SPOTLIGHT_DIALOG_CLASS, SPOTLIGHT_LIST_CLASS } from "@/components/ui/command";
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -30,6 +31,12 @@ const SEARCH_PLACEHOLDER: Record<SourceTab, string> = {
   issues: "Search by title, number, or author",
 };
 
+const QUERY_ERROR_MESSAGE: Record<SourceTab, string> = {
+  pulls: "Failed to load pull requests",
+  branches: "Failed to load branches",
+  issues: "Failed to load issues",
+};
+
 interface PickerRow {
   key: string;
   icon: "pr" | "pr-draft" | "branch" | "issue";
@@ -47,6 +54,17 @@ interface NewWorkspaceFromDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   defaultProjectId?: string;
+}
+
+/** Row offered when the typed number matches no fetched PR/issue. */
+function manualRow(kind: "pr" | "issue", number: number): PickerRow {
+  return {
+    key: `${kind}-manual-${number}`,
+    icon: kind,
+    prefix: `#${number}`,
+    label: `${kind === "pr" ? "Pull request" : "Issue"} #${number}`,
+    source: { kind, number },
+  };
 }
 
 function RowIcon({ icon }: { icon: PickerRow["icon"] }) {
@@ -128,13 +146,7 @@ export default function NewWorkspaceFromDialog({
           source: { kind: "pr", number: p.number },
         }));
       if (numericQuery !== null && !items.some((p) => p.number === numericQuery)) {
-        result.push({
-          key: `pr-manual-${numericQuery}`,
-          icon: "pr",
-          prefix: `#${numericQuery}`,
-          label: `Pull request #${numericQuery}`,
-          source: { kind: "pr", number: numericQuery },
-        });
+        result.push(manualRow("pr", numericQuery));
       }
       return result;
     }
@@ -171,13 +183,7 @@ export default function NewWorkspaceFromDialog({
         source: { kind: "issue", number: i.number },
       }));
     if (numericQuery !== null && !items.some((i) => i.number === numericQuery)) {
-      result.push({
-        key: `issue-manual-${numericQuery}`,
-        icon: "issue",
-        prefix: `#${numericQuery}`,
-        label: `Issue #${numericQuery}`,
-        source: { kind: "issue", number: numericQuery },
-      });
+      result.push(manualRow("issue", numericQuery));
     }
     return result;
   }, [tab, normalizedQuery, numericQuery, pulls.data, branches.data, issues.data]);
@@ -220,23 +226,18 @@ export default function NewWorkspaceFromDialog({
   const activeQuery = tab === "pulls" ? pulls : tab === "branches" ? branches : issues;
   const embeddedError =
     tab === "pulls" ? pulls.data?.error : tab === "issues" ? issues.data?.error : undefined;
-  const queryErrorMessage: Record<SourceTab, string> = {
-    pulls: "Failed to load pull requests",
-    branches: "Failed to load branches",
-    issues: "Failed to load issues",
-  };
   const sourceError =
     embeddedError ??
     (activeQuery.isError
       ? activeQuery.error instanceof Error && activeQuery.error.message
         ? activeQuery.error.message
-        : queryErrorMessage[tab]
+        : QUERY_ERROR_MESSAGE[tab]
       : undefined);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
-        className="top-[20%] translate-y-0 gap-0 bg-popover p-0 text-popover-foreground sm:max-w-2xl"
+        className={cn(SPOTLIGHT_DIALOG_CLASS, "gap-0 bg-popover p-0 text-popover-foreground")}
         showCloseButton={false}
         aria-describedby={undefined}
         onOpenAutoFocus={(e) => {
@@ -308,7 +309,7 @@ export default function NewWorkspaceFromDialog({
             </DropdownMenu>
           )}
         </div>
-        <div className="max-h-[min(420px,60vh)] overflow-y-auto p-1" role="listbox" aria-label="Workspace sources">
+        <div className={cn(SPOTLIGHT_LIST_CLASS, "overflow-y-auto p-1")} role="listbox" aria-label="Workspace sources">
           {activeQuery.isLoading ? (
             <div className="flex items-center justify-center gap-2 py-8 text-sm text-muted-foreground">
               <Spinner className="size-4" />
@@ -329,32 +330,32 @@ export default function NewWorkspaceFromDialog({
                       {row.sectionHeader}
                     </div>
                   )}
-                <button
-                  type="button"
-                  role="option"
-                  aria-selected={selected}
-                  className={cn(
-                    "flex w-full items-center gap-2 rounded-sm px-2 py-2 text-left text-sm",
-                    selected && "bg-accent text-accent-foreground",
-                    creating && !isCreating && "opacity-50",
-                  )}
-                  onMouseMove={() => setSelectedIndex(index)}
-                  onClick={() => void activateRow(row)}
-                  disabled={creating}
-                >
-                  {isCreating ? <Spinner className="size-4 shrink-0" /> : <RowIcon icon={row.icon} />}
-                  {row.prefix && (
-                    <span className="shrink-0 tabular-nums text-muted-foreground">{row.prefix}</span>
-                  )}
-                  <span className="min-w-0 truncate">{row.label}</span>
-                  {isCreating ? (
-                    <span className="ml-auto shrink-0 text-xs text-muted-foreground">Creating…</span>
-                  ) : (
-                    row.detail && (
-                      <span className="ml-auto shrink-0 text-xs text-muted-foreground">{row.detail}</span>
-                    )
-                  )}
-                </button>
+                  <button
+                    type="button"
+                    role="option"
+                    aria-selected={selected}
+                    className={cn(
+                      "flex w-full items-center gap-2 rounded-sm px-2 py-2 text-left text-sm",
+                      selected && "bg-accent text-accent-foreground",
+                      creating && !isCreating && "opacity-50",
+                    )}
+                    onMouseMove={() => setSelectedIndex(index)}
+                    onClick={() => void activateRow(row)}
+                    disabled={creating}
+                  >
+                    {isCreating ? <Spinner className="size-4 shrink-0" /> : <RowIcon icon={row.icon} />}
+                    {row.prefix && (
+                      <span className="shrink-0 tabular-nums text-muted-foreground">{row.prefix}</span>
+                    )}
+                    <span className="min-w-0 truncate">{row.label}</span>
+                    {isCreating ? (
+                      <span className="ml-auto shrink-0 text-xs text-muted-foreground">Creating…</span>
+                    ) : (
+                      row.detail && (
+                        <span className="ml-auto shrink-0 text-xs text-muted-foreground">{row.detail}</span>
+                      )
+                    )}
+                  </button>
                 </Fragment>
               );
             })

@@ -80,9 +80,11 @@ export function useChatInputDraftPersistence({
   setFileCount,
   setFileMentions,
 }: UseChatInputDraftPersistenceParams): UseChatInputDraftPersistenceResult {
-  const initializedRef = useRef(false);
   const prevSessionIdRef = useRef<string | undefined>(undefined);
-  const prevWsIdRef = useRef<string | undefined>(undefined);
+  // Seeded with the mount wsId (the component is keyed on it, so it cannot
+  // change within an instance): the first effect run then reduces to a plain
+  // session transition from "no session".
+  const prevWsIdRef = useRef<string | undefined>(wsId);
   const valueRef = useRef(value);
   valueRef.current = value;
   const fileMentionsRef = useRef(fileMentions);
@@ -148,23 +150,6 @@ export function useChatInputDraftPersistence({
     const wsChanged = prevWsId !== wsId;
     const sessionChanged = prevSessionId !== sessionId;
 
-    if (!initializedRef.current) {
-      initializedRef.current = true;
-      if (sessionId) {
-        const storedDraft = draftStore.get(wsId, sessionId);
-        if (storedDraft) {
-          restoreDraftState(storedDraft);
-        } else {
-          // Preserve an initial server-owned draft seed and adopt it into the
-          // session-scoped store for subsequent in-app remounts.
-          saveDraftForSession(sessionId);
-        }
-      }
-      prevWsIdRef.current = wsId;
-      prevSessionIdRef.current = sessionId;
-      return;
-    }
-
     if (!wsChanged && !sessionChanged) return;
 
     // Save outgoing session's draft under its ORIGINAL workspace.
@@ -176,9 +161,10 @@ export function useChatInputDraftPersistence({
     // Skip when sessionId is undefined (transient workspace-switch state).
     if (sessionId && (wsChanged || sessionChanged)) {
       if (!wsChanged && !prevSessionId) {
-        // An explicit first-session creation adopts the composer already on
-        // screen. There is no outgoing session to save, so migrate the current
-        // draft unless this is a return to a session that already owns one.
+        // Gaining a session without leaving one (mount with a server-owned
+        // seed, or an explicit first-session creation) adopts the composer
+        // already on screen: migrate the current draft into the store unless
+        // the session already owns one.
         const storedDraft = draftStore.get(wsId, sessionId);
         if (storedDraft) {
           restoreDraftState(storedDraft);

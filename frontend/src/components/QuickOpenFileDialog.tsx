@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { FileIcon } from "lucide-react";
 import {
+  SPOTLIGHT_DIALOG_CLASS,
+  SPOTLIGHT_LIST_CLASS,
   CommandDialog,
   CommandEmpty,
   CommandGroup,
@@ -45,7 +47,7 @@ export function QuickOpenFileDialog({
       title="Quick open file"
       description="Search workspace files"
       showCloseButton={false}
-      className="top-[20%] translate-y-0 sm:max-w-2xl"
+      className={SPOTLIGHT_DIALOG_CLASS}
       shouldFilter={false}
     >
       <CommandInput
@@ -53,7 +55,7 @@ export function QuickOpenFileDialog({
         value={query}
         onValueChange={setQuery}
       />
-      <CommandList className="max-h-[min(420px,60vh)]">
+      <CommandList className={SPOTLIGHT_LIST_CLASS}>
         <CommandEmpty>No files found.</CommandEmpty>
         <CommandGroup heading="Files">
           {results.map(({ path, basename }) => {

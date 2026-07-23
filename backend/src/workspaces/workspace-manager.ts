@@ -11,7 +11,7 @@ import {
 import { parseGitHubRepo, fetchPrDetail, fetchIssueDetail } from "../utils/github.js";
 import { loadIssueDraftPrompt, interpolateIssueDraftPrompt } from "../agents/issue-draft-prompt.js";
 import type { PullRequestDetail, IssueDetail } from "../utils/github.js";
-import { mapBranchesToWorkspaces } from "./workspace-sources.js";
+import { mapBranchesToWorkspaces, prBranchName } from "./workspace-sources.js";
 import { buildFileTree } from "../utils/file-tree.js";
 import { MAX_TEXT_FILE_SIZE, resolveSafeRepoFilePath } from "../utils/repo-files.js";
 import { buildDiffResponse, getUntrackedDiff } from "../utils/git-diff.js";
@@ -154,7 +154,7 @@ async function checkoutPullRequestHead(
   prNumber: number,
   dataDir: string,
 ): Promise<string> {
-  const branch = `pr/${prNumber}`;
+  const branch = prBranchName(prNumber);
   await assertBranchNotCheckedOut(state, bare, branch, dataDir);
   let fetchedRef: string;
   try {
@@ -348,7 +348,7 @@ export async function deleteWorkspace(
       const src = workspace.source;
       const keepBranch =
         src?.kind === "branch" ||
-        (src?.kind === "pr" && workspace.branch !== `pr/${src.number}`);
+        (src?.kind === "pr" && workspace.branch !== prBranchName(src.number!));
       if (!keepBranch) {
         try {
           await git(["branch", "-D", workspace.branch], bare);

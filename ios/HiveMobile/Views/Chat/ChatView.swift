@@ -796,7 +796,7 @@ struct ChatView: View {
             draft = saved.text
             draftAttachments = saved.attachments.map(ImageAttachment.init)
         } else {
-            draft = session.sessionId == sessionId ? session.draftPrompt ?? "" : ""
+            draft = session.draftPrompt ?? ""
             draftAttachments = []
         }
         applySessionRunOptions()

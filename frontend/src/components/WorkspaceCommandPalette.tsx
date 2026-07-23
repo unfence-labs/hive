@@ -14,6 +14,8 @@ import {
   ZoomOut,
 } from "lucide-react";
 import {
+  SPOTLIGHT_DIALOG_CLASS,
+  SPOTLIGHT_LIST_CLASS,
   CommandDialog,
   CommandEmpty,
   CommandGroup,
@@ -54,8 +56,8 @@ export function WorkspaceCommandPalette({
   workspaceCommandsEnabled,
   onCommand,
 }: WorkspaceCommandPaletteProps) {
+  // onCommand (WorkspaceLauncher.executeCommand) closes the palette itself.
   const run = (command: CommandPaletteAction) => {
-    onOpenChange(false);
     onCommand(command);
   };
 
@@ -66,10 +68,10 @@ export function WorkspaceCommandPalette({
       title="Command palette"
       description="Type a command or search"
       showCloseButton={false}
-      className="top-[20%] translate-y-0 sm:max-w-2xl"
+      className={SPOTLIGHT_DIALOG_CLASS}
     >
       <CommandInput placeholder="Type a command or search..." />
-      <CommandList className="max-h-[min(420px,60vh)]">
+      <CommandList className={SPOTLIGHT_LIST_CLASS}>
         <CommandEmpty>No results found.</CommandEmpty>
         <CommandGroup heading="Workspace actions">
           <CommandItem

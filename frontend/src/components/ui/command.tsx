@@ -13,6 +13,11 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 
+// Shared surface for spotlight-style pickers (⌘K/⌘N/⌘P dialogs): all of them
+// must use these classes so the dialogs stay visually interchangeable.
+const SPOTLIGHT_DIALOG_CLASS = "top-[20%] translate-y-0 sm:max-w-2xl"
+const SPOTLIGHT_LIST_CLASS = "max-h-[min(420px,60vh)]"
+
 function Command({
   className,
   ...props
@@ -174,6 +179,8 @@ function CommandShortcut({
 }
 
 export {
+  SPOTLIGHT_DIALOG_CLASS,
+  SPOTLIGHT_LIST_CLASS,
   Command,
   CommandDialog,
   CommandInput,

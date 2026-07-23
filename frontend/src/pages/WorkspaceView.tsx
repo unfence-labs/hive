@@ -434,6 +434,12 @@ export default function WorkspaceView() {
     return <Navigate to="/home" replace />;
   }
 
+  // Server-owned seed for a pristine composer: the session's own draft wins;
+  // a workspace still waiting for its first session falls back to its draft.
+  const composerSeed = messages.length === 0
+    ? activeSession?.draftPrompt
+      ?? (!sessionId && !workspace?.activeSessionId ? workspace?.draftPrompt : undefined)
+    : undefined;
 
   return (
     <div className="flex h-full flex-col">
@@ -553,10 +559,7 @@ export default function WorkspaceView() {
                 ref={chatInputRef}
                 wsId={wsId}
                 sessionId={sessionId}
-                draftPrompt={messages.length === 0
-                  ? activeSession?.draftPrompt
-                    ?? (!sessionId && !workspace?.activeSessionId ? workspace?.draftPrompt : undefined)
-                  : undefined}
+                draftPrompt={composerSeed}
                 lockedProvider={effectiveLockedProvider}
                 lastRunOptions={activeSession?.lastRunOptions}
                 onSend={handleSend}

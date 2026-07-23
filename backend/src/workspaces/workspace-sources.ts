@@ -5,6 +5,11 @@ import { loadProject, getDataDir } from "../state/state.js";
 import { NotFoundError } from "../utils/errors.js";
 import type { ProjectBranchItem, ProjectState } from "../types.js";
 
+/** Hive-owned local branch carrying a cross-repository PR checkout. */
+export function prBranchName(prNumber: number): string {
+  return `pr/${prNumber}`;
+}
+
 /**
  * Live branch → worktree path mapping from `git worktree list`. The stored
  * `Workspace.branch` can be stale after the naming task renames a branch, so

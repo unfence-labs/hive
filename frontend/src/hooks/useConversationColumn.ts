@@ -223,11 +223,8 @@ export function useConversationColumn(
   const handleCreateSession = useCallback(async () => {
     const meta = await createSession();
     if (!meta) return;
-    if (sessionId) {
-      switchSession(meta.sessionId);
-    } else {
-      switchSession(meta.sessionId, { preserveComposer: true });
-    }
+    // Creating the FIRST session adopts the composer already on screen.
+    switchSession(meta.sessionId, { preserveComposer: !sessionId });
   }, [createSession, sessionId, switchSession]);
 
   const handleActivateSession = useCallback(

@@ -106,7 +106,9 @@ describe("useConversationColumn — session handlers", () => {
       await result.current.handleCreateSession();
     });
     expect(createSession).toHaveBeenCalledTimes(1);
-    expect(conversation.switchSession).toHaveBeenCalledWith("s3");
+    expect(conversation.switchSession).toHaveBeenCalledWith("s3", {
+      preserveComposer: false,
+    });
   });
 
   it("preserves the composer when creating the first explicit session", async () => {
@@ -159,7 +161,9 @@ describe("useConversationColumn — session handlers", () => {
     await act(async () => dispatchAppCommand("new-chat"));
 
     expect(createSession).toHaveBeenCalledTimes(1);
-    expect(conversation.switchSession).toHaveBeenCalledWith("s3");
+    expect(conversation.switchSession).toHaveBeenCalledWith("s3", {
+      preserveComposer: false,
+    });
   });
 
   it("handleDeleteSession on a non-last active session activates the next one", async () => {

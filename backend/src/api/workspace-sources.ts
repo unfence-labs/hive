@@ -1,10 +1,10 @@
 import type { FastifyInstance } from "fastify";
-import { listProjectBranches, mapBranchesToWorkspaces } from "../workspaces/workspace-sources.js";
+import { listProjectBranches, mapBranchesToWorkspaces, prBranchName } from "../workspaces/workspace-sources.js";
 import { listOpenPullRequests, listOpenIssues, parseGitHubRepo } from "../utils/github.js";
 import { loadProject, getDataDir } from "../state/state.js";
 import { bareRepoPath } from "../utils/paths.js";
 import { errorMessage, errorStatus } from "../utils/errors.js";
-import type { ProjectState } from "../types.js";
+import type { ProjectIssueItem, ProjectPullItem, ProjectState } from "../types.js";
 
 const NO_GITHUB_REMOTE = "This project has no GitHub remote";
 
@@ -39,12 +39,12 @@ export async function workspaceSourceRoutes(app: FastifyInstance, dataDir?: stri
       const entries = await listOpenPullRequests(loaded.repo.owner, loaded.repo.repo);
       const bare = bareRepoPath(dir, req.params.id);
       const workspaceByBranch = await mapBranchesToWorkspaces(loaded.state, bare, dir);
-      const pulls = entries.map((entry) => {
+      const pulls = entries.map((entry): ProjectPullItem => {
         // Cross-repo PRs check out on the Hive-owned pr/<n> branch; same-repo
         // PRs sit on their real head branch. Only ever match the right one —
         // a fork's headRefName can collide with an unrelated local branch.
         const ws = entry.isCrossRepository
-          ? workspaceByBranch.get(`pr/${entry.number}`)
+          ? workspaceByBranch.get(prBranchName(entry.number))
           : workspaceByBranch.get(entry.headRefName);
         return {
           number: entry.number,
@@ -69,7 +69,7 @@ export async function workspaceSourceRoutes(app: FastifyInstance, dataDir?: stri
     if (!loaded) return reply.status(404).send({ error: "Project not found" });
     if (!loaded.repo) return reply.send({ issues: [], error: NO_GITHUB_REMOTE });
     try {
-      const issues = await listOpenIssues(loaded.repo.owner, loaded.repo.repo);
+      const issues: ProjectIssueItem[] = await listOpenIssues(loaded.repo.owner, loaded.repo.repo);
       return reply.send({ issues });
     } catch (err: unknown) {
       return reply.send({ issues: [], error: errorMessage(err, "Failed to list issues") });

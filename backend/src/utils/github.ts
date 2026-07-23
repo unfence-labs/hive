@@ -441,21 +441,10 @@ export async function fetchPrDetail(
   number: number,
   ghClient: GhClient = gh,
 ): Promise<PullRequestDetail> {
-  const item = await ghJson<{
-    number: number; title: string; url: string;
-    headRefName: string; baseRefName: string; isCrossRepository: boolean;
-  }>([
+  return ghJson<PullRequestDetail>([
     "pr", "view", String(number), "--repo", `${owner}/${repo}`,
     "--json", "number,title,url,headRefName,baseRefName,isCrossRepository",
   ], ghClient);
-  return {
-    number: item.number,
-    title: item.title,
-    url: item.url,
-    headRefName: item.headRefName,
-    baseRefName: item.baseRefName,
-    isCrossRepository: item.isCrossRepository,
-  };
 }
 
 export async function fetchIssueDetail(

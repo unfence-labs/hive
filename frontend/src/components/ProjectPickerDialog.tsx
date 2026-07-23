@@ -1,5 +1,7 @@
 import { FolderGit2 } from "lucide-react";
 import {
+  SPOTLIGHT_DIALOG_CLASS,
+  SPOTLIGHT_LIST_CLASS,
   CommandDialog,
   CommandEmpty,
   CommandGroup,
@@ -29,10 +31,10 @@ export function ProjectPickerDialog({ open, onOpenChange, onSelect }: ProjectPic
       title="New workspace"
       description="Choose a project"
       showCloseButton={false}
-      className="top-[20%] translate-y-0 sm:max-w-2xl"
+      className={SPOTLIGHT_DIALOG_CLASS}
     >
       <CommandInput placeholder="Choose a project for the new workspace…" />
-      <CommandList className="max-h-[min(420px,60vh)]">
+      <CommandList className={SPOTLIGHT_LIST_CLASS}>
         <CommandEmpty>No projects found.</CommandEmpty>
         <CommandGroup heading="Projects">
           {projects.map((project) => (
