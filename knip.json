@@ -8,7 +8,7 @@
   "workspaces": {
     "backend": {
       "entry": ["ecosystem.config.cjs"],
-      "ignoreBinaries": ["codex", "gh"]
+      "ignoreBinaries": ["gh"]
     },
     "frontend": {
       "entry": ["src/index.css"]
