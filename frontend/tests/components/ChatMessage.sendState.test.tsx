@@ -35,39 +35,31 @@ describe("ChatMessage send state", () => {
     expect(screen.queryByTestId("send-state-sending")).not.toBeInTheDocument();
   });
 
-  it("shows retry and discard for a failed send", () => {
+  it("shows retry for a failed send", () => {
     const onRetrySend = vi.fn();
-    const onDiscardSend = vi.fn();
     render(
       <ChatMessage
         message={message}
         sendState="failed"
         onRetrySend={onRetrySend}
-        onDiscardSend={onDiscardSend}
       />,
     );
 
     expect(screen.getByText("Not delivered")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /retry/i }));
-    fireEvent.click(screen.getByRole("button", { name: /discard message/i }));
     expect(onRetrySend).toHaveBeenCalledWith("msg-1");
-    expect(onDiscardSend).toHaveBeenCalledWith("msg-1");
   });
 
-  it("allows discard but not retry when delivery is unconfirmed", () => {
-    const onDiscardSend = vi.fn();
+  it("shows no retry when delivery is unconfirmed", () => {
     render(
       <ChatMessage
         message={message}
         sendState="unconfirmed"
         onRetrySend={vi.fn()}
-        onDiscardSend={onDiscardSend}
       />,
     );
 
     expect(screen.getByText("Delivery unconfirmed")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /retry/i })).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: /discard message/i }));
-    expect(onDiscardSend).toHaveBeenCalledWith("msg-1");
   });
 });

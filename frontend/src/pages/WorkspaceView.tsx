@@ -175,7 +175,6 @@ export default function WorkspaceView() {
     sendStates,
     sendMessage,
     retrySend,
-    discardSend,
     stopStreaming,
     switchSession,
     answerQuestion,
@@ -511,7 +510,6 @@ export default function WorkspaceView() {
             pendingToolInputs={pendingToolInputs}
             sendStates={sendStates}
             onRetrySend={retrySend}
-            onDiscardSend={discardSend}
             onQuestionAnswer={answerQuestion}
             onFileMentionClick={handleFileTreeSelect}
             activeProvider={effectiveLockedProvider}

@@ -183,19 +183,6 @@ export function resolveCachedOptimisticEcho(
   return swapped;
 }
 
-/** Remove a single message (e.g. a discarded failed send) from a session's cache. */
-export function removeCachedSessionMessage(
-  queryClient: QueryClient,
-  workspaceId: string | undefined,
-  sessionId: string | undefined,
-  messageId: string,
-): void {
-  if (!workspaceId || !sessionId) return;
-  queryClient.setQueryData<ChatMessage[]>(sessionMessagesKey(workspaceId, sessionId), (prev) =>
-    prev?.filter((message) => message.id !== messageId),
-  );
-}
-
 /** Mark a session's messages stale so the authoritative server copy is refetched. */
 export function invalidateSessionMessages(
   queryClient: QueryClient,

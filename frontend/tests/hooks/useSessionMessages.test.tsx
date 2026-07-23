@@ -9,7 +9,6 @@ import {
   appendCachedSessionMessage,
   invalidateSessionMessages,
   removeCachedSessionMessages,
-  removeCachedSessionMessage,
   resolveCachedOptimisticEcho,
   prefetchSessionMessages,
   fetchAndMergeSessionMessages,
@@ -308,19 +307,6 @@ describe("useSessionMessages", () => {
       expect(getCachedSessionMessages(queryClient, "ws-1", "sess-1")).toEqual([userMessage("u1", "other")]);
     });
 
-  });
-
-  describe("removeCachedSessionMessage", () => {
-    it("removes only the targeted message", () => {
-      const queryClient = newClient();
-      const keep = message("a1", "keep");
-      const drop = userMessage("local-1", "drop");
-      queryClient.setQueryData(sessionMessagesKey("ws-1", "sess-1"), [keep, drop]);
-
-      removeCachedSessionMessage(queryClient, "ws-1", "sess-1", "local-1");
-
-      expect(getCachedSessionMessages(queryClient, "ws-1", "sess-1")).toEqual([keep]);
-    });
   });
 
   describe("appendCachedSessionMessage", () => {

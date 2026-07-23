@@ -137,7 +137,6 @@ export default function BrainView() {
     sendStates,
     sendMessage,
     retrySend,
-    discardSend,
     stopStreaming,
     answerQuestion,
     batchAnswerQuestions,
@@ -395,7 +394,6 @@ export default function BrainView() {
               pendingToolInputs={pendingToolInputs}
               sendStates={sendStates}
               onRetrySend={retrySend}
-              onDiscardSend={discardSend}
               onQuestionAnswer={answerQuestion}
               onFileMentionClick={handleSelect}
               activeProvider={effectiveLockedProvider}

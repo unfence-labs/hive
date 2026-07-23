@@ -8,14 +8,12 @@ import {
   appendCachedSessionMessage,
   invalidateSessionMessages,
   resolveCachedOptimisticEcho,
-  removeCachedSessionMessage,
 } from "@/hooks/useSessionMessages";
 import {
   trackOptimisticSend,
   markOptimisticSendFailed,
   getOptimisticSendPayload,
   getSendState,
-  resolveOptimisticSend,
   subscribeSendStates,
   getSendStates,
 } from "@/lib/optimistic-sends";
@@ -790,14 +788,6 @@ export function useConversation(workspaceId: string | undefined) {
     if (!sent) markOptimisticSendFailed(messageId);
   }, [workspaceId]);
 
-  /** Remove a failed local message the user no longer wants to deliver. */
-  const discardSend = useCallback((messageId: string) => {
-    const payload = getOptimisticSendPayload(messageId);
-    if (!payload) return;
-    resolveOptimisticSend(messageId);
-    removeCachedSessionMessage(queryClient, workspaceId, payload.sessionId, messageId);
-  }, [workspaceId, queryClient]);
-
   const stopStreaming = useCallback(() => {
     if (!workspaceId) return;
     wsTransport.send(workspaceId, {
@@ -932,7 +922,6 @@ export function useConversation(workspaceId: string | undefined) {
     sendStates,
     sendMessage,
     retrySend,
-    discardSend,
     stopStreaming,
     clearChat,
     switchSession,

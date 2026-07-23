@@ -41,7 +41,6 @@ interface ChatConversationProps {
   /** Delivery state of optimistically-sent user messages, keyed by message id. */
   sendStates?: Record<string, SendState>;
   onRetrySend?: (messageId: string) => void;
-  onDiscardSend?: (messageId: string) => void;
   onQuestionAnswer?: (toolCallId: string, answers: QuestionAnswer[]) => void;
   onFileMentionClick?: (relativePath: string) => void;
   /** When set, the workspace welcome offers a button to open a terminal tab. */
@@ -78,7 +77,6 @@ export default function ChatConversation({
   pendingToolInputs = [],
   sendStates,
   onRetrySend,
-  onDiscardSend,
   onQuestionAnswer,
   onFileMentionClick,
   onStartTerminal,
@@ -268,7 +266,6 @@ export default function ChatConversation({
               onFileMentionClick={onFileMentionClick}
               sendState={sendStates?.[msg.id]}
               onRetrySend={onRetrySend}
-              onDiscardSend={onDiscardSend}
             />
           );
         })}

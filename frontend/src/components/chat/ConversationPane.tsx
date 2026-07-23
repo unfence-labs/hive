@@ -67,7 +67,6 @@ export interface ConversationPaneProps {
   /** Delivery state of optimistically-sent user messages, keyed by message id. */
   sendStates?: Record<string, SendState>;
   onRetrySend?: (messageId: string) => void;
-  onDiscardSend?: (messageId: string) => void;
   onQuestionAnswer?: (toolCallId: string, answers: QuestionAnswer[]) => void;
   onFileMentionClick?: (relativePath: string) => void;
   switchCounter: number;
@@ -137,7 +136,6 @@ export function ConversationPane({
   pendingToolInputs,
   sendStates,
   onRetrySend,
-  onDiscardSend,
   onQuestionAnswer,
   onFileMentionClick,
   switchCounter,
@@ -207,7 +205,6 @@ export function ConversationPane({
               pendingToolInputs={pendingToolInputs}
               sendStates={sendStates}
               onRetrySend={onRetrySend}
-              onDiscardSend={onDiscardSend}
               onQuestionAnswer={onQuestionAnswer}
               onFileMentionClick={onFileMentionClick}
               onStartTerminal={onStartTerminal}

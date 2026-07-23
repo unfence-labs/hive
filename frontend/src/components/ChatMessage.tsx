@@ -8,7 +8,7 @@ import { ThinkingBlock } from "@/components/chat/ThinkingBlock";
 import { AgentActivityList, getInlineAgentActivities } from "@/components/chat/AgentActivityList";
 import { CopyButton } from "@/components/chat/CopyButton";
 import { ImageLightbox } from "@/components/chat/ImageLightbox";
-import { FileIcon, RotateCwIcon, TargetIcon, XIcon } from "lucide-react";
+import { FileIcon, RotateCwIcon, TargetIcon } from "lucide-react";
 import type { PlanStatus } from "@/components/chat/PlanProposal";
 import type { SendState } from "@/lib/optimistic-sends";
 import { AT_MENTION_RE, splitByAllMentions } from "@/lib/file-mentions";
@@ -85,7 +85,6 @@ interface ChatMessageProps {
   /** Delivery state when this is an optimistically-appended user message. */
   sendState?: SendState;
   onRetrySend?: (messageId: string) => void;
-  onDiscardSend?: (messageId: string) => void;
 }
 
 const ChatMessage = memo(function ChatMessage({
@@ -97,7 +96,6 @@ const ChatMessage = memo(function ChatMessage({
   onFileMentionClick,
   sendState,
   onRetrySend,
-  onDiscardSend,
 }: ChatMessageProps) {
   const isUser = message.role === "user";
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
@@ -158,6 +156,14 @@ const ChatMessage = memo(function ChatMessage({
               {renderContentWithMentions(message.content, message.fileMentions, onFileMentionClick)}
             </div>
           )}
+          {message.goalCommand && (
+            <div className="mt-1 flex justify-end">
+              <span className="inline-flex items-center gap-1 rounded-full border border-primary/15 bg-background px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground shadow-sm">
+                <TargetIcon className="size-3" />
+                Sent with goal
+              </span>
+            </div>
+          )}
           {sendState === "sending" && showSendingIndicator && (
             <span className="mt-1 text-[10px] text-muted-foreground" data-testid="send-state-sending">
               Sending…
@@ -181,24 +187,6 @@ const ChatMessage = memo(function ChatMessage({
                   Retry
                 </button>
               )}
-              {onDiscardSend && (
-                <button
-                  type="button"
-                  onClick={() => onDiscardSend(message.id)}
-                  className="text-muted-foreground hover:text-destructive"
-                  aria-label="Discard message"
-                >
-                  <XIcon className="size-3" />
-                </button>
-              )}
-            </div>
-          )}
-          {message.goalCommand && (
-            <div className="mt-1 flex justify-end">
-              <span className="inline-flex items-center gap-1 rounded-full border border-primary/15 bg-background px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground shadow-sm">
-                <TargetIcon className="size-3" />
-                Sent with goal
-              </span>
             </div>
           )}
         </div>

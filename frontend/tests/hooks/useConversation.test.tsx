@@ -550,25 +550,6 @@ describe("useConversation", () => {
       __wsMock.sendMock.mockReturnValue(true);
     });
 
-    it("discards a failed send, removing it from the transcript", async () => {
-      const { __wsMock } = await getWsMock();
-      const { result } = renderConversation("ws-1");
-      await activateSession("ws-1", "sess-1");
-      __wsMock.sendMock.mockReturnValueOnce(false);
-
-      act(() => {
-        result.current.sendMessage("hello");
-      });
-      const localId = result.current.messages[0]!.id;
-
-      act(() => {
-        result.current.discardSend(localId);
-      });
-
-      expect(result.current.messages).toHaveLength(0);
-      expect(result.current.sendStates[localId]).toBeUndefined();
-    });
-
     it("appends a non-matching echo without touching a pending send", async () => {
       const { __wsMock } = await getWsMock();
       const { result } = renderConversation("ws-1");
