@@ -14,9 +14,13 @@ struct ConversationRow: View {
 
     private var title: String { session.displayTitle }
 
-    private var messageCountText: String {
-        guard session.messageCount > 0 else { return "No messages yet" }
-        return "\(session.messageCount) message\(session.messageCount == 1 ? "" : "s")"
+    // The persisted messageCount only syncs when a turn completes (see
+    // conversation-session.ts), so it counts completed exchanges — i.e. agent
+    // responses. Label it as such: "No responses yet" is accurate while the
+    // first response is still streaming.
+    private var responseCountText: String {
+        guard session.messageCount > 0 else { return "No responses yet" }
+        return "\(session.messageCount) response\(session.messageCount == 1 ? "" : "s")"
     }
 
     private var timestampText: String? {
@@ -44,7 +48,10 @@ struct ConversationRow: View {
     }
 
     private var accessibilityText: String {
-        var parts = [title, messageCountText]
+        var parts = [title, responseCountText]
+        if let provider = session.lockedProvider, ProviderMark.isKnown(provider) {
+            parts.append(provider.capitalized)
+        }
         if let timestampText {
             parts.append(timestampText)
         }
@@ -59,12 +66,17 @@ struct ConversationRow: View {
     var body: some View {
         HStack(alignment: .center, spacing: HiveSpacing.md) {
             VStack(alignment: .leading, spacing: HiveSpacing.xs) {
-                Text(title)
-                    .font(WhisperFont.scaled(16, weight: .semibold))
-                    .foregroundStyle(WhisperColor.text)
-                    .lineLimit(1)
+                HStack(spacing: HiveSpacing.xs) {
+                    if let provider = session.lockedProvider {
+                        ProviderMark(provider: provider)
+                    }
+                    Text(title)
+                        .font(WhisperFont.scaled(16, weight: .semibold))
+                        .foregroundStyle(WhisperColor.text)
+                        .lineLimit(1)
+                }
 
-                Text(messageCountText)
+                Text(responseCountText)
                     .font(WhisperFont.scaled(15))
                     .foregroundStyle(WhisperColor.textSecondary)
                     .lineLimit(1)
