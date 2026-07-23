@@ -1,4 +1,5 @@
 import { render, screen } from "@testing-library/react";
+import { lazy, Suspense, type ComponentType, type ReactNode } from "react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -27,7 +28,10 @@ vi.mock("@/components/Sidebar", () => ({
   default: () => <div data-testid="sidebar">Sidebar</div>,
 }));
 
-function renderLayout(initialEntry = "/workspaces/ws-1") {
+function renderLayout(
+  initialEntry = "/workspaces/ws-1",
+  workspaceElement: ReactNode = <div data-testid="workspace-content">workspace</div>,
+) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
@@ -35,14 +39,16 @@ function renderLayout(initialEntry = "/workspaces/ws-1") {
   return render(
     <QueryClientProvider client={queryClient}>
       <MemoryRouter initialEntries={[initialEntry]}>
-        <Routes>
-          <Route
-            element={<AppLayout onAddProject={vi.fn()} />}
-          >
-            <Route path="/workspaces/:wsId" element={<div data-testid="workspace-content">workspace</div>} />
-            <Route path="/settings/appearance" element={<div data-testid="settings-content">settings</div>} />
-          </Route>
-        </Routes>
+        <Suspense fallback={null}>
+          <Routes>
+            <Route
+              element={<AppLayout onAddProject={vi.fn()} />}
+            >
+              <Route path="/workspaces/:wsId" element={workspaceElement} />
+              <Route path="/settings/appearance" element={<div data-testid="settings-content">settings</div>} />
+            </Route>
+          </Routes>
+        </Suspense>
       </MemoryRouter>
     </QueryClientProvider>,
   );
@@ -59,5 +65,16 @@ describe("AppLayout", () => {
     renderLayout("/settings/appearance");
     await screen.findByTestId("settings-content");
     expect(screen.getByTestId("settings-content")).toBeInTheDocument();
+  });
+
+  it("keeps the shell visible while a lazy route is loading", () => {
+    const PendingRoute = lazy(
+      () => new Promise<{ default: ComponentType }>(() => {}),
+    );
+
+    renderLayout("/workspaces/ws-1", <PendingRoute />);
+
+    expect(screen.getByTestId("sidebar")).toBeInTheDocument();
+    expect(screen.getByRole("status", { name: "Loading" })).toBeInTheDocument();
   });
 });

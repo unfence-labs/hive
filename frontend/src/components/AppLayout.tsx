@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { Outlet, useLocation, useOutletContext } from "react-router-dom";
 import { Group, Panel, useDefaultLayout, usePanelRef } from "react-resizable-panels";
 import Sidebar from "./Sidebar";
 import SettingsSidebar from "./SettingsSidebar";
 import { ResizeHandle } from "./ResizeHandle";
+import { Spinner } from "@/components/ui/spinner";
 import { useConnectionStatus } from "@/hooks/useConnectionStatus";
 import { useAppCommand } from "@/hooks/useAppCommand";
 import { cn } from "@/lib/utils";
@@ -169,7 +170,15 @@ export default function AppLayout({ onAddProject, onAddAutomation, onNewWorkspac
         <ResizeHandle orientation="vertical" cardSide="right" />
         <Panel id="main">
           <main className="relative flex h-full flex-col overflow-hidden">
-            <Outlet context={context} />
+            <Suspense
+              fallback={
+                <div className="flex h-full items-center justify-center">
+                  <Spinner className="size-6 text-muted-foreground" />
+                </div>
+              }
+            >
+              <Outlet context={context} />
+            </Suspense>
           </main>
         </Panel>
       </Group>
