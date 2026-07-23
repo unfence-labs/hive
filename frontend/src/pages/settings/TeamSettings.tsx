@@ -262,7 +262,7 @@ function FormFields({
         </Field>
       </div>
 
-      {/* Hidden for models with no thinking-level control (e.g. Kimi). */}
+      {/* Hidden for models with no thinking-level control (e.g. K2.7). */}
       {resolvedThinkingLevel && thinkingLevels.length > 0 && (
         <Field label="Thinking">
           <ThinkingLevelChips
@@ -360,7 +360,7 @@ function AgentDetail({
       description: description.trim(),
       systemPrompt: systemPrompt.trim(),
       modelId,
-      // Omitted for models with no thinking-level control (e.g. Kimi); the
+      // Omitted for models with no thinking-level control (e.g. K2.7); the
       // backend rejects any level supplied for them.
       ...(resolvedThinkingLevel && { thinkingLevel: resolvedThinkingLevel }),
       readOnly,
@@ -445,7 +445,7 @@ function CreateAgentForm({
       ...(description.trim() && { description: description.trim() }),
       systemPrompt: systemPrompt.trim(),
       modelId: resolvedModelId,
-      // Omitted for models with no thinking-level control (e.g. Kimi).
+      // Omitted for models with no thinking-level control (e.g. K2.7).
       ...(resolvedThinkingLevel && { thinkingLevel: resolvedThinkingLevel }),
       readOnly,
     });
@@ -610,7 +610,7 @@ function resolveThinkingLevel(
 ): ThinkingLevel | undefined {
   const levels = model?.capabilities.thinkingLevels;
   if (!levels) return thinkingLevel; // model not in catalog: keep as stored
-  if (levels.length === 0) return undefined; // no thinking-level control (e.g. Kimi)
+  if (levels.length === 0) return undefined; // no thinking-level control (e.g. K2.7)
   if (thinkingLevel && levels.includes(thinkingLevel)) return thinkingLevel;
   return levels.includes("high") ? "high" : levels[0];
 }

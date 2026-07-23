@@ -30,7 +30,7 @@ function agentsFilePath(dataDir: string): string {
 
 function normalizeAgent(raw: Agent): Agent {
   // Keep a stored level only while the model supports it; otherwise fall back
-  // to the model's default, which is undefined for level-less models (Kimi).
+  // to the model's default, which is undefined for level-less models.
   const thinkingLevel = raw.thinkingLevel && isThinkingLevelSupportedForModel(raw.modelId, raw.thinkingLevel)
     ? raw.thinkingLevel
     : getDefaultThinkingLevelForModel(raw.modelId);

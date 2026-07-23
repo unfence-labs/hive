@@ -359,14 +359,19 @@ describe("kimi in catalog", () => {
 
     const catalog = getModelCatalog();
     const kimiIds = catalog.models.filter((m) => m.provider === "kimi").map((m) => m.id);
-    expect(kimiIds).toEqual(["kimi:k3", "kimi:k3-1m", "kimi:kimi-for-coding"]);
+    expect(kimiIds).toEqual([
+      "kimi:k3",
+      "kimi:k3-1m",
+      "kimi:kimi-for-coding",
+      "kimi:kimi-for-coding-highspeed",
+    ]);
 
     // Clearing the key hides it again on the next catalog build.
     await updateConfig((c) => { c.kimi.apiKey = ""; }, tempDir);
     expect(getModelCatalog().models.some((m) => m.provider === "kimi")).toBe(false);
   });
 
-  it("exposes label, contextWindow, and effort-free capabilities", async () => {
+  it("exposes labels, context windows, and model-specific effort capabilities", async () => {
     markProviderAvailable("kimi");
     await updateConfig((c) => { c.kimi.apiKey = "sk-kimi"; }, tempDir);
 
@@ -376,11 +381,21 @@ describe("kimi in catalog", () => {
     expect(k3.providerLabel).toBe("Kimi");
     expect(k3.isDefault).toBe(true);
     expect(k3.contextWindow).toBe(262_144);
-    expect(k3.capabilities.thinkingLevels).toEqual([]);
+    expect(k3.capabilities.thinkingLevels).toEqual(["low", "high", "max"]);
     expect(k3.capabilities.planMode).toBe(true);
     expect(k3.supportsFastMode).toBeUndefined();
     expect(byId.get("kimi:k3-1m")?.contextWindow).toBe(1_048_576);
-    expect(byId.get("kimi:kimi-for-coding")?.contextWindow).toBe(262_144);
+    expect(byId.get("kimi:k3-1m")?.capabilities.thinkingLevels).toEqual(["low", "high", "max"]);
+    expect(byId.get("kimi:kimi-for-coding")).toMatchObject({
+      label: "K2.7 Coding",
+      contextWindow: 262_144,
+      capabilities: { thinkingLevels: [] },
+    });
+    expect(byId.get("kimi:kimi-for-coding-highspeed")).toMatchObject({
+      label: "K2.7 Coding Highspeed",
+      contextWindow: 262_144,
+      capabilities: { thinkingLevels: [] },
+    });
   });
 
   it("never becomes the catalog default", async () => {
@@ -400,9 +415,12 @@ describe("kimi in catalog", () => {
     expect(isKnownModelId("kimi:k3-1m")).toBe(true);
   });
 
-  it("has no default thinking level (no effort control)", () => {
-    expect(getDefaultThinkingLevelForModel("kimi:k3")).toBeUndefined();
-    expect(isThinkingLevelSupportedForModel("kimi:k3", "high")).toBe(false);
+  it("defaults K3 to high while keeping K2.7 free of effort control", () => {
+    expect(getDefaultThinkingLevelForModel("kimi:k3")).toBe("high");
+    expect(isThinkingLevelSupportedForModel("kimi:k3", "low")).toBe(true);
+    expect(isThinkingLevelSupportedForModel("kimi:k3", "medium")).toBe(false);
+    expect(getDefaultThinkingLevelForModel("kimi:kimi-for-coding")).toBeUndefined();
+    expect(isThinkingLevelSupportedForModel("kimi:kimi-for-coding", "high")).toBe(false);
   });
 });
 

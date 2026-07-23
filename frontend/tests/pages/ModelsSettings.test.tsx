@@ -123,7 +123,7 @@ describe("ModelsSettings", () => {
         ...MOCK_CATALOG,
         models: [
           ...MOCK_CATALOG.models,
-          { id: "kimi:k3", label: "K3", provider: "kimi", providerLabel: "Kimi", capabilities: { ...CAPABILITIES, thinkingLevels: [] } },
+          { id: "kimi:k3", label: "K3", provider: "kimi", providerLabel: "Kimi", capabilities: { ...CAPABILITIES, thinkingLevels: ["low", "high", "max"] } },
         ],
       };
       return { apiKey: "sk-new-key" };

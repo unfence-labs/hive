@@ -598,7 +598,7 @@ export interface Agent {
   description?: string;
   systemPrompt: string;
   modelId: string;
-  /** Absent for models with no thinking-level control (e.g. Kimi). */
+  /** Absent for models with no thinking-level control (e.g. K2.7). */
   thinkingLevel?: ThinkingLevel;
   readOnly: boolean;
   createdAt: string;

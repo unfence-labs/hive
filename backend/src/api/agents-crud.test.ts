@@ -149,7 +149,7 @@ describe("POST /api/agents", () => {
     expect(res.json().error).toContain("Thinking level");
   });
 
-  it("creates an agent without a thinkingLevel for level-less models (kimi)", async () => {
+  it("defaults K3 agents to high thinking", async () => {
     const res = await app.inject({
       method: "POST",
       url: "/api/agents",
@@ -161,7 +161,7 @@ describe("POST /api/agents", () => {
       },
     });
     expect(res.statusCode).toBe(201);
-    expect(res.json().thinkingLevel).toBeUndefined();
+    expect(res.json().thinkingLevel).toBe("high");
   });
 
   it("rejects a thinkingLevel supplied for a level-less model (400)", async () => {
@@ -171,7 +171,7 @@ describe("POST /api/agents", () => {
       payload: {
         name: "Kimi Agent",
         systemPrompt: "You are helpful.",
-        modelId: "kimi:k3",
+        modelId: "kimi:kimi-for-coding",
         thinkingLevel: "high",
         readOnly: false,
       },
@@ -261,15 +261,15 @@ describe("PATCH /api/agents/:id", () => {
     expect(res.json().error).toContain("Thinking level");
   });
 
-  it("clears thinkingLevel when switching to a level-less model (kimi)", async () => {
+  it("clears thinkingLevel when switching to a level-less K2.7 model", async () => {
     await saveAgents([makeAgent({ thinkingLevel: "max" })], dataDir);
     const res = await app.inject({
       method: "PATCH",
       url: "/api/agents/agent-1",
-      payload: { modelId: "kimi:k3" },
+      payload: { modelId: "kimi:kimi-for-coding-highspeed" },
     });
     expect(res.statusCode).toBe(200);
-    expect(res.json().modelId).toBe("kimi:k3");
+    expect(res.json().modelId).toBe("kimi:kimi-for-coding-highspeed");
     expect(res.json().thinkingLevel).toBeUndefined();
   });
 
@@ -278,7 +278,7 @@ describe("PATCH /api/agents/:id", () => {
     const res = await app.inject({
       method: "PATCH",
       url: "/api/agents/agent-1",
-      payload: { modelId: "kimi:k3", thinkingLevel: "high" },
+      payload: { modelId: "kimi:kimi-for-coding", thinkingLevel: "high" },
     });
     expect(res.statusCode).toBe(400);
     expect(res.json().error).toContain("Thinking level");

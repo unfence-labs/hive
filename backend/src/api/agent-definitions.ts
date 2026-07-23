@@ -25,7 +25,7 @@ function resolveThinkingLevel(
     return { thinkingLevel: requested };
   }
 
-  // Undefined for models with no thinking-level control (e.g. Kimi): the
+  // Undefined for models with no thinking-level control (e.g. K2.7): the
   // agent is stored without a level and no effort flag is ever emitted.
   return { thinkingLevel: getDefaultThinkingLevelForModel(modelId) };
 }

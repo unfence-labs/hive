@@ -256,7 +256,7 @@ describe("useModels", () => {
           provider: "kimi",
           providerLabel: "Kimi",
           isDefault: true,
-          capabilities: { thinkingLevels: [], planMode: true, blockingTools: true, completions: true, goals: false },
+          capabilities: { thinkingLevels: ["low", "high", "max"], planMode: true, blockingTools: true, completions: true, goals: false },
         },
       ],
     };
@@ -305,7 +305,7 @@ describe("useModels", () => {
           label: "K3",
           provider: "kimi",
           providerLabel: "Kimi",
-          capabilities: { thinkingLevels: [], planMode: true, blockingTools: true, completions: true, goals: false },
+          capabilities: { thinkingLevels: ["low", "high", "max"], planMode: true, blockingTools: true, completions: true, goals: false },
         },
       ],
     };
