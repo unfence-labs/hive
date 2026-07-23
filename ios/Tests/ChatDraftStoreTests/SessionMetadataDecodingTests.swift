@@ -17,6 +17,7 @@ struct SessionMetadataDecodingTests {
           "messageCount": 7,
           "lockedProvider": "codex",
           "kind": "chat",
+          "draftPrompt": "Fix issue #42",
           "lastRunOptions": {
             "planMode": false,
             "model": "codex:gpt-5.5",
@@ -38,6 +39,7 @@ struct SessionMetadataDecodingTests {
         #expect(metadata.messageCount == 7)
         #expect(metadata.lockedProvider == "codex")
         #expect(metadata.kind == "chat")
+        #expect(metadata.draftPrompt == "Fix issue #42")
         #expect(metadata.lastRunOptions?.model == "codex:gpt-5.5")
         #expect(metadata.lastRunOptions?.thinkingLevel == .low)
         #expect(metadata.lastRunOptions?.planMode == false)
@@ -66,5 +68,6 @@ struct SessionMetadataDecodingTests {
         #expect(metadata.lockedProvider == nil)
         #expect(metadata.kind == nil)
         #expect(metadata.lastRunOptions == nil)
+        #expect(metadata.draftPrompt == nil)
     }
 }

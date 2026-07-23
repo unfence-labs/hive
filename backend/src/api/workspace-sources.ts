@@ -40,8 +40,12 @@ export async function workspaceSourceRoutes(app: FastifyInstance, dataDir?: stri
       const bare = bareRepoPath(dir, req.params.id);
       const workspaceByBranch = await mapBranchesToWorkspaces(loaded.state, bare, dir);
       const pulls = entries.map((entry) => {
-        const ws =
-          workspaceByBranch.get(entry.headRefName) ?? workspaceByBranch.get(`pr/${entry.number}`);
+        // Cross-repo PRs check out on the Hive-owned pr/<n> branch; same-repo
+        // PRs sit on their real head branch. Only ever match the right one —
+        // a fork's headRefName can collide with an unrelated local branch.
+        const ws = entry.isCrossRepository
+          ? workspaceByBranch.get(`pr/${entry.number}`)
+          : workspaceByBranch.get(entry.headRefName);
         return {
           number: entry.number,
           title: entry.title,

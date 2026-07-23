@@ -54,7 +54,8 @@ struct WorkspaceDecodingTests {
             "number": 77,
             "title": "Add dark mode",
             "url": "https://github.com/example/hive/pull/77",
-            "baseBranch": "develop"
+            "baseBranch": "develop",
+            "crossRepository": true
           }
         }
         """.data(using: .utf8)!
@@ -65,6 +66,7 @@ struct WorkspaceDecodingTests {
         #expect(workspace.source?.branch == "feature/dark-mode")
         #expect(workspace.source?.number == 77)
         #expect(workspace.source?.baseBranch == "develop")
+        #expect(workspace.source?.crossRepository == true)
     }
 
     @Test

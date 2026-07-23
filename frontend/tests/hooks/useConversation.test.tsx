@@ -2172,6 +2172,18 @@ describe("useConversation", () => {
     expect(result.current.switchCounter).toBe(initial + 2);
   });
 
+  it("keeps switchCounter stable when adopting the first explicit session", () => {
+    const { result } = renderConversation("ws-1");
+    const initial = result.current.switchCounter;
+
+    act(() => {
+      result.current.switchSession("draft-session", { preserveComposer: true });
+    });
+
+    expect(result.current.sessionId).toBe("draft-session");
+    expect(result.current.switchCounter).toBe(initial);
+  });
+
   it("restores last viewed session when switching back to a workspace", async () => {
     const { __wsMock } = await getWsMock();
     const { result, rerender } = renderConversation("ws-1");

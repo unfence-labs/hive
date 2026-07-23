@@ -36,7 +36,13 @@ export function useSessions(workspaceId: string | undefined) {
         `/api/workspaces/${workspaceId}/sessions`,
         kind ? { kind } : undefined,
       ),
-    onSuccess: invalidate,
+    onSuccess: (session) => {
+      queryClient.setQueryData<SessionMetadata[]>(["sessions", workspaceId], (current = []) => [
+        ...current.filter((item) => item.sessionId !== session.sessionId),
+        session,
+      ]);
+      void invalidate();
+    },
   });
 
   const convertToTerminal = useMutation({

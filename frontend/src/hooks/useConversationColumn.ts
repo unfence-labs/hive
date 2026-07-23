@@ -222,8 +222,13 @@ export function useConversationColumn(
 
   const handleCreateSession = useCallback(async () => {
     const meta = await createSession();
-    if (meta) switchSession(meta.sessionId);
-  }, [createSession, switchSession]);
+    if (!meta) return;
+    if (sessionId) {
+      switchSession(meta.sessionId);
+    } else {
+      switchSession(meta.sessionId, { preserveComposer: true });
+    }
+  }, [createSession, sessionId, switchSession]);
 
   const handleActivateSession = useCallback(
     (targetSessionId: string) => {

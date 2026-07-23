@@ -109,6 +109,19 @@ describe("useConversationColumn — session handlers", () => {
     expect(conversation.switchSession).toHaveBeenCalledWith("s3");
   });
 
+  it("preserves the composer when creating the first explicit session", async () => {
+    conversation = makeConversation({ sessionId: undefined });
+    const { result } = renderColumn("ws1");
+
+    await act(async () => {
+      await result.current.handleCreateSession();
+    });
+
+    expect(conversation.switchSession).toHaveBeenCalledWith("s3", {
+      preserveComposer: true,
+    });
+  });
+
   it("handleActivateSession activates the tab, switches, and runs onActivateSession", () => {
     const onActivateSession = vi.fn();
     const { result } = renderColumn("ws1", { onActivateSession });

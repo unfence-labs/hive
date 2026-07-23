@@ -147,12 +147,16 @@ function getMostRecentlyUpdatedLoadedSession(wsId: string): ConversationSession 
 }
 
 function isPersistedDefaultSessionCandidate(meta: SessionMetadata): boolean {
-  return meta.kind !== "terminal" && meta.messageCount > 0;
+  return meta.kind !== "terminal" && (
+    meta.messageCount > 0 ||
+    Boolean(meta.draftPrompt)
+  );
 }
 
 export function isLoadedDefaultSessionCandidate(session: ConversationSession): boolean {
   return session.metadata.kind !== "terminal" && (
     session.metadata.messageCount > 0 ||
+    Boolean(session.metadata.draftPrompt) ||
     session.status === "streaming"
   );
 }
@@ -167,6 +171,7 @@ async function persistWorkspaceSessionState(
   status: "idle" | "busy",
   dataDir: string,
   activeSessionId?: string,
+  draftPromptToConsume?: string,
 ): Promise<void> {
   await withProjectStateLock(
     projectId,
@@ -177,9 +182,12 @@ async function persistWorkspaceSessionState(
       if (!ws) throw new NotFoundError(`Workspace ${wsId} not found`);
       ws.status = status;
       ws.activeSessionId = activeSessionId;
-      // The draft prompt is a one-shot seed for the composer; once a session
-      // exists the workspace no longer needs it.
-      if (activeSessionId && ws.draftPrompt) delete ws.draftPrompt;
+      // A new chat session persists the prompt in its own metadata before
+      // removing the workspace copy. Compare the expected value so a concurrent
+      // prompt update cannot be erased accidentally.
+      if (draftPromptToConsume && ws.draftPrompt === draftPromptToConsume) {
+        delete ws.draftPrompt;
+      }
       await saveProject(latest, dataDir);
     },
     dataDir,
@@ -250,6 +258,7 @@ export async function getOrCreateSession(
       "busy",
       dataDir,
       session.sessionId,
+      session.metadata.draftPrompt,
     );
     return { session, created: true };
   });
@@ -518,6 +527,7 @@ async function createSession(
     systemPrompt,
     skipPermissions: options?.skipPermissions,
     sessionKind: kind,
+    draftPrompt: kind === "chat" ? ctx.workspace.draftPrompt : undefined,
   });
   await attachBrowserEnv(session, ctx.workspace.id, options);
   await session.persistMetadata();
@@ -689,6 +699,7 @@ export async function createNewSession(
       "busy",
       dataDir,
       session.sessionId,
+      session.metadata.draftPrompt,
     );
     return session;
   });

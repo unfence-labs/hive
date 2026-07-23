@@ -37,6 +37,8 @@ export interface ChatInputHandle {
 interface ChatInputProps {
   wsId?: string;
   sessionId?: string;
+  /** Server-owned composer seed used only when this input instance mounts. */
+  draftPrompt?: string;
   lockedProvider?: string;
   /** Run options of the session's last sent message, used to seed the input
    *  controls. Read at mount as a fallback seed for the composer controls when
@@ -84,6 +86,7 @@ function ChatInputAttachments({
 const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput({
   wsId,
   sessionId,
+  draftPrompt,
   lockedProvider,
   lastRunOptions,
   onSend,
@@ -97,7 +100,7 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput
   onQueue,
   agentPlanMode,
 }, ref) {
-  const [value, setValue] = useState("");
+  const [value, setValue] = useState(() => draftPrompt ?? "");
   // Seeded at mount from the per-session compose-options store (sticky across
   // conversation switches within a session), falling back to the session's last
   // run, then to defaults. The component is keyed by wsId:sessionId so this

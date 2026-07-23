@@ -80,6 +80,7 @@ export function useChatInputDraftPersistence({
   setFileCount,
   setFileMentions,
 }: UseChatInputDraftPersistenceParams): UseChatInputDraftPersistenceResult {
+  const initializedRef = useRef(false);
   const prevSessionIdRef = useRef<string | undefined>(undefined);
   const prevWsIdRef = useRef<string | undefined>(undefined);
   const valueRef = useRef(value);
@@ -147,6 +148,23 @@ export function useChatInputDraftPersistence({
     const wsChanged = prevWsId !== wsId;
     const sessionChanged = prevSessionId !== sessionId;
 
+    if (!initializedRef.current) {
+      initializedRef.current = true;
+      if (sessionId) {
+        const storedDraft = draftStore.get(wsId, sessionId);
+        if (storedDraft) {
+          restoreDraftState(storedDraft);
+        } else {
+          // Preserve an initial server-owned draft seed and adopt it into the
+          // session-scoped store for subsequent in-app remounts.
+          saveDraftForSession(sessionId);
+        }
+      }
+      prevWsIdRef.current = wsId;
+      prevSessionIdRef.current = sessionId;
+      return;
+    }
+
     if (!wsChanged && !sessionChanged) return;
 
     // Save outgoing session's draft under its ORIGINAL workspace.
@@ -157,7 +175,19 @@ export function useChatInputDraftPersistence({
     // Restore incoming session's draft from the CURRENT workspace.
     // Skip when sessionId is undefined (transient workspace-switch state).
     if (sessionId && (wsChanged || sessionChanged)) {
-      restoreDraftState(draftStore.get(wsId, sessionId));
+      if (!wsChanged && !prevSessionId) {
+        // An explicit first-session creation adopts the composer already on
+        // screen. There is no outgoing session to save, so migrate the current
+        // draft unless this is a return to a session that already owns one.
+        const storedDraft = draftStore.get(wsId, sessionId);
+        if (storedDraft) {
+          restoreDraftState(storedDraft);
+        } else {
+          saveDraftForSession(sessionId);
+        }
+      } else {
+        restoreDraftState(draftStore.get(wsId, sessionId));
+      }
     }
 
     prevWsIdRef.current = wsId;

@@ -349,6 +349,7 @@ export interface PullRequestListEntry {
   url: string;
   headRefName: string;
   isDraft: boolean;
+  isCrossRepository: boolean;
   author?: string;
   updatedAt?: string;
 }
@@ -393,11 +394,11 @@ export async function listOpenPullRequests(
   ghClient: GhClient = gh,
 ): Promise<PullRequestListEntry[]> {
   const items = await ghJson<
-    Array<{ number: number; title: string; url: string; headRefName: string; isDraft: boolean; author?: { login?: string }; updatedAt?: string }>
+    Array<{ number: number; title: string; url: string; headRefName: string; isDraft: boolean; isCrossRepository: boolean; author?: { login?: string }; updatedAt?: string }>
   >([
     "pr", "list", "--repo", `${owner}/${repo}`,
     "--state", "open",
-    "--json", "number,title,url,headRefName,isDraft,author,updatedAt",
+    "--json", "number,title,url,headRefName,isDraft,isCrossRepository,author,updatedAt",
     "--limit", "100",
   ], ghClient);
   return items.map((item) => ({
@@ -406,6 +407,7 @@ export async function listOpenPullRequests(
     url: item.url,
     headRefName: item.headRefName,
     isDraft: item.isDraft,
+    isCrossRepository: item.isCrossRepository,
     author: item.author?.login,
     updatedAt: item.updatedAt,
   }));

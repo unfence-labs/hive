@@ -20,6 +20,7 @@ const projects: Project[] = [
   {
     id: "p1",
     name: "hive",
+    url: "git@github.com:acme/demo.git",
     createdAt: "2026-01-01T00:00:00.000Z",
     workspaces: [],
   },
@@ -156,6 +157,19 @@ describe("NewWorkspaceFromDialog", () => {
     await user.paste("https://github.com/acme/demo/issues/45");
 
     expect(await screen.findByText("Sidebar flickers")).toBeInTheDocument();
+  });
+
+  it("does not jump when the pasted URL belongs to another repository", async () => {
+    const user = userEvent.setup();
+    renderDialog();
+
+    await screen.findByText("Fix streaming");
+    await user.click(screen.getByPlaceholderText("Search by title, number, or author"));
+    await user.paste("https://github.com/somebody/else/issues/45");
+
+    // Stays on the pulls tab, treating the foreign URL as plain text.
+    expect(screen.getByText("No results found.")).toBeInTheDocument();
+    expect(screen.queryByText("Sidebar flickers")).not.toBeInTheDocument();
   });
 
   it("offers a manual row for an unknown PR number", async () => {

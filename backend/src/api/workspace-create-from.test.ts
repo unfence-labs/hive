@@ -164,6 +164,7 @@ describe("POST /api/projects/:id/workspaces with source kind 'pr'", () => {
     const ws = res.json();
     expect(ws.branch).toBe("pr/7");
     expect(ws.source.baseBranch).toBe("develop");
+    expect(ws.source.crossRepository).toBe(true);
     const wsPath = join(dataDir, projectId, "workspaces", ws.name);
     const { stdout } = await git(["rev-parse", "--abbrev-ref", "HEAD"], wsPath);
     expect(stdout).toBe("pr/7");
@@ -232,6 +233,62 @@ describe("POST /api/projects/:id/workspaces with source kind 'pr'", () => {
 
     const bare = join(dataDir, projectId, "repo.git");
     await expect(git(["show-ref", "--verify", "refs/heads/pr/11"], bare)).rejects.toBeTruthy();
+  });
+
+  it("resets a stale pr/<n> branch whose commits are all on the PR head", async () => {
+    await setProjectGitHubUrl();
+    const bare = join(dataDir, projectId, "repo.git");
+    // Stale branch at main; the PR head moved one commit ahead of it.
+    const { stdout: mainSha } = await git(["rev-parse", "refs/heads/main"], bare);
+    await git(["branch", "pr/21", mainSha], bare);
+    const { stdout: prHeadSha } = await git(
+      ["commit-tree", "HEAD^{tree}", "-p", "HEAD", "-m", "newer fork commit"],
+      fixtureRepoUrl,
+    );
+    await git(["update-ref", "refs/pull/21/head", prHeadSha.trim()], fixtureRepoUrl);
+    vi.mocked(fetchPrDetail).mockResolvedValue({
+      number: 21,
+      title: "Fork contribution",
+      url: "https://github.com/acme/demo/pull/21",
+      headRefName: "fork-feature",
+      baseRefName: "main",
+      isCrossRepository: true,
+    });
+
+    const res = await createFromSource({ kind: "pr", number: 21 });
+    expect(res.statusCode).toBe(201);
+    const wsPath = join(dataDir, projectId, "workspaces", res.json().name);
+    const { stdout: headSha } = await git(["rev-parse", "HEAD"], wsPath);
+    expect(headSha).toBe(prHeadSha.trim());
+  });
+
+  it("refuses to delete a stale pr/<n> branch holding commits not on the PR head", async () => {
+    await setProjectGitHubUrl();
+    const bare = join(dataDir, projectId, "repo.git");
+    // Local pr/22 has a commit (e.g. archived workspace work) unknown to the PR.
+    const { stdout: localSha } = await git(
+      ["commit-tree", "HEAD^{tree}", "-p", "HEAD", "-m", "archived local work"],
+      bare,
+    );
+    await git(["branch", "pr/22", localSha.trim()], bare);
+    const { stdout: prHeadSha } = await git(["rev-parse", "main"], fixtureRepoUrl);
+    await git(["update-ref", "refs/pull/22/head", prHeadSha], fixtureRepoUrl);
+    vi.mocked(fetchPrDetail).mockResolvedValue({
+      number: 22,
+      title: "Fork contribution",
+      url: "https://github.com/acme/demo/pull/22",
+      headRefName: "fork-feature",
+      baseRefName: "main",
+      isCrossRepository: true,
+    });
+
+    const res = await createFromSource({ kind: "pr", number: 22 });
+    expect(res.statusCode).toBe(409);
+    expect(res.json().error).toContain("pr/22");
+
+    // The stale branch and its commits are untouched.
+    const { stdout: after } = await git(["rev-parse", "refs/heads/pr/22"], bare);
+    expect(after).toBe(localSha.trim());
   });
 
   it("returns 400 when the project has no GitHub remote", async () => {
@@ -346,8 +403,8 @@ describe("GET /api/projects/:id/pulls", () => {
     const created = await createFromSource({ kind: "branch", branch: "feature-x" });
     const ws = created.json();
     vi.mocked(listOpenPullRequests).mockResolvedValue([
-      { number: 12, title: "Fix streaming", url: "u12", headRefName: "feature-x", isDraft: false, author: "flo" },
-      { number: 13, title: "Docs", url: "u13", headRefName: "docs", isDraft: true, author: "sam" },
+      { number: 12, title: "Fix streaming", url: "u12", headRefName: "feature-x", isDraft: false, isCrossRepository: false, author: "flo" },
+      { number: 13, title: "Docs", url: "u13", headRefName: "docs", isDraft: true, isCrossRepository: false, author: "sam" },
     ]);
 
     const res = await app.inject({ method: "GET", url: `/api/projects/${projectId}/pulls` });
@@ -391,13 +448,31 @@ describe("GET /api/projects/:id/pulls", () => {
     expect(ws.branch).toBe("pr/7");
 
     vi.mocked(listOpenPullRequests).mockResolvedValue([
-      { number: 7, title: "Fork PR", url: "https://github.com/acme/demo/pull/7", headRefName: "fork-main", isDraft: false },
+      { number: 7, title: "Fork PR", url: "https://github.com/acme/demo/pull/7", headRefName: "fork-main", isDraft: false, isCrossRepository: true },
     ]);
 
     const res = await app.inject({ method: "GET", url: `/api/projects/${projectId}/pulls` });
     expect(res.statusCode).toBe(200);
     const { pulls } = res.json();
     expect(pulls[0]).toMatchObject({ number: 7, workspaceId: ws.id, workspaceName: ws.name });
+  });
+
+  it("does not let a same-named local branch hijack a cross-repository PR row", async () => {
+    await setProjectGitHubUrl();
+    // A workspace sits on local branch "fork-main" — unrelated to the fork PR
+    // whose head happens to carry the same name in the fork.
+    const created = await createFromSource({ kind: "branch", branch: "feature-x" });
+    const ws = created.json();
+    const wsPath = join(dataDir, projectId, "workspaces", ws.name);
+    await git(["checkout", "-b", "fork-main"], wsPath);
+
+    vi.mocked(listOpenPullRequests).mockResolvedValue([
+      { number: 8, title: "Fork PR", url: "u8", headRefName: "fork-main", isDraft: false, isCrossRepository: true },
+    ]);
+
+    const res = await app.inject({ method: "GET", url: `/api/projects/${projectId}/pulls` });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().pulls[0].workspaceId).toBeUndefined();
   });
 });
 

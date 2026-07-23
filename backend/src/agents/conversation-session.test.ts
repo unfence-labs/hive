@@ -280,7 +280,7 @@ describe("ConversationSession", () => {
     providerRegistry.markProviderAvailable("codex");
   });
 
-  function createSession(opts?: { sessionId?: string; command?: string; skipPermissions?: boolean; sessionKind?: "chat" | "automation" | "brain" }) {
+  function createSession(opts?: { sessionId?: string; command?: string; skipPermissions?: boolean; sessionKind?: "chat" | "automation" | "brain"; draftPrompt?: string }) {
     return new ConversationSession({
       cwd: "/tmp/test",
       dataDir: tempDir,
@@ -289,8 +289,31 @@ describe("ConversationSession", () => {
       command: opts?.command,
       skipPermissions: opts?.skipPermissions,
       sessionKind: opts?.sessionKind,
+      draftPrompt: opts?.draftPrompt,
     });
   }
+
+  it("persists a draft prompt until the first user message", async () => {
+    const session = createSession({
+      sessionId: "draft-prompt-session",
+      draftPrompt: "Fix issue #42",
+    });
+
+    await session.persistMetadata();
+    expect(session.metadata.draftPrompt).toBe("Fix issue #42");
+
+    session.sendMessage("Fix issue #42");
+    expect(session.metadata.draftPrompt).toBeUndefined();
+
+    mockProc._stdout.push(resultLine());
+    mockProc._emitClose(0);
+    await session.drain();
+
+    const persisted = JSON.parse(
+      await readFile(join(tempDir, "sessions", "draft-prompt-session", "metadata.json"), "utf-8"),
+    );
+    expect(persisted.draftPrompt).toBeUndefined();
+  });
 
   async function expectFreshGoalManagementCommandRejected(sessionId: string, command: string): Promise<void> {
     const session = createSession({ sessionId });

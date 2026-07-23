@@ -31,6 +31,9 @@ export interface WorkspaceSource {
   number?: number;
   /** Base branch of the PR ("pr" kind). */
   baseBranch?: string;
+  /** True for a PR from a fork: the workspace branch is a local pr/<n> copy
+   *  of the PR head, and pushing it does not update the PR ("pr" kind). */
+  crossRepository?: boolean;
   title?: string;
   url?: string;
 }
@@ -258,6 +261,8 @@ export interface SessionMetadata {
   lastRunOptions?: MessageOptions;
   /** Session kind. Absent means "chat" for back-compat with older sessions. */
   kind?: SessionKind;
+  /** Server-owned composer seed, retained until the first user message. */
+  draftPrompt?: string;
 }
 
 export interface ToolCall {

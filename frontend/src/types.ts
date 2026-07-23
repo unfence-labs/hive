@@ -106,6 +106,8 @@ export interface WorkspaceSource {
   number?: number;
   /** Base branch of the PR ("pr" kind). */
   baseBranch?: string;
+  /** True for a PR from a fork: the branch is a local copy; pushing it does not update the PR. */
+  crossRepository?: boolean;
   title?: string;
   url?: string;
 }
@@ -264,6 +266,8 @@ export interface SessionMetadata {
   lockedProvider?: string;
   /** Options from the last user message accepted for execution. */
   lastRunOptions?: MessageOptions;
+  /** Server-owned composer seed, retained until the first user message. */
+  draftPrompt?: string;
 }
 
 export interface ToolCall {

@@ -257,6 +257,23 @@ describe("formatGitContextBlock", () => {
     );
   });
 
+  it("warns that pushing does not update a fork PR", () => {
+    const source: WorkspaceSource = {
+      kind: "pr",
+      branch: "pr/7",
+      number: 7,
+      title: "Fork contribution",
+      url: "https://github.com/acme/demo/pull/7",
+      baseBranch: "main",
+      crossRepository: true,
+    };
+    const block = formatGitContextBlock(baseCtx, { source });
+    expect(block).toContain(
+      "This workspace works on a pull request opened from a fork: the local branch is a copy of the PR head, and pushing it does NOT update the PR. Do not push to update the PR and do not create a new pull request. The PR merges into main, not necessarily the main branch.",
+    );
+    expect(block).not.toContain("push to its head branch");
+  });
+
   it("emits the PR instruction without the merge sentence when baseBranch is absent", () => {
     const source: WorkspaceSource = {
       kind: "pr",

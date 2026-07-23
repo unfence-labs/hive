@@ -85,6 +85,13 @@ function formatProjectsError(error: unknown): string {
 export function useProjects() {
   const queryClient = useQueryClient();
 
+  /** Drop cached picker lists whose workspace annotations just changed. */
+  function invalidateWorkspaceSources(projectId?: string) {
+    for (const key of ["project-branches", "project-pulls"]) {
+      void queryClient.invalidateQueries({ queryKey: projectId ? [key, projectId] : [key] });
+    }
+  }
+
   const query = useQuery({
     queryKey: ["projects"],
     queryFn: ({ signal }) => fetchProjects(signal),
@@ -158,6 +165,7 @@ export function useProjects() {
             : { ...p, workspaces: [...p.workspaces, workspace] },
         ) ?? [],
       );
+      invalidateWorkspaceSources(projectId);
     },
   });
 
@@ -180,6 +188,7 @@ export function useProjects() {
           workspaces: p.workspaces.filter((ws) => ws.id !== wsId),
         })) ?? [],
       );
+      invalidateWorkspaceSources();
     },
   });
 

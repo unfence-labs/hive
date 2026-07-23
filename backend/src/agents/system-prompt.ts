@@ -96,8 +96,9 @@ function formatWorkspaceSourceLines(source: WorkspaceSource): string[] {
     const line = referenceLine("pull request");
     if (line) lines.push(line);
     if (source.baseBranch) lines.push(`PR base branch: ${source.baseBranch}`);
-    let instruction =
-      "This workspace works on an existing pull request: push to its head branch to update the PR; do not create a new pull request.";
+    let instruction = source.crossRepository
+      ? "This workspace works on a pull request opened from a fork: the local branch is a copy of the PR head, and pushing it does NOT update the PR. Do not push to update the PR and do not create a new pull request."
+      : "This workspace works on an existing pull request: push to its head branch to update the PR; do not create a new pull request.";
     if (source.baseBranch) {
       instruction += ` The PR merges into ${source.baseBranch}, not necessarily the main branch.`;
     }

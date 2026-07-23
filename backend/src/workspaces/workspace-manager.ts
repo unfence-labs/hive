@@ -163,10 +163,23 @@ async function checkoutPullRequestHead(
     throw new BadRequestError(`Could not fetch pull request #${prNumber} from origin`);
   }
   try {
-    // A stale pr/<n> branch left behind by an older workspace is safe to reset:
-    // the namespace is Hive-owned and the assert above proved nothing has it
-    // checked out.
-    await git(["branch", "-D", branch], bare).catch(() => {});
+    // A stale pr/<n> branch (e.g. from an archived workspace) may only be
+    // reset when the PR head already contains its commits; otherwise deleting
+    // it would destroy unpushed local work.
+    const hasStale = await git(["show-ref", "--verify", `refs/heads/${branch}`], bare)
+      .then(() => true)
+      .catch(() => false);
+    if (hasStale) {
+      try {
+        await git(["merge-base", "--is-ancestor", `refs/heads/${branch}`, fetchedRef], bare);
+      } catch {
+        throw new ConflictError(
+          `Local branch "${branch}" has commits that are not on pull request #${prNumber} ` +
+            `(likely from an archived workspace); delete the branch or restore the workspace first`,
+        );
+      }
+      await git(["branch", "-D", branch], bare);
+    }
     await addWorktreeWithNewBranch(bare, wsPath, branch, fetchedRef);
   } finally {
     await deleteTempRef(bare, fetchedRef);
@@ -228,7 +241,15 @@ export async function createWorkspace(
           branch = pr.headRefName;
           await checkoutSourceBranch(state, bare, wsPath, branch, dataDir);
         }
-        wsSource = { kind: "pr", branch, number: pr.number, title: pr.title, url: pr.url, baseBranch: pr.baseRefName };
+        wsSource = {
+          kind: "pr",
+          branch,
+          number: pr.number,
+          title: pr.title,
+          url: pr.url,
+          baseBranch: pr.baseRefName,
+          ...(pr.isCrossRepository ? { crossRepository: true } : {}),
+        };
       } else if (source.kind === "issue") {
         const issue = issueDetail!;
         // Issues have no code: branch off the default branch like the default flow.

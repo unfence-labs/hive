@@ -37,10 +37,6 @@ function matchesDiffStat(filePath: string | null | undefined, stat: DiffFileStat
   return !!filePath && (stat.file === filePath || filePath.endsWith(`/${stat.file}`));
 }
 
-// Workspaces whose draft prompt was already seeded into the composer this
-// session — prevents re-seeding on remounts and query refetches.
-const seededDraftWorkspaces = new Set<string>();
-
 export default function WorkspaceView() {
   const { wsId } = useParams();
   const queryClient = useQueryClient();
@@ -381,17 +377,8 @@ export default function WorkspaceView() {
     [hasPendingPlan, hasPendingExitPlanInput, rejectToolInput, sendMessage, bumpScrollToBottom],
   );
 
-  // Refs for inline diff → chat input bridge
+  // Ref for inline diff → chat input bridge
   const chatInputRef = useRef<ChatInputHandle>(null);
-
-  // Seed the composer with the draft prompt of a workspace created from a
-  // PR/issue, once the ChatInput is mounted and while no session exists yet.
-  useEffect(() => {
-    if (!wsId || !workspace?.draftPrompt || workspace.activeSessionId || sessionsLoading) return;
-    if (seededDraftWorkspaces.has(wsId)) return;
-    seededDraftWorkspaces.add(wsId);
-    chatInputRef.current?.appendText(workspace.draftPrompt);
-  }, [wsId, workspace, sessionsLoading]);
 
   const fileHasUncommittedChanges = useMemo(
     () => diffUncommitted.some((stat) => matchesDiffStat(openFile, stat)),
@@ -566,6 +553,10 @@ export default function WorkspaceView() {
                 ref={chatInputRef}
                 wsId={wsId}
                 sessionId={sessionId}
+                draftPrompt={messages.length === 0
+                  ? activeSession?.draftPrompt
+                    ?? (!sessionId && !workspace?.activeSessionId ? workspace?.draftPrompt : undefined)
+                  : undefined}
                 lockedProvider={effectiveLockedProvider}
                 lastRunOptions={activeSession?.lastRunOptions}
                 onSend={handleSend}

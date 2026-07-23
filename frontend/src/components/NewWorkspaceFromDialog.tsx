@@ -85,16 +85,20 @@ export default function NewWorkspaceFromDialog({
     setSelectedIndex(0);
   }, [open]);
 
-  // Pasting a GitHub PR/issue URL jumps straight to the matching item.
+  // Pasting a GitHub PR/issue URL jumps straight to the matching item — but
+  // only when the URL belongs to the active project's repository; a foreign
+  // URL must not silently target the same-numbered item here.
   function handleQueryChange(value: string) {
-    const prUrl = value.match(/github\.com\/[^/\s]+\/[^/\s]+\/pull\/(\d+)/);
-    const issueUrl = value.match(/github\.com\/[^/\s]+\/[^/\s]+\/issues\/(\d+)/);
-    if (prUrl) {
-      setTab("pulls");
-      setQuery(`#${prUrl[1]}`);
-    } else if (issueUrl) {
-      setTab("issues");
-      setQuery(`#${issueUrl[1]}`);
+    const ref = value.match(/github\.com\/([^/\s]+)\/([^/\s]+)\/(pull|issues)\/(\d+)/);
+    const projectRepo = activeProject?.url?.match(/github\.com[/:]([^/\s]+)\/([^/\s]+?)(?:\.git)?\/?$/);
+    const sameRepo =
+      ref &&
+      projectRepo &&
+      ref[1].toLowerCase() === projectRepo[1].toLowerCase() &&
+      ref[2].toLowerCase() === projectRepo[2].toLowerCase();
+    if (sameRepo) {
+      setTab(ref[3] === "pull" ? "pulls" : "issues");
+      setQuery(`#${ref[4]}`);
     } else {
       setQuery(value);
     }

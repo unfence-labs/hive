@@ -220,6 +220,8 @@ export interface ConversationSessionConfig {
   skipPermissions?: boolean;
   browserEnv?: Record<string, string>;
   sessionKind?: SessionKind;
+  /** Server-owned composer seed, retained until the first user message. */
+  draftPrompt?: string;
   runnerFactory?: AgentRunnerFactory;
   /** Strip interactive/blocking tools — set for unattended agent runs. */
   disableInteractiveTools?: boolean;
@@ -299,6 +301,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
       updatedAt: new Date().toISOString(),
       messageCount: 0,
       kind: this.sessionKind,
+      ...(config.draftPrompt ? { draftPrompt: config.draftPrompt } : {}),
     };
 
     // Node crashes the whole process on emit("error") with zero listeners.
@@ -522,6 +525,8 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
     this.emit("message", { type: "user_message", message: userMsg });
     this.messageCount++;
     if (this.messageCount === 1) {
+      delete this._metadata.draftPrompt;
+      this.enqueueMetadataPersist();
       this.emit("first_message", content);
     }
   }
