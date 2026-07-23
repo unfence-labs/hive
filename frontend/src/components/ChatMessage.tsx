@@ -1,4 +1,4 @@
-import { memo, useState, type ReactNode } from "react";
+import { memo, useEffect, useState, type ReactNode } from "react";
 import type { ChatMessage as ChatMessageType, FileMention, QuestionAnswer } from "@/types";
 import { cn } from "@/lib/utils";
 import { formatElapsed } from "@/lib/time";
@@ -54,6 +54,27 @@ function renderContentWithMentions(
   return <p className="whitespace-pre-wrap wrap-anywhere" data-find-content="">{segments}</p>;
 }
 
+/**
+ * Grace delay before showing "Sending…" under an optimistic user message.
+ * A healthy echo confirms in well under this, so the label only appears for
+ * genuinely slow/unconfirmed sends instead of flashing on every message.
+ */
+export const SENDING_INDICATOR_DELAY_MS = 2_000;
+
+/** True only when `sendState` has been "sending" for the grace delay. */
+function useShowSendingIndicator(sendState: SendState | undefined): boolean {
+  const [show, setShow] = useState(false);
+  useEffect(() => {
+    if (sendState !== "sending") {
+      setShow(false);
+      return;
+    }
+    const timer = setTimeout(() => setShow(true), SENDING_INDICATOR_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, [sendState]);
+  return show;
+}
+
 interface ChatMessageProps {
   message: ChatMessageType;
   isInteractive?: boolean;
@@ -80,6 +101,7 @@ const ChatMessage = memo(function ChatMessage({
 }: ChatMessageProps) {
   const isUser = message.role === "user";
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
+  const showSendingIndicator = useShowSendingIndicator(sendState);
   const inlineAgentActivities = getInlineAgentActivities(message.agentActivities ?? []);
   const showAssistantActions = !isUser && (message.durationMs != null || Boolean(message.content));
 
@@ -135,7 +157,7 @@ const ChatMessage = memo(function ChatMessage({
               {renderContentWithMentions(message.content, message.fileMentions, onFileMentionClick)}
             </div>
           )}
-          {sendState === "sending" && (
+          {sendState === "sending" && showSendingIndicator && (
             <span className="mt-1 text-[10px] text-muted-foreground" data-testid="send-state-sending">
               Sending…
             </span>
