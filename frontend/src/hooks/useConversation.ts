@@ -14,6 +14,7 @@ import {
   trackOptimisticSend,
   markOptimisticSendFailed,
   getOptimisticSendPayload,
+  getSendState,
   resolveOptimisticSend,
   subscribeSendStates,
   getSendStates,
@@ -666,6 +667,11 @@ export function useConversation(workspaceId: string | undefined) {
         }
       }
 
+      // A correlated backend rejection is a definite delivery failure.
+      if (msg.type === "error" && msg.clientMessageId && getSendState(msg.clientMessageId) !== undefined) {
+        markOptimisticSendFailed(msg.clientMessageId);
+      }
+
       dispatch(msg);
     });
     replayingBuffer = false;
@@ -749,6 +755,7 @@ export function useConversation(workspaceId: string | undefined) {
       images: normalizedImages,
       fileMentions: normalizedMentions,
       options,
+      clientMessageId: localId,
       ...sessionIdField(targetSessionId),
     });
     if (!sent) {
@@ -764,13 +771,13 @@ export function useConversation(workspaceId: string | undefined) {
     return true;
   }, [workspaceId, state.sessionId, queryClient]);
 
-  /** Resend a failed optimistic message through the normal send path; delivery
-   * is re-confirmed by the server echo, like the original send. */
+  /** Retry only definite failures; an unconfirmed send may already be accepted. */
   const retrySend = useCallback((messageId: string) => {
     if (!workspaceId) return;
+    if (getSendState(messageId) !== "failed") return;
     const payload = getOptimisticSendPayload(messageId);
     if (!payload) return;
-    trackOptimisticSend(messageId, payload); // back to "sending"
+    trackOptimisticSend(messageId, payload);
     const sent = wsTransport.send(workspaceId, {
       type: "user_message",
       content: payload.content,
@@ -778,6 +785,7 @@ export function useConversation(workspaceId: string | undefined) {
       fileMentions: payload.fileMentions,
       options: payload.options,
       sessionId: payload.sessionId,
+      clientMessageId: messageId,
     });
     if (!sent) markOptimisticSendFailed(messageId);
   }, [workspaceId]);

@@ -729,7 +729,8 @@ struct ChatView: View {
                 images: images.isEmpty ? nil : images,
                 fileMentions: fileMentions,
                 options: options,
-                sessionId: targetSessionId
+                sessionId: targetSessionId,
+                clientMessageId: localId
             )) ?? false
 
             if sent {

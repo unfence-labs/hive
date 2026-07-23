@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { EventEmitter } from "node:events";
-import { rm, readFile } from "node:fs/promises";
+import { mkdir, rm, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { ChildProcess } from "node:child_process";
 import type { AgentActivity, WsOutgoing } from "../types.js";
@@ -2781,7 +2781,7 @@ describe("ConversationSession", () => {
     const messages: WsOutgoing[] = [];
     session.on("message", (msg) => messages.push(msg));
 
-    session.sendMessage("Hello from user");
+    session.sendMessage("Hello from user", undefined, undefined, undefined, undefined, "local-abc123");
 
     const userEvents = messages.filter((m) => m.type === "user_message");
     expect(userEvents).toHaveLength(1);
@@ -2790,6 +2790,7 @@ describe("ConversationSession", () => {
         sessionId: "sess-user-evt",
         role: "user",
         content: "Hello from user",
+        clientMessageId: "local-abc123",
       });
     }
   });
@@ -3555,6 +3556,35 @@ describe("ConversationSession", () => {
       expect(userEvents[0].message.images![0].name).toBe("screenshot.png");
       expect(userEvents[0].message.images![0].mediaType).toBe("image/png");
     }
+  });
+
+  it("correlates an attachment failure that happens before the user-message echo", async () => {
+    const sessionId = "img-save-failure";
+    const sessionDir = join(tempDir, "sessions", sessionId);
+    await mkdir(sessionDir, { recursive: true });
+    await writeFile(join(sessionDir, "attachments"), "not a directory");
+
+    const session = createSession({ sessionId });
+    const messages: WsOutgoing[] = [];
+    const errors: Array<{ error: Error; clientMessageId?: string }> = [];
+    session.on("message", (message) => messages.push(message));
+    session.on("error", (error: Error, clientMessageId?: string) => {
+      errors.push({ error, clientMessageId });
+    });
+
+    session.sendMessage(
+      "Analyze this",
+      undefined,
+      [{ name: "shot.png", mediaType: "image/png", dataUrl: "data:image/png;base64,AAAA" }],
+      undefined,
+      undefined,
+      "local-image-failure",
+    );
+
+    await waitForCondition(() => errors.some((entry) => entry.clientMessageId === "local-image-failure"));
+
+    expect(errors.find((entry) => entry.clientMessageId === "local-image-failure")?.error).toBeInstanceOf(Error);
+    expect(messages.some((message) => message.type === "user_message")).toBe(false);
   });
 
   it("does not include images field when no images are provided", () => {

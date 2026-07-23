@@ -15,12 +15,17 @@ struct ConversationStoreFailedSendTests {
         return store
     }
 
-    private func serverEcho(_ content: String, session: String) -> WsOutgoing {
-        .userMessage(message: ChatMessage(
+    private func serverMessage(_ content: String, session: String, clientMessageId: String? = nil) -> ChatMessage {
+        ChatMessage(
             id: "srv-1", sessionId: session, role: .user, content: content,
             images: nil, toolCalls: nil,
-            timestamp: "2026-07-08T10:00:00.000Z", cancelled: nil, durationMs: nil
-        ))
+            timestamp: "2026-07-08T10:00:00.000Z", cancelled: nil, durationMs: nil,
+            clientMessageId: clientMessageId
+        )
+    }
+
+    private func serverEcho(_ content: String, session: String, clientMessageId: String? = nil) -> WsOutgoing {
+        .userMessage(message: serverMessage(content, session: session, clientMessageId: clientMessageId))
     }
 
     @Test @MainActor
@@ -42,7 +47,7 @@ struct ConversationStoreFailedSendTests {
             content: "hello", images: nil, options: nil, sessionId: "s1"
         )
 
-        store.handle(serverEcho("hello", session: "s1"))
+        store.handle(serverEcho("hello", session: "s1", clientMessageId: localId))
 
         #expect(store.messages.count == 1)
         #expect(store.messages[0].id == "srv-1")
@@ -95,7 +100,8 @@ struct ConversationStoreFailedSendTests {
             ChatMessage(
                 id: "srv-9", sessionId: "s1", role: .user, content: "made it",
                 images: nil, toolCalls: nil,
-                timestamp: "2026-07-08T09:00:00.000Z", cancelled: nil, durationMs: nil
+                timestamp: "2026-07-08T09:00:00.000Z", cancelled: nil, durationMs: nil,
+                clientMessageId: localId
             )
         ], for: "s1")
 
@@ -154,13 +160,76 @@ struct ConversationStoreFailedSendTests {
             ChatMessage(
                 id: "srv-2", sessionId: "s1", role: .user, content: "ok",
                 images: nil, toolCalls: nil,
-                timestamp: "2026-07-08T10:00:00.000Z", cancelled: nil, durationMs: nil
+                timestamp: "2026-07-08T10:00:00.000Z", cancelled: nil, durationMs: nil,
+                clientMessageId: localId
             )
         ], for: "s1")
 
         #expect(store.messages.count == 2)
         #expect(store.messages.map(\.id) == ["m1", "srv-2"])
         #expect(store.sendState(for: localId) == nil)
+    }
+
+    @Test @MainActor
+    func fetchedHistoryResolvesTheExactClientIdAmongDuplicates() {
+        let store = store(session: "s1")
+        let firstId = store.appendOptimisticUserMessage(
+            content: "dup", images: nil, options: nil, sessionId: "s1"
+        )
+        let secondId = store.appendOptimisticUserMessage(
+            content: "dup", images: nil, options: nil, sessionId: "s1"
+        )
+
+        store.applyFetchedHistory([
+            serverMessage("dup", session: "s1", clientMessageId: secondId)
+        ], for: "s1")
+
+        #expect(store.messages.count == 2)
+        #expect(store.messages.map(\.id) == ["srv-1", firstId])
+        #expect(store.sendState(for: firstId) == .sending)
+        #expect(store.sendState(for: secondId) == nil)
+    }
+
+    @Test @MainActor
+    func fetchedHistoryDoesNotResolveSameContentWithAForeignClientId() {
+        let store = store(session: "s1")
+        let localId = store.appendOptimisticUserMessage(
+            content: "hello", images: nil, options: nil, sessionId: "s1"
+        )
+
+        store.applyFetchedHistory([
+            serverMessage("hello", session: "s1", clientMessageId: "other-client-local-9")
+        ], for: "s1")
+
+        #expect(store.messages.count == 2)
+        #expect(store.messages.map(\.id) == ["srv-1", localId])
+        #expect(store.sendState(for: localId) == .sending)
+    }
+
+    @Test @MainActor
+    func correlatedBackendRejectionMarksTheExactSendFailed() {
+        let store = store(session: "s1")
+        let localId = store.appendOptimisticUserMessage(
+            content: "hello", images: nil, options: nil, sessionId: "s1"
+        )
+
+        store.handle(.error(message: "Session not found", sessionId: nil, clientMessageId: localId))
+
+        #expect(store.sendState(for: localId) == .failed)
+    }
+
+    @Test @MainActor
+    func uncorrelatedErrorDoesNotChangeAnUnrelatedSendState() {
+        let store = store(session: "s1")
+        let localId = store.appendOptimisticUserMessage(
+            content: "hello", images: nil, options: nil, sessionId: "s1"
+        )
+
+        // The error carries an id this store never tracked (another client's
+        // send, or no correlation at all) — the pending send is left untouched.
+        store.handle(.error(message: "Some other failure", sessionId: nil, clientMessageId: "unrelated-id"))
+
+        #expect(store.sendState(for: localId) == .sending)
     }
 
     @Test @MainActor
@@ -176,7 +245,7 @@ struct ConversationStoreFailedSendTests {
 
         #expect(sent)
         #expect(store.sendState(for: localId) == .sending)
-        store.handle(serverEcho("again", session: "s1"))
+        store.handle(serverEcho("again", session: "s1", clientMessageId: localId))
         #expect(store.messages.count == 1)
         #expect(store.sendState(for: localId) == nil)
     }

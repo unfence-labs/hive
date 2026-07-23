@@ -102,6 +102,7 @@ const ChatMessage = memo(function ChatMessage({
   const isUser = message.role === "user";
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const showSendingIndicator = useShowSendingIndicator(sendState);
+  const hasDeliveryIssue = sendState === "failed" || sendState === "unconfirmed";
   const inlineAgentActivities = getInlineAgentActivities(message.agentActivities ?? []);
   const showAssistantActions = !isUser && (message.durationMs != null || Boolean(message.content));
 
@@ -162,13 +163,15 @@ const ChatMessage = memo(function ChatMessage({
               Sending…
             </span>
           )}
-          {sendState === "failed" && (
+          {hasDeliveryIssue && (
             <div
               className="mt-1 flex items-center gap-2 text-[10px] font-medium"
-              data-testid="send-state-failed"
+              data-testid={`send-state-${sendState}`}
             >
-              <span className="text-destructive">Not delivered</span>
-              {onRetrySend && (
+              <span className={sendState === "failed" ? "text-destructive" : "text-muted-foreground"}>
+                {sendState === "failed" ? "Not delivered" : "Delivery unconfirmed"}
+              </span>
+              {sendState === "failed" && onRetrySend && (
                 <button
                   type="button"
                   onClick={() => onRetrySend(message.id)}

@@ -2,78 +2,93 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   SEND_CONFIRM_TIMEOUT_MS,
   _resetOptimisticSends,
+  clearTrackedSends,
+  getOptimisticSendPayload,
   getSendState,
   markOptimisticSendFailed,
+  resolveEchoedSend,
   resolveOptimisticSend,
-  subscribeSendStates,
   trackOptimisticSend,
 } from "@/lib/optimistic-sends";
+import type { OptimisticSendPayload } from "@/lib/optimistic-sends";
 
-const payload = { content: "hello", sessionId: "sess-1" };
+function payload(overrides: Partial<OptimisticSendPayload> = {}): OptimisticSendPayload {
+  return { content: "hello", sessionId: "sess-1", ...overrides };
+}
 
-describe("optimistic-sends timeout", () => {
+describe("optimistic sends", () => {
   beforeEach(() => {
     vi.useFakeTimers();
   });
 
   afterEach(() => {
-    vi.useRealTimers();
     _resetOptimisticSends();
+    vi.useRealTimers();
   });
 
-  it("flips a tracked send to failed after SEND_CONFIRM_TIMEOUT_MS and notifies listeners", () => {
-    const listener = vi.fn();
-    const unsubscribe = subscribeSendStates(listener);
-
-    trackOptimisticSend("local-1", payload);
-    listener.mockClear();
+  it("marks an unanswered send unconfirmed after the timeout", () => {
+    trackOptimisticSend("local-1", payload());
 
     vi.advanceTimersByTime(SEND_CONFIRM_TIMEOUT_MS);
 
-    expect(getSendState("local-1")).toBe("failed");
-    expect(listener).toHaveBeenCalled();
-    unsubscribe();
+    expect(getSendState("local-1")).toBe("unconfirmed");
   });
 
-  it("does not flip a send resolved before the timeout", () => {
-    const listener = vi.fn();
-    const unsubscribe = subscribeSendStates(listener);
-
-    trackOptimisticSend("local-1", payload);
+  it("does not time out a resolved send", () => {
+    trackOptimisticSend("local-1", payload());
     resolveOptimisticSend("local-1");
-    listener.mockClear();
 
     vi.advanceTimersByTime(SEND_CONFIRM_TIMEOUT_MS);
 
     expect(getSendState("local-1")).toBeUndefined();
-    expect(listener).not.toHaveBeenCalled();
-    unsubscribe();
   });
 
-  it("restarts the timeout when a send is re-tracked (retry)", () => {
-    trackOptimisticSend("local-1", payload);
-    vi.advanceTimersByTime(10_000);
-
-    trackOptimisticSend("local-1", payload);
-    vi.advanceTimersByTime(10_000);
-    expect(getSendState("local-1")).toBe("sending");
-
-    vi.advanceTimersByTime(5_000);
-    expect(getSendState("local-1")).toBe("failed");
-  });
-
-  it("does not double-notify when a manually-failed send's timer later fires", () => {
-    const listener = vi.fn();
-    const unsubscribe = subscribeSendStates(listener);
-
-    trackOptimisticSend("local-1", payload);
+  it("keeps a definite failure failed when the timeout elapses", () => {
+    trackOptimisticSend("local-1", payload());
     markOptimisticSendFailed("local-1");
-    listener.mockClear();
 
     vi.advanceTimersByTime(SEND_CONFIRM_TIMEOUT_MS);
 
     expect(getSendState("local-1")).toBe("failed");
-    expect(listener).not.toHaveBeenCalled();
-    unsubscribe();
+  });
+
+  it("resolves the exact client id among identical sends", () => {
+    trackOptimisticSend("local-1", payload({ content: "continue" }));
+    trackOptimisticSend("local-2", payload({ content: "continue" }));
+
+    expect(resolveEchoedSend("sess-1", {
+      clientMessageId: "local-2",
+      content: "continue",
+    })).toBe("local-2");
+  });
+
+  it("does not content-match an echo carrying another client's id", () => {
+    trackOptimisticSend("local-1", payload());
+
+    expect(resolveEchoedSend("sess-1", {
+      clientMessageId: "other-client-id",
+      content: "hello",
+    })).toBeUndefined();
+  });
+
+  it("keeps the original retry payload", () => {
+    const original = payload({
+      images: [{ name: "shot.png", mediaType: "image/png", dataUrl: "data:image/png;base64,AAAA" }],
+      options: { planMode: true },
+    });
+
+    trackOptimisticSend("local-1", original);
+
+    expect(getOptimisticSendPayload("local-1")).toBe(original);
+  });
+
+  it("clears only sends belonging to the deleted session", () => {
+    trackOptimisticSend("local-1", payload());
+    trackOptimisticSend("local-2", payload({ sessionId: "sess-2" }));
+
+    clearTrackedSends("sess-1");
+
+    expect(getSendState("local-1")).toBeUndefined();
+    expect(getSendState("local-2")).toBe("sending");
   });
 });

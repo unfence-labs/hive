@@ -668,6 +668,7 @@ describe("WS /ws/hub", () => {
       type: "user_message",
       content: "should fail",
       sessionId: deletedSessionId,
+      clientMessageId: "local-rejected-1",
     }));
 
     await waitForMessage(
@@ -681,6 +682,14 @@ describe("WS /ws/hub", () => {
     );
 
     expect(getSessionById(wsId, deletedSessionId)).toBeUndefined();
+    const errorEvent = messages.find(
+      (message) => message.type === "error" && message.message.includes(`Session ${deletedSessionId} not found`),
+    );
+    expect(errorEvent).toMatchObject({
+      type: "error",
+      sessionId: deletedSessionId,
+      clientMessageId: "local-rejected-1",
+    });
     const busyForDeleted = messages
       .slice(marker)
       .some(
@@ -951,7 +960,7 @@ describe("WS /ws/hub", () => {
     await waitForMessage(first.messages, (msgs) => msgs.length >= 1);
     await waitForMessage(second.messages, (msgs) => msgs.length >= 1);
 
-    ws1.send(hubEvent(wsId, { type: "user_message", content: "cross-client-sync" }));
+    ws1.send(hubEvent(wsId, { type: "user_message", content: "cross-client-sync", clientMessageId: "local-xyz789" }));
 
     await waitForMessage(
       first.messages,
@@ -970,10 +979,12 @@ describe("WS /ws/hub", () => {
     if (firstUserEvent?.type === "user_message") {
       expect(firstUserEvent.message.role).toBe("user");
       expect(firstUserEvent.message.content).toBe("cross-client-sync");
+      expect(firstUserEvent.message.clientMessageId).toBe("local-xyz789");
     }
     if (secondUserEvent?.type === "user_message") {
       expect(secondUserEvent.message.role).toBe("user");
       expect(secondUserEvent.message.content).toBe("cross-client-sync");
+      expect(secondUserEvent.message.clientMessageId).toBe("local-xyz789");
     }
 
     ws1.close();

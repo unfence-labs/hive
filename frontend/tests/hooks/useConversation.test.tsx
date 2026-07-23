@@ -295,6 +295,7 @@ describe("useConversation", () => {
       type: "user_message",
       content: "run in target",
       sessionId: "sess-target",
+      clientMessageId: expect.any(String),
     });
   });
 
@@ -393,6 +394,7 @@ describe("useConversation", () => {
         type: "user_message",
         content: "hello",
         sessionId: "sess-1",
+        clientMessageId: local.id,
       });
     });
 
@@ -415,6 +417,7 @@ describe("useConversation", () => {
             role: "user",
             content: "hello",
             timestamp: "2026-02-12T00:00:00.000Z",
+            clientMessageId: localId,
           },
         });
       });
@@ -422,6 +425,40 @@ describe("useConversation", () => {
       expect(result.current.messages).toHaveLength(1);
       expect(result.current.messages[0]?.id).toBe("u1");
       expect(result.current.sendStates[localId]).toBeUndefined();
+    });
+
+    it("resolves the exact local send by clientMessageId when two identical sends are pending", async () => {
+      const { __wsMock } = await getWsMock();
+      const { result } = renderConversation("ws-1");
+      await activateSession("ws-1", "sess-1");
+
+      act(() => {
+        result.current.sendMessage("continue");
+      });
+      act(() => {
+        result.current.sendMessage("continue");
+      });
+      expect(result.current.messages).toHaveLength(2);
+      const [firstLocalId, secondLocalId] = result.current.messages.map((m) => m.id);
+
+      act(() => {
+        __wsMock.emit("ws-1", {
+          type: "user_message",
+          message: {
+            id: "u1",
+            sessionId: "sess-1",
+            role: "user",
+            content: "continue",
+            timestamp: "2026-02-12T00:00:00.000Z",
+            clientMessageId: secondLocalId,
+          },
+        });
+      });
+
+      // Only the message the echo names by id resolves; the other stays pending.
+      expect(result.current.messages.map((m) => m.id)).toEqual([firstLocalId, "u1"]);
+      expect(result.current.sendStates[firstLocalId]).toBe("sending");
+      expect(result.current.sendStates[secondLocalId]).toBeUndefined();
     });
 
     it("keeps the message in the transcript as failed when the transport send fails", async () => {
@@ -442,31 +479,38 @@ describe("useConversation", () => {
       expect(result.current.error).toBeUndefined();
     });
 
-    it("retries a failed send through the transport and resolves on the echo", async () => {
+    it("retries a failed send with its full payload and resolves on the echo", async () => {
       const { __wsMock } = await getWsMock();
       const { result } = renderConversation("ws-1");
       await activateSession("ws-1", "sess-1");
       __wsMock.sendMock.mockReturnValueOnce(false);
 
+      const images = [{ name: "shot.png", mediaType: "image/png", dataUrl: "data:image/png;base64,AAAA" }];
+      const fileMentions = [{ relativePath: "src/App.tsx", displayName: "App.tsx" }];
+      const options = { model: "opus", planMode: true };
+
       act(() => {
-        result.current.sendMessage("hello", undefined, { planMode: true });
+        result.current.sendMessage("", images, options, undefined, fileMentions);
       });
       const localId = result.current.messages[0]!.id;
       expect(result.current.sendStates[localId]).toBe("failed");
+      expect(result.current.messages[0]!.images).toEqual(images);
 
+      __wsMock.sendMock.mockClear();
       act(() => {
         result.current.retrySend(localId);
       });
 
-      expect(result.current.sendStates[localId]).toBe("sending");
       expect(__wsMock.sendMock).toHaveBeenLastCalledWith("ws-1", {
         type: "user_message",
-        content: "hello",
-        images: undefined,
-        fileMentions: undefined,
-        options: { planMode: true },
+        content: "",
+        images,
+        fileMentions,
+        options,
         sessionId: "sess-1",
+        clientMessageId: localId,
       });
+      expect(result.current.sendStates[localId]).toBe("sending");
 
       act(() => {
         __wsMock.emit("ws-1", {
@@ -475,8 +519,9 @@ describe("useConversation", () => {
             id: "u1",
             sessionId: "sess-1",
             role: "user",
-            content: "hello",
+            content: "",
             timestamp: "2026-02-12T00:00:00.000Z",
+            clientMessageId: localId,
           },
         });
       });
@@ -534,7 +579,6 @@ describe("useConversation", () => {
       });
       const localId = result.current.messages[0]!.id;
 
-      // Echo from another client with different content must not resolve ours.
       act(() => {
         __wsMock.emit("ws-1", {
           type: "user_message",
@@ -542,8 +586,9 @@ describe("useConversation", () => {
             id: "u-other",
             sessionId: "sess-1",
             role: "user",
-            content: "someone else's message",
+            content: "mine",
             timestamp: "2026-02-12T00:00:00.000Z",
+            clientMessageId: "other-client-id",
           },
         });
       });
@@ -552,7 +597,7 @@ describe("useConversation", () => {
       expect(result.current.sendStates[localId]).toBe("sending");
     });
 
-    it("times out to failed when no echo arrives within SEND_CONFIRM_TIMEOUT_MS", async () => {
+    it("times out to unconfirmed (not failed) when no echo arrives within SEND_CONFIRM_TIMEOUT_MS", async () => {
       const { result } = renderConversation("ws-1");
       await activateSession("ws-1", "sess-1");
 
@@ -568,7 +613,60 @@ describe("useConversation", () => {
           await vi.advanceTimersByTimeAsync(SEND_CONFIRM_TIMEOUT_MS);
         });
 
-        expect(result.current.sendStates[localId]).toBe("failed");
+        // Elapsed time alone is not proof of rejection: unconfirmed, not failed.
+        expect(result.current.sendStates[localId]).toBe("unconfirmed");
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("marks the exact bubble failed when a correlated backend rejection arrives", async () => {
+      const { __wsMock } = await getWsMock();
+      const { result } = renderConversation("ws-1");
+      await activateSession("ws-1", "sess-1");
+
+      act(() => {
+        result.current.sendMessage("hello");
+      });
+      const localId = result.current.messages[0]!.id;
+      expect(result.current.sendStates[localId]).toBe("sending");
+
+      act(() => {
+        __wsMock.emit("ws-1", {
+          type: "error",
+          message: "Session not found",
+          clientMessageId: localId,
+        });
+      });
+
+      expect(result.current.sendStates[localId]).toBe("failed");
+    });
+
+    it("retrySend is a no-op for an unconfirmed send (only failed sends may retry)", async () => {
+      const { __wsMock } = await getWsMock();
+      const { result } = renderConversation("ws-1");
+      await activateSession("ws-1", "sess-1");
+
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      try {
+        act(() => {
+          result.current.sendMessage("hello");
+        });
+        const localId = result.current.messages[0]!.id;
+
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(SEND_CONFIRM_TIMEOUT_MS);
+        });
+        expect(result.current.sendStates[localId]).toBe("unconfirmed");
+        __wsMock.sendMock.mockClear();
+
+        act(() => {
+          result.current.retrySend(localId);
+        });
+
+        // The guard rejects retry outright: no resend, state unchanged.
+        expect(__wsMock.sendMock).not.toHaveBeenCalled();
+        expect(result.current.sendStates[localId]).toBe("unconfirmed");
       } finally {
         vi.useRealTimers();
       }
@@ -1474,6 +1572,9 @@ describe("useConversation", () => {
 
     act(() => {
       result.current.sendMessage("hello");
+    });
+    const localId = result.current.messages[0]!.id;
+    act(() => {
       __wsMock.emit("ws-1", {
         type: "user_message",
         message: {
@@ -1482,6 +1583,7 @@ describe("useConversation", () => {
           role: "user",
           content: "hello",
           timestamp: "2026-02-12T00:00:00.000Z",
+          clientMessageId: localId,
         },
       });
     });

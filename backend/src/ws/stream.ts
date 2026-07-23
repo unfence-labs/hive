@@ -301,8 +301,13 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
       }
       broadcastToChannel(channel, workspaceId, msg);
     };
-    const onError = (err: Error) => {
-      broadcastToChannel(channel, workspaceId, { type: "error", message: err.message, sessionId: session.sessionId });
+    const onError = (err: Error, clientMessageId?: string) => {
+      broadcastToChannel(channel, workspaceId, {
+        type: "error",
+        message: err.message,
+        sessionId: session.sessionId,
+        clientMessageId,
+      });
     };
     const onExit = (_code: number) => {
       broadcastToChannel(channel, workspaceId, {
@@ -603,6 +608,7 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
         break;
       }
       case "user_message": {
+        let targetSessionId = incoming.sessionId;
         try {
           let targetSession: ActiveSession | undefined;
           if (incoming.sessionId) {
@@ -621,6 +627,7 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
               targetSession = result.session;
             }
           }
+          targetSessionId = targetSession.sessionId;
 
           attachSessionListeners(wsId, channel, targetSession);
 
@@ -650,7 +657,7 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
             }
           }
 
-          targetSession.sendMessage(incoming.content, incoming.options, incoming.images, cliContent, incoming.fileMentions);
+          targetSession.sendMessage(incoming.content, incoming.options, incoming.images, cliContent, incoming.fileMentions, incoming.clientMessageId);
           broadcastToChannel(channel, wsId, {
             type: "status",
             status: "busy",
@@ -660,7 +667,12 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
             lockedProvider: targetSession.metadata.lockedProvider,
           });
         } catch (err: unknown) {
-          sendToHub(hub, wsId, { type: "error", message: errorMessage(err, "Failed to send message") });
+          sendToHub(hub, wsId, {
+            type: "error",
+            message: errorMessage(err, "Failed to send message"),
+            sessionId: targetSessionId,
+            clientMessageId: incoming.clientMessageId,
+          });
         }
         break;
       }

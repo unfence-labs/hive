@@ -337,6 +337,8 @@ struct ChatMessage: Codable, Equatable, Identifiable {
     let outputTokens: Int?
     let contextUsedTokens: Int?
     let contextWindowTokens: Int?
+    /// Client-generated id of the optimistic send this message confirms, if any.
+    let clientMessageId: String?
 
     init(id: String, sessionId: String, role: MessageRole, content: String,
          images: [ImageAttachment]?, fileMentions: [FileMention]? = nil,
@@ -347,7 +349,8 @@ struct ChatMessage: Codable, Equatable, Identifiable {
          timestamp: String, cancelled: Bool?, errorDetail: String? = nil,
          durationMs: Int?,
          inputTokens: Int? = nil, outputTokens: Int? = nil,
-         contextUsedTokens: Int? = nil, contextWindowTokens: Int? = nil) {
+         contextUsedTokens: Int? = nil, contextWindowTokens: Int? = nil,
+         clientMessageId: String? = nil) {
         self.id = id
         self.sessionId = sessionId
         self.role = role
@@ -367,6 +370,7 @@ struct ChatMessage: Codable, Equatable, Identifiable {
         self.outputTokens = outputTokens
         self.contextUsedTokens = contextUsedTokens
         self.contextWindowTokens = contextWindowTokens
+        self.clientMessageId = clientMessageId
     }
 
     init(from decoder: Decoder) throws {
@@ -421,6 +425,7 @@ struct ChatMessage: Codable, Equatable, Identifiable {
         } else {
             contextWindowTokens = nil
         }
+        clientMessageId = try container.decodeIfPresent(String.self, forKey: .clientMessageId)
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -428,6 +433,7 @@ struct ChatMessage: Codable, Equatable, Identifiable {
         case goalCommand
         case reasoningSegments, reasoningBlocks, timestamp, cancelled, errorDetail, durationMs
         case inputTokens, outputTokens, contextUsedTokens, contextWindowTokens
+        case clientMessageId
     }
 }
 
