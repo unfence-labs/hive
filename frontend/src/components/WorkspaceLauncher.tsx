@@ -7,7 +7,7 @@ import { ProjectPickerDialog } from "@/components/ProjectPickerDialog";
 import NewWorkspaceFromDialog from "@/components/NewWorkspaceFromDialog";
 import { useProjects } from "@/hooks/useProjects";
 import { useAppZoom } from "@/hooks/useAppZoom";
-import { dispatchAppCommand } from "@/lib/app-commands";
+import { dispatchAppCommand, subscribeAppCommand } from "@/lib/app-commands";
 
 interface WorkspaceLauncherProps {
   /** "New workspace from…" picker state — owned by App so the sidebar can open it too. */
@@ -68,6 +68,16 @@ export default function WorkspaceLauncher({
     }
   }, [contextProject, createInProject]);
 
+  const toggleSpotlight = useCallback(() => {
+    dispatchAppCommand("dismiss-view-dialogs");
+    onPickerOpenChange(false);
+    setProjectPickerOpen(false);
+    setSpotlightOpen((prev) => !prev);
+  }, [onPickerOpenChange]);
+
+  // Lets the sidebar's search button open the palette without owning its state.
+  useEffect(() => subscribeAppCommand("open-spotlight", toggleSpotlight), [toggleSpotlight]);
+
   const executeCommand = useCallback((command: CommandPaletteAction) => {
     setSpotlightOpen(false);
     switch (command) {
@@ -120,10 +130,7 @@ export default function WorkspaceLauncher({
 
       if (key === "k" && !e.shiftKey) {
         e.preventDefault();
-        dispatchAppCommand("dismiss-view-dialogs");
-        onPickerOpenChange(false);
-        setProjectPickerOpen(false);
-        setSpotlightOpen((prev) => !prev);
+        toggleSpotlight();
       } else if (key === "n") {
         e.preventDefault();
         setProjectPickerOpen(false);
@@ -164,7 +171,7 @@ export default function WorkspaceLauncher({
     }
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [executeCommand, onPickerOpenChange, workspaceCommandsEnabled]);
+  }, [executeCommand, toggleSpotlight, workspaceCommandsEnabled]);
 
   return (
     <>

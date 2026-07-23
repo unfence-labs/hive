@@ -1,4 +1,5 @@
 export type AppCommand =
+  | "open-spotlight"
   | "new-chat"
   | "quick-open-file"
   | "previous-tab"
