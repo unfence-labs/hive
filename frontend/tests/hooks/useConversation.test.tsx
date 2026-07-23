@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useConversation, _resetSavedSessions, setSavedSession } from "@/hooks/useConversation";
 import { sessionMessagesKey, getCachedSessionMessages } from "@/hooks/useSessionMessages";
+import { SEND_CONFIRM_TIMEOUT_MS, _resetOptimisticSends } from "@/lib/optimistic-sends";
 import type { ChatMessage, WsOutgoing } from "@/types";
 
 vi.mock("@/hooks/useApi", () => {
@@ -198,6 +199,7 @@ describe("useConversation", () => {
     __wsMock.reset();
     __apiMock.reset();
     _resetSavedSessions();
+    _resetOptimisticSends();
   });
 
   it("connects on mount and keeps connection alive on unmount", async () => {
@@ -251,7 +253,7 @@ describe("useConversation", () => {
     expect(result.current.activeToolCalls).toHaveLength(2);
   });
 
-  it("sends user messages through transport without optimistic local append", async () => {
+  it("sends user messages through transport without optimistic append when no session is active", async () => {
     const { __wsMock } = await getWsMock();
     const { result } = renderConversation("ws-1");
 
@@ -293,6 +295,7 @@ describe("useConversation", () => {
       type: "user_message",
       content: "run in target",
       sessionId: "sess-target",
+      clientMessageId: expect.any(String),
     });
   });
 
@@ -369,6 +372,286 @@ describe("useConversation", () => {
     expect(result.current.messages).toHaveLength(0);
     expect(result.current.isStreaming).toBe(false);
     expect(result.current.error).toContain("Message not sent");
+  });
+
+  describe("optimistic sends", () => {
+    it("appends the user message immediately with a sending state when a session is active", async () => {
+      const { __wsMock } = await getWsMock();
+      const { result } = renderConversation("ws-1");
+      await activateSession("ws-1", "sess-1");
+
+      act(() => {
+        expect(result.current.sendMessage("hello")).toBe(true);
+      });
+
+      expect(result.current.messages).toHaveLength(1);
+      const local = result.current.messages[0]!;
+      expect(local.role).toBe("user");
+      expect(local.content).toBe("hello");
+      expect(local.id.startsWith("local-")).toBe(true);
+      expect(result.current.sendStates[local.id]).toBe("sending");
+      expect(__wsMock.sendMock).toHaveBeenCalledWith("ws-1", {
+        type: "user_message",
+        content: "hello",
+        sessionId: "sess-1",
+        clientMessageId: local.id,
+      });
+    });
+
+    it("swaps the local message for the server echo and clears the send state", async () => {
+      const { __wsMock } = await getWsMock();
+      const { result } = renderConversation("ws-1");
+      await activateSession("ws-1", "sess-1");
+
+      act(() => {
+        result.current.sendMessage("hello");
+      });
+      const localId = result.current.messages[0]!.id;
+
+      act(() => {
+        __wsMock.emit("ws-1", {
+          type: "user_message",
+          message: {
+            id: "u1",
+            sessionId: "sess-1",
+            role: "user",
+            content: "hello",
+            timestamp: "2026-02-12T00:00:00.000Z",
+            clientMessageId: localId,
+          },
+        });
+      });
+
+      expect(result.current.messages).toHaveLength(1);
+      expect(result.current.messages[0]?.id).toBe("u1");
+      expect(result.current.sendStates[localId]).toBeUndefined();
+    });
+
+    it("resolves the exact local send by clientMessageId when two identical sends are pending", async () => {
+      const { __wsMock } = await getWsMock();
+      const { result } = renderConversation("ws-1");
+      await activateSession("ws-1", "sess-1");
+
+      act(() => {
+        result.current.sendMessage("continue");
+      });
+      act(() => {
+        result.current.sendMessage("continue");
+      });
+      expect(result.current.messages).toHaveLength(2);
+      const [firstLocalId, secondLocalId] = result.current.messages.map((m) => m.id);
+
+      act(() => {
+        __wsMock.emit("ws-1", {
+          type: "user_message",
+          message: {
+            id: "u1",
+            sessionId: "sess-1",
+            role: "user",
+            content: "continue",
+            timestamp: "2026-02-12T00:00:00.000Z",
+            clientMessageId: secondLocalId,
+          },
+        });
+      });
+
+      // Only the message the echo names by id resolves; the other stays pending.
+      expect(result.current.messages.map((m) => m.id)).toEqual([firstLocalId, "u1"]);
+      expect(result.current.sendStates[firstLocalId]).toBe("sending");
+      expect(result.current.sendStates[secondLocalId]).toBeUndefined();
+    });
+
+    it("keeps the message in the transcript as failed when the transport send fails", async () => {
+      const { __wsMock } = await getWsMock();
+      const { result } = renderConversation("ws-1");
+      await activateSession("ws-1", "sess-1");
+      __wsMock.sendMock.mockReturnValueOnce(false);
+
+      act(() => {
+        // The message is handled by the transcript (failed + retry), so the
+        // composer/queue must treat the send as consumed.
+        expect(result.current.sendMessage("hello")).toBe(true);
+      });
+
+      expect(result.current.messages).toHaveLength(1);
+      const local = result.current.messages[0]!;
+      expect(result.current.sendStates[local.id]).toBe("failed");
+      expect(result.current.error).toBeUndefined();
+    });
+
+    it("retries a failed send with its full payload and resolves on the echo", async () => {
+      const { __wsMock } = await getWsMock();
+      const { result } = renderConversation("ws-1");
+      await activateSession("ws-1", "sess-1");
+      __wsMock.sendMock.mockReturnValueOnce(false);
+
+      const images = [{ name: "shot.png", mediaType: "image/png", dataUrl: "data:image/png;base64,AAAA" }];
+      const fileMentions = [{ relativePath: "src/App.tsx", displayName: "App.tsx" }];
+      const options = { model: "opus", planMode: true };
+
+      act(() => {
+        result.current.sendMessage("", images, options, undefined, fileMentions);
+      });
+      const localId = result.current.messages[0]!.id;
+      expect(result.current.sendStates[localId]).toBe("failed");
+      expect(result.current.messages[0]!.images).toEqual(images);
+
+      __wsMock.sendMock.mockClear();
+      act(() => {
+        result.current.retrySend(localId);
+      });
+
+      expect(__wsMock.sendMock).toHaveBeenLastCalledWith("ws-1", {
+        type: "user_message",
+        content: "",
+        images,
+        fileMentions,
+        options,
+        sessionId: "sess-1",
+        clientMessageId: localId,
+      });
+      expect(result.current.sendStates[localId]).toBe("sending");
+
+      act(() => {
+        __wsMock.emit("ws-1", {
+          type: "user_message",
+          message: {
+            id: "u1",
+            sessionId: "sess-1",
+            role: "user",
+            content: "",
+            timestamp: "2026-02-12T00:00:00.000Z",
+            clientMessageId: localId,
+          },
+        });
+      });
+
+      expect(result.current.messages).toEqual([expect.objectContaining({ id: "u1" })]);
+      expect(result.current.sendStates[localId]).toBeUndefined();
+    });
+
+    it("stays failed when the retry send fails again", async () => {
+      const { __wsMock } = await getWsMock();
+      const { result } = renderConversation("ws-1");
+      await activateSession("ws-1", "sess-1");
+      __wsMock.sendMock.mockReturnValue(false);
+
+      act(() => {
+        result.current.sendMessage("hello");
+      });
+      const localId = result.current.messages[0]!.id;
+
+      act(() => {
+        result.current.retrySend(localId);
+      });
+
+      expect(result.current.sendStates[localId]).toBe("failed");
+      expect(result.current.messages).toHaveLength(1);
+      __wsMock.sendMock.mockReturnValue(true);
+    });
+
+    it("appends a non-matching echo without touching a pending send", async () => {
+      const { __wsMock } = await getWsMock();
+      const { result } = renderConversation("ws-1");
+      await activateSession("ws-1", "sess-1");
+
+      act(() => {
+        result.current.sendMessage("mine");
+      });
+      const localId = result.current.messages[0]!.id;
+
+      act(() => {
+        __wsMock.emit("ws-1", {
+          type: "user_message",
+          message: {
+            id: "u-other",
+            sessionId: "sess-1",
+            role: "user",
+            content: "mine",
+            timestamp: "2026-02-12T00:00:00.000Z",
+            clientMessageId: "other-client-id",
+          },
+        });
+      });
+
+      expect(result.current.messages).toHaveLength(2);
+      expect(result.current.sendStates[localId]).toBe("sending");
+    });
+
+    it("times out to unconfirmed (not failed) when no echo arrives within SEND_CONFIRM_TIMEOUT_MS", async () => {
+      const { result } = renderConversation("ws-1");
+      await activateSession("ws-1", "sess-1");
+
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      try {
+        act(() => {
+          expect(result.current.sendMessage("hello")).toBe(true);
+        });
+        const localId = result.current.messages[0]!.id;
+        expect(result.current.sendStates[localId]).toBe("sending");
+
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(SEND_CONFIRM_TIMEOUT_MS);
+        });
+
+        // Elapsed time alone is not proof of rejection: unconfirmed, not failed.
+        expect(result.current.sendStates[localId]).toBe("unconfirmed");
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("marks the exact bubble failed when a correlated backend rejection arrives", async () => {
+      const { __wsMock } = await getWsMock();
+      const { result } = renderConversation("ws-1");
+      await activateSession("ws-1", "sess-1");
+
+      act(() => {
+        result.current.sendMessage("hello");
+      });
+      const localId = result.current.messages[0]!.id;
+      expect(result.current.sendStates[localId]).toBe("sending");
+
+      act(() => {
+        __wsMock.emit("ws-1", {
+          type: "error",
+          message: "Session not found",
+          clientMessageId: localId,
+        });
+      });
+
+      expect(result.current.sendStates[localId]).toBe("failed");
+    });
+
+    it("retrySend is a no-op for an unconfirmed send (only failed sends may retry)", async () => {
+      const { __wsMock } = await getWsMock();
+      const { result } = renderConversation("ws-1");
+      await activateSession("ws-1", "sess-1");
+
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      try {
+        act(() => {
+          result.current.sendMessage("hello");
+        });
+        const localId = result.current.messages[0]!.id;
+
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(SEND_CONFIRM_TIMEOUT_MS);
+        });
+        expect(result.current.sendStates[localId]).toBe("unconfirmed");
+        __wsMock.sendMock.mockClear();
+
+        act(() => {
+          result.current.retrySend(localId);
+        });
+
+        // The guard rejects retry outright: no resend, state unchanged.
+        expect(__wsMock.sendMock).not.toHaveBeenCalled();
+        expect(result.current.sendStates[localId]).toBe("unconfirmed");
+      } finally {
+        vi.useRealTimers();
+      }
+    });
   });
 
   it("builds assistant message from stream deltas and done event", async () => {
@@ -1270,6 +1553,9 @@ describe("useConversation", () => {
 
     act(() => {
       result.current.sendMessage("hello");
+    });
+    const localId = result.current.messages[0]!.id;
+    act(() => {
       __wsMock.emit("ws-1", {
         type: "user_message",
         message: {
@@ -1278,6 +1564,7 @@ describe("useConversation", () => {
           role: "user",
           content: "hello",
           timestamp: "2026-02-12T00:00:00.000Z",
+          clientMessageId: localId,
         },
       });
     });

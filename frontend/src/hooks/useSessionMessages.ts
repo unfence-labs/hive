@@ -1,5 +1,10 @@
 import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { api } from "@/hooks/useApi";
+import {
+  getSendState,
+  resolveEchoedSend,
+  resolveOptimisticSend,
+} from "@/lib/optimistic-sends";
 import type { ChatMessage } from "@/types";
 
 /**
@@ -36,12 +41,32 @@ function mergeFetchedMessagesWithCachedUserEchoes(
   if (!cached?.length) return fetched;
 
   const fetchedIds = new Set(fetched.map((message) => message.id));
-  const missingUserMessages = cached.filter((message) =>
-    message.role === "user" &&
-    message.sessionId === sessionId &&
-    message.id &&
-    !fetchedIds.has(message.id)
+  const cachedIds = new Set(cached.map((message) => message.id));
+  const newServerUserMessages = fetched.filter(
+    (message) => message.role === "user" && !cachedIds.has(message.id),
   );
+  const confirmedByClientId = new Set(
+    newServerUserMessages
+      .map((message) => message.clientMessageId)
+      .filter((id): id is string => !!id),
+  );
+
+  const missingUserMessages: ChatMessage[] = [];
+  for (const message of cached) {
+    if (
+      message.role !== "user" ||
+      message.sessionId !== sessionId ||
+      !message.id ||
+      fetchedIds.has(message.id)
+    ) {
+      continue;
+    }
+    if (getSendState(message.id) !== undefined && confirmedByClientId.has(message.id)) {
+      resolveOptimisticSend(message.id);
+      continue;
+    }
+    missingUserMessages.push(message);
+  }
 
   return missingUserMessages.length > 0 ? [...fetched, ...missingUserMessages] : fetched;
 }
@@ -131,6 +156,31 @@ export function appendCachedSessionMessage(
     if (message.id && list.some((m) => m.id === message.id)) return list;
     return [...list, message];
   });
+}
+
+/**
+ * Swap an optimistic local user message for its server echo, in place. Returns
+ * true when a swap happened — the caller must then skip its own append.
+ */
+export function resolveCachedOptimisticEcho(
+  queryClient: QueryClient,
+  workspaceId: string | undefined,
+  sessionId: string | undefined,
+  serverMessage: ChatMessage,
+): boolean {
+  if (!workspaceId || !sessionId || serverMessage.role !== "user") return false;
+  const localId = resolveEchoedSend(sessionId, serverMessage);
+  if (!localId) return false;
+  resolveOptimisticSend(localId);
+  let swapped = false;
+  queryClient.setQueryData<ChatMessage[]>(sessionMessagesKey(workspaceId, sessionId), (prev) => {
+    const list = prev ?? [];
+    const idx = list.findIndex((message) => message.id === localId);
+    if (idx < 0) return list;
+    swapped = true;
+    return [...list.slice(0, idx), serverMessage, ...list.slice(idx + 1)];
+  });
+  return swapped;
 }
 
 /** Mark a session's messages stale so the authoritative server copy is refetched. */

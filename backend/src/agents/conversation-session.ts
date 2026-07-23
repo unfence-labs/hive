@@ -232,7 +232,7 @@ export interface ConversationSessionConfig {
 export type ConversationSessionEvent = {
   message: [msg: WsOutgoing];
   exit: [code: number];
-  error: [err: Error];
+  error: [err: Error, clientMessageId?: string];
   first_message: [content: string];
 };
 
@@ -427,7 +427,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
   /** Send a user message. Spawns a CLI process for this turn.
    *  When `cliContent` is provided, it is sent to the CLI instead of `content`
    *  while the displayed/persisted message remains `content`. */
-  sendMessage(content: string, msgOptions?: MessageOptions, images?: ImageAttachment[], cliContent?: string, fileMentions?: FileMention[]): void {
+  sendMessage(content: string, msgOptions?: MessageOptions, images?: ImageAttachment[], cliContent?: string, fileMentions?: FileMention[], clientMessageId?: string): void {
     // Terminal sessions host a shell PTY, not an agent. Never spawn a runner.
     // Defensive: the UI does not call this for terminal tabs.
     if (this.sessionKind === "terminal") {
@@ -459,7 +459,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
       this._streamingStartedAt = Date.now();
       this.stopReason = null;
       this._lastPlanMode = false;
-      this.emitUserMessage(content, undefined, fileMentions, true);
+      this.emitUserMessage(content, undefined, fileMentions, true, clientMessageId);
       this.startCodexGoalCommand(goalCommand, msgOptions, resolved);
       return;
     }
@@ -481,7 +481,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
           !this.testCommand &&
           resolved?.provider.id === "codex" &&
           isInteractiveSessionKind(this.sessionKind);
-        this.emitUserMessage(content, urlImages, fileMentions);
+        this.emitUserMessage(content, urlImages, fileMentions, undefined, clientMessageId);
         this.startAgentTurn(
           useNativeCodexImages ? promptContent : this.buildPromptWithImages(promptContent, imagePaths),
           msgOptions,
@@ -491,10 +491,10 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
       }).catch((err) => {
         this._status = "error";
         this._streamingStartedAt = null;
-        this.emit("error", err instanceof Error ? err : new Error(String(err)));
+        this.emit("error", err instanceof Error ? err : new Error(String(err)), clientMessageId);
       });
     } else {
-      this.emitUserMessage(content, undefined, fileMentions);
+      this.emitUserMessage(content, undefined, fileMentions, undefined, clientMessageId);
       this.startAgentTurn(promptContent, msgOptions, resolved);
     }
   }
@@ -504,6 +504,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
     images?: ImageAttachment[],
     fileMentions?: FileMention[],
     goalCommand?: boolean,
+    clientMessageId?: string,
   ): void {
     const userMsg: ChatMessage = {
       id: nanoid(12),
@@ -513,6 +514,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
       images: images?.length ? images : undefined,
       fileMentions: fileMentions?.length ? fileMentions : undefined,
       goalCommand: goalCommand || undefined,
+      clientMessageId,
       timestamp: new Date().toISOString(),
     };
     if (!this._metadata.title) {

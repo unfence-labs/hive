@@ -294,6 +294,8 @@ export interface ChatMessage {
   sessionId: string;
   role: "user" | "assistant";
   content: string;
+  /** Client-generated id of the optimistic send this message confirms, if any. */
+  clientMessageId?: string;
   images?: ImageAttachment[];
   fileMentions?: FileMention[];
   toolCalls?: ToolCall[];
@@ -478,7 +480,7 @@ export interface BrowserStatusPayload {
 /** Frontend -> Backend */
 export type WsIncoming =
   | { type: "switch_session"; sessionId: string }
-  | { type: "user_message"; content: string; images?: ImageAttachment[]; fileMentions?: FileMention[]; options?: MessageOptions; sessionId?: string }
+  | { type: "user_message"; content: string; images?: ImageAttachment[]; fileMentions?: FileMention[]; options?: MessageOptions; sessionId?: string; clientMessageId?: string }
   | { type: "stop"; sessionId?: string }
   | { type: "tool_input_response"; requestId: string; toolName: string; result: ToolInputResult; sessionId?: string }
   | { type: "request_stream_snapshots" };
@@ -518,7 +520,7 @@ export type WsOutgoing =
       contextWindowTokens?: number;
       pendingToolName?: string;
     }
-  | { type: "error"; message: string; sessionId?: string }
+  | { type: "error"; message: string; sessionId?: string; clientMessageId?: string }
   | { type: "cancelled"; sessionId: string; errorDetail?: string; userInitiated?: boolean; durationMs?: number }
   | { type: "status"; status: WorkspaceStatus; sessionId?: string; streaming?: boolean; streamingStartedAt?: number; lockedProvider?: string }
   | { type: "user_message"; message: ChatMessage }

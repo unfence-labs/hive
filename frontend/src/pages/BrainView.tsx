@@ -134,7 +134,9 @@ export default function BrainView() {
     connectionStatus,
     error,
     sessionId,
+    sendStates,
     sendMessage,
+    retrySend,
     stopStreaming,
     answerQuestion,
     batchAnswerQuestions,
@@ -390,6 +392,8 @@ export default function BrainView() {
               activeToolCalls={activeToolCalls}
               activeAgentActivities={activeAgentActivities}
               pendingToolInputs={pendingToolInputs}
+              sendStates={sendStates}
+              onRetrySend={retrySend}
               onQuestionAnswer={answerQuestion}
               onFileMentionClick={handleSelect}
               activeProvider={effectiveLockedProvider}

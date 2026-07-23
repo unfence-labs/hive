@@ -1,4 +1,4 @@
-import { memo, useState, type ReactNode } from "react";
+import { memo, useEffect, useState, type ReactNode } from "react";
 import type { ChatMessage as ChatMessageType, FileMention, QuestionAnswer } from "@/types";
 import { cn } from "@/lib/utils";
 import { formatElapsed } from "@/lib/time";
@@ -8,8 +8,9 @@ import { ThinkingBlock } from "@/components/chat/ThinkingBlock";
 import { AgentActivityList, getInlineAgentActivities } from "@/components/chat/AgentActivityList";
 import { CopyButton } from "@/components/chat/CopyButton";
 import { ImageLightbox } from "@/components/chat/ImageLightbox";
-import { FileIcon, TargetIcon } from "lucide-react";
+import { FileIcon, RotateCwIcon, TargetIcon } from "lucide-react";
 import type { PlanStatus } from "@/components/chat/PlanProposal";
+import type { SendState } from "@/lib/optimistic-sends";
 import { AT_MENTION_RE, splitByAllMentions } from "@/lib/file-mentions";
 
 function renderContentWithMentions(
@@ -53,6 +54,27 @@ function renderContentWithMentions(
   return <p className="whitespace-pre-wrap wrap-anywhere" data-find-content="">{segments}</p>;
 }
 
+/**
+ * Grace delay before showing "Sending…" under an optimistic user message.
+ * A healthy echo confirms in well under this, so the label only appears for
+ * genuinely slow/unconfirmed sends instead of flashing on every message.
+ */
+export const SENDING_INDICATOR_DELAY_MS = 2_000;
+
+/** True only when `sendState` has been "sending" for the grace delay. */
+function useShowSendingIndicator(sendState: SendState | undefined): boolean {
+  const [show, setShow] = useState(false);
+  useEffect(() => {
+    if (sendState !== "sending") {
+      setShow(false);
+      return;
+    }
+    const timer = setTimeout(() => setShow(true), SENDING_INDICATOR_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, [sendState]);
+  return show;
+}
+
 interface ChatMessageProps {
   message: ChatMessageType;
   isInteractive?: boolean;
@@ -60,6 +82,9 @@ interface ChatMessageProps {
   dismissedToolCallIds?: Set<string>;
   onQuestionAnswer?: (toolCallId: string, answers: QuestionAnswer[]) => void;
   onFileMentionClick?: (relativePath: string) => void;
+  /** Delivery state when this is an optimistically-appended user message. */
+  sendState?: SendState;
+  onRetrySend?: (messageId: string) => void;
 }
 
 const ChatMessage = memo(function ChatMessage({
@@ -69,9 +94,13 @@ const ChatMessage = memo(function ChatMessage({
   dismissedToolCallIds,
   onQuestionAnswer,
   onFileMentionClick,
+  sendState,
+  onRetrySend,
 }: ChatMessageProps) {
   const isUser = message.role === "user";
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
+  const showSendingIndicator = useShowSendingIndicator(sendState);
+  const hasDeliveryIssue = sendState === "failed" || sendState === "unconfirmed";
   const inlineAgentActivities = getInlineAgentActivities(message.agentActivities ?? []);
   const showAssistantActions = !isUser && (message.durationMs != null || Boolean(message.content));
 
@@ -133,6 +162,31 @@ const ChatMessage = memo(function ChatMessage({
                 <TargetIcon className="size-3" />
                 Sent with goal
               </span>
+            </div>
+          )}
+          {sendState === "sending" && showSendingIndicator && (
+            <span className="mt-1 text-[10px] text-muted-foreground" data-testid="send-state-sending">
+              Sending…
+            </span>
+          )}
+          {hasDeliveryIssue && (
+            <div
+              className="mt-1 flex items-center gap-2 text-[10px] font-medium"
+              data-testid={`send-state-${sendState}`}
+            >
+              <span className={sendState === "failed" ? "text-destructive" : "text-muted-foreground"}>
+                {sendState === "failed" ? "Not delivered" : "Delivery unconfirmed"}
+              </span>
+              {sendState === "failed" && onRetrySend && (
+                <button
+                  type="button"
+                  onClick={() => onRetrySend(message.id)}
+                  className="inline-flex items-center gap-1 text-destructive hover:underline"
+                >
+                  <RotateCwIcon className="size-3" />
+                  Retry
+                </button>
+              )}
             </div>
           )}
         </div>

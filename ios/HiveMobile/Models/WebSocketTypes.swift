@@ -81,7 +81,7 @@ enum ToolInputResult: Encodable {
 
 enum WsIncoming: Encodable {
     case switchSession(sessionId: String)
-    case userMessage(content: String, images: [ImageAttachment]?, fileMentions: [FileMention]?, options: MessageOptions?, sessionId: String?)
+    case userMessage(content: String, images: [ImageAttachment]?, fileMentions: [FileMention]?, options: MessageOptions?, sessionId: String?, clientMessageId: String?)
     case stop(sessionId: String?)
     case toolInputResponse(requestId: String, toolName: String, result: ToolInputResult, sessionId: String?)
     /// Ask the backend to replay live status + full snapshot for every currently
@@ -96,13 +96,14 @@ enum WsIncoming: Encodable {
         case .switchSession(let sessionId):
             try container.encode("switch_session", forKey: .type)
             try container.encode(sessionId, forKey: .sessionId)
-        case .userMessage(let content, let images, let fileMentions, let options, let sessionId):
+        case .userMessage(let content, let images, let fileMentions, let options, let sessionId, let clientMessageId):
             try container.encode("user_message", forKey: .type)
             try container.encode(content, forKey: .content)
             try container.encodeIfPresent(images, forKey: .images)
             try container.encodeIfPresent(fileMentions, forKey: .fileMentions)
             try container.encodeIfPresent(options, forKey: .options)
             try container.encodeIfPresent(sessionId, forKey: .sessionId)
+            try container.encodeIfPresent(clientMessageId, forKey: .clientMessageId)
         case .stop(let sessionId):
             try container.encode("stop", forKey: .type)
             try container.encodeIfPresent(sessionId, forKey: .sessionId)
@@ -119,6 +120,7 @@ enum WsIncoming: Encodable {
 
     private enum CodingKeys: String, CodingKey {
         case type, sessionId, content, images, fileMentions, options, requestId, toolName, result
+        case clientMessageId
     }
 }
 
@@ -136,7 +138,7 @@ enum WsOutgoing: Decodable {
     case toolInputRequired(sessionId: String, requestId: String, toolName: String, toolUseId: String, input: String)
     case toolInputResolved(sessionId: String)
     case done(sessionId: String, durationMs: Int?, inputTokens: Int?, outputTokens: Int?, contextUsedTokens: Int?, contextWindowTokens: Int?, pendingToolName: String?)
-    case error(message: String, sessionId: String?)
+    case error(message: String, sessionId: String?, clientMessageId: String?)
     case cancelled(sessionId: String, errorDetail: String?, userInitiated: Bool?, durationMs: Int?)
     case status(status: WorkspaceStatus, sessionId: String?, streaming: Bool?, streamingStartedAt: Double?, lockedProvider: String?)
     case userMessage(message: ChatMessage)
@@ -159,6 +161,7 @@ enum WsOutgoing: Decodable {
         case messages, info, stats
         case scriptType, state, exitCode
         case active
+        case clientMessageId
     }
 
     init(from decoder: Decoder) throws {
@@ -279,7 +282,8 @@ enum WsOutgoing: Decodable {
         case "error":
             self = .error(
                 message: try container.decode(String.self, forKey: .message),
-                sessionId: try container.decodeIfPresent(String.self, forKey: .sessionId)
+                sessionId: try container.decodeIfPresent(String.self, forKey: .sessionId),
+                clientMessageId: try container.decodeIfPresent(String.self, forKey: .clientMessageId)
             )
         case "cancelled":
             let cancelledSid = try container.decode(String.self, forKey: .sessionId)

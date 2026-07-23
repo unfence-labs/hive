@@ -172,7 +172,9 @@ export default function WorkspaceView() {
     connectionStatus,
     error,
     sessionId,
+    sendStates,
     sendMessage,
+    retrySend,
     stopStreaming,
     switchSession,
     answerQuestion,
@@ -506,6 +508,8 @@ export default function WorkspaceView() {
             activeToolCalls={activeToolCalls}
             activeAgentActivities={activeAgentActivities}
             pendingToolInputs={pendingToolInputs}
+            sendStates={sendStates}
+            onRetrySend={retrySend}
             onQuestionAnswer={answerQuestion}
             onFileMentionClick={handleFileTreeSelect}
             activeProvider={effectiveLockedProvider}

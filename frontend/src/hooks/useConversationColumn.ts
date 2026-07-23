@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { api } from "@/hooks/useApi";
-import { prefetchSessionMessages } from "@/hooks/useSessionMessages";
+import { prefetchSessionMessages, removeCachedSessionMessages } from "@/hooks/useSessionMessages";
 import { useConversation } from "@/hooks/useConversation";
 import { useSessions } from "@/hooks/useSessions";
 import { useTabs, type UseTabsReturn } from "@/hooks/useTabs";
@@ -9,6 +9,7 @@ import { useTasks, type TasksState } from "@/hooks/useTasks";
 import { useBackgroundAgents, type BackgroundAgentsState } from "@/hooks/useBackgroundAgents";
 import { useGoalState, type GoalState } from "@/hooks/useGoalState";
 import { useAppCommand } from "@/hooks/useAppCommand";
+import { clearTrackedSends } from "@/lib/optimistic-sends";
 import { tabId, type QueuedMessage, type SessionMetadata } from "@/types";
 
 type ConversationApi = ReturnType<typeof useConversation>;
@@ -277,6 +278,12 @@ export function useConversationColumn(
       const isActive = targetSessionId === sessionId;
       const success = await deleteSession(targetSessionId);
       if (!success) return;
+
+      clearTrackedSends(targetSessionId);
+      if (wsId) {
+        removeCachedSessionMessages(queryClient, wsId, targetSessionId);
+      }
+
       if (!isActive) return;
 
       const next = sessions.find((s) => s.sessionId !== targetSessionId);
@@ -287,7 +294,7 @@ export function useConversationColumn(
         onLastSessionDeleted?.();
       }
     },
-    [deleteSession, sessionId, sessions, handleActivateSession, clearChat, onLastSessionDeleted],
+    [deleteSession, sessionId, sessions, handleActivateSession, clearChat, onLastSessionDeleted, wsId, queryClient],
   );
 
   const handleStartTerminal = useCallback(async () => {

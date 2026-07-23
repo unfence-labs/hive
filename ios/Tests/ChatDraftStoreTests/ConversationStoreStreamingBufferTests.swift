@@ -133,7 +133,7 @@ struct ConversationStoreStreamingBufferTests {
         ))
 
         store.handle(.textDelta(sessionId: "session-1", text: "partial tail"))
-        store.handle(.error(message: "boom", sessionId: "session-1"))
+        store.handle(.error(message: "boom", sessionId: "session-1", clientMessageId: nil))
 
         #expect(store.currentText == "partial tail")
         #expect(store.messages.last?.content == "Error: boom")

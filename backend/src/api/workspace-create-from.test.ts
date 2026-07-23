@@ -41,6 +41,25 @@ async function createFromSource(source: unknown) {
   });
 }
 
+async function createCommit(message: string, repoDir: string): Promise<string> {
+  const { stdout } = await git(
+    [
+      "-c",
+      "user.email=test@hive.dev",
+      "-c",
+      "user.name=Hive Test",
+      "commit-tree",
+      "HEAD^{tree}",
+      "-p",
+      "HEAD",
+      "-m",
+      message,
+    ],
+    repoDir,
+  );
+  return stdout.trim();
+}
+
 beforeEach(async () => {
   vi.mocked(fetchPrDetail).mockReset();
   vi.mocked(fetchIssueDetail).mockReset();
@@ -183,11 +202,8 @@ describe("POST /api/projects/:id/workspaces with source kind 'pr'", () => {
     // Fork's PR head must be a strict descendant of main: if it were the same
     // sha as main, the old buggy fast-forward would write an identical value
     // and the assertions below would pass vacuously either way.
-    const { stdout: prHeadSha } = await git(
-      ["commit-tree", "HEAD^{tree}", "-p", "HEAD", "-m", "fork commit on top of main"],
-      fixtureRepoUrl,
-    );
-    await git(["update-ref", "refs/pull/9/head", prHeadSha.trim()], fixtureRepoUrl);
+    const prHeadSha = await createCommit("fork commit on top of main", fixtureRepoUrl);
+    await git(["update-ref", "refs/pull/9/head", prHeadSha], fixtureRepoUrl);
     vi.mocked(fetchPrDetail).mockResolvedValue({
       number: 9,
       title: "Fork reuses main",
@@ -207,7 +223,7 @@ describe("POST /api/projects/:id/workspaces with source kind 'pr'", () => {
 
     const wsPath = join(dataDir, projectId, "workspaces", ws.name);
     const { stdout: wsHeadSha } = await git(["rev-parse", "HEAD"], wsPath);
-    expect(wsHeadSha).toBe(prHeadSha.trim());
+    expect(wsHeadSha).toBe(prHeadSha);
   });
 
   it("deletes the pr/<n> branch when the workspace is deleted", async () => {
@@ -241,11 +257,8 @@ describe("POST /api/projects/:id/workspaces with source kind 'pr'", () => {
     // Stale branch at main; the PR head moved one commit ahead of it.
     const { stdout: mainSha } = await git(["rev-parse", "refs/heads/main"], bare);
     await git(["branch", "pr/21", mainSha], bare);
-    const { stdout: prHeadSha } = await git(
-      ["commit-tree", "HEAD^{tree}", "-p", "HEAD", "-m", "newer fork commit"],
-      fixtureRepoUrl,
-    );
-    await git(["update-ref", "refs/pull/21/head", prHeadSha.trim()], fixtureRepoUrl);
+    const prHeadSha = await createCommit("newer fork commit", fixtureRepoUrl);
+    await git(["update-ref", "refs/pull/21/head", prHeadSha], fixtureRepoUrl);
     vi.mocked(fetchPrDetail).mockResolvedValue({
       number: 21,
       title: "Fork contribution",
@@ -259,18 +272,15 @@ describe("POST /api/projects/:id/workspaces with source kind 'pr'", () => {
     expect(res.statusCode).toBe(201);
     const wsPath = join(dataDir, projectId, "workspaces", res.json().name);
     const { stdout: headSha } = await git(["rev-parse", "HEAD"], wsPath);
-    expect(headSha).toBe(prHeadSha.trim());
+    expect(headSha).toBe(prHeadSha);
   });
 
   it("refuses to delete a stale pr/<n> branch holding commits not on the PR head", async () => {
     await setProjectGitHubUrl();
     const bare = join(dataDir, projectId, "repo.git");
     // Local pr/22 has a commit (e.g. archived workspace work) unknown to the PR.
-    const { stdout: localSha } = await git(
-      ["commit-tree", "HEAD^{tree}", "-p", "HEAD", "-m", "archived local work"],
-      bare,
-    );
-    await git(["branch", "pr/22", localSha.trim()], bare);
+    const localSha = await createCommit("archived local work", bare);
+    await git(["branch", "pr/22", localSha], bare);
     const { stdout: prHeadSha } = await git(["rev-parse", "main"], fixtureRepoUrl);
     await git(["update-ref", "refs/pull/22/head", prHeadSha], fixtureRepoUrl);
     vi.mocked(fetchPrDetail).mockResolvedValue({
@@ -288,7 +298,7 @@ describe("POST /api/projects/:id/workspaces with source kind 'pr'", () => {
 
     // The stale branch and its commits are untouched.
     const { stdout: after } = await git(["rev-parse", "refs/heads/pr/22"], bare);
-    expect(after).toBe(localSha.trim());
+    expect(after).toBe(localSha);
   });
 
   it("returns 400 when the project has no GitHub remote", async () => {
