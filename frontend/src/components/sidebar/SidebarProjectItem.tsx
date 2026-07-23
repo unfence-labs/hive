@@ -7,6 +7,7 @@ import { SidebarWorkspaceItem } from "@/components/sidebar/SidebarWorkspaceItem"
 import { ActivityWave } from "@/components/ui/activity-wave";
 import { ProjectAvatar } from "@/components/ProjectAvatar";
 import { cn } from "@/lib/utils";
+import { shortcutLabel } from "@/lib/shortcuts";
 import type { WorkspaceLiveData } from "@/hooks/useWorkspaceLiveData";
 import { aggregateScriptRunning, aggregateWorkspaceActivity } from "@/lib/workspace-activity";
 import type { PrStatusResponse, Project } from "@/types";
@@ -108,6 +109,8 @@ export function SidebarProjectItem({
           isLoading={creatingProjectId === project.id}
           onAdd={() => { onAddWorkspace(project.id); }}
           addLabel={`Add workspace to ${displayLabelPlain}`}
+          addTooltipLabel="New workspace"
+          addShortcut={shortcutLabel("N")}
           addMenu={
             onAddWorkspaceFrom ? (
               <>

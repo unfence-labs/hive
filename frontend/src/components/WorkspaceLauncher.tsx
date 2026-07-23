@@ -87,6 +87,9 @@ export default function WorkspaceLauncher({
       case "new-workspace-from":
         onPickerOpenChange(true);
         return;
+      case "toggle-sidebar":
+        dispatchAppCommand("toggle-sidebar");
+        return;
       case "settings":
         if (!location.pathname.startsWith("/settings")) {
           navigate("/settings/appearance", { state: { from: location.pathname } });

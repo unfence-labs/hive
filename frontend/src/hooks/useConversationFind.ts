@@ -231,6 +231,7 @@ export function useConversationFind({
     else openAndFocus();
   }, [prev, openAndFocus]);
 
+  useAppCommand("find-in-conversation", openAndFocus);
   useAppCommand("find-next", findNext);
   useAppCommand("find-previous", findPrevious);
 

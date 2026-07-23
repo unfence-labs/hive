@@ -6,9 +6,11 @@ import {
   FileSearch,
   GitBranch,
   MessageSquarePlus,
+  PanelLeft,
   Plus,
   RotateCcw,
   Search,
+  TextSearch,
   Settings,
   ZoomIn,
   ZoomOut,
@@ -46,8 +48,10 @@ export type CommandPaletteAction =
   | "next-tab"
   | "new-chat"
   | "quick-open-file"
+  | "find-in-conversation"
   | "find-next"
-  | "find-previous";
+  | "find-previous"
+  | "toggle-sidebar";
 
 /** ⌘K spotlight for global, navigation, workspace, and conversation actions. */
 export function WorkspaceCommandPalette({
@@ -128,6 +132,14 @@ export function WorkspaceCommandPalette({
           </CommandItem>
           <CommandItem
             disabled={!workspaceCommandsEnabled}
+            onSelect={() => run("find-in-conversation")}
+          >
+            <TextSearch />
+            Find in conversation
+            <CommandShortcut>{shortcutLabel("F")}</CommandShortcut>
+          </CommandItem>
+          <CommandItem
+            disabled={!workspaceCommandsEnabled}
             onSelect={() => run("find-next")}
           >
             <Search />
@@ -156,6 +168,11 @@ export function WorkspaceCommandPalette({
           </CommandItem>
         </CommandGroup>
         <CommandGroup heading="Application">
+          <CommandItem onSelect={() => run("toggle-sidebar")}>
+            <PanelLeft />
+            Toggle sidebar
+            <CommandShortcut>{shortcutLabel("B")}</CommandShortcut>
+          </CommandItem>
           <CommandItem onSelect={() => run("settings")}>
             <Settings />
             Settings

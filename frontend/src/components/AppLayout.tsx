@@ -5,6 +5,7 @@ import Sidebar from "./Sidebar";
 import SettingsSidebar from "./SettingsSidebar";
 import { ResizeHandle } from "./ResizeHandle";
 import { useConnectionStatus } from "@/hooks/useConnectionStatus";
+import { useAppCommand } from "@/hooks/useAppCommand";
 import { cn } from "@/lib/utils";
 
 /**
@@ -103,6 +104,8 @@ export default function AppLayout({ onAddProject, onAddAutomation, onNewWorkspac
       panel.collapse();
     }
   }, [sidebarPanelRef]);
+
+  useAppCommand("toggle-sidebar", toggleSidebar);
 
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {

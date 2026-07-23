@@ -1,6 +1,7 @@
 import { Loader2, Plus } from "lucide-react";
 import { CollapsibleTrigger } from "@/components/ui/collapsible";
 import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from "@/components/ui/context-menu";
+import { ShortcutTooltip } from "@/components/ShortcutTooltip";
 import { cn } from "@/lib/utils";
 
 interface SidebarGroupHeaderProps {
@@ -12,6 +13,10 @@ interface SidebarGroupHeaderProps {
   isLoading?: boolean;
   onAdd?: (e: React.MouseEvent) => void;
   addLabel?: string;
+  /** Short label for the hover tooltip; falls back to addLabel. */
+  addTooltipLabel?: string;
+  /** Keyboard shortcut shown in the add button's hover tooltip. */
+  addShortcut?: string;
   /** Context-menu items shown on right-click of the add button. */
   addMenu?: React.ReactNode;
   variant?: "default" | "plain";
@@ -28,6 +33,8 @@ export function SidebarGroupHeader({
   isLoading,
   onAdd,
   addLabel,
+  addTooltipLabel,
+  addShortcut,
   addMenu,
   variant = "default",
   buttonClassName,
@@ -100,17 +107,29 @@ export function SidebarGroupHeader({
                         onAdd(e);
                       }}
                       aria-label={addLabel}
-                      title={addLabel}
+                      title={addShortcut ? undefined : addLabel}
                     >
                       <Plus className="h-4 w-4" />
                     </button>
                   );
+                  // Tooltip sits between the context-menu root and its trigger:
+                  // both Radix triggers use asChild, so their props merge down
+                  // onto the same button element.
+                  const trigger = addMenu ? (
+                    <ContextMenuTrigger asChild>{addButton}</ContextMenuTrigger>
+                  ) : addButton;
+                  const tooltipLabel = addTooltipLabel ?? addLabel;
+                  const tooltipped = addShortcut && tooltipLabel ? (
+                    <ShortcutTooltip label={tooltipLabel} shortcut={addShortcut}>
+                      {trigger}
+                    </ShortcutTooltip>
+                  ) : trigger;
                   return addMenu ? (
                     <ContextMenu>
-                      <ContextMenuTrigger asChild>{addButton}</ContextMenuTrigger>
+                      {tooltipped}
                       <ContextMenuContent>{addMenu}</ContextMenuContent>
                     </ContextMenu>
-                  ) : addButton;
+                  ) : tooltipped;
                 })()}
               </>
             )}

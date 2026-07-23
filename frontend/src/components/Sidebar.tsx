@@ -533,30 +533,28 @@ export default function Sidebar({ onAddProject, onAddAutomation, onNewWorkspaceF
   };
 
   const footerActions = (
-    <TooltipProvider>
-      <div className="flex items-center justify-end gap-1 px-2 py-1.5">
-        <ShortcutTooltip label="Commands" shortcut={shortcutLabel("K")}>
-          <button
-            type="button"
-            onClick={() => dispatchAppCommand("open-spotlight")}
-            className="shrink-0 rounded p-1 text-muted-foreground transition-colors hover:text-sidebar-foreground"
-            aria-label="Commands"
-          >
-            <Search className="h-4 w-4" />
-          </button>
-        </ShortcutTooltip>
-        <ShortcutTooltip label="Settings" shortcut={shortcutLabel(",")}>
-          <Link
-            to="/settings"
-            state={{ from: pathname }}
-            className="shrink-0 rounded p-1 text-muted-foreground transition-colors hover:text-sidebar-foreground"
-            aria-label="Settings"
-          >
-            <Settings className="h-4 w-4" />
-          </Link>
-        </ShortcutTooltip>
-      </div>
-    </TooltipProvider>
+    <div className="flex items-center justify-end gap-1 px-2 py-1.5">
+      <ShortcutTooltip label="Commands" shortcut={shortcutLabel("K")}>
+        <button
+          type="button"
+          onClick={() => dispatchAppCommand("open-spotlight")}
+          className="shrink-0 rounded p-1 text-muted-foreground transition-colors hover:text-sidebar-foreground"
+          aria-label="Commands"
+        >
+          <Search className="h-4 w-4" />
+        </button>
+      </ShortcutTooltip>
+      <ShortcutTooltip label="Settings" shortcut={shortcutLabel(",")}>
+        <Link
+          to="/settings"
+          state={{ from: pathname }}
+          className="shrink-0 rounded p-1 text-muted-foreground transition-colors hover:text-sidebar-foreground"
+          aria-label="Settings"
+        >
+          <Settings className="h-4 w-4" />
+        </Link>
+      </ShortcutTooltip>
+    </div>
   );
 
   const brainActivity = workspaceActivityState(liveData[BRAIN_WORKSPACE_ID]);
