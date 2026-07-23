@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
 import { collectMatches, stepIndex, clampIndex } from "@/lib/conversation-find";
+import { useAppCommand } from "@/hooks/useAppCommand";
 
 const FIND_HIGHLIGHT = "conversation-find";
 const FIND_ACTIVE_HIGHLIGHT = "conversation-find-active";
@@ -204,6 +205,36 @@ export function useConversationFind({
     clearHighlights();
   }, [clearHighlights]);
 
+  const openAndFocus = useCallback(() => {
+    if (!scrollRef.current) return;
+    const wasOpen = openRef.current;
+    setOpen(true);
+    if (!wasOpen) {
+      const selection = window.getSelection()?.toString() ?? "";
+      if (selection && selection.length <= MAX_PREFILL_LENGTH && !selection.includes("\n")) {
+        setQueryState(selection);
+      }
+    }
+    requestAnimationFrame(() => {
+      inputRef.current?.focus();
+      inputRef.current?.select();
+    });
+  }, [scrollRef]);
+
+  const findNext = useCallback(() => {
+    if (openRef.current) next();
+    else openAndFocus();
+  }, [next, openAndFocus]);
+
+  const findPrevious = useCallback(() => {
+    if (openRef.current) prev();
+    else openAndFocus();
+  }, [prev, openAndFocus]);
+
+  useAppCommand("find-in-conversation", openAndFocus);
+  useAppCommand("find-next", findNext);
+  useAppCommand("find-previous", findPrevious);
+
   // Re-index (debounced) whenever the query changes while the bar is open.
   useEffect(() => {
     queryRef.current = query;
@@ -235,23 +266,11 @@ export function useConversationFind({
       if (e.key !== "f" && e.key !== "F") return;
       if (!scrollRef.current) return;
       e.preventDefault();
-
-      const wasOpen = openRef.current;
-      setOpen(true);
-      if (!wasOpen) {
-        const selection = window.getSelection()?.toString() ?? "";
-        if (selection && selection.length <= MAX_PREFILL_LENGTH && !selection.includes("\n")) {
-          setQueryState(selection);
-        }
-      }
-      requestAnimationFrame(() => {
-        inputRef.current?.focus();
-        inputRef.current?.select();
-      });
+      openAndFocus();
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [scrollRef]);
+  }, [openAndFocus, scrollRef]);
 
   // Conversation/session switch: reset everything.
   useEffect(() => {

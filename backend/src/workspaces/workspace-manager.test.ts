@@ -16,6 +16,7 @@ import {
   mergeWorkspace,
 } from "./workspace-manager.js";
 import { git } from "../utils/git.js";
+import { _resetDefaultBranchRefreshCache } from "../utils/git-default-branch.js";
 import { loadProject, saveProject } from "../state/state.js";
 import * as stateStore from "../state/state.js";
 import { saveProjectEnv } from "../state/project-env.js";
@@ -39,6 +40,8 @@ async function pushRemoteMainFile(
   await git(["add", "."], pushClone);
   await git(["commit", "-m", `add ${fileName}`], pushClone);
   await git(["push", "origin", "main"], pushClone);
+  // The remote moved: drop the refresh TTL so the next refresh refetches.
+  _resetDefaultBranchRefreshCache();
 }
 
 beforeEach(async () => {

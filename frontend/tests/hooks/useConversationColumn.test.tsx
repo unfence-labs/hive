@@ -6,6 +6,7 @@ import { useConversationColumn } from "@/hooks/useConversationColumn";
 import { _resetSnapshotCache } from "@/hooks/useTabs";
 import * as sessionMessages from "@/hooks/useSessionMessages";
 import type { QueuedMessage } from "@/types";
+import { dispatchAppCommand } from "@/lib/app-commands";
 
 const mocks = vi.hoisted(() => ({
   useConversation: vi.fn(),
@@ -105,7 +106,22 @@ describe("useConversationColumn — session handlers", () => {
       await result.current.handleCreateSession();
     });
     expect(createSession).toHaveBeenCalledTimes(1);
-    expect(conversation.switchSession).toHaveBeenCalledWith("s3");
+    expect(conversation.switchSession).toHaveBeenCalledWith("s3", {
+      preserveComposer: false,
+    });
+  });
+
+  it("preserves the composer when creating the first explicit session", async () => {
+    conversation = makeConversation({ sessionId: undefined });
+    const { result } = renderColumn("ws1");
+
+    await act(async () => {
+      await result.current.handleCreateSession();
+    });
+
+    expect(conversation.switchSession).toHaveBeenCalledWith("s3", {
+      preserveComposer: true,
+    });
   });
 
   it("handleActivateSession activates the tab, switches, and runs onActivateSession", () => {
@@ -124,6 +140,30 @@ describe("useConversationColumn — session handlers", () => {
     act(() => result.current.handleActivateSession("s1")); // s1 is active
     expect(conversation.switchSession).not.toHaveBeenCalled();
     expect(onActivateSession).not.toHaveBeenCalled();
+  });
+
+  it("cycles conversation tabs from app commands", () => {
+    const { rerender } = renderColumn("ws1");
+    const switchSession = conversation.switchSession as ReturnType<typeof vi.fn>;
+
+    act(() => dispatchAppCommand("next-tab"));
+    expect(switchSession).toHaveBeenLastCalledWith("s2");
+
+    conversation = makeConversation({ sessionId: "s2", switchSession });
+    rerender();
+    act(() => dispatchAppCommand("previous-tab"));
+    expect(switchSession).toHaveBeenLastCalledWith("s1");
+  });
+
+  it("creates a conversation from the app command", async () => {
+    renderColumn("ws1");
+
+    await act(async () => dispatchAppCommand("new-chat"));
+
+    expect(createSession).toHaveBeenCalledTimes(1);
+    expect(conversation.switchSession).toHaveBeenCalledWith("s3", {
+      preserveComposer: false,
+    });
   });
 
   it("handleDeleteSession on a non-last active session activates the next one", async () => {

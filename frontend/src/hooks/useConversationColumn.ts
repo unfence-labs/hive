@@ -8,7 +8,8 @@ import { useTabs, type UseTabsReturn } from "@/hooks/useTabs";
 import { useTasks, type TasksState } from "@/hooks/useTasks";
 import { useBackgroundAgents, type BackgroundAgentsState } from "@/hooks/useBackgroundAgents";
 import { useGoalState, type GoalState } from "@/hooks/useGoalState";
-import type { QueuedMessage, SessionMetadata } from "@/types";
+import { useAppCommand } from "@/hooks/useAppCommand";
+import { tabId, type QueuedMessage, type SessionMetadata } from "@/types";
 
 type ConversationApi = ReturnType<typeof useConversation>;
 
@@ -221,8 +222,10 @@ export function useConversationColumn(
 
   const handleCreateSession = useCallback(async () => {
     const meta = await createSession();
-    if (meta) switchSession(meta.sessionId);
-  }, [createSession, switchSession]);
+    if (!meta) return;
+    // Creating the FIRST session adopts the composer already on screen.
+    switchSession(meta.sessionId, { preserveComposer: !sessionId });
+  }, [createSession, sessionId, switchSession]);
 
   const handleActivateSession = useCallback(
     (targetSessionId: string) => {
@@ -233,6 +236,41 @@ export function useConversationColumn(
     },
     [activateTab, sessionId, switchSession, onActivateSession],
   );
+
+  const activateRelativeTab = useCallback((offset: -1 | 1) => {
+    const tabIds = [
+      ...(tabs.openFile ? [tabId({ type: "file", path: tabs.openFile })] : []),
+      ...sessions.map((session) => tabId({ type: "session", sessionId: session.sessionId })),
+    ];
+    if (tabIds.length < 2) return;
+
+    const activeId = tabs.isFileTabActive && tabs.openFile
+      ? tabId({ type: "file", path: tabs.openFile })
+      : sessionId
+        ? tabId({ type: "session", sessionId })
+        : undefined;
+    const activeIndex = activeId ? tabIds.indexOf(activeId) : -1;
+    const nextIndex = activeIndex < 0
+      ? offset === 1 ? 0 : tabIds.length - 1
+      : (activeIndex + offset + tabIds.length) % tabIds.length;
+    const nextId = tabIds[nextIndex];
+
+    if (nextId.startsWith("file:")) {
+      activateTab(nextId);
+    } else {
+      handleActivateSession(nextId.slice("session:".length));
+    }
+  }, [activateTab, handleActivateSession, sessionId, sessions, tabs.isFileTabActive, tabs.openFile]);
+
+  const activatePreviousTab = useCallback(() => activateRelativeTab(-1), [activateRelativeTab]);
+  const activateNextTab = useCallback(() => activateRelativeTab(1), [activateRelativeTab]);
+  const createChatFromCommand = useCallback(() => {
+    void handleCreateSession();
+  }, [handleCreateSession]);
+
+  useAppCommand("previous-tab", activatePreviousTab);
+  useAppCommand("next-tab", activateNextTab);
+  useAppCommand("new-chat", createChatFromCommand);
 
   const handleDeleteSession = useCallback(
     async (targetSessionId: string) => {

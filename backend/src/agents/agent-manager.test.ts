@@ -123,6 +123,14 @@ describe("getDefaultSessionId", () => {
     expect(await getDefaultSessionId(wsId, dataDir)).toBeUndefined();
   });
 
+  it("returns an empty session that owns a pending draft prompt", async () => {
+    await writeSessionFixture("draft-session", wsId, {
+      metadata: { messageCount: 0, draftPrompt: "Fix issue #42" },
+    });
+
+    expect(await getDefaultSessionId(wsId, dataDir)).toBe("draft-session");
+  });
+
   it("skips a newer empty session and opens the most-recent non-empty chat", async () => {
     await writeSessionFixture("empty-new", wsId, {
       metadata: { messageCount: 0, updatedAt: "2026-02-20T00:00:00.000Z" },
@@ -187,6 +195,25 @@ describe("getOrCreateSession", () => {
 
   it("throws for non-existent workspace", async () => {
     await expect(getOrCreateSession("nonexistent", dataDir, CONV_CMD)).rejects.toThrow("not found");
+  });
+
+  it("moves a pending draftPrompt into the new session", async () => {
+    const state = await loadProject(projectId, dataDir);
+    const ws = state!.workspaces.find((w) => w.id === wsId)!;
+    ws.draftPrompt = "Fix the bug in #42";
+    await saveProject(state!, dataDir);
+
+    const { session } = await getOrCreateSession(wsId, dataDir, CONV_CMD);
+
+    const after = await loadProject(projectId, dataDir);
+    const afterWs = after!.workspaces.find((w) => w.id === wsId);
+    expect(afterWs!.draftPrompt).toBeUndefined();
+    expect(session.metadata.draftPrompt).toBe("Fix the bug in #42");
+
+    const persisted = JSON.parse(
+      await readFile(join(dataDir, projectId, "sessions", session.sessionId, "metadata.json"), "utf-8"),
+    ) as SessionMetadata;
+    expect(persisted.draftPrompt).toBe("Fix the bug in #42");
   });
 
   it("recovers stale busy workspace state and creates a new session", async () => {
@@ -407,6 +434,19 @@ describe("endSession", () => {
     const ws = state!.workspaces.find((w) => w.id === wsId);
     expect(ws!.status).toBe("idle");
   });
+
+  it("leaves a draftPrompt untouched for an idle-only persist without a session", async () => {
+    const state = await loadProject(projectId, dataDir);
+    const ws = state!.workspaces.find((w) => w.id === wsId)!;
+    ws.draftPrompt = "Fix the bug in #42";
+    await saveProject(state!, dataDir);
+
+    await endSession(wsId, dataDir);
+
+    const after = await loadProject(projectId, dataDir);
+    const afterWs = after!.workspaces.find((w) => w.id === wsId);
+    expect(afterWs!.draftPrompt).toBe("Fix the bug in #42");
+  });
 });
 
 describe("getSessionMetadata", () => {
@@ -516,6 +556,18 @@ describe("createNewSession", () => {
 });
 
 describe("terminal sessions", () => {
+  it("does not consume a workspace draft prompt", async () => {
+    const state = await loadProject(projectId, dataDir);
+    state!.workspaces.find((w) => w.id === wsId)!.draftPrompt = "Fix issue #42";
+    await saveProject(state!, dataDir);
+
+    const session = await createNewSession(wsId, dataDir, CONV_CMD, "terminal");
+
+    expect(session.metadata.draftPrompt).toBeUndefined();
+    const after = await loadProject(projectId, dataDir);
+    expect(after!.workspaces.find((w) => w.id === wsId)!.draftPrompt).toBe("Fix issue #42");
+  });
+
   it("excludes terminal sessions from the conversation cap", async () => {
     // Fill the cap with chat sessions.
     await getOrCreateSession(wsId, dataDir, CONV_CMD);

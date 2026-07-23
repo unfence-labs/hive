@@ -12,7 +12,7 @@ import { extractSummary, extractPreview } from "../utils/summary-extractor.js";
 import { withKeyedLock } from "../utils/async-lock.js";
 import { parseJsonlMessages, sortByUpdatedAtDesc } from "./session-utils.js";
 import { removeTerminal } from "../services/terminal-runner.js";
-import type { ChatMessage, SessionKind, SessionMetadata } from "../types.js";
+import type { ChatMessage, SessionKind, SessionMetadata, WorkspaceSource } from "../types.js";
 import { Notifier } from "../notifications/notifier.js";
 import { TelegramChannel } from "../notifications/telegram.js";
 import { ApnsChannel } from "../notifications/apns.js";
@@ -147,12 +147,16 @@ function getMostRecentlyUpdatedLoadedSession(wsId: string): ConversationSession 
 }
 
 function isPersistedDefaultSessionCandidate(meta: SessionMetadata): boolean {
-  return meta.kind !== "terminal" && meta.messageCount > 0;
+  return meta.kind !== "terminal" && (
+    meta.messageCount > 0 ||
+    Boolean(meta.draftPrompt)
+  );
 }
 
 export function isLoadedDefaultSessionCandidate(session: ConversationSession): boolean {
   return session.metadata.kind !== "terminal" && (
     session.metadata.messageCount > 0 ||
+    Boolean(session.metadata.draftPrompt) ||
     session.status === "streaming"
   );
 }
@@ -167,6 +171,7 @@ async function persistWorkspaceSessionState(
   status: "idle" | "busy",
   dataDir: string,
   activeSessionId?: string,
+  draftPromptToConsume?: string,
 ): Promise<void> {
   await withProjectStateLock(
     projectId,
@@ -177,6 +182,12 @@ async function persistWorkspaceSessionState(
       if (!ws) throw new NotFoundError(`Workspace ${wsId} not found`);
       ws.status = status;
       ws.activeSessionId = activeSessionId;
+      // A new chat session persists the prompt in its own metadata before
+      // removing the workspace copy. Compare the expected value so a concurrent
+      // prompt update cannot be erased accidentally.
+      if (draftPromptToConsume && ws.draftPrompt === draftPromptToConsume) {
+        delete ws.draftPrompt;
+      }
       await saveProject(latest, dataDir);
     },
     dataDir,
@@ -247,6 +258,7 @@ export async function getOrCreateSession(
       "busy",
       dataDir,
       session.sessionId,
+      session.metadata.draftPrompt,
     );
     return { session, created: true };
   });
@@ -400,7 +412,7 @@ async function resolveWorkspaceContext(wsId: string, dataDir: string) {
 /** Build a system prompt for a session (extracted from getOrCreateSession). */
 async function buildSessionPrompt(
   wsPath: string,
-  workspace: { name: string },
+  workspace: { name: string; source?: WorkspaceSource },
   projectState: { name: string; id: string },
   dataDir: string,
   options?: SessionOptions,
@@ -429,6 +441,7 @@ async function buildSessionPrompt(
     git: ctx,
     projectName: projectState.name,
     workspaceName: workspace.name,
+    source: workspace.source,
   }).text;
 }
 
@@ -514,6 +527,7 @@ async function createSession(
     systemPrompt,
     skipPermissions: options?.skipPermissions,
     sessionKind: kind,
+    draftPrompt: kind === "chat" ? ctx.workspace.draftPrompt : undefined,
   });
   await attachBrowserEnv(session, ctx.workspace.id, options);
   await session.persistMetadata();
@@ -685,6 +699,7 @@ export async function createNewSession(
       "busy",
       dataDir,
       session.sessionId,
+      session.metadata.draftPrompt,
     );
     return session;
   });

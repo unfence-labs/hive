@@ -173,6 +173,7 @@ vi.mock("@/components/ChatInput", () => {
     default: ({
       wsId,
       sessionId,
+      draftPrompt,
       isStreaming,
       placeholder,
       queuedMessage,
@@ -181,6 +182,7 @@ vi.mock("@/components/ChatInput", () => {
     }: {
       wsId?: string;
       sessionId?: string;
+      draftPrompt?: string;
       isStreaming?: boolean;
       placeholder?: string;
       queuedMessage?: { content: string } | null;
@@ -197,6 +199,7 @@ vi.mock("@/components/ChatInput", () => {
           data-testid="chat-input"
           data-ws-id={wsId ?? ""}
           data-session-id={sessionId ?? ""}
+          data-draft-prompt={draftPrompt ?? ""}
           data-has-queue={queuedMessage ? "true" : "false"}
           data-placeholder={placeholder ?? ""}
         >
@@ -1530,6 +1533,34 @@ describe("WorkspaceView behavior", () => {
     expect(screen.getByTestId("chat-input")).toHaveAttribute(
       "data-placeholder",
       "Enter your plan adjustments here...",
+    );
+  });
+
+  it("passes a session-owned draft prompt to the composer", async () => {
+    mocks.useConversation.mockReturnValue(
+      buildConversationState({ sessionId: "sess-draft", switchCounter: 1 }),
+    );
+    mocks.useSessions.mockReturnValue({
+      sessions: [{
+        sessionId: "sess-draft",
+        workspaceId: "ws-1",
+        createdAt: "2026-02-12T00:00:00.000Z",
+        updatedAt: "2026-02-12T00:00:00.000Z",
+        messageCount: 0,
+        draftPrompt: "Fix issue #42",
+      }],
+      loading: false,
+      createSession: mocks.createSession,
+      deleteSession: mocks.deleteSession,
+      refresh: mocks.refreshSessions,
+    });
+
+    renderWorkspace();
+
+    await screen.findByText("tokyo");
+    expect(screen.getByTestId("chat-input")).toHaveAttribute(
+      "data-draft-prompt",
+      "Fix issue #42",
     );
   });
 

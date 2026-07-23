@@ -114,6 +114,19 @@ struct Workspace: Codable, Identifiable, Hashable {
     var sessionCount: Int? = nil
     var projectId: String? = nil
     var hasFavicon: Bool? = nil
+    var source: WorkspaceSource? = nil
+    var draftPrompt: String? = nil
+}
+
+/// Present when the workspace was created from a branch, PR, or issue.
+struct WorkspaceSource: Codable, Hashable {
+    let kind: String  // "branch" | "pr" | "issue" — kept as String so unknown kinds never fail decoding
+    let branch: String?
+    let number: Int?
+    let title: String?
+    let url: String?
+    let baseBranch: String?  // PR base branch, present for "pr" kind
+    let crossRepository: Bool?  // true for fork PRs: the branch is a local copy of the PR head
 }
 
 // MARK: - UI Preferences
@@ -177,6 +190,8 @@ struct SessionMetadata: Codable, Hashable, Identifiable {
     /// "terminal" sessions, which only exist on the desktop client.
     let kind: String?
     let lastRunOptions: MessageOptions?
+    /// Server-owned composer seed, retained until the first user message.
+    let draftPrompt: String?
 
     var id: String { sessionId }
 
@@ -198,7 +213,8 @@ struct SessionMetadata: Codable, Hashable, Identifiable {
         messageCount: Int,
         lockedProvider: String?,
         kind: String? = nil,
-        lastRunOptions: MessageOptions? = nil
+        lastRunOptions: MessageOptions? = nil,
+        draftPrompt: String? = nil
     ) {
         self.sessionId = sessionId
         self.providerSessionId = providerSessionId
@@ -211,6 +227,7 @@ struct SessionMetadata: Codable, Hashable, Identifiable {
         self.lockedProvider = lockedProvider
         self.kind = kind
         self.lastRunOptions = lastRunOptions
+        self.draftPrompt = draftPrompt
     }
 }
 

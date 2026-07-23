@@ -55,7 +55,7 @@ const TERMINAL_STATUS_RESYNC_DELAY_MS = 300;
 type LocalAction =
   | { type: "reset" }
   | { type: "clear_chat" }
-  | { type: "prepare_session_switch"; sessionId: string }
+  | { type: "prepare_session_switch"; sessionId: string; preserveComposer?: boolean }
   | { type: "prepare_workspace_switch" }
   | { type: "clear_pending_tool_inputs" }
   // Reconcile live stream slots against newly-loaded REST history (derive a
@@ -502,7 +502,7 @@ function reducer(state: ConversationState, action: Action): ConversationState {
         sessionId: action.sessionId,
         error: undefined,
         lockedProvider: undefined,
-        switchCounter: state.switchCounter + 1,
+        switchCounter: state.switchCounter + (action.preserveComposer ? 0 : 1),
         // sessionStreams is untouched — background sessions keep accumulating
       };
 
@@ -724,11 +724,15 @@ export function useConversation(workspaceId: string | undefined) {
     dispatch({ type: "clear_chat" });
   }, []);
 
-  const switchSession = useCallback((sessionId: string) => {
+  const switchSession = useCallback((sessionId: string, options?: { preserveComposer?: boolean }) => {
     if (!workspaceId) return;
     // Switching the session re-keys the messages query, which returns cached
     // history instantly (no empty flash) and revalidates in the background.
-    dispatch({ type: "prepare_session_switch", sessionId });
+    dispatch({
+      type: "prepare_session_switch",
+      sessionId,
+      preserveComposer: options?.preserveComposer,
+    });
     const sent = wsTransport.send(workspaceId, { type: "switch_session", sessionId });
     if (!sent) {
       dispatch({ type: "error", message: "Session switch failed: disconnected from server." });

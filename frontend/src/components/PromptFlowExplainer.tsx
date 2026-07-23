@@ -86,7 +86,7 @@ export function PromptFlowExplainer() {
                 id="git"
                 icon={<GitBranch className="h-4 w-4" />}
                 title="Git Context"
-                desc="Project, Branch, Status, Commits"
+                desc="Project, Branch, Status, Commits, Workspace source"
                 isHovered={hoveredCard === "git"}
                 onHover={setHoveredCard}
               />
@@ -102,7 +102,7 @@ export function PromptFlowExplainer() {
                 id="user"
                 icon={<MessageSquare className="h-4 w-4" />}
                 title="User Message"
-                desc="File mentions & resized images"
+                desc="Pre-filled from the Issue Draft Prompt for issue workspaces; file mentions & images"
                 isHovered={hoveredCard === "user"}
                 onHover={setHoveredCard}
               />
@@ -226,7 +226,7 @@ export function PromptFlowExplainer() {
                     --append-system-prompt "You are an AI coding agent...
                   </PayloadBlock>
                   <PayloadBlock id="git" hoveredId={hoveredCard} color="text-success-foreground">
-                    {`\n\n# Git Context\nProject: Hive\nBranch: main\n...`}
+                    {`\n\n# Git Context\nProject: Hive\nBranch: main\nWorkspace source: pull request #347\n...`}
                   </PayloadBlock>
                   <PayloadBlock id="browser" hoveredId={hoveredCard} color="text-warning-foreground">
                     {`\n\n# Browser Context\nHive provides a read-only live browser panel..."`}

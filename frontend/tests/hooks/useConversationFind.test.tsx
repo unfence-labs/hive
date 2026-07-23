@@ -2,6 +2,7 @@ import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { RefObject } from "react";
 import { useConversationFind } from "@/hooks/useConversationFind";
+import { dispatchAppCommand } from "@/lib/app-commands";
 
 /**
  * Build a detached-but-attached container holding `[data-find-content]` segments
@@ -134,6 +135,20 @@ describe("useConversationFind", () => {
       result.current.prev();
     });
     expect(result.current.activeIndex).toBe(2);
+  });
+
+  it("opens and navigates matches from app commands", () => {
+    const { result } = setup();
+
+    act(() => dispatchAppCommand("find-next"));
+    expect(result.current.open).toBe(true);
+    act(() => result.current.setQuery("foo"));
+    act(() => vi.advanceTimersByTime(150));
+
+    act(() => dispatchAppCommand("find-next"));
+    expect(result.current.activeIndex).toBe(1);
+    act(() => dispatchAppCommand("find-previous"));
+    expect(result.current.activeIndex).toBe(0);
   });
 
   it("reports no matches for a query with zero hits", () => {

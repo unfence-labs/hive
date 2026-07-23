@@ -10,6 +10,11 @@ import {
   useUpdateBasePrompt,
   useResetBasePrompt,
 } from "@/hooks/useBasePrompt";
+import {
+  useIssueDraftPrompt,
+  useUpdateIssueDraftPrompt,
+  useResetIssueDraftPrompt,
+} from "@/hooks/useIssueDraftPrompt";
 import { api } from "@/hooks/useApi";
 import type { BasePromptData } from "@/types";
 import { createWrapper } from "../test-utils";
@@ -112,5 +117,28 @@ describe("base prompt hooks (shared factory)", () => {
       await reset.current.mutateAsync();
     });
     expect(api.delete).toHaveBeenCalledWith("/api/prompts/base");
+  });
+
+  it("issue draft hooks target the issue-draft endpoint", async () => {
+    vi.mocked(api.get).mockResolvedValueOnce(makePromptData());
+    vi.mocked(api.put).mockResolvedValueOnce(makePromptData({ isDefault: false }));
+    vi.mocked(api.delete).mockResolvedValueOnce(undefined);
+
+    const { wrapper } = createWrapper();
+    const { result: query } = renderHook(() => useIssueDraftPrompt(), { wrapper });
+    await waitFor(() => expect(query.current.data).toBeDefined());
+    expect(api.get).toHaveBeenCalledWith("/api/prompts/issue-draft");
+
+    const { result: update } = renderHook(() => useUpdateIssueDraftPrompt(), { wrapper });
+    await act(async () => {
+      await update.current.mutateAsync("x");
+    });
+    expect(api.put).toHaveBeenCalledWith("/api/prompts/issue-draft", { content: "x" });
+
+    const { result: reset } = renderHook(() => useResetIssueDraftPrompt(), { wrapper });
+    await act(async () => {
+      await reset.current.mutateAsync();
+    });
+    expect(api.delete).toHaveBeenCalledWith("/api/prompts/issue-draft");
   });
 });
