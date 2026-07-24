@@ -8,6 +8,7 @@ import type { FileViewMode } from "@/hooks/useTabs";
 import type { TaskCounts, TaskTrackerStatus, TrackedTask } from "@/hooks/useTasks";
 import type { BackgroundAgent } from "@/hooks/useBackgroundAgents";
 import type { PendingToolInput } from "@/hooks/useConversation";
+import type { SendState } from "@/lib/optimistic-sends";
 import type {
   AgentActivity,
   ChatMessage,
@@ -63,6 +64,9 @@ export interface ConversationPaneProps {
   activeToolCalls: ToolCall[];
   activeAgentActivities: AgentActivity[];
   pendingToolInputs: PendingToolInput[];
+  /** Delivery state of optimistically-sent user messages, keyed by message id. */
+  sendStates?: Record<string, SendState>;
+  onRetrySend?: (messageId: string) => void;
   onQuestionAnswer?: (toolCallId: string, answers: QuestionAnswer[]) => void;
   onFileMentionClick?: (relativePath: string) => void;
   switchCounter: number;
@@ -130,6 +134,8 @@ export function ConversationPane({
   activeToolCalls,
   activeAgentActivities,
   pendingToolInputs,
+  sendStates,
+  onRetrySend,
   onQuestionAnswer,
   onFileMentionClick,
   switchCounter,
@@ -197,6 +203,8 @@ export function ConversationPane({
               activeToolCalls={activeToolCalls}
               activeAgentActivities={activeAgentActivities}
               pendingToolInputs={pendingToolInputs}
+              sendStates={sendStates}
+              onRetrySend={onRetrySend}
               onQuestionAnswer={onQuestionAnswer}
               onFileMentionClick={onFileMentionClick}
               onStartTerminal={onStartTerminal}

@@ -24,11 +24,13 @@ import { PageHeader } from "@/components/AppLayout";
 import { CenterCard } from "@/components/CenterCard";
 import { ResizeHandle } from "@/components/ResizeHandle";
 import { PathCopyButton } from "@/components/PathCopyButton";
+import { QuickOpenFileDialog } from "@/components/QuickOpenFileDialog";
 import { wsTransport } from "@/lib/ws-transport";
 import { hasPendingExitPlanModeInput, isPlanAwaitingUserInput, findPlanContent } from "@/lib/plan-state";
 import { buildInitialExpanded, countFiles, DEFAULT_EXPANDED, findFirstFilePath } from "@/lib/file-tree";
 import { PlanActionBar } from "@/components/chat/PlanActionBar";
 import { useScripts } from "@/hooks/useScripts";
+import { useAppCommand } from "@/hooks/useAppCommand";
 import type { DiffFileStat, DiffScope, DiffStatResponse, FileMention, ImageAttachment, MessageOptions, Workspace, WorkspaceFileTreeNode } from "@/types";
 
 function matchesDiffStat(filePath: string | null | undefined, stat: DiffFileStat): boolean {
@@ -170,7 +172,9 @@ export default function WorkspaceView() {
     connectionStatus,
     error,
     sessionId,
+    sendStates,
     sendMessage,
+    retrySend,
     stopStreaming,
     switchSession,
     answerQuestion,
@@ -314,6 +318,12 @@ export default function WorkspaceView() {
     openFileTab(path);
   }, [openFileTab]);
 
+  const [quickOpenFileOpen, setQuickOpenFileOpen] = useState(false);
+  const openQuickFile = useCallback(() => setQuickOpenFileOpen(true), []);
+  const closeQuickFile = useCallback(() => setQuickOpenFileOpen(false), []);
+  useAppCommand("quick-open-file", openQuickFile);
+  useAppCommand("dismiss-view-dialogs", closeQuickFile);
+
   const handleModifiedFileClick = useCallback((filePath: string, scope: DiffScope) => {
     setSelectedPath(filePath);
     openDiffTab(filePath, scope);
@@ -369,7 +379,7 @@ export default function WorkspaceView() {
     [hasPendingPlan, hasPendingExitPlanInput, rejectToolInput, sendMessage, bumpScrollToBottom],
   );
 
-  // Refs for inline diff → chat input bridge
+  // Ref for inline diff → chat input bridge
   const chatInputRef = useRef<ChatInputHandle>(null);
 
   const fileHasUncommittedChanges = useMemo(
@@ -426,9 +436,23 @@ export default function WorkspaceView() {
     return <Navigate to="/home" replace />;
   }
 
+  // Server-owned seed for a pristine composer: the session's own draft wins;
+  // a workspace still waiting for its first session falls back to its draft.
+  const composerSeed = messages.length === 0
+    ? activeSession?.draftPrompt
+      ?? (!sessionId && !workspace?.activeSessionId ? workspace?.draftPrompt : undefined)
+    : undefined;
 
   return (
     <div className="flex h-full flex-col">
+      {wsId && (
+        <QuickOpenFileDialog
+          open={quickOpenFileOpen}
+          onOpenChange={setQuickOpenFileOpen}
+          workspaceId={wsId}
+          onSelect={handleFileTreeSelect}
+        />
+      )}
       {/* Chat area + right panel */}
       <Group
         orientation="horizontal"
@@ -484,6 +508,8 @@ export default function WorkspaceView() {
             activeToolCalls={activeToolCalls}
             activeAgentActivities={activeAgentActivities}
             pendingToolInputs={pendingToolInputs}
+            sendStates={sendStates}
+            onRetrySend={retrySend}
             onQuestionAnswer={answerQuestion}
             onFileMentionClick={handleFileTreeSelect}
             activeProvider={effectiveLockedProvider}
@@ -537,6 +563,7 @@ export default function WorkspaceView() {
                 ref={chatInputRef}
                 wsId={wsId}
                 sessionId={sessionId}
+                draftPrompt={composerSeed}
                 lockedProvider={effectiveLockedProvider}
                 lastRunOptions={activeSession?.lastRunOptions}
                 onSend={handleSend}

@@ -1,4 +1,4 @@
-import { readFile, writeFile, rename, mkdir } from "node:fs/promises";
+import { readFile, writeFile, rename, mkdir, chmod } from "node:fs/promises";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { getDataDir } from "./state.js";
@@ -24,8 +24,13 @@ export interface NotificationsConfig {
   apns: ApnsConfig;
 }
 
+export interface KimiConfig {
+  apiKey: string;
+}
+
 export interface AppConfig {
   notifications: NotificationsConfig;
+  kimi: KimiConfig;
   /** Compound model id ("provider:model") used as the default for new conversations. */
   defaultModelId?: string;
 }
@@ -45,7 +50,18 @@ const DEFAULT_CONFIG: AppConfig = {
     telegram: { enabled: false, botToken: "", chatId: "" },
     apns: { ...DEFAULT_APNS },
   },
+  kimi: { apiKey: "" },
 };
+
+// Synchronous consumers (KimiProvider.buildEnv, getModelCatalog) cannot await
+// loadConfig, so keep the latest Kimi key in memory. Every loadConfig and
+// updateConfig refreshes it; startup warms it via main()'s loadConfig, and the
+// settings PUT refreshes it through updateConfig — no restart needed.
+let cachedKimiApiKey = "";
+
+export function getKimiApiKey(): string {
+  return cachedKimiApiKey;
+}
 
 function configFilePath(dataDir: string): string {
   return join(dataDir, "config.json");
@@ -69,6 +85,9 @@ function withDefaults(parsed: Partial<AppConfig>): AppConfig {
         sandbox: apns?.sandbox ?? DEFAULT_APNS.sandbox,
         deviceTokens: apns?.deviceTokens ?? [],
       },
+    },
+    kimi: {
+      apiKey: parsed.kimi?.apiKey ?? DEFAULT_CONFIG.kimi.apiKey,
     },
     defaultModelId: typeof parsed.defaultModelId === "string" && parsed.defaultModelId
       ? parsed.defaultModelId
@@ -103,15 +122,20 @@ export async function loadConfig(dataDir = getDataDir()): Promise<AppConfig> {
     console.error("[config] failed to read config.json, using defaults:", err);
     parsed = null;
   }
-  return parsed ? withDefaults(parsed) : structuredClone(DEFAULT_CONFIG);
+  const config = parsed ? withDefaults(parsed) : structuredClone(DEFAULT_CONFIG);
+  cachedKimiApiKey = config.kimi.apiKey;
+  return config;
 }
 
 export async function saveConfig(config: AppConfig, dataDir = getDataDir()): Promise<void> {
   await mkdir(dataDir, { recursive: true });
   const target = configFilePath(dataDir);
   const tmp = join(dataDir, `config.${randomUUID()}.tmp`);
-  await writeFile(tmp, JSON.stringify(config, null, 2), "utf-8");
+  // Owner-only permissions: config.json holds credentials (Kimi API key,
+  // notification tokens). Same pattern as project-env.ts.
+  await writeFile(tmp, JSON.stringify(config, null, 2), { encoding: "utf-8", mode: 0o600 });
   await rename(tmp, target);
+  await chmod(target, 0o600).catch(() => {});
 }
 
 // Serializes read-modify-write cycles so concurrent writers (settings routes,
@@ -130,6 +154,7 @@ export function updateConfig(
     const config = parsed ? withDefaults(parsed) : structuredClone(DEFAULT_CONFIG);
     mutate(config);
     await saveConfig(config, dataDir);
+    cachedKimiApiKey = config.kimi.apiKey;
     return config;
   });
   updateQueue = task.catch(() => undefined); // keep the chain alive on failure

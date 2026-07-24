@@ -1,10 +1,12 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { Outlet, useLocation, useOutletContext } from "react-router-dom";
 import { Group, Panel, useDefaultLayout, usePanelRef } from "react-resizable-panels";
 import Sidebar from "./Sidebar";
 import SettingsSidebar from "./SettingsSidebar";
 import { ResizeHandle } from "./ResizeHandle";
+import { Spinner } from "@/components/ui/spinner";
 import { useConnectionStatus } from "@/hooks/useConnectionStatus";
+import { useAppCommand } from "@/hooks/useAppCommand";
 import { cn } from "@/lib/utils";
 
 /**
@@ -72,10 +74,11 @@ export function SettingsHeader({ children }: { children: React.ReactNode }) {
 
 interface AppLayoutProps {
   onAddProject: () => void;
+  onNewWorkspaceFrom?: (projectId: string) => void;
   onAddAutomation?: () => void;
 }
 
-export default function AppLayout({ onAddProject, onAddAutomation }: AppLayoutProps) {
+export default function AppLayout({ onAddProject, onAddAutomation, onNewWorkspaceFrom }: AppLayoutProps) {
   const { pathname } = useLocation();
   const isSettings = pathname.startsWith("/settings");
   const { backendEnv } = useConnectionStatus();
@@ -102,6 +105,8 @@ export default function AppLayout({ onAddProject, onAddAutomation }: AppLayoutPr
       panel.collapse();
     }
   }, [sidebarPanelRef]);
+
+  useAppCommand("toggle-sidebar", toggleSidebar);
 
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
@@ -131,7 +136,8 @@ export default function AppLayout({ onAddProject, onAddAutomation }: AppLayoutPr
   const context: LayoutContext = { collapsed, toggleSidebar };
 
   return (
-    <div className="flex h-screen flex-col bg-sidebar">
+    // h-full, not h-screen: vh units don't rescale under CSS zoom (useAppZoom).
+    <div className="flex h-full flex-col bg-sidebar">
       {import.meta.env.DEV && (
         <div className="shrink-0 bg-warning/90 px-3 py-0.5 text-center text-xs font-medium text-warning-contrast">
           Dev frontend → {backendEnv ? `${backendEnv} backend` : "connecting…"}
@@ -158,13 +164,21 @@ export default function AppLayout({ onAddProject, onAddAutomation }: AppLayoutPr
           {isSettings ? (
             <SettingsSidebar />
           ) : (
-            <Sidebar onAddProject={onAddProject} onAddAutomation={onAddAutomation} />
+            <Sidebar onAddProject={onAddProject} onAddAutomation={onAddAutomation} onNewWorkspaceFrom={onNewWorkspaceFrom} />
           )}
         </Panel>
         <ResizeHandle orientation="vertical" cardSide="right" />
         <Panel id="main">
           <main className="relative flex h-full flex-col overflow-hidden">
-            <Outlet context={context} />
+            <Suspense
+              fallback={
+                <div className="flex h-full items-center justify-center">
+                  <Spinner className="size-6 text-muted-foreground" />
+                </div>
+              }
+            >
+              <Outlet context={context} />
+            </Suspense>
           </main>
         </Panel>
       </Group>

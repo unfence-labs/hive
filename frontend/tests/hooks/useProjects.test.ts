@@ -273,6 +273,42 @@ describe("useProjects", () => {
     expect(cached?.map((p) => p.id)).toEqual(["p1"]);
   });
 
+  it("invalidates the project's picker sources after creating a workspace", async () => {
+    vi.mocked(api.get).mockResolvedValueOnce([makeProject("p1")]);
+    vi.mocked(api.post).mockResolvedValueOnce(makeWorkspace("w1"));
+
+    const { queryClient, wrapper } = createWrapper();
+    const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
+    const { result } = renderHook(() => useProjects(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    await act(async () => {
+      await result.current.createWorkspace("p1");
+    });
+
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["project-branches", "p1"] });
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["project-pulls", "p1"] });
+  });
+
+  it("invalidates picker sources after archiving a workspace", async () => {
+    const project = makeProject("p1");
+    project.workspaces = [makeWorkspace("w1")];
+    vi.mocked(api.get).mockResolvedValueOnce([project]);
+    vi.mocked(api.post).mockResolvedValueOnce(undefined);
+
+    const { queryClient, wrapper } = createWrapper();
+    const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
+    const { result } = renderHook(() => useProjects(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    await act(async () => {
+      await result.current.archiveWorkspace("w1");
+    });
+
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["project-branches"] });
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["project-pulls"] });
+  });
+
   it("invalidates projects query when fetchProjects is called", async () => {
     vi.mocked(api.get).mockResolvedValue([makeProject("p1")]);
     const { queryClient, wrapper } = createWrapper();

@@ -5,6 +5,7 @@ import {
   isGhInstalled,
   gh,
   createGitHubRepository,
+  fetchPrDetail,
   _resetGhState,
 } from "./github.js";
 
@@ -242,6 +243,42 @@ describe("createGitHubRepository", () => {
       "HTTPS URL",
     );
     expect(ghClient).toHaveBeenCalledWith(["repo", "delete", "octocat/my-repo", "--yes"]);
+  });
+});
+
+// ── fetchPrDetail ───────────────────────────────────────────────────
+
+describe("fetchPrDetail", () => {
+  it("requests and parses baseRefName alongside the other PR fields", async () => {
+    const ghClient = vi.fn(async () => ({
+      stdout: JSON.stringify({
+        number: 12,
+        title: "Fix streaming",
+        url: "https://github.com/acme/demo/pull/12",
+        headRefName: "feature-x",
+        baseRefName: "develop",
+        isCrossRepository: false,
+      }),
+      stderr: "",
+    }));
+
+    const detail = await fetchPrDetail("acme", "demo", 12, ghClient);
+
+    expect(ghClient).toHaveBeenCalledWith(
+      [
+        "pr", "view", "12", "--repo", "acme/demo",
+        "--json", "number,title,url,headRefName,baseRefName,isCrossRepository",
+      ],
+      expect.anything(),
+    );
+    expect(detail).toEqual({
+      number: 12,
+      title: "Fix streaming",
+      url: "https://github.com/acme/demo/pull/12",
+      headRefName: "feature-x",
+      baseRefName: "develop",
+      isCrossRepository: false,
+    });
   });
 });
 

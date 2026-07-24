@@ -17,7 +17,7 @@ interface AgentRoutesOptions {
 function resolveThinkingLevel(
   modelId: string,
   requested: ThinkingLevel | undefined,
-): { thinkingLevel: ThinkingLevel } | { error: string } {
+): { thinkingLevel?: ThinkingLevel } | { error: string } {
   if (requested !== undefined) {
     if (!isThinkingLevelSupportedForModel(modelId, requested)) {
       return { error: `Thinking level "${requested}" is not supported by model ${modelId}` };
@@ -25,11 +25,9 @@ function resolveThinkingLevel(
     return { thinkingLevel: requested };
   }
 
-  const thinkingLevel = getDefaultThinkingLevelForModel(modelId);
-  if (!thinkingLevel) {
-    return { error: `Model ${modelId} does not support thinking levels` };
-  }
-  return { thinkingLevel };
+  // Undefined for models with no thinking-level control (e.g. K2.7): the
+  // agent is stored without a level and no effort flag is ever emitted.
+  return { thinkingLevel: getDefaultThinkingLevelForModel(modelId) };
 }
 
 export async function agentRoutes(
@@ -78,7 +76,7 @@ export async function agentRoutes(
       ...(description?.trim() && { description: description.trim() }),
       systemPrompt: systemPrompt.trim(),
       modelId: modelId.trim(),
-      thinkingLevel: thinkingResult.thinkingLevel,
+      ...(thinkingResult.thinkingLevel && { thinkingLevel: thinkingResult.thinkingLevel }),
       readOnly: readOnly ?? false,
       createdAt: now,
       updatedAt: now,
@@ -132,12 +130,13 @@ export async function agentRoutes(
             return { status: 400 as const, error: thinkingResult.error };
           }
           nextThinkingLevel = thinkingResult.thinkingLevel;
-        } else if (updates.modelId !== undefined && !isThinkingLevelSupportedForModel(nextModelId, nextThinkingLevel)) {
-          const thinkingResult = resolveThinkingLevel(nextModelId, undefined);
-          if ("error" in thinkingResult) {
-            return { status: 400 as const, error: thinkingResult.error };
-          }
-          nextThinkingLevel = thinkingResult.thinkingLevel;
+        } else if (
+          updates.modelId !== undefined &&
+          (nextThinkingLevel === undefined || !isThinkingLevelSupportedForModel(nextModelId, nextThinkingLevel))
+        ) {
+          // Model changed and the stored level no longer applies: fall back to
+          // the new model's default (undefined for level-less models).
+          nextThinkingLevel = getDefaultThinkingLevelForModel(nextModelId);
         }
 
         const merged: Agent = {

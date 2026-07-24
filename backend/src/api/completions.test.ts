@@ -236,6 +236,43 @@ description: Fix CI failures
     );
   });
 
+  it("maps provider=kimi to the claude scan", async () => {
+    const workspaceDir = join(dataDir, projectId, "workspaces", wsName);
+
+    await writeSkill(
+      workspaceDir,
+      "kimi-lint",
+      `---
+name: kimi-lint
+description: Lint via a claude skill
+---
+`,
+    );
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/workspaces/${wsId}/completions?provider=kimi`,
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json().items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "slash_command",
+          name: "help",
+          label: "/help",
+          source: "builtin",
+        }),
+        expect.objectContaining({
+          type: "slash_command",
+          name: "kimi-lint",
+          label: "/kimi-lint",
+          source: "project_skill",
+        }),
+      ]),
+    );
+  });
+
   it("rejects unsupported completion providers", async () => {
     const res = await app.inject({
       method: "GET",

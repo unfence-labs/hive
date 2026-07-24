@@ -719,6 +719,21 @@ struct ConversationStoreSessionTests {
     }
 
     @Test @MainActor
+    func requestStreamSnapshotsEncodesTypeOnly() throws {
+        let message = WsIncoming.requestStreamSnapshots
+        let data = try JSONEncoder().encode(message)
+        let object = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+
+        #expect(object?["type"] as? String == "request_stream_snapshots")
+        // No session id: every currently streaming session in the addressed
+        // workspace is replayed, and this must not carry any sync_workspaces
+        // fields when wrapped in the { workspaceId, event } envelope.
+        #expect(object?["sessionId"] == nil)
+        #expect(object?["workspaceIds"] == nil)
+        #expect(object?["forceBootstrap"] == nil)
+    }
+
+    @Test @MainActor
     func toolInputResolvedClearsPendingToolInputs() throws {
         let store = ConversationStore()
         store.handle(.status(

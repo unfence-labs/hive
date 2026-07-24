@@ -94,7 +94,7 @@ export default function SettingsSidebar() {
           <SidebarSection label="Agents">
             <NavItem
               to="/settings/cli"
-              label="CLI"
+              label="Harness"
               icon={<Bot className="h-4 w-4" />}
               active={pathname === "/settings/cli"}
             />

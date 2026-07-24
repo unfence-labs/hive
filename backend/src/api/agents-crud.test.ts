@@ -148,6 +148,37 @@ describe("POST /api/agents", () => {
     expect(res.statusCode).toBe(400);
     expect(res.json().error).toContain("Thinking level");
   });
+
+  it("defaults K3 agents to high thinking", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/agents",
+      payload: {
+        name: "Kimi Agent",
+        systemPrompt: "You are helpful.",
+        modelId: "kimi:k3",
+        readOnly: false,
+      },
+    });
+    expect(res.statusCode).toBe(201);
+    expect(res.json().thinkingLevel).toBe("high");
+  });
+
+  it("rejects a thinkingLevel supplied for a level-less model (400)", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/agents",
+      payload: {
+        name: "Kimi Agent",
+        systemPrompt: "You are helpful.",
+        modelId: "kimi:kimi-for-coding",
+        thinkingLevel: "high",
+        readOnly: false,
+      },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error).toContain("Thinking level");
+  });
 });
 
 describe("PATCH /api/agents/:id", () => {
@@ -225,6 +256,29 @@ describe("PATCH /api/agents/:id", () => {
       method: "PATCH",
       url: "/api/agents/agent-1",
       payload: { modelId: "codex:gpt-5.5", thinkingLevel: "max" },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error).toContain("Thinking level");
+  });
+
+  it("clears thinkingLevel when switching to a level-less K2.7 model", async () => {
+    await saveAgents([makeAgent({ thinkingLevel: "max" })], dataDir);
+    const res = await app.inject({
+      method: "PATCH",
+      url: "/api/agents/agent-1",
+      payload: { modelId: "kimi:kimi-for-coding-highspeed" },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().modelId).toBe("kimi:kimi-for-coding-highspeed");
+    expect(res.json().thinkingLevel).toBeUndefined();
+  });
+
+  it("rejects a thinkingLevel supplied for a level-less model on update (400)", async () => {
+    await saveAgents([makeAgent()], dataDir);
+    const res = await app.inject({
+      method: "PATCH",
+      url: "/api/agents/agent-1",
+      payload: { modelId: "kimi:kimi-for-coding", thinkingLevel: "high" },
     });
     expect(res.statusCode).toBe(400);
     expect(res.json().error).toContain("Thinking level");

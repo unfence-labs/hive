@@ -220,6 +220,8 @@ export interface ConversationSessionConfig {
   skipPermissions?: boolean;
   browserEnv?: Record<string, string>;
   sessionKind?: SessionKind;
+  /** Server-owned composer seed, retained until the first user message. */
+  draftPrompt?: string;
   runnerFactory?: AgentRunnerFactory;
   /** Strip interactive/blocking tools — set for unattended agent runs. */
   disableInteractiveTools?: boolean;
@@ -230,7 +232,7 @@ export interface ConversationSessionConfig {
 export type ConversationSessionEvent = {
   message: [msg: WsOutgoing];
   exit: [code: number];
-  error: [err: Error];
+  error: [err: Error, clientMessageId?: string];
   first_message: [content: string];
 };
 
@@ -299,6 +301,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
       updatedAt: new Date().toISOString(),
       messageCount: 0,
       kind: this.sessionKind,
+      ...(config.draftPrompt ? { draftPrompt: config.draftPrompt } : {}),
     };
 
     // Node crashes the whole process on emit("error") with zero listeners.
@@ -424,7 +427,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
   /** Send a user message. Spawns a CLI process for this turn.
    *  When `cliContent` is provided, it is sent to the CLI instead of `content`
    *  while the displayed/persisted message remains `content`. */
-  sendMessage(content: string, msgOptions?: MessageOptions, images?: ImageAttachment[], cliContent?: string, fileMentions?: FileMention[]): void {
+  sendMessage(content: string, msgOptions?: MessageOptions, images?: ImageAttachment[], cliContent?: string, fileMentions?: FileMention[], clientMessageId?: string): void {
     // Terminal sessions host a shell PTY, not an agent. Never spawn a runner.
     // Defensive: the UI does not call this for terminal tabs.
     if (this.sessionKind === "terminal") {
@@ -456,7 +459,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
       this._streamingStartedAt = Date.now();
       this.stopReason = null;
       this._lastPlanMode = false;
-      this.emitUserMessage(content, undefined, fileMentions, true);
+      this.emitUserMessage(content, undefined, fileMentions, true, clientMessageId);
       this.startCodexGoalCommand(goalCommand, msgOptions, resolved);
       return;
     }
@@ -478,7 +481,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
           !this.testCommand &&
           resolved?.provider.id === "codex" &&
           isInteractiveSessionKind(this.sessionKind);
-        this.emitUserMessage(content, urlImages, fileMentions);
+        this.emitUserMessage(content, urlImages, fileMentions, undefined, clientMessageId);
         this.startAgentTurn(
           useNativeCodexImages ? promptContent : this.buildPromptWithImages(promptContent, imagePaths),
           msgOptions,
@@ -488,10 +491,10 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
       }).catch((err) => {
         this._status = "error";
         this._streamingStartedAt = null;
-        this.emit("error", err instanceof Error ? err : new Error(String(err)));
+        this.emit("error", err instanceof Error ? err : new Error(String(err)), clientMessageId);
       });
     } else {
-      this.emitUserMessage(content, undefined, fileMentions);
+      this.emitUserMessage(content, undefined, fileMentions, undefined, clientMessageId);
       this.startAgentTurn(promptContent, msgOptions, resolved);
     }
   }
@@ -501,6 +504,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
     images?: ImageAttachment[],
     fileMentions?: FileMention[],
     goalCommand?: boolean,
+    clientMessageId?: string,
   ): void {
     const userMsg: ChatMessage = {
       id: nanoid(12),
@@ -510,6 +514,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
       images: images?.length ? images : undefined,
       fileMentions: fileMentions?.length ? fileMentions : undefined,
       goalCommand: goalCommand || undefined,
+      clientMessageId,
       timestamp: new Date().toISOString(),
     };
     if (!this._metadata.title) {
@@ -522,6 +527,8 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
     this.emit("message", { type: "user_message", message: userMsg });
     this.messageCount++;
     if (this.messageCount === 1) {
+      delete this._metadata.draftPrompt;
+      this.enqueueMetadataPersist();
       this.emit("first_message", content);
     }
   }
@@ -1024,7 +1031,16 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
     });
 
     runner.on("stderr", ({ text }) => {
-      const stderrLine = `stderr: ${sanitizeErrorDetail(text)}`;
+      // Expected CLI notice when we inject ANTHROPIC_API_KEY (Kimi sessions):
+      // claude.ai connectors can't work against a third-party endpoint anyway,
+      // so don't surface it as an error in the conversation. Filter per line —
+      // a chunk can bundle the notice with real errors.
+      const kept = text
+        .split("\n")
+        .filter((line) => !line.includes("connectors are disabled because ANTHROPIC_API_KEY"))
+        .join("\n");
+      if (!kept.trim()) return;
+      const stderrLine = `stderr: ${sanitizeErrorDetail(kept)}`;
       lastStderr = stderrLine;
       this.emit("message", { type: "error", message: stderrLine, sessionId: this.sessionId } as WsOutgoing);
     });

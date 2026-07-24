@@ -81,7 +81,10 @@ export function useChatInputDraftPersistence({
   setFileMentions,
 }: UseChatInputDraftPersistenceParams): UseChatInputDraftPersistenceResult {
   const prevSessionIdRef = useRef<string | undefined>(undefined);
-  const prevWsIdRef = useRef<string | undefined>(undefined);
+  // Seeded with the mount wsId (the component is keyed on it, so it cannot
+  // change within an instance): the first effect run then reduces to a plain
+  // session transition from "no session".
+  const prevWsIdRef = useRef<string | undefined>(wsId);
   const valueRef = useRef(value);
   valueRef.current = value;
   const fileMentionsRef = useRef(fileMentions);
@@ -157,7 +160,20 @@ export function useChatInputDraftPersistence({
     // Restore incoming session's draft from the CURRENT workspace.
     // Skip when sessionId is undefined (transient workspace-switch state).
     if (sessionId && (wsChanged || sessionChanged)) {
-      restoreDraftState(draftStore.get(wsId, sessionId));
+      if (!wsChanged && !prevSessionId) {
+        // Gaining a session without leaving one (mount with a server-owned
+        // seed, or an explicit first-session creation) adopts the composer
+        // already on screen: migrate the current draft into the store unless
+        // the session already owns one.
+        const storedDraft = draftStore.get(wsId, sessionId);
+        if (storedDraft) {
+          restoreDraftState(storedDraft);
+        } else {
+          saveDraftForSession(sessionId);
+        }
+      } else {
+        restoreDraftState(draftStore.get(wsId, sessionId));
+      }
     }
 
     prevWsIdRef.current = wsId;

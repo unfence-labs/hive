@@ -94,6 +94,58 @@ export interface Workspace {
   projectName?: string;
   defaultBranch?: string;
   worktreePath?: string;
+  /** Present when the workspace was created from a branch, PR, or issue. */
+  source?: WorkspaceSource;
+  /** Prompt pre-filled into the composer of a workspace created from an issue. */
+  draftPrompt?: string;
+}
+
+export interface WorkspaceSource {
+  kind: "branch" | "pr" | "issue";
+  branch?: string;
+  number?: number;
+  /** Base branch of the PR ("pr" kind). */
+  baseBranch?: string;
+  /** True for a PR from a fork: the branch is a local copy; pushing it does not update the PR. */
+  crossRepository?: boolean;
+  title?: string;
+  url?: string;
+}
+
+/** Body of `POST /api/projects/:id/workspaces`. */
+export type CreateWorkspaceSource =
+  | { kind: "branch"; branch: string }
+  | { kind: "pr"; number: number }
+  | { kind: "issue"; number: number };
+
+// ── Workspace source listing types (new-workspace-from picker) ──────
+
+export interface ProjectBranchItem {
+  name: string;
+  /** True when the branch only exists in the local bare repo (archived, unpushed). */
+  localOnly?: boolean;
+  workspaceId?: string;
+  workspaceName?: string;
+}
+
+export interface ProjectPullItem {
+  number: number;
+  title: string;
+  branch: string;
+  url: string;
+  isDraft: boolean;
+  author?: string;
+  updatedAt?: string;
+  workspaceId?: string;
+  workspaceName?: string;
+}
+
+export interface ProjectIssueItem {
+  number: number;
+  title: string;
+  url: string;
+  author?: string;
+  updatedAt?: string;
 }
 
 // ── Tab types ───────────────────────────────────────────────────────
@@ -214,6 +266,8 @@ export interface SessionMetadata {
   lockedProvider?: string;
   /** Options from the last user message accepted for execution. */
   lastRunOptions?: MessageOptions;
+  /** Server-owned composer seed, retained until the first user message. */
+  draftPrompt?: string;
 }
 
 export interface ToolCall {
@@ -242,6 +296,8 @@ export interface ChatMessage {
   sessionId: string;
   role: "user" | "assistant";
   content: string;
+  /** Client-generated id of the optimistic send this message confirms, if any. */
+  clientMessageId?: string;
   images?: ImageAttachment[];
   fileMentions?: FileMention[];
   toolCalls?: ToolCall[];
@@ -402,9 +458,10 @@ export interface ModelCatalogResponse {
 /** Frontend -> Backend */
 export type WsIncoming =
   | { type: "switch_session"; sessionId: string }
-  | { type: "user_message"; content: string; images?: ImageAttachment[]; fileMentions?: FileMention[]; options?: MessageOptions; sessionId?: string }
+  | { type: "user_message"; content: string; images?: ImageAttachment[]; fileMentions?: FileMention[]; options?: MessageOptions; sessionId?: string; clientMessageId?: string }
   | { type: "stop"; sessionId?: string }
-  | { type: "tool_input_response"; requestId: string; toolName: string; result: ToolInputResult; sessionId?: string };
+  | { type: "tool_input_response"; requestId: string; toolName: string; result: ToolInputResult; sessionId?: string }
+  | { type: "request_stream_snapshots" };
 
 /** Backend -> Frontend */
 export type WsOutgoing =
@@ -441,7 +498,7 @@ export type WsOutgoing =
       contextWindowTokens?: number;
       pendingToolName?: string;
     }
-  | { type: "error"; message: string; sessionId?: string }
+  | { type: "error"; message: string; sessionId?: string; clientMessageId?: string }
   | { type: "cancelled"; sessionId: string; errorDetail?: string; userInitiated?: boolean; durationMs?: number }
   | { type: "status"; status: "idle" | "busy"; sessionId?: string; streaming?: boolean; streamingStartedAt?: number; lockedProvider?: string }
   | { type: "user_message"; message: ChatMessage }
@@ -535,7 +592,8 @@ export interface Agent {
   description?: string;
   systemPrompt: string;
   modelId: string;
-  thinkingLevel: ThinkingLevel;
+  /** Absent for models with no thinking-level control (e.g. K2.7). */
+  thinkingLevel?: ThinkingLevel;
   readOnly: boolean;
   createdAt: string;
   updatedAt: string;

@@ -114,6 +114,19 @@ struct Workspace: Codable, Identifiable, Hashable {
     var sessionCount: Int? = nil
     var projectId: String? = nil
     var hasFavicon: Bool? = nil
+    var source: WorkspaceSource? = nil
+    var draftPrompt: String? = nil
+}
+
+/// Present when the workspace was created from a branch, PR, or issue.
+struct WorkspaceSource: Codable, Hashable {
+    let kind: String  // "branch" | "pr" | "issue" — kept as String so unknown kinds never fail decoding
+    let branch: String?
+    let number: Int?
+    let title: String?
+    let url: String?
+    let baseBranch: String?  // PR base branch, present for "pr" kind
+    let crossRepository: Bool?  // true for fork PRs: the branch is a local copy of the PR head
 }
 
 // MARK: - UI Preferences
@@ -177,6 +190,8 @@ struct SessionMetadata: Codable, Hashable, Identifiable {
     /// "terminal" sessions, which only exist on the desktop client.
     let kind: String?
     let lastRunOptions: MessageOptions?
+    /// Server-owned composer seed, retained until the first user message.
+    let draftPrompt: String?
 
     var id: String { sessionId }
 
@@ -198,7 +213,8 @@ struct SessionMetadata: Codable, Hashable, Identifiable {
         messageCount: Int,
         lockedProvider: String?,
         kind: String? = nil,
-        lastRunOptions: MessageOptions? = nil
+        lastRunOptions: MessageOptions? = nil,
+        draftPrompt: String? = nil
     ) {
         self.sessionId = sessionId
         self.providerSessionId = providerSessionId
@@ -211,6 +227,7 @@ struct SessionMetadata: Codable, Hashable, Identifiable {
         self.lockedProvider = lockedProvider
         self.kind = kind
         self.lastRunOptions = lastRunOptions
+        self.draftPrompt = draftPrompt
     }
 }
 
@@ -320,6 +337,8 @@ struct ChatMessage: Codable, Equatable, Identifiable {
     let outputTokens: Int?
     let contextUsedTokens: Int?
     let contextWindowTokens: Int?
+    /// Client-generated id of the optimistic send this message confirms, if any.
+    let clientMessageId: String?
 
     init(id: String, sessionId: String, role: MessageRole, content: String,
          images: [ImageAttachment]?, fileMentions: [FileMention]? = nil,
@@ -330,7 +349,8 @@ struct ChatMessage: Codable, Equatable, Identifiable {
          timestamp: String, cancelled: Bool?, errorDetail: String? = nil,
          durationMs: Int?,
          inputTokens: Int? = nil, outputTokens: Int? = nil,
-         contextUsedTokens: Int? = nil, contextWindowTokens: Int? = nil) {
+         contextUsedTokens: Int? = nil, contextWindowTokens: Int? = nil,
+         clientMessageId: String? = nil) {
         self.id = id
         self.sessionId = sessionId
         self.role = role
@@ -350,6 +370,7 @@ struct ChatMessage: Codable, Equatable, Identifiable {
         self.outputTokens = outputTokens
         self.contextUsedTokens = contextUsedTokens
         self.contextWindowTokens = contextWindowTokens
+        self.clientMessageId = clientMessageId
     }
 
     init(from decoder: Decoder) throws {
@@ -404,6 +425,7 @@ struct ChatMessage: Codable, Equatable, Identifiable {
         } else {
             contextWindowTokens = nil
         }
+        clientMessageId = try container.decodeIfPresent(String.self, forKey: .clientMessageId)
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -411,6 +433,7 @@ struct ChatMessage: Codable, Equatable, Identifiable {
         case goalCommand
         case reasoningSegments, reasoningBlocks, timestamp, cancelled, errorDetail, durationMs
         case inputTokens, outputTokens, contextUsedTokens, contextWindowTokens
+        case clientMessageId
     }
 }
 

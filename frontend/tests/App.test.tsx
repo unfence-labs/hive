@@ -182,7 +182,7 @@ describe("App", () => {
     await userEvent.click(await screen.findByRole("button", { name: /back/i }));
 
     expect(window.location.pathname).toBe("/settings/connection");
-    expect(screen.getByRole("button", { name: "refresh connection" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "refresh connection" })).toBeInTheDocument();
     expect(mocks.syncWorkspaces).not.toHaveBeenCalled();
   });
 
@@ -223,7 +223,7 @@ describe("App", () => {
 
     await act(async () => replaceConnection(null));
 
-    expect(screen.getByText("appearance settings")).toBeInTheDocument();
+    expect(await screen.findByText("appearance settings")).toBeInTheDocument();
     expect(screen.getByTestId("app-layout")).toBeInTheDocument();
     expect(window.location.pathname).toBe("/settings/appearance");
   });
@@ -250,20 +250,20 @@ describe("App", () => {
     expect(window.location.pathname).toBe("/home");
   });
 
-  it("renders workspace route", () => {
+  it("renders workspace route", async () => {
     window.history.pushState({}, "", "/workspaces/w1");
 
     renderApp();
 
-    expect(screen.getByText("workspace view")).toBeInTheDocument();
+    expect(await screen.findByText("workspace view")).toBeInTheDocument();
   });
 
-  it("renders brain route", () => {
+  it("renders brain route", async () => {
     window.history.pushState({}, "", "/brain");
 
     renderApp();
 
-    expect(screen.getByText("brain view")).toBeInTheDocument();
+    expect(await screen.findByText("brain view")).toBeInTheDocument();
   });
 
   it("does not sync workspaces while project list is still loading", () => {
@@ -307,7 +307,7 @@ describe("App", () => {
 
     expect(screen.getByTestId("dialog-open")).toHaveTextContent("false");
 
-    await user.click(screen.getByRole("button", { name: "layout add project" }));
+    await user.click(await screen.findByRole("button", { name: "layout add project" }));
     expect(screen.getByTestId("dialog-open")).toHaveTextContent("true");
   });
 
@@ -326,12 +326,12 @@ describe("App", () => {
     expect(screen.getByText("notification settings")).toBeInTheDocument();
   });
 
-  it("renders CLI settings route", () => {
+  it("renders CLI settings route", async () => {
     window.history.pushState({}, "", "/settings/cli");
 
     renderApp();
 
-    expect(screen.getByText("agent settings")).toBeInTheDocument();
+    expect(await screen.findByText("agent settings")).toBeInTheDocument();
   });
 
   it("renders subagents settings route", async () => {
@@ -351,12 +351,12 @@ describe("App", () => {
     expect(window.location.pathname).toBe("/home");
   });
 
-  it("redirects /settings to /settings/appearance", () => {
+  it("redirects /settings to /settings/appearance", async () => {
     window.history.pushState({}, "", "/settings");
 
     renderApp();
 
-    expect(screen.getByText("appearance settings")).toBeInTheDocument();
+    expect(await screen.findByText("appearance settings")).toBeInTheDocument();
     expect(window.location.pathname).toBe("/settings/appearance");
   });
 

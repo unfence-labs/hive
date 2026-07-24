@@ -6,7 +6,9 @@ import path from "path";
 const host = process.env.TAURI_DEV_HOST;
 
 export default defineConfig({
-  plugins: [react(), tailwindcss()],
+  // Tailwind's CSS optimizer currently warns on the valid ::highlight()
+  // selectors used by conversation search. Vite still minifies the CSS.
+  plugins: [react(), tailwindcss({ optimize: false })],
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
@@ -33,11 +35,28 @@ export default defineConfig({
   },
   envPrefix: ["VITE_", "TAURI_ENV_*"],
   build: {
+    // Mermaid is lazy-loaded but emits a ~1.62 MB uncompressed chunk. This
+    // limit is global, so re-measure every chunk before raising it.
+    chunkSizeWarningLimit: 1650,
     target:
       process.env.TAURI_ENV_PLATFORM === "windows"
         ? "chrome105"
         : "safari13",
     minify: !process.env.TAURI_ENV_DEBUG ? "esbuild" : false,
     sourcemap: !!process.env.TAURI_ENV_DEBUG,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          react: [
+            "react",
+            "react-dom",
+            "react-dom/client",
+            "react-router",
+            "react-router-dom",
+            "scheduler",
+          ],
+        },
+      },
+    },
   },
 });

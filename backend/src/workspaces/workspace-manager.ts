@@ -4,9 +4,14 @@ import { join, resolve } from "node:path";
 import { nanoid } from "nanoid";
 import { git } from "../utils/git.js";
 import {
+  addWorktreeFromBranch,
   addWorktreeWithNewBranch,
   removeWorktreeOrDeleteDirectory,
 } from "../utils/git-worktree.js";
+import { parseGitHubRepo, fetchPrDetail, fetchIssueDetail } from "../utils/github.js";
+import { loadIssueDraftPrompt, interpolateIssueDraftPrompt } from "../agents/issue-draft-prompt.js";
+import type { PullRequestDetail, IssueDetail } from "../utils/github.js";
+import { mapBranchesToWorkspaces, prBranchName } from "./workspace-sources.js";
 import { buildFileTree } from "../utils/file-tree.js";
 import { MAX_TEXT_FILE_SIZE, resolveSafeRepoFilePath } from "../utils/repo-files.js";
 import { buildDiffResponse, getUntrackedDiff } from "../utils/git-diff.js";
@@ -19,7 +24,7 @@ import { copyProjectEnvToWorkspace } from "../state/project-env.js";
 import { BadRequestError, ConflictError, NotFoundError } from "../utils/errors.js";
 import { stopAllForWorkspace } from "../services/script-runner.js";
 import { stopAllTerminalsForWorkspace } from "../services/terminal-runner.js";
-import type { Workspace, ProjectState, WorkspaceFileTreeNode, DiffFileStat, DiffFileStatus, DiffScope, DiffResponse, DiffStatResponse } from "../types.js";
+import type { Workspace, WorkspaceSource, CreateWorkspaceSourceInput, ProjectState, WorkspaceFileTreeNode, DiffFileStat, DiffFileStatus, DiffScope, DiffResponse, DiffStatResponse } from "../types.js";
 
 function findWorkspace(state: ProjectState, wsId: string): Workspace | undefined {
   return state.workspaces.find((ws) => ws.id === wsId);
@@ -36,10 +41,172 @@ function findProjectByWorkspace(
   return undefined;
 }
 
+// Reject option-like or malformed branch names before they reach git argv.
+const INVALID_BRANCH_CHARS_RE = /[\s~^:?*[\\]/;
+
+function validateBranchName(branch: string): void {
+  if (!branch || branch.startsWith("-") || branch.includes("..") || INVALID_BRANCH_CHARS_RE.test(branch)) {
+    throw new BadRequestError(`Invalid branch name: ${branch}`);
+  }
+}
+
+function requireGitHubRepo(state: ProjectState): { owner: string; repo: string } {
+  const repo = state.url ? parseGitHubRepo(state.url) : null;
+  if (!repo) throw new BadRequestError("This project has no GitHub remote");
+  return repo;
+}
+
+async function assertBranchNotCheckedOut(
+  state: ProjectState,
+  bare: string,
+  branch: string,
+  dataDir: string,
+): Promise<void> {
+  const workspaceByBranch = await mapBranchesToWorkspaces(state, bare, dataDir);
+  const existing = workspaceByBranch.get(branch);
+  if (existing) {
+    throw new ConflictError(
+      `Branch "${branch}" is already checked out in workspace "${existing.name}"`,
+    );
+  }
+}
+
+/**
+ * Fetch a remote ref into a unique Hive-owned temp ref and return its name.
+ * The shared fetch-tracking ref is a single file per repo and other
+ * components (git-sync, diff endpoints) fetch into the same bare repo
+ * concurrently; a private ref makes the fetched tip immune to those writes.
+ * Callers must delete the ref via deleteTempRef() when done.
+ */
+async function fetchToTempRef(bare: string, remoteRef: string): Promise<string> {
+  const tempRef = `refs/hive/incoming/${nanoid(8)}`;
+  await git(["fetch", "--no-tags", "origin", `+${remoteRef}:${tempRef}`], bare);
+  return tempRef;
+}
+
+async function deleteTempRef(bare: string, ref: string): Promise<void> {
+  await git(["update-ref", "-d", ref], bare).catch(() => {});
+}
+
+/**
+ * Check out `branch` into a new worktree. `fetchedRef` is the Hive-owned temp
+ * ref holding the remote tip of the branch (see fetchToTempRef), or null if
+ * the branch is local-only / unreachable on the remote.
+ */
+async function addWorktreeOnBranch(
+  bare: string,
+  wsPath: string,
+  branch: string,
+  fetchedRef: string | null,
+): Promise<void> {
+  const hasLocal = await git(["show-ref", "--verify", `refs/heads/${branch}`], bare)
+    .then(() => true)
+    .catch(() => false);
+  if (hasLocal) {
+    if (fetchedRef) {
+      // Fast-forward to the remote tip when possible; keep a diverged local ref.
+      try {
+        await git(["merge-base", "--is-ancestor", `refs/heads/${branch}`, fetchedRef], bare);
+        await git(["update-ref", `refs/heads/${branch}`, fetchedRef], bare);
+      } catch {
+        // Diverged or unrelated — keep the local ref as-is.
+      }
+    }
+    await addWorktreeFromBranch(bare, wsPath, branch);
+    return;
+  }
+  if (!fetchedRef) throw new BadRequestError(`Branch "${branch}" not found`);
+  await addWorktreeWithNewBranch(bare, wsPath, branch, fetchedRef);
+}
+
+async function checkoutSourceBranch(
+  state: ProjectState,
+  bare: string,
+  wsPath: string,
+  branch: string,
+  dataDir: string,
+): Promise<void> {
+  validateBranchName(branch);
+  await assertBranchNotCheckedOut(state, bare, branch, dataDir);
+  let fetchedRef: string | null = null;
+  try {
+    fetchedRef = await fetchToTempRef(bare, `refs/heads/${branch}`);
+  } catch {
+    // Local-only branch or unreachable remote.
+  }
+  try {
+    await addWorktreeOnBranch(bare, wsPath, branch, fetchedRef);
+  } finally {
+    if (fetchedRef) await deleteTempRef(bare, fetchedRef);
+  }
+}
+
+/**
+ * Check out a cross-repository PR on a Hive-owned local branch `pr/<number>`.
+ * Never reuses the fork's headRefName: a fork can name its branch anything
+ * (including "main"), and reusing the name could repoint an unrelated local
+ * branch at the fork's commits.
+ */
+async function checkoutPullRequestHead(
+  state: ProjectState,
+  bare: string,
+  wsPath: string,
+  prNumber: number,
+  dataDir: string,
+): Promise<string> {
+  const branch = prBranchName(prNumber);
+  await assertBranchNotCheckedOut(state, bare, branch, dataDir);
+  let fetchedRef: string;
+  try {
+    fetchedRef = await fetchToTempRef(bare, `refs/pull/${prNumber}/head`);
+  } catch {
+    throw new BadRequestError(`Could not fetch pull request #${prNumber} from origin`);
+  }
+  try {
+    // A stale pr/<n> branch (e.g. from an archived workspace) may only be
+    // reset when the PR head already contains its commits; otherwise deleting
+    // it would destroy unpushed local work.
+    const hasStale = await git(["show-ref", "--verify", `refs/heads/${branch}`], bare)
+      .then(() => true)
+      .catch(() => false);
+    if (hasStale) {
+      try {
+        await git(["merge-base", "--is-ancestor", `refs/heads/${branch}`, fetchedRef], bare);
+      } catch {
+        throw new ConflictError(
+          `Local branch "${branch}" has commits that are not on pull request #${prNumber} ` +
+            `(likely from an archived workspace); delete the branch or restore the workspace first`,
+        );
+      }
+      await git(["branch", "-D", branch], bare);
+    }
+    await addWorktreeWithNewBranch(bare, wsPath, branch, fetchedRef);
+  } finally {
+    await deleteTempRef(bare, fetchedRef);
+  }
+  return branch;
+}
+
 export async function createWorkspace(
   projectId: string,
-  dataDir = getDataDir()
+  dataDir = getDataDir(),
+  source?: CreateWorkspaceSourceInput,
 ): Promise<Workspace> {
+  // Resolve PR/issue details before taking the lock: gh can stall for up to
+  // 10s and the same lock serializes session-state persistence.
+  let prDetail: PullRequestDetail | undefined;
+  let issueDetail: IssueDetail | undefined;
+  if (source?.kind === "pr" || source?.kind === "issue") {
+    const state = await loadProject(projectId, dataDir);
+    if (!state) throw new NotFoundError(`Project ${projectId} not found`);
+    const repo = requireGitHubRepo(state);
+    if (source.kind === "pr") {
+      prDetail = await fetchPrDetail(repo.owner, repo.repo, source.number);
+    } else {
+      issueDetail = await fetchIssueDetail(repo.owner, repo.repo, source.number);
+    }
+  }
+
   return withProjectStateLock(
     projectId,
     async () => {
@@ -48,16 +215,60 @@ export async function createWorkspace(
 
       const usedNames = state.workspaces.map((ws) => ws.name);
       const cityName = pickCityName(usedNames);
-      const branch = `workspace/${cityName}`;
       const wsPath = join(workspacesDir(dataDir, projectId), cityName);
       const bare = bareRepoPath(dataDir, projectId);
 
       const defaultBranch = await resolveDefaultBranch(bare);
 
-      await refreshDefaultBranchFromOrigin(bare, defaultBranch);
+      let branch: string;
+      let wsSource: WorkspaceSource | undefined;
+      let draftPrompt: string | undefined;
 
-      // Create worktree from the default branch
-      await addWorktreeWithNewBranch(bare, wsPath, branch, defaultBranch);
+      if (!source) {
+        // Default flow: new branch off the refreshed default branch.
+        branch = `workspace/${cityName}`;
+        await refreshDefaultBranchFromOrigin(bare, defaultBranch);
+        await addWorktreeWithNewBranch(bare, wsPath, branch, defaultBranch);
+      } else if (source.kind === "branch") {
+        branch = source.branch;
+        await checkoutSourceBranch(state, bare, wsPath, branch, dataDir);
+        wsSource = { kind: "branch", branch };
+      } else if (source.kind === "pr") {
+        const pr = prDetail!;
+        if (pr.isCrossRepository) {
+          branch = await checkoutPullRequestHead(state, bare, wsPath, pr.number, dataDir);
+        } else {
+          branch = pr.headRefName;
+          await checkoutSourceBranch(state, bare, wsPath, branch, dataDir);
+        }
+        wsSource = {
+          kind: "pr",
+          branch,
+          number: pr.number,
+          title: pr.title,
+          url: pr.url,
+          baseBranch: pr.baseRefName,
+          ...(pr.isCrossRepository ? { crossRepository: true } : {}),
+        };
+      } else if (source.kind === "issue") {
+        const issue = issueDetail!;
+        // Issues have no code: branch off the default branch like the default flow.
+        branch = `workspace/${cityName}`;
+        await refreshDefaultBranchFromOrigin(bare, defaultBranch);
+        await addWorktreeWithNewBranch(bare, wsPath, branch, defaultBranch);
+        wsSource = { kind: "issue", number: issue.number, title: issue.title, url: issue.url };
+        const template = await loadIssueDraftPrompt(join(dataDir, "prompts"));
+        const rendered = interpolateIssueDraftPrompt(template, {
+          number: issue.number,
+          title: issue.title,
+          url: issue.url,
+          body: issue.body,
+        });
+        if (rendered) draftPrompt = rendered;
+      } else {
+        throw new BadRequestError("Invalid workspace source");
+      }
+
       await copyProjectEnvToWorkspace(projectId, wsPath, dataDir);
 
       const workspace: Workspace = {
@@ -67,6 +278,8 @@ export async function createWorkspace(
         branch,
         status: "idle",
         createdAt: new Date().toISOString(),
+        ...(wsSource ? { source: wsSource } : {}),
+        ...(draftPrompt ? { draftPrompt } : {}),
       };
       state.workspaces.push(workspace);
       await saveProject(state, dataDir);
@@ -128,11 +341,20 @@ export async function deleteWorkspace(
       // Remove the worktree
       await removeWorktreeOrDeleteDirectory(bare, wsPath);
 
-      // Remove the branch
-      try {
-        await git(["branch", "-D", workspace.branch], bare);
-      } catch {
-        // Branch may not exist
+      // Remove the branch — but keep branches that pre-existed the workspace
+      // (created from an existing branch or a same-repo PR head). Cross-repo PR
+      // checkouts live on the Hive-owned `pr/<n>` branch and are deleted with
+      // the workspace.
+      const src = workspace.source;
+      const keepBranch =
+        src?.kind === "branch" ||
+        (src?.kind === "pr" && workspace.branch !== prBranchName(src.number!));
+      if (!keepBranch) {
+        try {
+          await git(["branch", "-D", workspace.branch], bare);
+        } catch {
+          // Branch may not exist
+        }
       }
 
       // Update state

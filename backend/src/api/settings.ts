@@ -31,6 +31,24 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
     return { defaultModelId: config.defaultModelId ?? null };
   });
 
+  app.get("/api/settings/kimi", async () => {
+    const config = await loadConfig();
+    return { apiKey: config.kimi.apiKey };
+  });
+
+  app.put<{
+    Body: { apiKey?: string };
+  }>("/api/settings/kimi", async (req, reply) => {
+    const { apiKey } = req.body ?? {};
+    if (typeof apiKey !== "string") {
+      return reply.status(400).send({ error: "Invalid payload" });
+    }
+    const config = await updateConfig((c) => {
+      c.kimi.apiKey = apiKey.trim();
+    });
+    return { apiKey: config.kimi.apiKey };
+  });
+
   app.get("/api/settings/notifications", async () => {
     const config = await loadConfig();
     return config.notifications;

@@ -32,9 +32,30 @@ let catalogPromise: Promise<ModelCatalogResponse> | null = null;
  * signs in a provider: the backend re-probes its provider list, and the next
  * mounted model selector must see the new entries instead of the stale cache.
  */
+/** Mounted useModels hooks, notified when refreshModelCatalog refetches. */
+const catalogListeners = new Set<(data: ModelCatalogResponse) => void>();
+
 export function invalidateModelCatalog(): void {
   catalogCache = null;
   catalogPromise = null;
+}
+
+/** Drop the cache and refetch the catalog, pushing the result to every mounted
+ *  useModels hook. Used when the server-side catalog changes at runtime (e.g.
+ *  saving a Kimi API key adds/removes its models). Keeps the old catalog on
+ *  fetch failure. */
+export async function refreshModelCatalog(): Promise<void> {
+  catalogCache = null;
+  catalogPromise = null;
+  try {
+    const data = await loadCatalog();
+    // A newer refresh may have superseded this one; the cache always holds the
+    // current response (see loadCatalog), so prefer it.
+    const current = catalogCache ?? data;
+    catalogListeners.forEach((listener) => listener(current));
+  } catch {
+    // Keep whatever the hooks already show; the next mount retries.
+  }
 }
 
 /** Settings saved a new global default: patch the cached catalog so composers
@@ -52,9 +73,19 @@ export function __resetModelCatalogCacheForTests(): void {
 
 function loadCatalog(): Promise<ModelCatalogResponse> {
   if (!catalogPromise) {
-    catalogPromise = api.get<ModelCatalogResponse>("/api/models")
-      .then((data) => { catalogCache = data; return data; })
-      .catch((err) => { catalogPromise = null; throw err; });
+    // Only the promise currently stored in catalogPromise may write the cache:
+    // a request superseded by refreshModelCatalog (which resets catalogPromise)
+    // must not overwrite the fresher response when it finally resolves.
+    const promise: Promise<ModelCatalogResponse> = api.get<ModelCatalogResponse>("/api/models")
+      .then((data) => {
+        if (catalogPromise === promise) catalogCache = data;
+        return data;
+      })
+      .catch((err) => {
+        if (catalogPromise === promise) catalogPromise = null;
+        throw err;
+      });
+    catalogPromise = promise;
   }
   return catalogPromise;
 }
@@ -100,10 +131,13 @@ export function useModels(lockedProvider?: string, preferredModelId?: string): U
     loadCatalog()
       .then((data) => {
         if (cancelled) return;
-        setModels(data.models);
-        setDefaultModelId(data.defaultModelId);
+        // If a refresh superseded this request, the cache already holds the
+        // fresher response — adopt it instead of our stale one.
+        const current = catalogCache ?? data;
+        setModels(current.models);
+        setDefaultModelId(current.defaultModelId);
         setSelectedModelId((prev) =>
-          prev || seedModelId(data, lockedProviderRef.current, preferredModelIdRef.current));
+          prev || seedModelId(current, lockedProviderRef.current, preferredModelIdRef.current));
         setIsLoading(false);
       })
       .catch(() => {
@@ -111,6 +145,22 @@ export function useModels(lockedProvider?: string, preferredModelId?: string): U
         setIsLoading(false);
       });
     return () => { cancelled = true; };
+  }, []);
+
+  // Follow runtime catalog refreshes (refreshModelCatalog) while mounted.
+  useEffect(() => {
+    const listener = (data: ModelCatalogResponse) => {
+      setModels(data.models);
+      setDefaultModelId(data.defaultModelId);
+      // Keep the current selection when it survives the refresh; reseed otherwise.
+      setSelectedModelId((prev) =>
+        prev && data.models.some((m) => m.id === prev)
+          ? prev
+          : seedModelId(data, lockedProviderRef.current, preferredModelIdRef.current));
+      setIsLoading(false);
+    };
+    catalogListeners.add(listener);
+    return () => { catalogListeners.delete(listener); };
   }, []);
 
   const selectedModel = models.find((m) => m.id === selectedModelId);

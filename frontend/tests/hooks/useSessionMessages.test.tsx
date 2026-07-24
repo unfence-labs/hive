@@ -9,9 +9,16 @@ import {
   appendCachedSessionMessage,
   invalidateSessionMessages,
   removeCachedSessionMessages,
+  resolveCachedOptimisticEcho,
   prefetchSessionMessages,
   fetchAndMergeSessionMessages,
 } from "@/hooks/useSessionMessages";
+import {
+  _resetOptimisticSends,
+  getSendState,
+  markOptimisticSendFailed,
+  trackOptimisticSend,
+} from "@/lib/optimistic-sends";
 import type { ChatMessage } from "@/types";
 
 vi.mock("@/hooks/useApi", () => {
@@ -53,20 +60,26 @@ function message(id: string, content: string): ChatMessage {
   };
 }
 
-function userMessage(id: string, content: string): ChatMessage {
+function userMessage(id: string, content: string, clientMessageId?: string): ChatMessage {
   return {
     id,
     sessionId: "sess-1",
     role: "user",
     content,
     timestamp: "2026-02-20T00:00:00.000Z",
+    clientMessageId,
   };
+}
+
+function track(id: string, content: string): void {
+  trackOptimisticSend(id, { content, sessionId: "sess-1" });
 }
 
 describe("useSessionMessages", () => {
   beforeEach(async () => {
     const { __apiMock } = await getApiMock();
     __apiMock.reset();
+    _resetOptimisticSends();
   });
 
   it("fetches the session messages once a sessionId is provided", async () => {
@@ -196,6 +209,104 @@ describe("useSessionMessages", () => {
 
       expect(merged).toEqual([firstUser, firstAssistant, followUp]);
     });
+  });
+
+  describe("optimistic send reconciliation", () => {
+    it("does not confirm a pending send from an already-cached identical message", async () => {
+      const { __apiMock } = await getApiMock();
+      const oldServerCopy = userMessage("srv-0", "hello");
+      __apiMock.getMock.mockResolvedValue([oldServerCopy]);
+
+      const queryClient = newClient();
+      const local = userMessage("local-1", "hello");
+      queryClient.setQueryData(sessionMessagesKey("ws-1", "sess-1"), [oldServerCopy, local]);
+      track("local-1", "hello");
+
+      const merged = await fetchAndMergeSessionMessages(queryClient, "ws-1", "sess-1");
+
+      expect(merged).toEqual([oldServerCopy, local]);
+      expect(getSendState("local-1")).toBe("sending");
+    });
+
+    it("carries a failed local message across refetches without confirming it", async () => {
+      const { __apiMock } = await getApiMock();
+      const unrelated = message("a1", "assistant answer");
+      __apiMock.getMock.mockResolvedValue([unrelated]);
+
+      const queryClient = newClient();
+      const local = userMessage("local-1", "hello");
+      queryClient.setQueryData(sessionMessagesKey("ws-1", "sess-1"), [local]);
+      track("local-1", "hello");
+      markOptimisticSendFailed("local-1");
+
+      const merged = await fetchAndMergeSessionMessages(queryClient, "ws-1", "sess-1");
+
+      expect(merged).toEqual([unrelated, local]);
+      expect(getSendState("local-1")).toBe("failed");
+    });
+
+    it("resolves only the exact clientMessageId among two identical image-only sends", async () => {
+      const { __apiMock } = await getApiMock();
+      const serverCopy = userMessage("srv-1", "", "local-2");
+      __apiMock.getMock.mockResolvedValue([serverCopy]);
+
+      const queryClient = newClient();
+      const first = userMessage("local-1", "");
+      const second = userMessage("local-2", "");
+      queryClient.setQueryData(sessionMessagesKey("ws-1", "sess-1"), [first, second]);
+      track("local-1", "");
+      track("local-2", "");
+
+      const merged = await fetchAndMergeSessionMessages(queryClient, "ws-1", "sess-1");
+
+      expect(merged).toEqual([serverCopy, first]);
+      expect(getSendState("local-1")).toBe("sending");
+      expect(getSendState("local-2")).toBeUndefined();
+    });
+
+    it("does not resolve a local send when the fetched copy's clientMessageId belongs to another client", async () => {
+      const { __apiMock } = await getApiMock();
+      const otherClientCopy = userMessage("srv-1", "hello", "other-client-local-9");
+      __apiMock.getMock.mockResolvedValue([otherClientCopy]);
+
+      const queryClient = newClient();
+      const local = userMessage("local-1", "hello");
+      queryClient.setQueryData(sessionMessagesKey("ws-1", "sess-1"), [local]);
+      track("local-1", "hello");
+
+      const merged = await fetchAndMergeSessionMessages(queryClient, "ws-1", "sess-1");
+
+      expect(merged).toEqual([otherClientCopy, local]);
+      expect(getSendState("local-1")).toBe("sending");
+    });
+  });
+
+  describe("resolveCachedOptimisticEcho", () => {
+    it("swaps the tracked local message in place and stops tracking it", () => {
+      const queryClient = newClient();
+      const assistant = message("a1", "earlier answer");
+      const local = userMessage("local-1", "hello");
+      queryClient.setQueryData(sessionMessagesKey("ws-1", "sess-1"), [assistant, local]);
+      track("local-1", "hello");
+
+      const echo = userMessage("srv-1", "hello", "local-1");
+      const swapped = resolveCachedOptimisticEcho(queryClient, "ws-1", "sess-1", echo);
+
+      expect(swapped).toBe(true);
+      expect(getCachedSessionMessages(queryClient, "ws-1", "sess-1")).toEqual([assistant, echo]);
+      expect(getSendState("local-1")).toBeUndefined();
+    });
+
+    it("returns false for untracked content so the caller appends normally", () => {
+      const queryClient = newClient();
+      queryClient.setQueryData(sessionMessagesKey("ws-1", "sess-1"), [userMessage("u1", "other")]);
+
+      const swapped = resolveCachedOptimisticEcho(queryClient, "ws-1", "sess-1", userMessage("srv-1", "hello"));
+
+      expect(swapped).toBe(false);
+      expect(getCachedSessionMessages(queryClient, "ws-1", "sess-1")).toEqual([userMessage("u1", "other")]);
+    });
+
   });
 
   describe("appendCachedSessionMessage", () => {

@@ -7,6 +7,7 @@ import {
   type JsonRpcRequest,
 } from "../agents/providers/json-rpc-stdio.js";
 import { getAllProviderInfo } from "../agents/providers/registry.js";
+import { getKimiApiKey } from "../state/config.js";
 import { buildWorkspaceEnv } from "../utils/env.js";
 
 type UsageStatus = "available" | "unavailable" | "unknown" | "error";
@@ -71,6 +72,15 @@ interface ClaudeUsageWindow {
   resets_at?: unknown;
 }
 
+interface UsageFetchRequest {
+  url: string;
+  headers: Record<string, string>;
+  timeoutMs: number;
+  providerLabel: string;
+  invalidResponseMessage?: string;
+  createHttpError?: (response: Response, body: unknown) => Error;
+}
+
 const CODEX_USAGE_CACHE_TTL_MS = 120_000;
 const CODEX_REQUEST_TIMEOUT_MS = 5_000;
 const CODEX_USAGE_IDLE_TIMEOUT_MS = 120_000;
@@ -78,6 +88,9 @@ const CLAUDE_USAGE_CACHE_TTL_MS = 180_000;
 const CLAUDE_REQUEST_TIMEOUT_MS = 5_000;
 const CLAUDE_USAGE_URL = "https://api.anthropic.com/api/oauth/usage";
 const CLAUDE_OAUTH_BETA_HEADER = "oauth-2025-04-20";
+const KIMI_USAGE_CACHE_TTL_MS = 180_000;
+const KIMI_REQUEST_TIMEOUT_MS = 5_000;
+const KIMI_USAGE_URL = "https://api.kimi.com/coding/v1/usages";
 const CLIENT_INFO = {
   name: "hive",
   title: "Hive",
@@ -91,7 +104,13 @@ let codexUsageCache:
 let claudeUsageCache:
   | { value: ProviderUsageEntry; expiresAt: number }
   | null = null;
+let kimiUsageCache:
+  | { apiKey: string; value: ProviderUsageEntry; expiresAt: number }
+  | null = null;
 let claudeBackoffUntil = 0;
+let kimiBackoff:
+  | { apiKey: string; until: number }
+  | null = null;
 
 export async function getProviderUsageSnapshot(): Promise<ProviderUsageResponse> {
   const providerInfo = getAllProviderInfo();
@@ -107,6 +126,8 @@ export async function getProviderUsageSnapshot(): Promise<ProviderUsageResponse>
   if (claude) {
     providerTasks.push(getClaudeUsage(claude.label, claude.installed, claude.version));
   }
+
+  providerTasks.push(getKimiUsage("Kimi"));
 
   const providers = await Promise.all(providerTasks);
   return { providers, generatedAt };
@@ -186,8 +207,7 @@ async function getClaudeUsage(label: string, installed: boolean, version: string
       };
     }
 
-    const response = await fetchClaudeUsage(token, version);
-    const buckets = parseClaudeUsageBuckets(response.body);
+    const buckets = parseClaudeUsageBuckets(await fetchClaudeUsage(token, version));
     if (buckets.length === 0) {
       return {
         id: "claude",
@@ -210,7 +230,7 @@ async function getClaudeUsage(label: string, installed: boolean, version: string
     claudeBackoffUntil = 0;
     return entry;
   } catch (err) {
-    if (err instanceof ClaudeUsageHttpError && err.status === 429) {
+    if (err instanceof UsageHttpError && err.status === 429) {
       claudeBackoffUntil = Date.now() + Math.max(err.retryAfterMs ?? 0, CLAUDE_USAGE_CACHE_TTL_MS);
     }
     return {
@@ -220,6 +240,86 @@ async function getClaudeUsage(label: string, installed: boolean, version: string
       buckets: [],
       lastUpdatedAt: null,
       message: err instanceof Error ? err.message : "Could not read Claude account usage.",
+    };
+  }
+}
+
+async function getKimiUsage(label: string): Promise<ProviderUsageEntry> {
+  const apiKey = getKimiApiKey();
+  if (!apiKey) {
+    kimiUsageCache = null;
+    kimiBackoff = null;
+    return unavailableProvider("kimi", label, "Kimi API key is not configured.");
+  }
+
+  const now = Date.now();
+  if (kimiBackoff && kimiBackoff.apiKey !== apiKey) {
+    kimiBackoff = null;
+  }
+  if (
+    kimiUsageCache
+    && kimiUsageCache.apiKey === apiKey
+    && kimiUsageCache.expiresAt > now
+  ) {
+    return kimiUsageCache.value;
+  }
+
+  if (kimiBackoff && kimiBackoff.until > now) {
+    return {
+      id: "kimi",
+      label,
+      status: "unknown",
+      buckets: [],
+      lastUpdatedAt: null,
+      message: `Kimi usage polling is backing off after a rate limit. Try again ${formatRetryTime(kimiBackoff.until)}.`,
+    };
+  }
+  kimiBackoff = null;
+
+  try {
+    const buckets = parseKimiUsageBuckets(await fetchKimiUsage(apiKey));
+    if (buckets.length === 0) {
+      kimiUsageCache = null;
+      kimiBackoff = null;
+      return {
+        id: "kimi",
+        label,
+        status: "unknown",
+        buckets: [],
+        lastUpdatedAt: null,
+        message: "Kimi usage API returned no weekly or 5-hour usage windows.",
+      };
+    }
+
+    const entry = {
+      id: "kimi",
+      label,
+      status: "available" as const,
+      buckets,
+      lastUpdatedAt: new Date().toISOString(),
+    };
+    kimiUsageCache = {
+      apiKey,
+      value: entry,
+      expiresAt: now + KIMI_USAGE_CACHE_TTL_MS,
+    };
+    kimiBackoff = null;
+    return entry;
+  } catch (err) {
+    kimiUsageCache = null;
+    kimiBackoff = err instanceof UsageHttpError && err.status === 429
+      ? {
+          apiKey,
+          until: Date.now() + Math.max(err.retryAfterMs ?? 0, KIMI_USAGE_CACHE_TTL_MS),
+        }
+      : null;
+    return {
+      id: "kimi",
+      label,
+      status: "error",
+      buckets: [],
+      lastUpdatedAt: null,
+      message: err instanceof Error ? err.message : "Could not read Kimi account usage.",
     };
   }
 }
@@ -253,41 +353,79 @@ async function readClaudeAccessToken(): Promise<string | null> {
   return asString(oauth.accessToken);
 }
 
-async function fetchClaudeUsage(token: string, version: string | null): Promise<{ body: unknown }> {
+async function fetchClaudeUsage(token: string, version: string | null): Promise<unknown> {
+  return fetchUsageJson({
+    url: CLAUDE_USAGE_URL,
+    timeoutMs: CLAUDE_REQUEST_TIMEOUT_MS,
+    providerLabel: "Claude",
+    headers: {
+      Accept: "application/json",
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+      "anthropic-beta": CLAUDE_OAUTH_BETA_HEADER,
+      "User-Agent": `claude-code/${version ?? "2.0"}`,
+    },
+    createHttpError: (response, body) => new UsageHttpError(
+      response.status,
+      errorMessageFromBody(body) ?? `Claude usage API returned HTTP ${response.status}.`,
+      retryAfterMs(response.headers.get("retry-after")),
+    ),
+  });
+}
+
+async function fetchKimiUsage(apiKey: string): Promise<unknown> {
+  return fetchUsageJson({
+    url: KIMI_USAGE_URL,
+    timeoutMs: KIMI_REQUEST_TIMEOUT_MS,
+    providerLabel: "Kimi",
+    invalidResponseMessage: "Kimi usage API returned an invalid response.",
+    headers: {
+      Accept: "application/json",
+      Authorization: `Bearer ${apiKey}`,
+    },
+    createHttpError: (response, body) => new UsageHttpError(
+      response.status,
+      errorMessageFromBody(body) ?? `Kimi usage API returned HTTP ${response.status}.`,
+      retryAfterMs(response.headers.get("retry-after")),
+    ),
+  });
+}
+
+async function fetchUsageJson(request: UsageFetchRequest): Promise<unknown> {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), CLAUDE_REQUEST_TIMEOUT_MS);
+  const timeout = setTimeout(() => controller.abort(), request.timeoutMs);
   try {
-    const response = await fetch(CLAUDE_USAGE_URL, {
-      headers: {
-        Accept: "application/json",
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-        "anthropic-beta": CLAUDE_OAUTH_BETA_HEADER,
-        "User-Agent": `claude-code/${version ?? "2.0"}`,
-      },
+    const response = await fetch(request.url, {
+      method: "GET",
+      headers: request.headers,
       signal: controller.signal,
     });
 
     let body: unknown = null;
+    let parsed = false;
     try {
       body = await response.json();
+      parsed = true;
     } catch {
-      // Non-JSON failures are converted into the generic HTTP error below.
+      // Non-JSON failures are converted into the HTTP error below.
     }
 
     if (!response.ok) {
-      throw new ClaudeUsageHttpError(
-        response.status,
-        errorMessageFromBody(body) ?? `Claude usage API returned HTTP ${response.status}.`,
-        retryAfterMs(response.headers.get("retry-after")),
+      throw request.createHttpError?.(response, body) ?? new Error(
+        errorMessageFromBody(body)
+        ?? `${request.providerLabel} usage API returned HTTP ${response.status}.`,
       );
     }
 
-    return { body };
+    if (!parsed && request.invalidResponseMessage) {
+      throw new Error(request.invalidResponseMessage);
+    }
+
+    return body;
   } catch (err) {
-    if (err instanceof ClaudeUsageHttpError) throw err;
+    if (err instanceof UsageHttpError) throw err;
     if (err instanceof Error && err.name === "AbortError") {
-      throw new Error("Claude usage API timed out.");
+      throw new Error(`${request.providerLabel} usage API timed out.`);
     }
     throw err;
   } finally {
@@ -329,6 +467,69 @@ function parseClaudeUsageBucket(
     windowDurationMins: config.windowDurationMins,
     resetsAt: parseResetTimestamp(window.resets_at),
   };
+}
+
+function parseKimiUsageBuckets(result: unknown): ProviderUsageBucket[] {
+  const record = asRecord(result);
+  if (!record) return [];
+
+  const buckets: ProviderUsageBucket[] = [];
+  const weekly = parseKimiUsageBucket(
+    "weekly",
+    "7d",
+    10_080,
+    asRecord(record.usage),
+  );
+  if (weekly) buckets.push(weekly);
+
+  const limits = Array.isArray(record.limits) ? record.limits : [];
+  for (const rawLimit of limits) {
+    const limit = asRecord(rawLimit);
+    if (!limit) continue;
+    const detail = asRecord(limit.detail);
+    const window = asRecord(limit.window);
+    if (!detail || !isKimiFiveHourWindow(window)) continue;
+
+    const fiveHour = parseKimiUsageBucket(
+      "five_hour",
+      "5h",
+      300,
+      detail,
+    );
+    if (fiveHour) {
+      buckets.push(fiveHour);
+      break;
+    }
+  }
+
+  return buckets;
+}
+
+function parseKimiUsageBucket(
+  id: string,
+  label: string,
+  windowDurationMins: number,
+  usage: Record<string, unknown> | null,
+): ProviderUsageBucket | null {
+  if (!usage) return null;
+  const limit = asNumericString(usage.limit);
+  if (limit === null || limit <= 0) return null;
+
+  const used = asNumericString(usage.used);
+  if (used === null) return null;
+
+  return {
+    id,
+    label,
+    usedPercent: normalizePercentNumber((used / limit) * 100),
+    windowDurationMins,
+    resetsAt: parseResetTimestamp(usage.resetTime ?? usage.reset_time),
+  };
+}
+
+function isKimiFiveHourWindow(window: Record<string, unknown> | null): boolean {
+  return asNumber(window?.duration) === 300
+    && asString(window?.timeUnit ?? window?.time_unit) === "TIME_UNIT_MINUTE";
 }
 
 function parseCodexRateLimitBuckets(result: unknown): ProviderUsageBucket[] {
@@ -438,7 +639,13 @@ function asNumber(value: unknown): number | null {
   return value;
 }
 
-class ClaudeUsageHttpError extends Error {
+function asNumericString(value: unknown): number | null {
+  if (typeof value !== "string" || !value.trim()) return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+class UsageHttpError extends Error {
   constructor(
     readonly status: number,
     message: string,
@@ -451,11 +658,14 @@ class ClaudeUsageHttpError extends Error {
 export const __providerUsageTestHooks = {
   parseCodexRateLimitBuckets,
   parseClaudeUsageBuckets,
+  parseKimiUsageBuckets,
   parseResetTimestamp,
   resetProviderUsageCaches() {
     codexUsageCache = null;
     claudeUsageCache = null;
+    kimiUsageCache = null;
     claudeBackoffUntil = 0;
+    kimiBackoff = null;
     stopProviderUsagePolling();
   },
 };

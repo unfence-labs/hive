@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { EventEmitter } from "node:events";
-import { rm, readFile } from "node:fs/promises";
+import { mkdir, rm, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { ChildProcess } from "node:child_process";
 import type { AgentActivity, WsOutgoing } from "../types.js";
@@ -280,7 +280,7 @@ describe("ConversationSession", () => {
     providerRegistry.markProviderAvailable("codex");
   });
 
-  function createSession(opts?: { sessionId?: string; command?: string; skipPermissions?: boolean; sessionKind?: "chat" | "automation" | "brain" }) {
+  function createSession(opts?: { sessionId?: string; command?: string; skipPermissions?: boolean; sessionKind?: "chat" | "automation" | "brain"; draftPrompt?: string }) {
     return new ConversationSession({
       cwd: "/tmp/test",
       dataDir: tempDir,
@@ -289,8 +289,31 @@ describe("ConversationSession", () => {
       command: opts?.command,
       skipPermissions: opts?.skipPermissions,
       sessionKind: opts?.sessionKind,
+      draftPrompt: opts?.draftPrompt,
     });
   }
+
+  it("persists a draft prompt until the first user message", async () => {
+    const session = createSession({
+      sessionId: "draft-prompt-session",
+      draftPrompt: "Fix issue #42",
+    });
+
+    await session.persistMetadata();
+    expect(session.metadata.draftPrompt).toBe("Fix issue #42");
+
+    session.sendMessage("Fix issue #42");
+    expect(session.metadata.draftPrompt).toBeUndefined();
+
+    mockProc._stdout.push(resultLine());
+    mockProc._emitClose(0);
+    await session.drain();
+
+    const persisted = JSON.parse(
+      await readFile(join(tempDir, "sessions", "draft-prompt-session", "metadata.json"), "utf-8"),
+    );
+    expect(persisted.draftPrompt).toBeUndefined();
+  });
 
   async function expectFreshGoalManagementCommandRejected(sessionId: string, command: string): Promise<void> {
     const session = createSession({ sessionId });
@@ -1877,6 +1900,48 @@ describe("ConversationSession", () => {
     expect(args).not.toContain("--effort");
   });
 
+  it("routes K3 model and effort through every Claude harness path", () => {
+    const session = createSession({ sessionId: "sess-kimi-k3" });
+
+    session.sendMessage("Hello", { model: "kimi:k3-1m", thinkingLevel: "low" });
+
+    const [command, args, spawnOptions] = mockSpawn.mock.calls[0] as [
+      string,
+      string[],
+      { env?: Record<string, string> },
+    ];
+    expect(command).toBe("claude");
+    expect(args).toEqual(expect.arrayContaining(["--model", "k3[1m]", "--effort", "low"]));
+    expect(spawnOptions.env).toMatchObject({
+      ANTHROPIC_MODEL: "k3[1m]",
+      ANTHROPIC_DEFAULT_HAIKU_MODEL: "k3[1m]",
+      ANTHROPIC_DEFAULT_SONNET_MODEL: "k3[1m]",
+      ANTHROPIC_DEFAULT_OPUS_MODEL: "k3[1m]",
+      ANTHROPIC_DEFAULT_FABLE_MODEL: "k3[1m]",
+      CLAUDE_CODE_SUBAGENT_MODEL: "k3[1m]",
+      CLAUDE_CODE_EFFORT_LEVEL: "low",
+    });
+  });
+
+  it("pins K2.7 for parent and subagents without selectable effort", () => {
+    const session = createSession({ sessionId: "sess-kimi-k27" });
+
+    session.sendMessage("Hello", {
+      model: "kimi:kimi-for-coding-highspeed",
+      thinkingLevel: "high",
+    });
+
+    const args = mockSpawn.mock.calls[0]?.[1] as string[];
+    const spawnOptions = mockSpawn.mock.calls[0]?.[2] as { env?: Record<string, string> };
+    expect(args).toEqual(expect.arrayContaining(["--model", "kimi-for-coding-highspeed"]));
+    expect(args).not.toContain("--effort");
+    expect(spawnOptions.env).toMatchObject({
+      ANTHROPIC_MODEL: "kimi-for-coding-highspeed",
+      CLAUDE_CODE_SUBAGENT_MODEL: "kimi-for-coding-highspeed",
+    });
+    expect(spawnOptions.env?.CLAUDE_CODE_EFFORT_LEVEL).toBeUndefined();
+  });
+
   it("always includes CLAUDE_CODE_ENABLE_TASKS in env", () => {
     const session = createSession({ sessionId: "sess-think-default", command: "claude" });
 
@@ -2758,7 +2823,7 @@ describe("ConversationSession", () => {
     const messages: WsOutgoing[] = [];
     session.on("message", (msg) => messages.push(msg));
 
-    session.sendMessage("Hello from user");
+    session.sendMessage("Hello from user", undefined, undefined, undefined, undefined, "local-abc123");
 
     const userEvents = messages.filter((m) => m.type === "user_message");
     expect(userEvents).toHaveLength(1);
@@ -2767,6 +2832,7 @@ describe("ConversationSession", () => {
         sessionId: "sess-user-evt",
         role: "user",
         content: "Hello from user",
+        clientMessageId: "local-abc123",
       });
     }
   });
@@ -3061,6 +3127,24 @@ describe("ConversationSession", () => {
     if (errors[0].type === "error") {
       expect(errors[0].message).toContain("stderr:");
       expect(errors[0].message).toContain("something went wrong");
+    }
+  });
+
+  it("suppresses the benign claude.ai connectors stderr notice but keeps real errors", () => {
+    const session = createSession();
+    const messages: WsOutgoing[] = [];
+    session.on("message", (msg) => messages.push(msg));
+
+    session.sendMessage("Hi");
+    mockProc._stderr.push("⚠ claude.ai connectors are disabled because ANTHROPIC_API_KEY or another auth source is set and takes precedence over your claude.ai login · Unset it to load your organization's connectors");
+    expect(messages.filter((m) => m.type === "error")).toHaveLength(0);
+
+    mockProc._stderr.push("⚠ claude.ai connectors are disabled because ANTHROPIC_API_KEY is set\nreal failure");
+    const errors = messages.filter((m) => m.type === "error");
+    expect(errors).toHaveLength(1);
+    if (errors[0].type === "error") {
+      expect(errors[0].message).toContain("real failure");
+      expect(errors[0].message).not.toContain("connectors");
     }
   });
 
@@ -3514,6 +3598,35 @@ describe("ConversationSession", () => {
       expect(userEvents[0].message.images![0].name).toBe("screenshot.png");
       expect(userEvents[0].message.images![0].mediaType).toBe("image/png");
     }
+  });
+
+  it("correlates an attachment failure that happens before the user-message echo", async () => {
+    const sessionId = "img-save-failure";
+    const sessionDir = join(tempDir, "sessions", sessionId);
+    await mkdir(sessionDir, { recursive: true });
+    await writeFile(join(sessionDir, "attachments"), "not a directory");
+
+    const session = createSession({ sessionId });
+    const messages: WsOutgoing[] = [];
+    const errors: Array<{ error: Error; clientMessageId?: string }> = [];
+    session.on("message", (message) => messages.push(message));
+    session.on("error", (error: Error, clientMessageId?: string) => {
+      errors.push({ error, clientMessageId });
+    });
+
+    session.sendMessage(
+      "Analyze this",
+      undefined,
+      [{ name: "shot.png", mediaType: "image/png", dataUrl: "data:image/png;base64,AAAA" }],
+      undefined,
+      undefined,
+      "local-image-failure",
+    );
+
+    await waitForCondition(() => errors.some((entry) => entry.clientMessageId === "local-image-failure"));
+
+    expect(errors.find((entry) => entry.clientMessageId === "local-image-failure")?.error).toBeInstanceOf(Error);
+    expect(messages.some((message) => message.type === "user_message")).toBe(false);
   });
 
   it("does not include images field when no images are provided", () => {
@@ -4108,6 +4221,16 @@ describe("ConversationSession", () => {
       thinkingLevel: "low",
       fastMode: false,
     });
+  });
+
+  it("normalizes K3 effort to high by default and preserves supported selections", () => {
+    const defaultSession = createSession({ sessionId: "lock-kimi-default" });
+    defaultSession.sendMessage("Hello", { model: "kimi:k3" });
+    expect(defaultSession.metadata.lastRunOptions?.thinkingLevel).toBe("high");
+
+    const selectedSession = createSession({ sessionId: "lock-kimi-selected" });
+    selectedSession.sendMessage("Hello", { model: "kimi:k3", thinkingLevel: "low" });
+    expect(selectedSession.metadata.lastRunOptions?.thinkingLevel).toBe("low");
   });
 
   it("defaults to claude provider when model has no prefix", () => {

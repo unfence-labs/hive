@@ -1,11 +1,12 @@
-import { useMemo, useState } from "react";
-import { Check, Loader2 } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { Check, Eye, EyeOff, Loader2, Save } from "lucide-react";
 import { SettingsHeader } from "@/components/AppLayout";
 import { CenterCard } from "@/components/CenterCard";
 import { ProviderIcon } from "@/components/chat/ProviderIcon";
 import { groupModelsByProvider } from "@/components/chat/ModelSelector";
+import { Input } from "@/components/ui/input";
 import { api } from "@/hooks/useApi";
-import { useModels, setCachedDefaultModelId } from "@/hooks/useModels";
+import { useModels, refreshModelCatalog, setCachedDefaultModelId } from "@/hooks/useModels";
 import { cn } from "@/lib/utils";
 
 export default function ModelsSettings() {
@@ -102,8 +103,137 @@ export default function ModelsSettings() {
             )}
           </div>
         </section>
+
+        <KimiSection />
       </div>
       </CenterCard>
     </div>
+  );
+}
+
+function KimiSection() {
+  const [apiKey, setApiKey] = useState("");
+  const [showKey, setShowKey] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [feedback, setFeedback] = useState<"saved" | "error" | null>(null);
+  // Gate the form on the initial GET: rendering an empty input over a stored
+  // key would let a single Save silently wipe the credential.
+  const [loadState, setLoadState] = useState<"loading" | "loaded" | "error">("loading");
+
+  useEffect(() => {
+    let cancelled = false;
+    api.get<{ apiKey: string }>("/api/settings/kimi")
+      .then((data) => {
+        if (cancelled) return;
+        setApiKey(data.apiKey ?? "");
+        setLoadState("loaded");
+      })
+      .catch(() => { if (!cancelled) setLoadState("error"); });
+    return () => { cancelled = true; };
+  }, []);
+
+  const save = async () => {
+    setSaving(true);
+    setFeedback(null);
+    try {
+      const saved = await api.put<{ apiKey: string }>("/api/settings/kimi", { apiKey });
+      setApiKey(saved.apiKey);
+      setFeedback("saved");
+      // The key gates the Kimi models server-side: refetch so they
+      // appear/disappear without a reload.
+      await refreshModelCatalog();
+    } catch {
+      setFeedback("error");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <section>
+      <div className="rounded-lg border border-border/50 bg-card/50 p-5">
+        <h2 className="text-sm font-medium text-foreground">Kimi</h2>
+        <p className="mt-1 text-xs text-muted-foreground">
+          API key from the{" "}
+          <a
+            href="https://www.kimi.com/code/console"
+            target="_blank"
+            rel="noreferrer"
+            className="underline hover:text-foreground"
+          >
+            Kimi Code console
+          </a>
+          , used to enable the Kimi provider.
+        </p>
+
+        {loadState === "loading" && (
+          <div className="flex items-center gap-2 py-4 text-xs text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Loading saved key…
+          </div>
+        )}
+
+        {loadState === "error" && (
+          <p className="py-4 text-xs text-destructive">
+            Could not load the saved API key. Reload the page to try again.
+          </p>
+        )}
+
+        {loadState === "loaded" && (
+          <>
+            <div className="mt-4">
+              <label htmlFor="kimi-api-key" className="mb-1.5 block text-xs font-medium text-muted-foreground">
+                Kimi API key
+              </label>
+              <div className="relative">
+                <Input
+                  id="kimi-api-key"
+                  type={showKey ? "text" : "password"}
+                  value={apiKey}
+                  onChange={(e) => { setApiKey(e.target.value); setFeedback(null); }}
+                  placeholder="sk-..."
+                  className="pr-9 font-mono text-xs"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowKey(!showKey)}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground transition-colors hover:text-foreground"
+                >
+                  {showKey
+                    ? <EyeOff className="h-3.5 w-3.5" />
+                    : <Eye className="h-3.5 w-3.5" />}
+                </button>
+              </div>
+            </div>
+
+            <div className="mt-4 flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => void save()}
+                disabled={saving}
+                className={cn(
+                  "inline-flex cursor-pointer items-center gap-2 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90",
+                  saving && "pointer-events-none opacity-60",
+                )}
+              >
+                {saving
+                  ? <Loader2 className="h-3 w-3 animate-spin" />
+                  : <Save className="h-3 w-3" />}
+                Save
+              </button>
+
+              {feedback && (
+                <span className={cn(
+                  "text-xs font-medium",
+                  feedback === "saved" ? "text-success-foreground" : "text-destructive",
+                )}>
+                  {feedback === "saved" ? "Saved" : "Failed to save"}
+                </span>
+              )}
+            </div>
+          </>
+        )}
+      </div>
+    </section>
   );
 }

@@ -5,7 +5,10 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useConversationColumn } from "@/hooks/useConversationColumn";
 import { _resetSnapshotCache } from "@/hooks/useTabs";
 import * as sessionMessages from "@/hooks/useSessionMessages";
-import type { QueuedMessage } from "@/types";
+import { getCachedSessionMessages, sessionMessagesKey } from "@/hooks/useSessionMessages";
+import { _resetOptimisticSends, getSendState, trackOptimisticSend } from "@/lib/optimistic-sends";
+import type { ChatMessage, QueuedMessage } from "@/types";
+import { dispatchAppCommand } from "@/lib/app-commands";
 
 const mocks = vi.hoisted(() => ({
   useConversation: vi.fn(),
@@ -31,13 +34,26 @@ function wrapperFor(queryClient: QueryClient) {
 function renderColumn(
   wsId: string | undefined,
   opts?: Parameters<typeof useConversationColumn>[1],
-) {
-  const queryClient = new QueryClient({
+  queryClient: QueryClient = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: Infinity } },
-  });
-  return renderHook(() => useConversationColumn(wsId, opts), {
+  }),
+) {
+  const rendered = renderHook(() => useConversationColumn(wsId, opts), {
     wrapper: wrapperFor(queryClient),
   });
+  return { ...rendered, queryClient };
+}
+
+function trackedMessage(id: string, sessionId: string, overrides: Partial<ChatMessage> = {}): ChatMessage {
+  return {
+    id,
+    sessionId,
+    role: "user",
+    content: "pending",
+    timestamp: "2024-01-01T00:00:00Z",
+    clientMessageId: id,
+    ...overrides,
+  };
 }
 
 // Shared mutable conversation state so we can re-render with different values.
@@ -86,6 +102,7 @@ let refresh: ReturnType<typeof vi.fn>;
 beforeEach(() => {
   vi.clearAllMocks();
   _resetSnapshotCache();
+  _resetOptimisticSends();
   conversation = makeConversation();
   mocks.useConversation.mockImplementation(() => conversation);
   createSession = vi.fn().mockResolvedValue({ sessionId: "s3", title: "New", createdAt: "2024-01-03T00:00:00Z" });
@@ -105,7 +122,22 @@ describe("useConversationColumn — session handlers", () => {
       await result.current.handleCreateSession();
     });
     expect(createSession).toHaveBeenCalledTimes(1);
-    expect(conversation.switchSession).toHaveBeenCalledWith("s3");
+    expect(conversation.switchSession).toHaveBeenCalledWith("s3", {
+      preserveComposer: false,
+    });
+  });
+
+  it("preserves the composer when creating the first explicit session", async () => {
+    conversation = makeConversation({ sessionId: undefined });
+    const { result } = renderColumn("ws1");
+
+    await act(async () => {
+      await result.current.handleCreateSession();
+    });
+
+    expect(conversation.switchSession).toHaveBeenCalledWith("s3", {
+      preserveComposer: true,
+    });
   });
 
   it("handleActivateSession activates the tab, switches, and runs onActivateSession", () => {
@@ -126,9 +158,36 @@ describe("useConversationColumn — session handlers", () => {
     expect(onActivateSession).not.toHaveBeenCalled();
   });
 
+  it("cycles conversation tabs from app commands", () => {
+    const { rerender } = renderColumn("ws1");
+    const switchSession = conversation.switchSession as ReturnType<typeof vi.fn>;
+
+    act(() => dispatchAppCommand("next-tab"));
+    expect(switchSession).toHaveBeenLastCalledWith("s2");
+
+    conversation = makeConversation({ sessionId: "s2", switchSession });
+    rerender();
+    act(() => dispatchAppCommand("previous-tab"));
+    expect(switchSession).toHaveBeenLastCalledWith("s1");
+  });
+
+  it("creates a conversation from the app command", async () => {
+    renderColumn("ws1");
+
+    await act(async () => dispatchAppCommand("new-chat"));
+
+    expect(createSession).toHaveBeenCalledTimes(1);
+    expect(conversation.switchSession).toHaveBeenCalledWith("s3", {
+      preserveComposer: false,
+    });
+  });
+
   it("handleDeleteSession on a non-last active session activates the next one", async () => {
     const onLastSessionDeleted = vi.fn();
-    const { result } = renderColumn("ws1", { onLastSessionDeleted });
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } });
+    queryClient.setQueryData(sessionMessagesKey("ws1", "s1"), [trackedMessage("m1", "s1")]);
+    trackOptimisticSend("local-1", { content: "pending", sessionId: "s1" });
+    const { result } = renderColumn("ws1", { onLastSessionDeleted }, queryClient);
     await act(async () => {
       await result.current.handleDeleteSession("s1"); // active, sibling s2 remains
     });
@@ -136,6 +195,8 @@ describe("useConversationColumn — session handlers", () => {
     expect(conversation.switchSession).toHaveBeenCalledWith("s2");
     expect(conversation.clearChat).not.toHaveBeenCalled();
     expect(onLastSessionDeleted).not.toHaveBeenCalled();
+    expect(getCachedSessionMessages(queryClient, "ws1", "s1")).toBeUndefined();
+    expect(getSendState("local-1")).toBeUndefined();
   });
 
   it("handleDeleteSession on the last session clears chat and runs onLastSessionDeleted", async () => {
@@ -157,13 +218,39 @@ describe("useConversationColumn — session handlers", () => {
   it("handleDeleteSession does nothing when delete fails", async () => {
     deleteSession.mockResolvedValue(false);
     const onLastSessionDeleted = vi.fn();
-    const { result } = renderColumn("ws1", { onLastSessionDeleted });
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } });
+    queryClient.setQueryData(sessionMessagesKey("ws1", "s1"), [trackedMessage("m1", "s1")]);
+    trackOptimisticSend("local-1", { content: "pending", sessionId: "s1" });
+    const { result } = renderColumn("ws1", { onLastSessionDeleted }, queryClient);
     await act(async () => {
       await result.current.handleDeleteSession("s1");
     });
     expect(conversation.clearChat).not.toHaveBeenCalled();
     expect(onLastSessionDeleted).not.toHaveBeenCalled();
     expect(conversation.switchSession).not.toHaveBeenCalled();
+    expect(getCachedSessionMessages(queryClient, "ws1", "s1")).toBeDefined();
+    expect(getSendState("local-1")).toBe("sending");
+  });
+});
+
+describe("useConversationColumn — inactive session deletion", () => {
+  it("successful inactive-session deletion also clears its REST cache and tracked sends", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } });
+    queryClient.setQueryData(sessionMessagesKey("ws1", "s2"), [trackedMessage("m2", "s2")]);
+    trackOptimisticSend("local-2", { content: "pending", sessionId: "s2" });
+
+    const { result } = renderColumn("ws1", undefined, queryClient); // active session is s1
+
+    await act(async () => {
+      await result.current.handleDeleteSession("s2"); // inactive session
+    });
+
+    expect(deleteSession).toHaveBeenCalledWith("s2");
+    expect(getCachedSessionMessages(queryClient, "ws1", "s2")).toBeUndefined();
+    expect(getSendState("local-2")).toBeUndefined();
+    // Inactive-session deletion must not touch active-session navigation.
+    expect(conversation.switchSession).not.toHaveBeenCalled();
+    expect(conversation.clearChat).not.toHaveBeenCalled();
   });
 });
 

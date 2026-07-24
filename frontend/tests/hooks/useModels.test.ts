@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { renderHook, waitFor, act } from "@testing-library/react";
-import { useModels, __resetModelCatalogCacheForTests } from "@/hooks/useModels";
+import { useModels, refreshModelCatalog, __resetModelCatalogCacheForTests } from "@/hooks/useModels";
 import { api } from "@/hooks/useApi";
 import type { ModelCatalogResponse } from "@/types";
 
@@ -235,6 +235,108 @@ describe("useModels", () => {
     await waitFor(() => expect(result.current.isLoading).toBe(false));
 
     expect(result.current.selectedModelId).toBe("codex:gpt-5.5");
+  });
+
+  it("refreshModelCatalog pushes the refetched catalog to mounted hooks, keeping a surviving selection", async () => {
+    mockApi.get.mockResolvedValue(MOCK_CATALOG);
+    const { result } = renderHook(() => useModels());
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    act(() => {
+      result.current.setSelectedModelId("claude:sonnet-4-6");
+    });
+
+    const refreshed: ModelCatalogResponse = {
+      ...MOCK_CATALOG,
+      models: [
+        ...MOCK_CATALOG.models,
+        {
+          id: "kimi:k3",
+          label: "K3",
+          provider: "kimi",
+          providerLabel: "Kimi",
+          isDefault: true,
+          capabilities: { thinkingLevels: ["low", "high", "max"], planMode: true, blockingTools: true, completions: true, goals: false },
+        },
+      ],
+    };
+    mockApi.get.mockResolvedValue(refreshed);
+    await act(() => refreshModelCatalog());
+
+    expect(mockApi.get).toHaveBeenCalledTimes(2);
+    expect(result.current.models).toHaveLength(4);
+    // The previous selection survives the refresh, so it is kept.
+    expect(result.current.selectedModelId).toBe("claude:sonnet-4-6");
+  });
+
+  it("refreshModelCatalog reseeds the selection when it vanished from the catalog", async () => {
+    mockApi.get.mockResolvedValue(MOCK_CATALOG);
+    const { result } = renderHook(() => useModels());
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    act(() => {
+      result.current.setSelectedModelId("claude:sonnet-4-6");
+    });
+
+    const refreshed: ModelCatalogResponse = {
+      ...MOCK_CATALOG,
+      models: MOCK_CATALOG.models.filter((m) => m.id !== "claude:sonnet-4-6"),
+    };
+    mockApi.get.mockResolvedValue(refreshed);
+    await act(() => refreshModelCatalog());
+
+    expect(result.current.selectedModelId).toBe("codex:gpt-5.5");
+  });
+
+  it("a stale in-flight initial load cannot overwrite a completed refresh", async () => {
+    let resolveInitial!: (value: ModelCatalogResponse) => void;
+    mockApi.get.mockReturnValueOnce(new Promise((resolve) => { resolveInitial = resolve; }));
+    const { result } = renderHook(() => useModels());
+    expect(result.current.isLoading).toBe(true);
+
+    // The Kimi key was saved while the slow initial request was in flight:
+    // the refresh fetches a newer catalog and completes first.
+    const refreshed: ModelCatalogResponse = {
+      ...MOCK_CATALOG,
+      models: [
+        ...MOCK_CATALOG.models,
+        {
+          id: "kimi:k3",
+          label: "K3",
+          provider: "kimi",
+          providerLabel: "Kimi",
+          capabilities: { thinkingLevels: ["low", "high", "max"], planMode: true, blockingTools: true, completions: true, goals: false },
+        },
+      ],
+    };
+    mockApi.get.mockResolvedValue(refreshed);
+    await act(() => refreshModelCatalog());
+    expect(result.current.models).toHaveLength(4);
+
+    // The superseded initial request finally resolves with the stale catalog.
+    await act(async () => { resolveInitial(MOCK_CATALOG); });
+
+    // The fresh catalog wins in the mounted hook…
+    expect(result.current.models).toHaveLength(4);
+    // …and in the cache later mounts seed from (no third fetch).
+    const second = renderHook(() => useModels());
+    expect(second.result.current.models).toHaveLength(4);
+    expect(mockApi.get).toHaveBeenCalledTimes(2);
+  });
+
+  it("stops receiving catalog refreshes after unmount", async () => {
+    mockApi.get.mockResolvedValue(MOCK_CATALOG);
+    const { result, unmount } = renderHook(() => useModels());
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    unmount();
+
+    const refreshed: ModelCatalogResponse = { ...MOCK_CATALOG, models: [] };
+    mockApi.get.mockResolvedValue(refreshed);
+    await act(() => refreshModelCatalog());
+
+    // The unmounted hook kept its last render; no update (or React warning) fired.
+    expect(result.current.models).toHaveLength(3);
   });
 
   it("seeds synchronously from the cache on a remount (no second fetch)", async () => {

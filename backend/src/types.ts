@@ -15,7 +15,34 @@ export interface Workspace {
   createdAt: string;
   activeSessionId?: string;
   lastActivityAt?: string;
+  /** Present when the workspace was created from a branch, PR, or issue. */
+  source?: WorkspaceSource;
+  /** Prompt pre-filled into the composer of a workspace created from an issue. */
+  draftPrompt?: string;
 }
+
+export type WorkspaceSourceKind = "branch" | "pr" | "issue";
+
+export interface WorkspaceSource {
+  kind: WorkspaceSourceKind;
+  /** Git branch the workspace was created on ("branch" and "pr" kinds). */
+  branch?: string;
+  /** PR or issue number ("pr" and "issue" kinds). */
+  number?: number;
+  /** Base branch of the PR ("pr" kind). */
+  baseBranch?: string;
+  /** True for a PR from a fork: the workspace branch is a local pr/<n> copy
+   *  of the PR head, and pushing it does not update the PR ("pr" kind). */
+  crossRepository?: boolean;
+  title?: string;
+  url?: string;
+}
+
+/** Body of `POST /api/projects/:id/workspaces`. */
+export type CreateWorkspaceSourceInput =
+  | { kind: "branch"; branch: string }
+  | { kind: "pr"; number: number }
+  | { kind: "issue"; number: number };
 
 // ── Completion / autocomplete types ─────────────────────────────────
 
@@ -64,6 +91,39 @@ export interface BranchInfo {
 export interface PrStatusResponse {
   pr: PullRequestInfo | null;
   error?: string;
+}
+
+// ── Workspace source listing types (new-workspace-from picker) ──────
+
+export interface ProjectBranchItem {
+  name: string;
+  /** True when the branch only exists in the local bare repo (e.g. archived,
+   *  never pushed). Omitted when the remote is unreachable. */
+  localOnly?: boolean;
+  /** Set when the branch is already checked out in an existing workspace. */
+  workspaceId?: string;
+  workspaceName?: string;
+}
+
+export interface ProjectPullItem {
+  number: number;
+  title: string;
+  branch: string;
+  url: string;
+  isDraft: boolean;
+  author?: string;
+  updatedAt?: string;
+  /** Set when the PR head branch is already checked out in a workspace. */
+  workspaceId?: string;
+  workspaceName?: string;
+}
+
+export interface ProjectIssueItem {
+  number: number;
+  title: string;
+  url: string;
+  author?: string;
+  updatedAt?: string;
 }
 
 export interface WorkspaceFileTreeNode {
@@ -201,6 +261,8 @@ export interface SessionMetadata {
   lastRunOptions?: MessageOptions;
   /** Session kind. Absent means "chat" for back-compat with older sessions. */
   kind?: SessionKind;
+  /** Server-owned composer seed, retained until the first user message. */
+  draftPrompt?: string;
 }
 
 export interface ToolCall {
@@ -232,6 +294,8 @@ export interface ChatMessage {
   sessionId: string;
   role: "user" | "assistant";
   content: string;
+  /** Client-generated id of the optimistic send this message confirms, if any. */
+  clientMessageId?: string;
   images?: ImageAttachment[];
   fileMentions?: FileMention[];
   toolCalls?: ToolCall[];
@@ -416,9 +480,10 @@ export interface BrowserStatusPayload {
 /** Frontend -> Backend */
 export type WsIncoming =
   | { type: "switch_session"; sessionId: string }
-  | { type: "user_message"; content: string; images?: ImageAttachment[]; fileMentions?: FileMention[]; options?: MessageOptions; sessionId?: string }
+  | { type: "user_message"; content: string; images?: ImageAttachment[]; fileMentions?: FileMention[]; options?: MessageOptions; sessionId?: string; clientMessageId?: string }
   | { type: "stop"; sessionId?: string }
-  | { type: "tool_input_response"; requestId: string; toolName: string; result: ToolInputResult; sessionId?: string };
+  | { type: "tool_input_response"; requestId: string; toolName: string; result: ToolInputResult; sessionId?: string }
+  | { type: "request_stream_snapshots" };
 
 /** Backend -> Frontend */
 export type WsOutgoing =
@@ -455,7 +520,7 @@ export type WsOutgoing =
       contextWindowTokens?: number;
       pendingToolName?: string;
     }
-  | { type: "error"; message: string; sessionId?: string }
+  | { type: "error"; message: string; sessionId?: string; clientMessageId?: string }
   | { type: "cancelled"; sessionId: string; errorDetail?: string; userInitiated?: boolean; durationMs?: number }
   | { type: "status"; status: WorkspaceStatus; sessionId?: string; streaming?: boolean; streamingStartedAt?: number; lockedProvider?: string }
   | { type: "user_message"; message: ChatMessage }
@@ -535,7 +600,8 @@ export interface Agent {
   description?: string;
   systemPrompt: string;
   modelId: string;
-  thinkingLevel: ThinkingLevel;
+  /** Absent for models with no thinking-level control (e.g. K2.7). */
+  thinkingLevel?: ThinkingLevel;
   readOnly: boolean;
   createdAt: string;
   updatedAt: string;

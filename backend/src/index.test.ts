@@ -49,6 +49,7 @@ afterEach(async () => {
   delete process.env.HIVE_RATE_LIMIT_MAX;
   delete process.env.HIVE_RATE_LIMIT_WINDOW_MS;
   delete process.env.HIVE_CLAUDE_SKIP_PERMISSIONS;
+  vi.restoreAllMocks();
   if (previousDataDir === undefined) {
     delete process.env.DATA_DIR;
   } else {
@@ -128,6 +129,9 @@ describe("buildApp", () => {
   });
 
   it("registers agent settings routes", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response("Not Found", { status: 404 }),
+    );
     app = await buildApp();
     const res = await app.inject({ method: "GET", url: "/api/settings/cli" });
 

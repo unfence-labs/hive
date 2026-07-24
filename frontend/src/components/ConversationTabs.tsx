@@ -13,6 +13,8 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
+import { shortcutLabel } from "@/lib/shortcuts";
+import { ShortcutTooltip } from "@/components/ShortcutTooltip";
 import type { SessionKind, SessionMetadata } from "@/types";
 import type { FileViewMode } from "@/hooks/useTabs";
 
@@ -380,20 +382,25 @@ export function ConversationTabs({
         </div>
 
         {/* Pinned new-conversation button — always reachable, capped at the limit. */}
-        <button
-          type="button"
-          className={cn(
-            "flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground",
-            atLimit
-              ? "cursor-not-allowed opacity-40"
-              : "hover:bg-accent/50 hover:text-foreground",
-          )}
-          onClick={onCreateSession}
-          disabled={atLimit}
-          title={atLimit ? `Session limit reached (${MAX_SESSIONS_PER_WORKSPACE} max)` : "New conversation"}
-        >
-          <PlusIcon className="size-3.5" />
-        </button>
+        <ShortcutTooltip label="New conversation" shortcut={shortcutLabel("T")}>
+          <button
+            type="button"
+            className={cn(
+              "flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground",
+              atLimit
+                ? "cursor-not-allowed opacity-40"
+                : "hover:bg-accent/50 hover:text-foreground",
+            )}
+            onClick={onCreateSession}
+            disabled={atLimit}
+            aria-label="New conversation"
+            // Disabled buttons swallow pointer events, so the tooltip can't
+            // show; fall back to a native title for the limit case.
+            title={atLimit ? `Session limit reached (${MAX_SESSIONS_PER_WORKSPACE} max)` : undefined}
+          >
+            <PlusIcon className="size-3.5" />
+          </button>
+        </ShortcutTooltip>
       </div>
 
       <AlertDialog

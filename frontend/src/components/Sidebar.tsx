@@ -6,6 +6,7 @@ import {
   FolderGit2,
   FolderPlus,
   Loader2,
+  Search,
   Settings,
 } from "lucide-react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
@@ -37,6 +38,9 @@ import {
   parseProjectOwnerRepo,
 } from "@/lib/sidebar-helpers";
 import { cn } from "@/lib/utils";
+import { dispatchAppCommand } from "@/lib/app-commands";
+import { shortcutLabel } from "@/lib/shortcuts";
+import { ShortcutTooltip } from "@/components/ShortcutTooltip";
 import { BRAIN_WORKSPACE_ID } from "@/lib/brain";
 import {
   aggregateScriptRunning,
@@ -60,6 +64,7 @@ import type { Automation, DiffStatResponse, Project } from "@/types";
 interface SidebarProps {
   onAddProject: () => void;
   onAddAutomation?: () => void;
+  onNewWorkspaceFrom?: (projectId: string) => void;
 }
 
 type SidebarDropTarget = { type: "folder"; folderId: string };
@@ -158,7 +163,7 @@ function SidebarPanelScroll({
   );
 }
 
-export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps) {
+export default function Sidebar({ onAddProject, onAddAutomation, onNewWorkspaceFrom }: SidebarProps) {
   const {
     projects,
     loading,
@@ -517,6 +522,7 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
         draggingProjectId={draggingProjectId}
         projectInsertIndicator={projectInsertIndicator}
         onAddWorkspace={(projectId) => { void handleAddWorkspace(projectId); }}
+        onAddWorkspaceFrom={onNewWorkspaceFrom}
         onArchiveWorkspace={(wsId) => { void handleArchiveClick(wsId); }}
         onProjectDragStart={handleProjectDragStart}
         onProjectDragEnd={handleProjectDragEnd}
@@ -527,16 +533,27 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
   };
 
   const footerActions = (
-    <div className="flex items-center justify-end px-2 py-1.5">
-      <Link
-        to="/settings"
-        state={{ from: pathname }}
-        className="shrink-0 rounded p-1 text-muted-foreground transition-colors hover:text-sidebar-foreground"
-        aria-label="Settings"
-        title="Settings"
-      >
-        <Settings className="h-4 w-4" />
-      </Link>
+    <div className="flex items-center justify-end gap-1 px-2 py-1.5">
+      <ShortcutTooltip label="Commands" shortcut={shortcutLabel("K")}>
+        <button
+          type="button"
+          onClick={() => dispatchAppCommand("open-spotlight")}
+          className="shrink-0 rounded p-1 text-muted-foreground transition-colors hover:text-sidebar-foreground"
+          aria-label="Commands"
+        >
+          <Search className="h-4 w-4" />
+        </button>
+      </ShortcutTooltip>
+      <ShortcutTooltip label="Settings" shortcut={shortcutLabel(",")}>
+        <Link
+          to="/settings"
+          state={{ from: pathname }}
+          className="shrink-0 rounded p-1 text-muted-foreground transition-colors hover:text-sidebar-foreground"
+          aria-label="Settings"
+        >
+          <Settings className="h-4 w-4" />
+        </Link>
+      </ShortcutTooltip>
     </div>
   );
 

@@ -50,6 +50,7 @@ function makeConfig(overrides?: Partial<AppConfig["notifications"]["telegram"]>)
       },
       apns: { ...DEFAULT_APNS },
     },
+    kimi: { apiKey: "" },
   };
 }
 
@@ -93,6 +94,7 @@ describe("rebuildNotifier", () => {
         telegram: { enabled: false, botToken: "", chatId: "" },
         apns: { enabled: true, teamId: "T", keyId: "K", keyContent: "PEM", bundleId: "com.x", sandbox: false, deviceTokens: [] },
       },
+      kimi: { apiKey: "" },
     };
     rebuildNotifier(config);
 
@@ -113,6 +115,7 @@ describe("rebuildNotifier", () => {
         telegram: { enabled: false, botToken: "", chatId: "" },
         apns: { enabled: true, teamId: "T", keyId: "K", keyContent: "PEM", bundleId: "com.x", sandbox: false, deviceTokens: [] },
       },
+      kimi: { apiKey: "" },
     };
     rebuildNotifier(config);
     rebuildNotifier(config);

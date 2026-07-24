@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { loadConfig, saveConfig, updateConfig, type AppConfig } from "./config.js";
@@ -11,6 +11,7 @@ const DEFAULT_CONFIG: AppConfig = {
     telegram: { enabled: false, botToken: "", chatId: "" },
     apns: { ...DEFAULT_APNS },
   },
+  kimi: { apiKey: "" },
 };
 
 let dataDir: string;
@@ -51,6 +52,7 @@ describe("loadConfig", () => {
         telegram: { enabled: true, botToken: "", chatId: "" },
         apns: { ...DEFAULT_APNS },
       },
+      kimi: { apiKey: "" },
     });
   });
 
@@ -69,6 +71,7 @@ describe("loadConfig", () => {
         telegram: { enabled: true, botToken: "tok", chatId: "cid" },
         apns: { enabled: true, teamId: "T", keyId: "K", keyContent: "PEM", bundleId: "com.x", sandbox: true, deviceTokens: ["abc"] },
       },
+      kimi: { apiKey: "kimi-key" },
     };
     await writeFile(join(dataDir, "config.json"), JSON.stringify(full), "utf-8");
 
@@ -92,6 +95,7 @@ describe("loadConfig", () => {
         telegram: { enabled: true, botToken: "t", chatId: "c" },
         apns: { ...DEFAULT_APNS },
       },
+      kimi: { apiKey: "" },
     });
     expect((config as unknown as Record<string, unknown>)["unknownKey"]).toBeUndefined();
   });
@@ -105,6 +109,28 @@ describe("loadConfig", () => {
 
     const config = await loadConfig(dataDir);
     expect(config).toEqual(DEFAULT_CONFIG);
+  });
+
+  it("defaults kimi when the config file predates the field", async () => {
+    await writeFile(
+      join(dataDir, "config.json"),
+      JSON.stringify({ notifications: { telegram: { enabled: true, botToken: "t", chatId: "c" } } }),
+      "utf-8",
+    );
+
+    const config = await loadConfig(dataDir);
+    expect(config.kimi).toEqual({ apiKey: "" });
+  });
+
+  it("loads a saved kimi api key", async () => {
+    await writeFile(
+      join(dataDir, "config.json"),
+      JSON.stringify({ kimi: { apiKey: "sk-kimi" } }),
+      "utf-8",
+    );
+
+    const config = await loadConfig(dataDir);
+    expect(config.kimi.apiKey).toBe("sk-kimi");
   });
 
   it("fills missing apns fields with defaults when only some are present", async () => {
@@ -143,6 +169,7 @@ describe("saveConfig", () => {
         telegram: { enabled: true, botToken: "bot-token", chatId: "chat-id" },
         apns: { enabled: true, teamId: "T", keyId: "K", keyContent: "PEM", bundleId: "com.x", sandbox: false, deviceTokens: ["deadbeef"] },
       },
+      kimi: { apiKey: "kimi-key" },
     };
 
     await saveConfig(config, dataDir);
@@ -154,6 +181,17 @@ describe("saveConfig", () => {
     const loaded = await loadConfig(dataDir);
     expect(loaded).toEqual(config);
   });
+
+  // File modes are meaningless on Windows.
+  it.skipIf(process.platform === "win32")(
+    "writes config.json with owner-only permissions (it holds credentials)",
+    async () => {
+      await saveConfig({ ...DEFAULT_CONFIG, kimi: { apiKey: "sk-secret" } }, dataDir);
+
+      const { mode } = await stat(join(dataDir, "config.json"));
+      expect(mode & 0o777).toBe(0o600);
+    },
+  );
 });
 
 describe("updateConfig", () => {

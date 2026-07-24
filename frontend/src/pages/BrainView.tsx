@@ -24,6 +24,7 @@ import { type FileViewerHandle } from "@/components/FileViewer";
 import { FileTabView } from "@/components/FileTabView";
 import { FileTree, renderFileTreeNodes } from "@/components/ai-elements/file-tree";
 import { PathCopyButton } from "@/components/PathCopyButton";
+import { QuickOpenFileDialog } from "@/components/QuickOpenFileDialog";
 import { OpenTargetDropdown } from "@/components/OpenTargetDropdown";
 import { FileBrowserHeader } from "@/components/FileBrowserHeader";
 import { BranchLabel } from "@/components/BranchLabel";
@@ -33,6 +34,7 @@ import { Badge } from "@/components/ui/badge";
 import { wsTransport } from "@/lib/ws-transport";
 import { BRAIN_WORKSPACE_ID, brainFileQueryKey } from "@/lib/brain";
 import { removeCachedSessionMessages } from "@/hooks/useSessionMessages";
+import { useAppCommand } from "@/hooks/useAppCommand";
 import { buildInitialExpanded, countFiles, DEFAULT_EXPANDED } from "@/lib/file-tree";
 import { formatAbsoluteTime, formatRelativeTime } from "@/lib/time";
 import { cn } from "@/lib/utils";
@@ -132,7 +134,9 @@ export default function BrainView() {
     connectionStatus,
     error,
     sessionId,
+    sendStates,
     sendMessage,
+    retrySend,
     stopStreaming,
     answerQuestion,
     batchAnswerQuestions,
@@ -275,6 +279,12 @@ export default function BrainView() {
     [openFileTab, queryClient],
   );
 
+  const [quickOpenFileOpen, setQuickOpenFileOpen] = useState(false);
+  const openQuickFile = useCallback(() => setQuickOpenFileOpen(true), []);
+  const closeQuickFile = useCallback(() => setQuickOpenFileOpen(false), []);
+  useAppCommand("quick-open-file", openQuickFile);
+  useAppCommand("dismiss-view-dialogs", closeQuickFile);
+
   // Open a modified file in a diff tab.
   const handleModifiedFileClick = useCallback(
     (path: string) => {
@@ -342,6 +352,12 @@ export default function BrainView() {
 
   return (
     <div className="flex h-full flex-col">
+      <QuickOpenFileDialog
+        open={quickOpenFileOpen}
+        onOpenChange={setQuickOpenFileOpen}
+        workspaceId={BRAIN_WORKSPACE_ID}
+        onSelect={handleSelect}
+      />
       <Group
         orientation="horizontal"
         defaultLayout={defaultLayout}
@@ -376,6 +392,8 @@ export default function BrainView() {
               activeToolCalls={activeToolCalls}
               activeAgentActivities={activeAgentActivities}
               pendingToolInputs={pendingToolInputs}
+              sendStates={sendStates}
+              onRetrySend={retrySend}
               onQuestionAnswer={answerQuestion}
               onFileMentionClick={handleSelect}
               activeProvider={effectiveLockedProvider}

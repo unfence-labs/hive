@@ -170,8 +170,14 @@ function sortProviderBuckets(provider: ProviderUsageEntry): ProviderUsageBucket[
   return [...provider.buckets].sort((a, b) => {
     if (a.id === provider.id && b.id !== provider.id) return -1;
     if (b.id === provider.id && a.id !== provider.id) return 1;
-    return 0;
+    return bucketOrder(a) - bucketOrder(b);
   });
+}
+
+function bucketOrder(bucket: ProviderUsageBucket): number {
+  if (bucket.id === "five_hour") return 0;
+  if (bucket.id === "weekly" || bucket.id === "seven_day") return 1;
+  return 2;
 }
 
 function statusLabel(status: ProviderUsageEntry["status"]): string {

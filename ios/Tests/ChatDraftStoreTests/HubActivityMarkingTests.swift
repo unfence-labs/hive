@@ -71,7 +71,7 @@ struct HubActivityMarkingTests {
             sessionId: "s", durationMs: nil, inputTokens: nil, outputTokens: nil,
             contextUsedTokens: nil, contextWindowTokens: nil, pendingToolName: nil
         )) == .markNow)
-        #expect(hubActivityMarking(for: .error(message: "boom", sessionId: nil)) == .markNow)
+        #expect(hubActivityMarking(for: .error(message: "boom", sessionId: nil, clientMessageId: nil)) == .markNow)
         #expect(hubActivityMarking(for: .cancelled(
             sessionId: "s", errorDetail: nil, userInitiated: nil, durationMs: nil
         )) == .markNow)

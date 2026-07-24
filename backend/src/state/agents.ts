@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { getDataDir, writeJsonAtomic } from "./state.js";
 import { getDefaultThinkingLevelForModel, isThinkingLevelSupportedForModel } from "../agents/providers/registry.js";
-import type { Agent, ThinkingLevel } from "../types.js";
+import type { Agent } from "../types.js";
 
 // Global lock for agents.json (shared array of all agent definitions).
 // CRUD operations must serialize on this because they load-modify-save the same file.
@@ -29,11 +29,11 @@ function agentsFilePath(dataDir: string): string {
 }
 
 function normalizeAgent(raw: Agent): Agent {
-  const fallbackThinkingLevel = getDefaultThinkingLevelForModel(raw.modelId) ?? "high";
-  const rawThinkingLevel = (raw as Agent & { thinkingLevel?: ThinkingLevel }).thinkingLevel;
-  const thinkingLevel = rawThinkingLevel && isThinkingLevelSupportedForModel(raw.modelId, rawThinkingLevel)
-    ? rawThinkingLevel
-    : fallbackThinkingLevel;
+  // Keep a stored level only while the model supports it; otherwise fall back
+  // to the model's default, which is undefined for level-less models.
+  const thinkingLevel = raw.thinkingLevel && isThinkingLevelSupportedForModel(raw.modelId, raw.thinkingLevel)
+    ? raw.thinkingLevel
+    : getDefaultThinkingLevelForModel(raw.modelId);
   const { injectGitContext: _drop, ...rest } = raw as Agent & { injectGitContext?: boolean };
   return { ...rest, thinkingLevel };
 }

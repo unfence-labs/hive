@@ -329,8 +329,12 @@ final class ConversationStore {
             bumpHistoryToken(for: sid)
             onTurnCompleted?(sid)
 
-        case .error(let message, let errorSessionId):
+        case .error(let message, let errorSessionId, let clientMessageId):
             flushStreamingDeltas()
+            // Delivery state is updated even when its session is in the background.
+            if let clientMessageId, userSendStates[clientMessageId] != nil {
+                markSendFailed(clientMessageId)
+            }
             if let errorSessionId, let currentSessionId = sessionId, errorSessionId != currentSessionId {
                 return
             }
@@ -509,21 +513,16 @@ final class ConversationStore {
             }
         }
 
-        // Carry unresolved optimistic sends across the refetch: history that
-        // already contains the content confirms delivery; anything else is
-        // re-appended so a pending/failed message never silently vanishes.
+        for serverMessage in msgs where !previouslyKnownIds.contains(serverMessage.id) {
+            guard let idx = optimisticSendIndex(for: serverMessage) else { continue }
+            let localId = messages[idx].id
+            userSendStates.removeValue(forKey: localId)
+            optimisticPayloads.removeValue(forKey: localId)
+        }
+
         var merged = msgs
         for local in messages where userSendStates[local.id] != nil && local.sessionId == sessionId {
-            if userSendStates[local.id] == .sending,
-               msgs.contains(where: {
-                   $0.role == .user && $0.content == local.content
-                       && !previouslyKnownIds.contains($0.id)
-               }) {
-                userSendStates.removeValue(forKey: local.id)
-                optimisticPayloads.removeValue(forKey: local.id)
-            } else {
-                merged.append(local)
-            }
+            merged.append(local)
         }
         messages = merged
         if merged.count != msgs.count {
@@ -641,7 +640,7 @@ final class ConversationStore {
         userSendStates[localId] = .sending
         let sent = await send?(.userMessage(
             content: message.content, images: payload?.images, fileMentions: payload?.fileMentions,
-            options: payload?.options, sessionId: message.sessionId
+            options: payload?.options, sessionId: message.sessionId, clientMessageId: localId
         )) ?? false
         if sent {
             bumpHistoryToken(for: message.sessionId)
@@ -663,12 +662,18 @@ final class ConversationStore {
         }
     }
 
+    private func optimisticSendIndex(for serverMessage: ChatMessage) -> Int? {
+        guard serverMessage.role == .user, let clientMessageId = serverMessage.clientMessageId else {
+            return nil
+        }
+        return messages.firstIndex(where: {
+            $0.id == clientMessageId && userSendStates[$0.id] != nil
+        })
+    }
+
     private func resolveOptimisticSend(with serverMessage: ChatMessage) -> Bool {
-        guard serverMessage.role == .user,
-              let idx = messages.firstIndex(where: {
-                  userSendStates[$0.id] != nil && $0.role == .user && $0.content == serverMessage.content
-              })
-        else { return false }
+        let idx = optimisticSendIndex(for: serverMessage)
+        guard let idx else { return false }
         let localId = messages[idx].id
         userSendStates.removeValue(forKey: localId)
         optimisticPayloads.removeValue(forKey: localId)

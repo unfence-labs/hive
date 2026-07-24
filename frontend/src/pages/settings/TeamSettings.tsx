@@ -24,15 +24,14 @@ import {
   SettingsResourceListItem,
 } from "@/components/settings/SettingsResourceList";
 import { cn } from "@/lib/utils";
-import { useQuery } from "@tanstack/react-query";
-import { api } from "@/hooks/useApi";
 import {
   useAgents,
   useCreateAgent,
   useUpdateAgent,
   useDeleteAgent,
 } from "@/hooks/useAgents";
-import type { Agent, ModelCatalogEntry, ModelCatalogResponse, ThinkingLevel } from "@/types";
+import { useModels } from "@/hooks/useModels";
+import type { Agent, ModelCatalogEntry, ThinkingLevel } from "@/types";
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -45,7 +44,7 @@ type Selection =
 
 export default function TeamSettings() {
   const { data: agents, isLoading } = useAgents();
-  const { data: catalog } = useModelCatalog();
+  const { models, defaultModelId } = useModels();
   const [selection, setSelection] = useState<Selection>(null);
   const [deleteTarget, setDeleteTarget] = useState<Agent | null>(null);
 
@@ -97,8 +96,8 @@ export default function TeamSettings() {
           <RightPanel
             selection={selection}
             selectedAgent={selectedAgent}
-            models={catalog?.models ?? []}
-            defaultModelId={catalog?.defaultModelId ?? ""}
+            models={models}
+            defaultModelId={defaultModelId}
             onDelete={handleDelete}
             onCreated={handleCreated}
             onCancel={() => setSelection(null)}
@@ -229,15 +228,16 @@ function FormFields({
   setSystemPrompt: (v: string) => void;
   modelId: string;
   setModelId: (v: string) => void;
-  thinkingLevel: ThinkingLevel;
-  setThinkingLevel: (v: ThinkingLevel) => void;
+  thinkingLevel: ThinkingLevel | undefined;
+  setThinkingLevel: (v: ThinkingLevel | undefined) => void;
   models: ModelCatalogEntry[];
   readOnly: boolean;
   setReadOnly: (v: boolean) => void;
 }) {
   const selectedModel = modelForId(models, modelId);
   const resolvedThinkingLevel = resolveThinkingLevel(selectedModel, thinkingLevel);
-  const thinkingLevels = selectedModel?.capabilities.thinkingLevels ?? [resolvedThinkingLevel];
+  const thinkingLevels = selectedModel?.capabilities.thinkingLevels
+    ?? (resolvedThinkingLevel ? [resolvedThinkingLevel] : []);
 
   useEffect(() => {
     if (resolvedThinkingLevel !== thinkingLevel) {
@@ -262,13 +262,16 @@ function FormFields({
         </Field>
       </div>
 
-      <Field label="Thinking">
-        <ThinkingLevelChips
-          value={resolvedThinkingLevel}
-          onChange={setThinkingLevel}
-          levels={thinkingLevels}
-        />
-      </Field>
+      {/* Hidden for models with no thinking-level control (e.g. K2.7). */}
+      {resolvedThinkingLevel && thinkingLevels.length > 0 && (
+        <Field label="Thinking">
+          <ThinkingLevelChips
+            value={resolvedThinkingLevel}
+            onChange={setThinkingLevel}
+            levels={thinkingLevels}
+          />
+        </Field>
+      )}
 
       {/* Description */}
       <Field label="Description (optional)">
@@ -347,7 +350,7 @@ function AgentDetail({
     modelId !== agent.modelId ||
     resolvedThinkingLevel !== agent.thinkingLevel ||
     readOnly !== agent.readOnly;
-  const isValid = name.trim() && systemPrompt.trim() && modelId && resolvedThinkingLevel;
+  const isValid = name.trim() && systemPrompt.trim() && modelId;
 
   const handleSave = async () => {
     if (!isValid) return;
@@ -357,7 +360,9 @@ function AgentDetail({
       description: description.trim(),
       systemPrompt: systemPrompt.trim(),
       modelId,
-      thinkingLevel: resolvedThinkingLevel,
+      // Omitted for models with no thinking-level control (e.g. K2.7); the
+      // backend rejects any level supplied for them.
+      ...(resolvedThinkingLevel && { thinkingLevel: resolvedThinkingLevel }),
       readOnly,
     });
   };
@@ -425,13 +430,13 @@ function CreateAgentForm({
   const [description, setDescription] = useState("");
   const [systemPrompt, setSystemPrompt] = useState("");
   const [modelId, setModelId] = useState("");
-  const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevel>("high");
+  const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevel | undefined>("high");
   const [readOnly, setReadOnly] = useState(false);
 
   const resolvedModelId = modelId || defaultModelId;
   const resolvedThinkingLevel = resolveThinkingLevel(modelForId(models, resolvedModelId), thinkingLevel);
 
-  const isValid = name.trim() && systemPrompt.trim() && resolvedModelId && resolvedThinkingLevel;
+  const isValid = name.trim() && systemPrompt.trim() && resolvedModelId;
 
   const handleSubmit = async () => {
     if (!isValid) return;
@@ -440,7 +445,8 @@ function CreateAgentForm({
       ...(description.trim() && { description: description.trim() }),
       systemPrompt: systemPrompt.trim(),
       modelId: resolvedModelId,
-      thinkingLevel: resolvedThinkingLevel,
+      // Omitted for models with no thinking-level control (e.g. K2.7).
+      ...(resolvedThinkingLevel && { thinkingLevel: resolvedThinkingLevel }),
       readOnly,
     });
     onCreated(result.id);
@@ -533,18 +539,6 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 }
 
 // ── Model catalog + select ─────────────────────────────────────────────
-// Local to this page: it is the only place that picks a model now that the
-// automation dialog selects an agent (which owns its model) instead.
-
-function useModelCatalog() {
-  return useQuery({
-    queryKey: ["models"],
-    queryFn: () => api.get<ModelCatalogResponse>("/api/models"),
-    staleTime: 5 * 60_000,
-    gcTime: 10 * 60_000,
-  });
-}
-
 function ModelSelect({
   value,
   onChange,
@@ -612,11 +606,13 @@ function modelForId(models: ModelCatalogEntry[], modelId: string): ModelCatalogE
 
 function resolveThinkingLevel(
   model: ModelCatalogEntry | undefined,
-  thinkingLevel: ThinkingLevel,
-): ThinkingLevel {
+  thinkingLevel: ThinkingLevel | undefined,
+): ThinkingLevel | undefined {
   const levels = model?.capabilities.thinkingLevels;
-  if (!levels || levels.length === 0 || levels.includes(thinkingLevel)) return thinkingLevel;
-  return levels.includes("high") ? "high" : levels[0] ?? "high";
+  if (!levels) return thinkingLevel; // model not in catalog: keep as stored
+  if (levels.length === 0) return undefined; // no thinking-level control (e.g. K2.7)
+  if (thinkingLevel && levels.includes(thinkingLevel)) return thinkingLevel;
+  return levels.includes("high") ? "high" : levels[0];
 }
 
 function thinkingLevelLabel(level: ThinkingLevel): string {

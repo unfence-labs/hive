@@ -32,15 +32,18 @@ type SendFn = (
 function chatInputProps({
   wsId = "ws-test",
   sessionId,
+  draftPrompt,
   onSend = () => true,
 }: {
   wsId?: string;
   sessionId?: string;
+  draftPrompt?: string;
   onSend?: SendFn;
 } = {}) {
   return {
     wsId,
     sessionId,
+    draftPrompt,
     onSend,
     onStop: () => {},
     disabled: false,
@@ -63,15 +66,17 @@ function rerenderChatInput(
   {
     sessionId,
     wsId,
+    draftPrompt,
     onSend,
   }: {
     sessionId?: string;
     wsId?: string;
+    draftPrompt?: string;
     onSend?: SendFn;
   },
 ) {
   act(() => {
-    rerender(<ChatInput {...chatInputProps({ sessionId, wsId, onSend })} />);
+    rerender(<ChatInput {...chatInputProps({ sessionId, wsId, draftPrompt, onSend })} />);
   });
 }
 
@@ -140,6 +145,28 @@ function makeWorkspaceIds() {
 }
 
 describe("ChatInput draft persistence", () => {
+  it("seeds a server-owned session draft on mount", () => {
+    const sessionId = nextId("draft-session");
+
+    render(<ChatInput {...chatInputProps({ sessionId, draftPrompt: "Fix issue #42" })} />);
+
+    expect(inputValue()).toBe("Fix issue #42");
+  });
+
+  it("adopts the current composer when the first explicit session is created", () => {
+    const sessionId = nextId("draft-session");
+    const wsId = nextId("draft-workspace");
+    const { rerender, unmount } = renderChatInput(undefined, wsId);
+
+    setInputValue("Edited issue prompt");
+    rerenderChatInput(rerender, { wsId, sessionId });
+    expect(inputValue()).toBe("Edited issue prompt");
+
+    unmount();
+    renderChatInput(sessionId, wsId);
+    expect(inputValue()).toBe("Edited issue prompt");
+  });
+
   it("keeps per-session draft text when switching sessions", () => {
     const { a: sessionA, b: sessionB } = makeSessionIds();
     const { rerender } = renderChatInput(sessionA);

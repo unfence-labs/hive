@@ -10,6 +10,7 @@ import { projectRoutes } from "./api/projects.js";
 import { brainRoutes } from "./api/brain.js";
 import { projectEnvRoutes } from "./api/project-env.js";
 import { workspaceRoutes } from "./api/workspaces.js";
+import { workspaceSourceRoutes } from "./api/workspace-sources.js";
 import { completionRoutes } from "./api/completions.js";
 import { modelRoutes } from "./api/models.js";
 import { sessionRoutes } from "./api/agents.js";
@@ -42,6 +43,7 @@ import { promptTemplateRoutes } from "./api/prompt-templates.js";
 import { agentRoutes } from "./api/agent-definitions.js";
 import { basePromptRoutes } from "./api/base-prompt.js";
 import { brainPromptRoutes } from "./api/brain-prompt.js";
+import { issueDraftPromptRoutes } from "./api/issue-draft-prompt.js";
 import { skillRoutes } from "./api/skills.js";
 import { instructionRoutes } from "./api/agent-instructions.js";
 import { subagentRoutes } from "./api/subagents.js";
@@ -356,6 +358,7 @@ export async function buildApp(opts: BuildAppOptions = {}) {
   await app.register((instance: FastifyInstance) => brainRoutes(instance));
   await app.register((instance: FastifyInstance) => projectEnvRoutes(instance));
   await app.register((instance: FastifyInstance) => workspaceRoutes(instance));
+  await app.register((instance: FastifyInstance) => workspaceSourceRoutes(instance));
   await app.register((instance: FastifyInstance) => completionRoutes(instance));
   await app.register((instance: FastifyInstance) => modelRoutes(instance));
   await app.register((instance: FastifyInstance) =>
@@ -393,6 +396,7 @@ export async function buildApp(opts: BuildAppOptions = {}) {
   await app.register((instance: FastifyInstance) => agentRoutes(instance));
   await app.register((instance: FastifyInstance) => basePromptRoutes(instance));
   await app.register((instance: FastifyInstance) => brainPromptRoutes(instance));
+  await app.register((instance: FastifyInstance) => issueDraftPromptRoutes(instance));
   await app.register((instance: FastifyInstance) => skillRoutes(instance));
   await app.register((instance: FastifyInstance) => instructionRoutes(instance));
   await app.register((instance: FastifyInstance) => subagentRoutes(instance));
