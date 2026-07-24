@@ -317,7 +317,7 @@ step_install_release() {
       aarch64) arch_tag=arm64 ;;
       *) die UNSUPPORTED_ARCH "unsupported arch: $(uname -m)" ;;
     esac
-    base_url="https://github.com/0xlny/hive/releases/download/v$HIVE_VERSION"
+    base_url="https://github.com/unfence-labs/hive/releases/download/v$HIVE_VERSION"
     # Test-only origin override, gated like --dev-release-file: prerelease only.
     if [ -n "${HIVE_TEST_RELEASE_BASE_URL:-}" ] && [[ "$HIVE_VERSION" == *-* ]]; then
       base_url="$HIVE_TEST_RELEASE_BASE_URL"
