@@ -6,8 +6,8 @@
 
 **Orchestrate AI coding agents across isolated git workspaces — from your desktop, browser, or phone.**
 
-[![CI](https://github.com/0xlny/hive/actions/workflows/ci.yml/badge.svg)](https://github.com/0xlny/hive/actions/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-FF7048.svg)](LICENSE)
+[![CI](https://github.com/unfence-labs/hive/actions/workflows/ci.yml/badge.svg)](https://github.com/unfence-labs/hive/actions/workflows/ci.yml)
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-FF7048.svg)](LICENSE)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](#contributing)
 [![Node](https://img.shields.io/badge/node-%3E%3D20-5FA04E?logo=node.js&logoColor=white)](https://nodejs.org)
 
@@ -103,7 +103,7 @@ Run Hive as a **local web app**, a **Tauri desktop app** (pointed at a local or 
 ### Install
 
 ```bash
-git clone https://github.com/0xlny/hive.git
+git clone https://github.com/unfence-labs/hive.git
 cd hive
 npm install
 ```
@@ -334,11 +334,13 @@ Contributions are welcome! Before opening a PR:
 3. Keep the WebSocket protocol types aligned across `backend`, `frontend`, and `ios`.
 4. Use English for all code, comments, UI copy, and commit messages.
 
-Found a bug or have an idea? [Open an issue](https://github.com/0xlny/hive/issues).
+Found a bug or have an idea? [Open an issue](https://github.com/unfence-labs/hive/issues).
 
 ## License
 
-Released under the [MIT License](LICENSE).
+Released under the [GNU General Public License v3.0](LICENSE).
+
+Copyright (C) 2026 419Labs. This program is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version.
 
 ---
 
