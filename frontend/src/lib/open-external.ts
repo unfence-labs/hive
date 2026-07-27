@@ -6,11 +6,9 @@ import { isDesktopShell } from "@/lib/is-desktop";
  * falls back to window.open for browser mode.
  *
  * The desktop path invokes `plugin:opener|open_url` through
- * `@tauri-apps/api/core` rather than the plugin's JS wrapper: the wrapper is
- * nothing but that invoke call, and its dep chunk has been seen failing to
- * load in WKWebView ("Importing a module script failed") while the core
- * module — which the SSH wizard already runs on — loads fine. The import
- * stays dynamic so a load failure cannot take the route tree down with it.
+ * `@tauri-apps/api/core`, which the rest of the shell already runs on, rather
+ * than through the plugin's JS wrapper: the wrapper is nothing but that same
+ * invoke call, so depending on it buys a package and no behaviour.
  */
 export async function openExternal(url: string): Promise<void> {
   const isHttp = /^https?:\/\//i.test(url);
