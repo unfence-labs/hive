@@ -59,8 +59,26 @@ jobs:
           path: dist-release/*
           if-no-files-found: error
 
+  # provision.sh is published alongside the tarballs so an operator can install
+  # with `curl -fsSL .../provision.sh | bash`. It carries the release version,
+  # which is the version of the backend tarball it downloads.
+  provision-script:
+    needs: validate-tag
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Provision contracts
+        run: bash test/provision/contract.sh
+      - name: Build provision.sh
+        run: bash scripts/provision/build.sh "${{ needs.validate-tag.outputs.version }}"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: provision-script
+          path: scripts/provision/dist/provision.sh
+          if-no-files-found: error
+
   publish:
-    needs: [validate-tag, backend-tarball]
+    needs: [validate-tag, backend-tarball, provision-script]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -78,6 +96,7 @@ jobs:
           test -f "release/hive-backend-${{ needs.validate-tag.outputs.version }}-linux-x64.tar.gz.sha256"
           test -f "release/hive-backend-${{ needs.validate-tag.outputs.version }}-linux-arm64.tar.gz"
           test -f "release/hive-backend-${{ needs.validate-tag.outputs.version }}-linux-arm64.tar.gz.sha256"
+          test -f "release/provision.sh"
       - name: Publish GitHub release
         uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
         with:

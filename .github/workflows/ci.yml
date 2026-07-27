@@ -34,6 +34,9 @@ jobs:
       - name: Release build guards
         run: npm run test:release
 
+      - name: Provision contracts
+        run: npm run test:provision
+
       - name: Build backend
         run: npm run build --workspace=backend
 

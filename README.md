@@ -130,6 +130,37 @@ npm run tauri build           # package
 
 Remote backend + Tauri setup lives in **[GETTING_STARTED.md](GETTING_STARTED.md)**.
 
+### Install on a server
+
+Every release publishes `provision.sh` alongside the backend tarballs. Run it as root on
+Ubuntu 22.04/24.04 or Debian 12/13 (x86-64 or arm64) with systemd:
+
+```bash
+curl -fsSL https://github.com/unfence-labs/hive/releases/latest/download/provision.sh | bash
+```
+
+It installs Hive's own pinned Node.js runtime and the agent CLIs **inside `/opt/hive` and the
+`hive` service account** — the system runtime is never read, replaced, or upgraded, and no vendor
+package repository is added to the machine. It downloads the backend release, verifies it against
+its published checksum before extraction, activates it with an atomic symlink swap, and runs it
+under systemd as an unprivileged, sandboxed unit on port 9420.
+
+It also generates the server's access token, writes only its SHA-256 digest to root-owned
+`/etc/hive/hive.env`, and prints the plaintext exactly once on its progress stream — never to a
+log file. Every run rotates the token, so keep the value the run reports.
+
+Progress is NDJSON, one record per line, so a client can render a live checklist; failures carry a
+typed code from `shared/setup-errors.ts`. The run takes an exclusive lock and records each step, so
+it is safe to interrupt and re-run.
+
+A private network (Tailscale, WireGuard, a VPC) and the firewall are prerequisites the operator
+arranges: the script binds the backend to all interfaces and does not touch `ufw` or `iptables`.
+
+```bash
+# Options are passed through `bash -s --`:
+curl -fsSL <url>/provision.sh | bash -s -- --port 9420 --host 0.0.0.0
+```
+
 ### Scripts
 
 ```bash
@@ -141,6 +172,14 @@ npm run test
 # Build the backend release tarball for the host architecture into dist-release/.
 # Requires a Linux host on Node 22 (native modules are compiled during the build).
 npm run release:backend -- 0.0.0-dev
+
+# Bundle scripts/provision/{lib,steps,main}.sh into scripts/provision/dist/provision.sh.
+npm run release:provision -- 0.0.0-dev
+
+# Provisioning checks: contracts run anywhere in a second; the end-to-end lane
+# needs Docker and builds a real release tarball.
+npm run test:provision
+npm run test:provision:e2e            # install | checksum | chaos
 ```
 
 Per-package commands (`backend`, `frontend`, `ios`) are documented in **[AGENTS.md](AGENTS.md)**.
@@ -301,7 +340,8 @@ Public backend surface exposed by route modules under `backend/src/api/`.
 - Backend/frontend tests use **Vitest**; iOS uses **Swift Testing**.
 - Tests live next to source: `backend/src/**/*.test.ts`, `frontend/tests/**`, `ios/Tests/**`.
 - CI runs Node lint, typecheck, build, and tests, plus iOS Swift package tests and an iOS app compile on every push/PR to `main`.
-- Pushing a `v<version>` tag runs `.github/workflows/release.yml`, which builds the backend tarball on native linux-x64 and linux-arm64 runners and attaches `hive-backend-<version>-linux-<arch>.tar.gz` plus its `.sha256` to the GitHub release. The tag must match the version in `frontend/src-tauri/Cargo.toml`.
+- Provisioning has two lanes. `test/provision/contract.sh` (`npm run test:provision`, in CI) asserts the shell and TypeScript error taxonomies stay in sync, that the deliberate departures from the reference install flow stay departed, that the token never reaches a log file, and that shellcheck is clean. `test/provision/e2e-docker.sh` (`npm run test:provision:e2e`) is the Docker lane: it builds a real backend tarball, provisions a bare Ubuntu 24.04 systemd container from it, and proves the backend comes up healthy, rejects a request with no token, and accepts one with the right token. It runs on demand via `.github/workflows/provision-e2e.yml`.
+- Pushing a `v<version>` tag runs `.github/workflows/release.yml`, which builds the backend tarball on native linux-x64 and linux-arm64 runners and attaches `hive-backend-<version>-linux-<arch>.tar.gz` plus its `.sha256`, and the generated `provision.sh`, to the GitHub release. The tag must match the version in `frontend/src-tauri/Cargo.toml`.
 
 Run the narrowest relevant checks during development, then the root checks before considering broad changes done. For iOS changes, also run `cd ios && swift test`.
 
