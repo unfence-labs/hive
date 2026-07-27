@@ -6,10 +6,14 @@ import { isDesktopShell } from "@/lib/is-desktop";
  * Uses the Tauri opener plugin when running as a desktop app,
  * falls back to window.open for browser mode.
  *
- * The plugin stays a dynamic import so a module that fails to load (stale
- * Vite dep cache, offline chunk) cannot take the whole route tree down with
- * it — but the failure surfaces as a toast carrying the URL, because the
- * window.open fallback is silently dropped inside a Tauri webview.
+ * The desktop path invokes `plugin:opener|open_url` through
+ * `@tauri-apps/api/core` rather than the plugin's JS wrapper: the wrapper is
+ * nothing but that invoke call, and its dep chunk has been seen failing to
+ * load in WKWebView ("Importing a module script failed") while the core
+ * module — which the SSH wizard already runs on — loads fine. The import
+ * stays dynamic so a load failure cannot take the route tree down with it;
+ * it surfaces as a toast carrying the URL instead, because the window.open
+ * fallback is silently dropped inside a Tauri webview.
  */
 export async function openExternal(url: string): Promise<void> {
   const isHttp = /^https?:\/\//i.test(url);
@@ -26,8 +30,8 @@ export async function openExternal(url: string): Promise<void> {
   }
 
   try {
-    const { openUrl } = await import("@tauri-apps/plugin-opener");
-    await openUrl(url);
+    const { invoke } = await import("@tauri-apps/api/core");
+    await invoke("plugin:opener|open_url", { url });
   } catch (error) {
     console.warn("Failed to open external URL via Tauri opener:", error);
     toast.error("Couldn't open the browser", {
