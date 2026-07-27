@@ -39,7 +39,7 @@ describe("ClaudeProvider", () => {
   it("includes fable, opus, sonnet, and haiku", () => {
     const ids = provider.models.map((m) => m.id);
     expect(ids).toContain("fable-5");
-    expect(ids).toContain("opus-4-8");
+    expect(ids).toContain("opus-5");
     expect(ids).toContain("sonnet-5");
     expect(ids).toContain("haiku-4-5");
   });
@@ -120,10 +120,12 @@ describe("ClaudeProvider", () => {
     expect(args).toContain("claude-sonnet-5");
   });
 
-  it("maps persisted Opus 4.7 selections to Opus 4.8", () => {
-    const args = provider.buildArgs("Hello", { model: "opus-4-7" }, baseSession());
-    expect(args).toContain("--model");
-    expect(args).toContain("claude-opus-4-8[1m]");
+  it("maps persisted Opus 4.8 and 4.7 selections to Opus 5", () => {
+    for (const model of ["opus-4-8", "opus-4-7"]) {
+      const args = provider.buildArgs("Hello", { model }, baseSession());
+      expect(args).toContain("--model");
+      expect(args).toContain("claude-opus-5[1m]");
+    }
   });
 
   it("omits --model when model is not in the list", () => {
@@ -254,7 +256,7 @@ describe("ClaudeProvider", () => {
 
   it("marks Opus as supporting fast mode and the others as not", () => {
     const fable = provider.models.find((m) => m.id === "fable-5");
-    const opus = provider.models.find((m) => m.id === "opus-4-8");
+    const opus = provider.models.find((m) => m.id === "opus-5");
     const sonnet = provider.models.find((m) => m.id === "sonnet-5");
     const haiku = provider.models.find((m) => m.id === "haiku-4-5");
     expect(opus?.supportsFastMode).toBe(true);
@@ -264,15 +266,17 @@ describe("ClaudeProvider", () => {
   });
 
   it("adds --settings {fastMode:true} when fastMode is on and the model is Opus", () => {
-    const args = provider.buildArgs("Hello", { model: "opus-4-8", fastMode: true }, baseSession());
+    const args = provider.buildArgs("Hello", { model: "opus-5", fastMode: true }, baseSession());
     const idx = args.indexOf("--settings");
     expect(idx).toBeGreaterThan(-1);
     expect(JSON.parse(args[idx + 1])).toEqual({ fastMode: true });
   });
 
-  it("applies fast mode to aliased Opus 4.7 selections", () => {
-    const args = provider.buildArgs("Hello", { model: "opus-4-7", fastMode: true }, baseSession());
-    expect(args).toContain("--settings");
+  it("applies fast mode to aliased Opus 4.8 and 4.7 selections", () => {
+    for (const model of ["opus-4-8", "opus-4-7"]) {
+      const args = provider.buildArgs("Hello", { model, fastMode: true }, baseSession());
+      expect(args).toContain("--settings");
+    }
   });
 
   it("omits --settings when fastMode is on but the model does not support it", () => {
@@ -283,7 +287,7 @@ describe("ClaudeProvider", () => {
   });
 
   it("omits --settings when fastMode is off", () => {
-    const args = provider.buildArgs("Hello", { model: "opus-4-8" }, baseSession());
+    const args = provider.buildArgs("Hello", { model: "opus-5" }, baseSession());
     expect(args).not.toContain("--settings");
   });
 

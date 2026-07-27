@@ -4239,7 +4239,7 @@ describe("ConversationSession", () => {
     session.sendMessage("Hello", { model: "opus-4-7", thinkingLevel: "low", fastMode: true });
     expect(session.metadata.lockedProvider).toBe("claude");
     expect(session.metadata.lastRunOptions).toEqual({
-      model: "claude:opus-4-8",
+      model: "claude:opus-5",
       planMode: false,
       thinkingLevel: "low",
       fastMode: true,
@@ -4317,7 +4317,7 @@ describe("ConversationSession", () => {
     const meta = JSON.parse(raw);
     expect(meta.lockedProvider).toBe("claude");
     expect(meta.lastRunOptions).toEqual({
-      model: "claude:opus-4-8",
+      model: "claude:opus-5",
       planMode: false,
       thinkingLevel: "high",
       fastMode: false,
