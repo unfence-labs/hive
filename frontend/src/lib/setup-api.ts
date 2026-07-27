@@ -1,6 +1,6 @@
-import { getAuthToken, getServerUrl } from "@/hooks/useConnection";
+import { request, type RequestTarget } from "@/hooks/useApi";
 import type {
-  AgentAuthToolId,
+  SetupStatusResponse,
   SetupToolId,
   StartToolOperationResponse,
   ToolAuthSession,
@@ -22,30 +22,22 @@ export interface SetupApiTarget {
   authToken?: string;
 }
 
-export class SetupApiError extends Error {
-  constructor(
-    readonly status: number,
-    message: string,
-  ) {
-    super(message);
-    this.name = "SetupApiError";
-  }
-}
-
 export interface SetupApi {
   getTools: (signal?: AbortSignal) => Promise<ToolsResponse>;
+  /** Cheap in-memory progress read, safe to poll while work is live. */
+  getStatus: (signal?: AbortSignal) => Promise<SetupStatusResponse>;
   startOperation: (
     tool: SetupToolId,
     kind: ToolOperationKind,
   ) => Promise<StartToolOperationResponse>;
   /**
-   * Begin a sign-in. Rejects with a 409 {@link SetupApiError} when starting
-   * would sign the server out of a tool that currently works; the message is
-   * what to ask the operator before retrying with `force`.
+   * Begin a sign-in. Rejects with a 409 `ApiError` when starting would sign
+   * the server out of a tool that currently works; the message is what to ask
+   * the operator before retrying with `force`.
    */
-  startAuth: (tool: AgentAuthToolId, opts?: { force?: boolean }) => Promise<ToolAuthSession>;
-  submitAuthCode: (tool: AgentAuthToolId, code: string) => Promise<ToolAuthSession>;
-  cancelAuth: (tool: AgentAuthToolId) => Promise<ToolAuthSession>;
+  startAuth: (tool: SetupToolId, opts?: { force?: boolean }) => Promise<ToolAuthSession>;
+  submitAuthCode: (tool: SetupToolId, code: string) => Promise<ToolAuthSession>;
+  cancelAuth: (tool: SetupToolId) => Promise<ToolAuthSession>;
 }
 
 /** The 409 a start request answers with when it needs an explicit yes first. */
@@ -54,50 +46,27 @@ export const CONFIRM_REQUIRED_STATUS = 409;
 /** Detection spawns several probes server-side; give it room. */
 const REQUEST_TIMEOUT_MS = 30_000;
 
-function messageFrom(body: string, fallback: string): string {
-  if (!body.trim()) return fallback;
-  try {
-    const parsed = JSON.parse(body) as { error?: unknown; message?: unknown };
-    for (const value of [parsed.error, parsed.message]) {
-      if (typeof value === "string" && value.trim()) return value;
-    }
-  } catch {
-    // Plain-text errors are already display-ready.
-  }
-  return body;
-}
-
 export function createSetupApi(target: SetupApiTarget = {}): SetupApi {
-  async function request<T>(path: string, init?: RequestInit): Promise<T> {
-    const base = target.baseUrl || getServerUrl();
-    const token = target.authToken ?? (target.baseUrl ? "" : getAuthToken());
-    // Merged, not replaced: a caller sending a body has to be able to declare
-    // its type without losing the credential, and vice versa.
-    const headers: Record<string, string> = { ...(init?.headers as Record<string, string>) };
-    if (token) headers.Authorization = `Bearer ${token}`;
+  // An explicit target with no token of its own sends none at all (`""`),
+  // rather than inheriting the stored token that belongs to another server.
+  const requestTarget: RequestTarget = {
+    ...target,
+    ...(target.baseUrl && target.authToken === undefined ? { authToken: "" } : {}),
+    timeoutMs: REQUEST_TIMEOUT_MS,
+  };
 
-    const timeout = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
-    const signal = init?.signal ? AbortSignal.any([init.signal, timeout]) : timeout;
-
-    const res = await fetch(`${base}${path}`, { ...init, headers, signal });
-    if (!res.ok) {
-      const body = await res.text().catch(() => "");
-      throw new SetupApiError(res.status, messageFrom(body, res.statusText));
-    }
-    return (await res.json()) as T;
-  }
-
-  function post<T>(path: string, body?: unknown): Promise<T> {
-    return request<T>(path, {
-      method: "POST",
-      ...(body === undefined
-        ? {}
-        : { body: JSON.stringify(body), headers: { "Content-Type": "application/json" } }),
-    });
-  }
+  const get = <T>(path: string, signal?: AbortSignal): Promise<T> =>
+    request<T>(path, { signal }, requestTarget);
+  const post = <T>(path: string, body?: unknown): Promise<T> =>
+    request<T>(
+      path,
+      { method: "POST", ...(body === undefined ? {} : { body: JSON.stringify(body) }) },
+      requestTarget,
+    );
 
   return {
-    getTools: (signal) => request<ToolsResponse>("/api/setup/tools", { signal }),
+    getTools: (signal) => get<ToolsResponse>("/api/setup/tools", signal),
+    getStatus: (signal) => get<SetupStatusResponse>("/api/setup/status", signal),
     startOperation: (tool, kind) =>
       post<StartToolOperationResponse>(`/api/setup/tools/${tool}/${kind}`),
     startAuth: (tool, opts) =>

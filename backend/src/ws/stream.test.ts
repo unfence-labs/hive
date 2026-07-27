@@ -20,7 +20,7 @@ import {
   _clearActiveSessions,
 } from "../agents/agent-manager.js";
 import type { SessionOptions } from "../agents/agent-manager.js";
-import type { AuthExpectationInput } from "../utils/auth.js";
+import type { AuthExpectation } from "../utils/auth.js";
 import { streamRoutes, broadcastToWorkspace, completionProviderForMessage, _getChannelsForTests, _getHubSocketsForTests, _tickHubLivenessForTests } from "./stream.js";
 import {
   _setScriptStatusForTests,
@@ -181,7 +181,7 @@ async function connectHubLateListener(
 }
 
 async function startWsApp(
-  auth?: AuthExpectationInput,
+  auth?: AuthExpectation,
   sessionOptions: SessionOptions = CONV_CMD,
   gitSyncSnapshotProvider?: {
     getCachedBranchInfo: (
@@ -1333,7 +1333,7 @@ describe("WS /ws/hub", () => {
   });
 
   it("rejects unauthorized websocket connections when auth token is configured", async () => {
-    const secure = await startWsApp("secret");
+    const secure = await startWsApp({ expectedToken: "secret" });
     const ws = await secure.app.injectWS(`/ws/hub`);
 
     const closeCode = await new Promise<number>((resolve, reject) => {
@@ -1346,7 +1346,7 @@ describe("WS /ws/hub", () => {
   });
 
   it("accepts websocket connections with a valid auth token", async () => {
-    const secure = await startWsApp("secret");
+    const secure = await startWsApp({ expectedToken: "secret" });
     const { wsReady, messages } = connectHub([wsId], {
       app: secure.app,
       headers: { authorization: "Bearer secret" },
@@ -1361,7 +1361,7 @@ describe("WS /ws/hub", () => {
   });
 
   it("accepts websocket connections with a valid token query parameter", async () => {
-    const secure = await startWsApp("secret");
+    const secure = await startWsApp({ expectedToken: "secret" });
     const { wsReady, messages } = connectHub([wsId], {
       app: secure.app,
       query: { token: "secret" },

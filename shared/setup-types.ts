@@ -119,6 +119,17 @@ export interface ToolsResponse {
   authSessions: ToolAuthSession[];
 }
 
+/**
+ * Cheap progress poll. Everything here is served from memory; none of the
+ * detection work behind {@link ToolsResponse} runs. Clients poll this while an
+ * operation or sign-in is live and refetch the full tools list once when
+ * something reaches a terminal state.
+ */
+export interface SetupStatusResponse {
+  operations: ToolOperation[];
+  authSessions: ToolAuthSession[];
+}
+
 export interface StartToolOperationResponse {
   operation: ToolOperation;
   /** True when the request attached to an operation that was already running. */
@@ -129,21 +140,12 @@ export interface StartToolOperationResponse {
 export const TOOL_OUTPUT_EXCERPT_MAX = 2_000;
 
 // ── Sign-in ──────────────────────────────────────────────────────────
-
-/**
- * Tools whose sign-in the backend drives as a child process.
- *
- * GitHub is absent on purpose: Hive speaks GitHub's device-code endpoints
- * directly (`/api/account/*`), so there is no CLI process to supervise. The
- * split is about who owns the flow, not about which tools can be connected.
- */
-export const AGENT_AUTH_TOOL_IDS = ["claude", "codex"] as const;
-
-export type AgentAuthToolId = (typeof AGENT_AUTH_TOOL_IDS)[number];
-
-export function isAgentAuthToolId(value: string): value is AgentAuthToolId {
-  return (AGENT_AUTH_TOOL_IDS as readonly string[]).includes(value);
-}
+//
+// The backend drives every sign-in, keyed by SetupToolId. How it drives one
+// is the flow's own business: the agent CLIs are supervised child processes,
+// GitHub is Hive speaking the provider's device-code endpoints itself. The
+// session shapes below describe the operator's side, which is the same either
+// way.
 
 /**
  * Where a sign-in has got to.

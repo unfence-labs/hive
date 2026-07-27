@@ -1,12 +1,12 @@
 import type { FastifyInstance } from "fastify";
 import { getWorkspace } from "../workspaces/workspace-manager.js";
 import { getTerminalProcess } from "../services/terminal-runner.js";
-import { isAuthorized, type AuthExpectationInput } from "../utils/auth.js";
+import { isAuthorized, type AuthExpectation } from "../utils/auth.js";
 import { attachPtyToSocket } from "./pty-socket.js";
 
 export interface TerminalWsRoutesOptions {
   dataDir?: string;
-  auth?: AuthExpectationInput;
+  auth?: AuthExpectation;
 }
 
 /**

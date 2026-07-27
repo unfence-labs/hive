@@ -1,6 +1,6 @@
 import {
   isToolAuthTerminal,
-  type AgentAuthToolId,
+  type SetupToolId,
   type ToolAuthSession,
   type ToolAuthState,
 } from "@hive/shared/setup-types";
@@ -10,6 +10,7 @@ import { defaultDetectDeps, detectTool, type DetectDeps, type ToolDetection } fr
 import { findToolSpec } from "../catalog.js";
 import { claudeAuthFlow } from "./claude.js";
 import { codexAuthFlow, recoverCodexCredential } from "./codex.js";
+import { githubAuthFlow } from "./github.js";
 import { ToolAuthError, type AuthFlow, type AuthFlowHandle } from "./flow.js";
 import { makeClaudeTokenWriter } from "./secrets.js";
 
@@ -26,14 +27,14 @@ export interface ToolAuthFlowSpec {
   confirmWhenConnected?: string;
 }
 
-export type ToolAuthFlows = Partial<Record<AgentAuthToolId, ToolAuthFlowSpec>>;
+export type ToolAuthFlows = Partial<Record<SetupToolId, ToolAuthFlowSpec>>;
 
 export interface ToolAuthStoreOptions {
   flows: ToolAuthFlows;
-  detect: (tool: AgentAuthToolId) => Promise<ToolDetection>;
+  detect: (tool: SetupToolId) => Promise<ToolDetection>;
   /** Called after a sign-in lands, so anything gated on providers re-reads. */
   onConnected?: () => Promise<void>;
-  onUnexpectedError?: (tool: AgentAuthToolId, error: unknown) => void;
+  onUnexpectedError?: (tool: SetupToolId, error: unknown) => void;
   now?: () => number;
   retentionMs?: number;
 }
@@ -45,11 +46,10 @@ export type StartToolAuthResult =
 
 export interface ToolAuthStore {
   list: () => ToolAuthSession[];
-  get: (tool: AgentAuthToolId) => ToolAuthSession | null;
-  start: (tool: AgentAuthToolId, opts?: { force?: boolean }) => Promise<StartToolAuthResult>;
+  start: (tool: SetupToolId, opts?: { force?: boolean }) => Promise<StartToolAuthResult>;
   /** Hand a pasted code to the flow. Throws when it is not waiting for one. */
-  submitCode: (tool: AgentAuthToolId, code: string) => ToolAuthSession;
-  cancel: (tool: AgentAuthToolId) => ToolAuthSession | null;
+  submitCode: (tool: SetupToolId, code: string) => ToolAuthSession;
+  cancel: (tool: SetupToolId) => ToolAuthSession | null;
   /** Resolves once no sign-in is in flight. Test seam. */
   whenIdle: () => Promise<void>;
 }
@@ -67,8 +67,8 @@ export interface ToolAuthStore {
 export function createToolAuthStore(options: ToolAuthStoreOptions): ToolAuthStore {
   const now = options.now ?? Date.now;
   const retentionMs = options.retentionMs ?? DEFAULT_RETENTION_MS;
-  const sessions = new Map<AgentAuthToolId, ToolAuthSession>();
-  const handles = new Map<AgentAuthToolId, AuthFlowHandle>();
+  const sessions = new Map<SetupToolId, ToolAuthSession>();
+  const handles = new Map<SetupToolId, AuthFlowHandle>();
   const inFlight = new Set<Promise<void>>();
 
   function prune(): void {
@@ -91,12 +91,6 @@ export function createToolAuthStore(options: ToolAuthStoreOptions): ToolAuthStor
     list() {
       prune();
       return structuredClone([...sessions.values()]);
-    },
-
-    get(tool) {
-      prune();
-      const session = sessions.get(tool);
-      return session ? structuredClone(session) : null;
     },
 
     async start(tool, opts = {}) {
@@ -198,7 +192,8 @@ export function createToolAuthStore(options: ToolAuthStoreOptions): ToolAuthStor
 }
 
 /**
- * The sign-in flows Hive ships, wired to the real CLIs.
+ * The sign-in flows Hive ships, wired to the real CLIs and, for GitHub, to
+ * GitHub's own device-code endpoints.
  *
  * Codex carries a confirmation because its flow deletes the stored credential
  * the moment it starts: an operator re-running it on a working install is
@@ -206,14 +201,11 @@ export function createToolAuthStore(options: ToolAuthStoreOptions): ToolAuthStor
  */
 export function defaultToolAuthStore(
   dataDir: string,
-  onUnexpectedError?: (tool: AgentAuthToolId, error: unknown) => void,
+  onUnexpectedError?: (tool: SetupToolId, error: unknown) => void,
 ): ToolAuthStore {
   const detectDeps: DetectDeps = defaultDetectDeps();
-  const detect = async (tool: AgentAuthToolId): Promise<ToolDetection> => {
-    const spec = findToolSpec(tool);
-    if (!spec) throw new Error(`Unknown tool ${tool}`);
-    return detectTool(spec, detectDeps);
-  };
+  const detect = async (tool: SetupToolId): Promise<ToolDetection> =>
+    detectTool(findToolSpec(tool), detectDeps);
 
   void recoverCodexCredential().catch(() => {
     // Nothing to restore, or the credential directory is not writable. Either
@@ -237,6 +229,9 @@ export function defaultToolAuthStore(
           "Codex deletes its stored credential the moment a new sign-in starts. " +
           "If you do not finish this one, this server will be signed out of Codex. " +
           "Hive keeps a copy and puts it back if the sign-in does not complete.",
+      },
+      gh: {
+        flow: githubAuthFlow({ detect: () => detect("gh") }),
       },
     },
   });

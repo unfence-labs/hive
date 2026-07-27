@@ -39,36 +39,27 @@ grep -hv '^[[:space:]]*#' "$PROV"/lib.sh "$PROV"/steps.sh "$PROV"/main.sh \
   "$ROOT/shared/setup-errors.ts" >"$SPEECH"
 
 # ---------------------------------------------------------------------------
-# 1. The bash and TypeScript error taxonomies stay in sync
+# 1. The emitted error codes and the TypeScript taxonomy stay in sync
 # ---------------------------------------------------------------------------
+#
+# The emitted set is collected from the `die`/STEP_ERR_CODE call sites, so a
+# typo in a `die` call — which would otherwise reach a client as an unknown
+# error only at failure time — and a declared code nothing can emit both fail
+# the same diff.
 
-bash_codes="$(sed -n '/^SETUP_ERROR_CODES="/,/"$/p' "$PROV/lib.sh" \
-  | tr ' \\"' '\n' | grep -E '^[A-Z_]+$' | grep -v '^SETUP_ERROR_CODES$' | sort -u)"
 ts_codes="$(sed -n '/^export const SETUP_ERROR_CODES = \[/,/^\] as const;/p' \
   "$ROOT/shared/setup-errors.ts" | grep -oE '"[A-Z_]+"' | tr -d '"' | sort -u)"
-
-[ -n "$bash_codes" ] || { echo "FAIL: could not extract SETUP_ERROR_CODES from lib.sh"; exit 1; }
 [ -n "$ts_codes" ] || { echo "FAIL: could not extract SETUP_ERROR_CODES from setup-errors.ts"; exit 1; }
 
-diff_out="$(diff <(printf '%s\n' "$bash_codes") <(printf '%s\n' "$ts_codes") || true)"
-if [ -z "$diff_out" ]; then
-  pass "bash and TypeScript declare the same $(wc -w <<<"$bash_codes" | tr -d ' ') error codes"
-else
-  fail "SETUP_ERROR_CODES differ between lib.sh and shared/setup-errors.ts:"
-  printf '%s\n' "$diff_out"
-fi
-
-# Every code the script can actually emit must be declared. This is the check
-# that catches a typo in a `die` call, which would otherwise reach a client as
-# an unknown error only at failure time.
 emitted="$( { grep -ohE '\bdie [A-Z_]+' "$PROV"/*.sh | awk '{print $2}'
               grep -ohE '\bSTEP_ERR_CODE=[A-Z_]+' "$PROV"/*.sh | cut -d= -f2
             } | sort -u)"
-undeclared="$(comm -23 <(printf '%s\n' "$emitted") <(printf '%s\n' "$bash_codes"))"
-if [ -z "$undeclared" ]; then
-  pass "every die/STEP_ERR_CODE code is declared in the taxonomy"
+diff_out="$(diff <(printf '%s\n' "$emitted") <(printf '%s\n' "$ts_codes") || true)"
+if [ -z "$diff_out" ]; then
+  pass "the script emits exactly the $(wc -w <<<"$ts_codes" | tr -d ' ') error codes shared/setup-errors.ts declares"
 else
-  fail "codes emitted by the script but not declared: $(tr '\n' ' ' <<<"$undeclared")"
+  fail "emitted error codes differ from SETUP_ERROR_CODES in shared/setup-errors.ts:"
+  printf '%s\n' "$diff_out"
 fi
 
 missing_hints=""
@@ -317,7 +308,6 @@ paths_out="$(bash -c '
   OPT_INSTALL_DIR=/srv/hive-app
   OPT_DATA_DIR=/mnt/big/hive-data
   OPT_PORT=9999
-  OPT_HOST=0.0.0.0
   OPT_FIREWALL_IFACE=wg0
   HIVE_AUTH_TOKEN_SHA256=deadbeef
   resolve_paths
@@ -489,7 +479,7 @@ expect "an absent interface is not a preflight blocker" \
 # Every errorCode preflight can name must be one the taxonomy declares, or a
 # client would render a blocker it has no hint for.
 pre_codes="$(grep -ohE '"errorCode":"[A-Z_]+"' "$pre_out" "$iface_out" | cut -d'"' -f4 | sort -u)"
-undeclared_pre="$(comm -23 <(printf '%s\n' "$pre_codes") <(printf '%s\n' "$bash_codes") | grep -v '^$' || true)"
+undeclared_pre="$(comm -23 <(printf '%s\n' "$pre_codes") <(printf '%s\n' "$ts_codes") | grep -v '^$' || true)"
 if [ -z "$undeclared_pre" ]; then
   pass "preflight findings name only declared error codes"
 else
@@ -547,10 +537,6 @@ refute "the network mode is gone from the option surface" \
   bash "$bundle" --network-mode public
 refute "the bundle rejects an interface name that could be read as an option" \
   bash "$bundle" --firewall-interface '-oProxyCommand=bad'
-
-bash "$PROV/build.sh" 9.9.9 >/dev/null
-refute "--release-file is refused for non-prerelease script versions" \
-  bash "$bundle" --release-file /tmp/does-not-exist
 
 if command -v shellcheck >/dev/null 2>&1; then
   expect "shellcheck is clean on the sources and the bundle" \

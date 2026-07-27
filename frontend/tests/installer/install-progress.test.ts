@@ -37,7 +37,7 @@ describe("install progress", () => {
   it("keeps the streamed output and reports both accounts the landing needs", () => {
     const progress = fold(successRecords());
 
-    expect(progress.logs.map((entry) => entry.line)).toEqual(["ubuntu 24.04 x86_64"]);
+    expect(progress.logs).toEqual(["ubuntu 24.04 x86_64"]);
     expect(progress.accessToken).toBe(ACCESS_TOKEN);
     expect(progress.serviceUser).toBe("hive");
   });
@@ -95,7 +95,7 @@ describe("install progress", () => {
 
   it("ignores records that are not part of the run's own progress", () => {
     const progress = fold([
-      { event: "privilege_resolved", status: "ok" },
+      { event: "some_future_event", status: "ok" },
       { event: "preflight_check", status: "ok" },
     ]);
 
@@ -112,6 +112,6 @@ describe("install progress", () => {
     const progress = fold(noise);
 
     expect(progress.logs).toHaveLength(INSTALL_LOG_LIMIT);
-    expect(progress.logs.at(-1)?.line).toBe(`line ${INSTALL_LOG_LIMIT + 49}`);
+    expect(progress.logs.at(-1)).toBe(`line ${INSTALL_LOG_LIMIT + 49}`);
   });
 });

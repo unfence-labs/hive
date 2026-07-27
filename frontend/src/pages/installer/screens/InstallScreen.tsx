@@ -193,9 +193,7 @@ export function InstallScreen({
             aria-label="Install output"
             className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap break-words rounded bg-muted/50 p-2 font-mono text-[11px] leading-relaxed text-muted-foreground"
           >
-            {progress.logs.length === 0
-              ? "Waiting for output…"
-              : progress.logs.map((entry) => `${entry.line}\n`).join("")}
+            {progress.logs.length === 0 ? "Waiting for output…" : progress.logs.join("\n")}
           </pre>
         )}
       </div>

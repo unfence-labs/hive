@@ -33,16 +33,9 @@ STATE_FILE="$HIVE_VAR_DIR/provision-state.json"
 LOG_FILE="${HIVE_LOG_FILE:-$HIVE_VAR_DIR/provision.log.ndjson}"
 LOCK_FILE="$HIVE_VAR_DIR/provision.lock"
 
-# Error taxonomy. Must stay identical to SETUP_ERROR_CODES in
-# shared/setup-errors.ts; test/provision/contract.sh asserts it.
-# shellcheck disable=SC2034  # read by the bash/TS contract test
-SETUP_ERROR_CODES="UNSUPPORTED_OS UNSUPPORTED_ARCH NOT_ROOT CONCURRENT_RUN \
-EXISTING_INSTALL PORT_IN_USE DIRECTORY_UNUSABLE INSUFFICIENT_DISK_SPACE \
-SSH_KEY_INVALID FIREWALL_RULE_FAILED \
-APT_FAILURE NODE_INSTALL_FAILED \
-AGENT_CLI_INSTALL_FAILED RELEASE_DOWNLOAD_FAILED CHECKSUM_MISMATCH \
-TOKEN_GENERATION_FAILED SERVICE_START_FAILED HEALTH_TIMEOUT \
-AUTH_NOT_ENFORCED UNKNOWN"
+# Error taxonomy: every code a `die` or STEP_ERR_CODE names must be declared in
+# SETUP_ERROR_CODES in shared/setup-errors.ts; test/provision/contract.sh
+# collects the call sites and asserts it.
 
 SEQ=0
 RUN_ID=""
@@ -247,21 +240,19 @@ run_step() {
   STEP_DATA=""
   STEP_SECRET_DATA=""
   emit_step "$id" start "$(printf '"title":"%s"' "$(json_escape "$title")")"
-  local t0=$SECONDS
   "step_$id"                                   # set -e + ERR trap active inside
-  local dt=$(((SECONDS - t0) * 1000))
   mark_step "$id" ok
   if [ -n "$STEP_SECRET_DATA" ]; then
     local redacted="$STEP_DATA"
     [ -n "$redacted" ] || redacted='{}'
     emit_secret \
-      "$(printf '"step":"%s","status":"ok","durationMs":%d,"data":%s' "$id" "$dt" "$STEP_SECRET_DATA")" \
-      "$(printf '"step":"%s","status":"ok","durationMs":%d,"data":%s' "$id" "$dt" "$redacted")"
+      "$(printf '"step":"%s","status":"ok","data":%s' "$id" "$STEP_SECRET_DATA")" \
+      "$(printf '"step":"%s","status":"ok","data":%s' "$id" "$redacted")"
     STEP_SECRET_DATA=""
   elif [ -n "$STEP_DATA" ]; then
-    emit_step "$id" ok "$(printf '"durationMs":%d,"data":%s' "$dt" "$STEP_DATA")"
+    emit_step "$id" ok "$(printf '"data":%s' "$STEP_DATA")"
   else
-    emit_step "$id" ok "$(printf '"durationMs":%d' "$dt")"
+    emit_step "$id" ok
   fi
   CURRENT_STEP=""
 

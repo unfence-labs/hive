@@ -30,6 +30,13 @@ interface InstallRun {
   listeners: Set<(progress: InstallProgress) => void>;
 }
 
+/**
+ * How long streamed records may pool before the fold and the listeners see
+ * them. apt and npm can emit hundreds of lines a second, and folding and
+ * re-rendering per line is a render storm; per window it is one commit.
+ */
+export const INSTALL_FLUSH_MS = 50;
+
 const runs = new Map<string, InstallRun>();
 
 /**
@@ -54,18 +61,33 @@ function startRun(key: string, client: ProvisionClient, request: InstallRequest)
   const run: InstallRun = { progress: initialProgress(), listeners: new Set() };
   runs.set(key, run);
 
-  const push = (record: ProvisionRecord) => {
-    run.progress = applyInstallRecord(run.progress, record);
+  let pending: ProvisionRecord[] = [];
+  let timer: ReturnType<typeof setTimeout> | undefined;
+
+  const flush = () => {
+    clearTimeout(timer);
+    timer = undefined;
+    if (pending.length === 0) return;
+    const batch = pending;
+    pending = [];
+    run.progress = batch.reduce(applyInstallRecord, run.progress);
     for (const listener of run.listeners) listener(run.progress);
+  };
+
+  const push = (record: ProvisionRecord) => {
+    pending.push(record);
+    timer ??= setTimeout(flush, INSTALL_FLUSH_MS);
   };
 
   void client.install(request, push).catch((caught: unknown) => {
     // The sidecar sends its own terminal record for anything it can type, so
     // this only closes the stream when the command itself rejected without
     // one — a dead channel, an invoke that never reached the run.
+    flush();
     if (run.progress.status === "succeeded" || run.progress.status === "failed") return;
     const error = toProvisionError(caught);
     push({ event: "run_end", status: "error", errorCode: error.code, detail: error.detail });
+    flush();
   });
 
   return run;

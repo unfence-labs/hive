@@ -1,5 +1,6 @@
 import { execFile as execFileCb } from "node:child_process";
 import { promisify } from "node:util";
+import { compareVersions } from "./version.js";
 
 const execFile = promisify(execFileCb);
 
@@ -44,9 +45,7 @@ const DEPENDENCIES: Dependency[] = [
 ];
 
 export function meetsMinVersion(version: string, min: [number, number]): boolean {
-  const parts = version.split(".").map(Number);
-  const [major, minor] = [parts[0] ?? 0, parts[1] ?? 0];
-  return major > min[0] || (major === min[0] && minor >= min[1]);
+  return compareVersions(version, min.join(".")) >= 0;
 }
 
 export async function preflight(): Promise<void> {

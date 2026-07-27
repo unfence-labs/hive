@@ -5,7 +5,7 @@ import { CenterCard } from "@/components/CenterCard";
 import { useConnection } from "@/hooks/useConnection";
 import type { ConnectionStatus } from "@/hooks/useConnectionStatus";
 import { useConnectionStatus } from "@/hooks/useConnectionStatus";
-import { DEFAULT_BACKEND_PORT, switchServer } from "@/lib/server-connection";
+import { DEFAULT_BACKEND_PORT, isValidPort, switchServer } from "@/lib/server-connection";
 import { isDesktopShell } from "@/lib/is-desktop";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -89,8 +89,7 @@ export default function ConnectionSettings({
   }
 
   const port = Number(portDraft);
-  const canConnect =
-    hostDraft.trim().length > 0 && Number.isInteger(port) && port >= 1 && port <= 65_535;
+  const canConnect = hostDraft.trim().length > 0 && isValidPort(port);
 
   const connect = async () => {
     setConnecting(true);

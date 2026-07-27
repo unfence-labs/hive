@@ -1,4 +1,4 @@
-import { DEFAULT_BACKEND_PORT } from "@/lib/server-connection";
+import { DEFAULT_BACKEND_PORT, isValidHost, isValidUserName } from "@/lib/server-connection";
 import type { PrivilegeMode } from "@/lib/provision-client";
 
 /**
@@ -150,8 +150,7 @@ export function parseAddress(value: string): { host: string; user?: string } {
  */
 export function isUsableAddress(value: string): boolean {
   const { host, user } = parseAddress(value);
-  if (!host || host.startsWith("-") || !/^[A-Za-z0-9.:-]+$/.test(host)) return false;
-  return user === undefined || /^[A-Za-z_][A-Za-z0-9._-]*$/.test(user);
+  return isValidHost(host) && (user === undefined || isValidUserName(user));
 }
 
 /** Same rule as `main.sh`: absolute, no traversal, no shell metacharacters. */

@@ -9,11 +9,9 @@ import {
   LogIn,
 } from "lucide-react";
 import {
-  isAgentAuthToolId,
   isToolAuthTerminal,
   TOOL_AUTH_FAILURE_HINTS,
   TOOL_FAILURE_HINTS,
-  type AgentAuthToolId,
   type SetupToolId,
   type ToolAuthSession,
   type ToolOperation,
@@ -33,11 +31,10 @@ import {
 import { Button } from "@/components/ui/button";
 import { ProviderIcon, type KnownProvider } from "@/components/chat/ProviderIcon";
 import { SignInPrompt } from "@/components/setup/SignInPrompt";
-import { useGitHubDeviceFlow } from "@/hooks/useGitHubDeviceFlow";
+import { ApiError } from "@/hooks/useApi";
 import {
   createSetupApi,
   CONFIRM_REQUIRED_STATUS,
-  SetupApiError,
   type SetupApiTarget,
 } from "@/lib/setup-api";
 import { refreshModelCatalog } from "@/hooks/useModels";
@@ -102,17 +99,23 @@ export function ToolsPanel({
   className?: string;
 }) {
   const api = useMemo(() => createSetupApi(target), [target]);
-  const queryKey = useMemo(
-    () => ["setup", "tools", target?.baseUrl ?? "default"] as const,
-    [target?.baseUrl],
-  );
+  const scope = target?.baseUrl ?? "default";
+  const toolsKey = useMemo(() => ["setup", "tools", scope] as const, [scope]);
+  const statusKey = useMemo(() => ["setup", "status", scope] as const, [scope]);
   const queryClient = useQueryClient();
 
   const { data, isPending, isError, error } = useQuery({
-    queryKey,
+    queryKey: toolsKey,
     queryFn: ({ signal }) => api.getTools(signal),
-    // The server is the source of truth for progress, so poll while something
-    // is running and stop the moment nothing is.
+  });
+
+  // The server is the source of truth for progress, so poll while something
+  // is running and stop the moment nothing is. Progress is read from the
+  // cheap in-memory status endpoint: watching a long install must not re-run
+  // the full tool detection every tick.
+  const { data: status } = useQuery({
+    queryKey: statusKey,
+    queryFn: ({ signal }) => api.getStatus(signal),
     refetchInterval: (query) => {
       const state = query.state.data;
       if (!state) return false;
@@ -123,14 +126,25 @@ export function ToolsPanel({
     },
   });
 
+  // The status query is fresher — every mutation invalidates it — but the
+  // first tools response may land before it, so fall back rather than flicker.
+  const operations = useMemo(
+    () => status?.operations ?? data?.operations ?? [],
+    [status, data],
+  );
+  const authSessions = useMemo(
+    () => status?.authSessions ?? data?.authSessions ?? [],
+    [status, data],
+  );
+
   const start = useMutation({
     mutationFn: ({ tool, kind }: { tool: SetupToolId; kind: ToolOperationKind }) =>
       api.startOperation(tool, kind),
-    onSettled: () => queryClient.invalidateQueries({ queryKey }),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: statusKey }),
   });
 
   const invalidate = (): void => {
-    void queryClient.invalidateQueries({ queryKey });
+    void queryClient.invalidateQueries({ queryKey: statusKey });
   };
 
   const [authError, setAuthError] = useState<Partial<Record<SetupToolId, string>>>({});
@@ -139,16 +153,16 @@ export function ToolsPanel({
 
   // A refusal to sign the server out of a working tool is a question, not an
   // error: hold it until the operator answers, then retry with the answer.
-  const [confirm, setConfirm] = useState<{ tool: AgentAuthToolId; message: string } | null>(
+  const [confirm, setConfirm] = useState<{ tool: SetupToolId; message: string } | null>(
     null,
   );
 
   const startAuth = useMutation({
-    mutationFn: ({ tool, force }: { tool: AgentAuthToolId; force?: boolean }) =>
+    mutationFn: ({ tool, force }: { tool: SetupToolId; force?: boolean }) =>
       api.startAuth(tool, { force }),
     onMutate: ({ tool }) => setError(tool, undefined),
     onError: (err, { tool }) => {
-      if (err instanceof SetupApiError && err.status === CONFIRM_REQUIRED_STATUS) {
+      if (err instanceof ApiError && err.status === CONFIRM_REQUIRED_STATUS) {
         setConfirm({ tool, message: err.message });
         return;
       }
@@ -158,7 +172,7 @@ export function ToolsPanel({
   });
 
   const submitCode = useMutation({
-    mutationFn: ({ tool, code }: { tool: AgentAuthToolId; code: string }) =>
+    mutationFn: ({ tool, code }: { tool: SetupToolId; code: string }) =>
       api.submitAuthCode(tool, code),
     onMutate: ({ tool }) => setError(tool, undefined),
     onError: (err, { tool }) =>
@@ -167,36 +181,41 @@ export function ToolsPanel({
   });
 
   const cancelAuth = useMutation({
-    mutationFn: (tool: AgentAuthToolId) => api.cancelAuth(tool),
+    mutationFn: (tool: SetupToolId) => api.cancelAuth(tool),
     onSettled: invalidate,
   });
 
-  const github = useGitHubDeviceFlow();
-  // The panel's GitHub row and the Account page drive the same flow, so the
-  // badge here has to react to a sign-in completing anywhere.
-  useEffect(() => {
-    if (github.phase.kind === "connected") invalidate();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [github.phase.kind]);
-
-  // A harness that just landed must not stay hidden behind the catalog the
-  // model picker cached before it existed. The trigger is the running →
-  // succeeded transition, not the mutation resolving: the mutation only
-  // reports that the install *started*, and refreshing then would read the
-  // state the install is about to change.
+  // Watch live work so its completion is acted on exactly once: the cheap
+  // status poll cannot see versions or auth flags, so the full tools list is
+  // re-read; and a harness that just landed must not stay hidden behind the
+  // catalog the model picker cached before it existed. The trigger is the
+  // live → terminal transition, not the mutation resolving: the mutation only
+  // reports that the work *started*, and refreshing then would read the state
+  // the work is about to change.
   const watched = useRef(new Set<string>());
   useEffect(() => {
-    for (const operation of data?.operations ?? []) {
+    let finished = false;
+    for (const operation of operations) {
       if (operation.status === "running") {
         watched.current.add(operation.id);
-      } else if (operation.status === "succeeded" && watched.current.delete(operation.id)) {
-        void refreshModelCatalog();
+      } else if (watched.current.delete(operation.id)) {
+        finished = true;
+        if (operation.status === "succeeded") void refreshModelCatalog();
       }
     }
-  }, [data]);
+    for (const session of authSessions) {
+      const key = `${session.tool}:${session.startedAt}`;
+      if (!isToolAuthTerminal(session.state)) {
+        watched.current.add(key);
+      } else if (watched.current.delete(key)) {
+        finished = true;
+      }
+    }
+    if (finished) void queryClient.invalidateQueries({ queryKey: toolsKey });
+  }, [operations, authSessions, queryClient, toolsKey]);
 
   const operationFor = (tool: SetupToolId): ToolOperation | undefined =>
-    data?.operations.find((op) => op.tool === tool);
+    operations.find((op) => op.tool === tool);
 
   if (isPending) {
     return (
@@ -216,8 +235,9 @@ export function ToolsPanel({
     );
   }
 
+  // A tool that serves model providers is an agent harness; gh is not one.
   const anyAgentConnected = data.tools.some(
-    (tool) => isAgentAuthToolId(tool.id) && tool.authenticated,
+    (tool) => TOOL_PROVIDERS[tool.id] !== undefined && tool.authenticated,
   );
 
   return (
@@ -229,22 +249,13 @@ export function ToolsPanel({
           operation={operationFor(tool.id)}
           pending={start.isPending && start.variables?.tool === tool.id}
           onRun={(kind) => start.mutate({ tool: tool.id, kind })}
-          authSession={data.authSessions.find((session) => session.tool === tool.id)}
+          authSession={authSessions.find((session) => session.tool === tool.id)}
           authError={authError[tool.id]}
           authPending={startAuth.isPending && startAuth.variables?.tool === tool.id}
           codePending={submitCode.isPending && submitCode.variables?.tool === tool.id}
-          onConnect={() => {
-            if (isAgentAuthToolId(tool.id)) startAuth.mutate({ tool: tool.id });
-            else void github.connect();
-          }}
-          onSubmitCode={(code) => {
-            if (isAgentAuthToolId(tool.id)) submitCode.mutate({ tool: tool.id, code });
-          }}
-          onCancelAuth={() => {
-            if (isAgentAuthToolId(tool.id)) cancelAuth.mutate(tool.id);
-            else github.cancel();
-          }}
-          github={tool.id === "gh" ? github : undefined}
+          onConnect={() => startAuth.mutate({ tool: tool.id })}
+          onSubmitCode={(code) => submitCode.mutate({ tool: tool.id, code })}
+          onCancelAuth={() => cancelAuth.mutate(tool.id)}
         />
       ))}
 
@@ -294,7 +305,6 @@ function ToolCard({
   onConnect,
   onSubmitCode,
   onCancelAuth,
-  github,
 }: {
   tool: ToolStatus;
   operation?: ToolOperation;
@@ -307,26 +317,15 @@ function ToolCard({
   onConnect: () => void;
   onSubmitCode: (code: string) => void;
   onCancelAuth: () => void;
-  github?: ReturnType<typeof useGitHubDeviceFlow>;
 }) {
   const running = operation?.status === "running";
   const busy = running || pending;
   const providers = TOOL_PROVIDERS[tool.id];
 
-  // GitHub's flow is client-driven against GitHub's own endpoints, the agent
-  // CLIs' are server-driven child processes. Both end up describing the same
-  // thing to the operator, so they are flattened into one shape here.
-  const prompt = github
-    ? github.phase.kind === "connecting"
-      ? {
-          verificationUri: github.phase.verificationUri,
-          userCode: github.phase.userCode,
-          needsCode: false,
-        }
-      : undefined
-    : authSession &&
-        (authSession.state === "awaiting_authorization" ||
-          authSession.state === "awaiting_code")
+  const prompt =
+    authSession &&
+    (authSession.state === "awaiting_authorization" ||
+      authSession.state === "awaiting_code")
       ? {
           verificationUri: authSession.verificationUri ?? "",
           userCode: authSession.userCode,
@@ -341,7 +340,6 @@ function ToolCard({
 
   const problem =
     authError ??
-    (github?.phase.kind === "error" ? github.phase.message : undefined) ??
     (authSession?.state === "failed" && authSession.failure
       ? `${authSession.failure.message} ${TOOL_AUTH_FAILURE_HINTS[authSession.failure.reason]}`
       : undefined) ??

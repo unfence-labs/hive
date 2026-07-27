@@ -40,9 +40,8 @@ function check(
   name: string,
   status: PreflightCheck["status"],
   detail: string,
-  errorCode?: string,
 ): PreflightCheck {
-  return { check: name, status, detail, ...(errorCode ? { errorCode } : {}) };
+  return { check: name, status, detail };
 }
 
 /** A check carrying the `data` object the script emits alongside its prose. */
@@ -119,11 +118,7 @@ export function report(overrides: Partial<PreflightReport> = {}): PreflightRepor
     ok: true,
     blockers: [],
     checks: OK_CHECKS,
-    privilege: {
-      root: privilegeMode === "root",
-      sudoNoPassword: privilegeMode !== "sudoPassword",
-      mode: privilegeMode,
-    },
+    privilege: { mode: privilegeMode },
     ...overrides,
   };
 }
@@ -135,7 +130,7 @@ export function blockedReport(): PreflightReport {
     blockers: ["port"],
     checks: [
       ...OK_CHECKS.filter((entry) => entry.check !== "port"),
-      check("port", "fail", "port 9420 is already in use by another service", "PORT_IN_USE"),
+      check("port", "fail", "port 9420 is already in use by another service"),
     ],
   });
 }
@@ -151,8 +146,6 @@ export function runStart(resume = false): ProvisionRecord {
   return {
     seq: 1,
     event: "run_start",
-    runId: "r-1234",
-    scriptVersion: "1.0.0",
     resume,
     stepsPlanned: PLANNED_STEPS,
   };
@@ -164,33 +157,23 @@ export function successRecords(resume = false): ProvisionRecord[] {
     runStart(resume),
     { seq: 2, step: "probe_os", status: "start", title: "Check the server" },
     { seq: 3, step: "probe_os", status: "log", line: "ubuntu 24.04 x86_64" },
-    { seq: 4, step: "probe_os", status: "ok", durationMs: 12 },
-    resume
-      ? {
-          seq: 5,
-          step: "create_user",
-          status: "skip",
-          reason: "already-satisfied",
-          // `skipdata_create_user`: a skipped step still names the account.
-          data: { user: "hive", dataDir: "/home/hive/.hive" },
-        }
-      : {
-          seq: 5,
-          step: "create_user",
-          status: "ok",
-          durationMs: 30,
-          data: { user: "hive", dataDir: "/home/hive/.hive" },
-        },
+    { seq: 4, step: "probe_os", status: "ok" },
+    {
+      seq: 5,
+      step: "create_user",
+      // `skipdata_create_user`: a skipped step still names the account.
+      status: resume ? "skip" : "ok",
+      data: { user: "hive" },
+    },
     { seq: 6, step: "generate_token", status: "start", title: "Generate the access token" },
     {
       seq: 7,
       step: "generate_token",
       status: "ok",
-      durationMs: 5,
       data: { accessToken: ACCESS_TOKEN },
     },
     { seq: 8, step: "health_check", status: "start", title: "Wait for Hive to become healthy" },
-    { seq: 9, step: "health_check", status: "ok", durationMs: 900 },
+    { seq: 9, step: "health_check", status: "ok" },
     { seq: 10, event: "run_end", status: "ok" },
   ];
 }
@@ -200,14 +183,13 @@ export function failureRecords(): ProvisionRecord[] {
   return [
     runStart(),
     { seq: 2, step: "probe_os", status: "start", title: "Check the server" },
-    { seq: 3, step: "probe_os", status: "ok", durationMs: 12 },
+    { seq: 3, step: "probe_os", status: "ok" },
     { seq: 4, step: "create_user", status: "start", title: "Create the hive service account" },
     { seq: 5, step: "create_user", status: "log", line: "useradd: cannot open /etc/passwd" },
     {
       seq: 6,
       step: "create_user",
       status: "error",
-      exitCode: 1,
       errorCode: "DIRECTORY_UNUSABLE",
       detail: "/home/hive/.hive is not writable",
     },

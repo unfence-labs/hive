@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactElement } from "react";
@@ -12,8 +12,9 @@ import {
   type InstallerInputs,
   type InstallerState,
 } from "@/pages/installer/machine";
-import { clearInstallRuns } from "@/pages/installer/install-run";
+import { INSTALL_FLUSH_MS, clearInstallRuns } from "@/pages/installer/install-run";
 import { CONNECTION_STORAGE_KEY, getConnection, replaceConnection } from "@/hooks/useConnection";
+import type { ProvisionRecord } from "@/lib/provision-client";
 import {
   ACCESS_TOKEN,
   UNTRUSTED_HOST,
@@ -24,6 +25,7 @@ import {
   foreignFirewallReport,
   report,
   successRecords,
+  type MockInstall,
 } from "./mock-provision-client";
 import { createWrapper } from "../test-utils";
 
@@ -48,16 +50,28 @@ function stubTools(overrides: Partial<ToolsResponse> = {}) {
     authSessions: [],
     ...overrides,
   };
+  // The status poll reads operations and auth sessions off its own endpoint,
+  // so it gets an idle body rather than an empty object it would trip over.
+  const idle = JSON.stringify({ operations: body.operations, authSessions: body.authSessions });
   return vi.spyOn(globalThis, "fetch").mockImplementation((input) =>
     Promise.resolve(
-      String(input).includes("/api/setup/tools")
-        ? new Response(JSON.stringify(body), {
-            status: 200,
-            headers: { "Content-Type": "application/json" },
-          })
-        : new Response("{}", { status: 200, headers: { "Content-Type": "application/json" } }),
+      new Response(String(input).includes("/api/setup/tools") ? JSON.stringify(body) : idle, {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
     ),
   );
+}
+
+/**
+ * Push records into a run and advance past the batching window, so the folded
+ * progress is on screen by the time the next assertion runs.
+ */
+function emit(install: MockInstall, ...records: ProvisionRecord[]) {
+  act(() => {
+    install.emit(...records);
+    vi.advanceTimersByTime(INSTALL_FLUSH_MS);
+  });
 }
 
 /** Run an install to completion, landing on the final screen. */
@@ -68,7 +82,7 @@ async function installTo(
 ) {
   renderInstaller(<Installer client={client} onClose={onClose} />);
   await waitFor(() => expect(client.installs).toHaveLength(1));
-  act(() => client.installs[0].emit(...records));
+  emit(client.installs[0], ...records);
   return screen.findByRole("heading", { name: "Connect your accounts" });
 }
 
@@ -104,10 +118,17 @@ function storageContents(): string {
 describe("Installer", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    // Streamed install records reach the screen once per flush window, so the
+    // tests drive that clock rather than waiting it out.
+    vi.useFakeTimers({ shouldAdvanceTime: true });
     localStorage.clear();
     // The run registry outlives a component, which is the point of it — but it
     // must not outlive a test.
     clearInstallRuns();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it("offers installing or connecting to an existing server, and nothing else", () => {
@@ -127,7 +148,7 @@ describe("Installer", () => {
       .spyOn(globalThis, "fetch")
       .mockResolvedValue(new Response("[]", { status: 200 }));
     const onClose = vi.fn();
-    const user = userEvent.setup();
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     render(<Installer client={createMockProvisionClient()} onClose={onClose} />);
 
     await user.click(screen.getByRole("button", { name: "I already have a server" }));
@@ -155,7 +176,7 @@ describe("Installer", () => {
   it("stores nothing when the existing server does not answer", async () => {
     vi.spyOn(globalThis, "fetch").mockRejectedValue(new TypeError("Failed to fetch"));
     const onClose = vi.fn();
-    const user = userEvent.setup();
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     render(<Installer client={createMockProvisionClient()} onClose={onClose} />);
 
     await user.click(screen.getByRole("button", { name: "I already have a server" }));
@@ -174,7 +195,7 @@ describe("Installer", () => {
   });
 
   it("collects the address, the port and the advanced directories, and asks nothing about the network", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     const client = createMockProvisionClient();
     render(<Installer client={client} />);
 
@@ -202,7 +223,7 @@ describe("Installer", () => {
   });
 
   it("marks unusable keys as such and offers a re-scan", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     const client = createMockProvisionClient();
     seed("ssh_key");
     render(<Installer client={client} />);
@@ -216,7 +237,7 @@ describe("Installer", () => {
   });
 
   it("asks for the server's fingerprint before it runs preflight over it", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     const client = createMockProvisionClient();
     seed("connect");
     render(<Installer client={client} />);
@@ -239,7 +260,7 @@ describe("Installer", () => {
   it("never shows a password field when the account reaches root on its own", async () => {
     const client = createMockProvisionClient({
       identity: { ...UNTRUSTED_HOST, trusted: true },
-      preflight: report({ privilege: { root: true, sudoNoPassword: true, mode: "root" } }),
+      preflight: report({ privilege: { mode: "root" } }),
     });
     seed("connect");
     render(<Installer client={client} />);
@@ -250,11 +271,11 @@ describe("Installer", () => {
   });
 
   it("asks for a password only when preflight says escalation needs one", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     const client = createMockProvisionClient({
       identity: { ...UNTRUSTED_HOST, trusted: true },
       preflight: report({
-        privilege: { root: false, sudoNoPassword: false, mode: "sudoPassword" },
+        privilege: { mode: "sudoPassword" },
       }),
     });
     seed("connect", { address: "ops@203.0.113.10" });
@@ -275,7 +296,7 @@ describe("Installer", () => {
   });
 
   it("stops on a blocking finding and names the field that corrects it", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     const client = createMockProvisionClient({
       identity: { ...UNTRUSTED_HOST, trusted: true },
       preflight: blockedReport(),
@@ -364,7 +385,7 @@ describe("Installer", () => {
   });
 
   it("carries the chosen interface into the plan and the install", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     const client = createMockProvisionClient({
       identity: { ...UNTRUSTED_HOST, trusted: true },
       preflight: activeFirewallReport(),
@@ -383,7 +404,7 @@ describe("Installer", () => {
   });
 
   it("opens the port when the operator does not restrict it", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     const client = createMockProvisionClient({
       identity: { ...UNTRUSTED_HOST, trusted: true },
       preflight: activeFirewallReport(),
@@ -402,7 +423,7 @@ describe("Installer", () => {
   });
 
   it("surfaces an unreachable server with its hint and a retry", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     const client = createMockProvisionClient();
     client.testConnection.mockRejectedValue({
       code: "SSH_UNREACHABLE",
@@ -431,7 +452,7 @@ describe("Installer", () => {
   // ── the install ────────────────────────────────────────────────────────────
 
   it("restates the plan before it touches anything, and starts only when told to", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     const client = createMockProvisionClient();
     seed("review", { privilegeMode: "root" });
     render(<Installer client={client} />);
@@ -462,7 +483,7 @@ describe("Installer", () => {
     render(<Installer client={client} onClose={vi.fn()} />);
 
     await waitFor(() => expect(client.installs).toHaveLength(1));
-    act(() => client.installs[0].emit(...successRecords().slice(0, 4)));
+    emit(client.installs[0], ...successRecords().slice(0, 4));
 
     const steps = await screen.findByRole("list", { name: "Install steps" });
     expect(within(steps).getByText("Check the server")).toBeInTheDocument();
@@ -473,13 +494,13 @@ describe("Installer", () => {
   });
 
   it("shows the streamed output, folds it away, and never writes it to storage", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     const client = createMockProvisionClient();
     seedRunningInstall();
     render(<Installer client={client} />);
 
     await waitFor(() => expect(client.installs).toHaveLength(1));
-    act(() => client.installs[0].emit(...successRecords().slice(0, 4)));
+    emit(client.installs[0], ...successRecords().slice(0, 4));
 
     const log = await screen.findByLabelText("Install output");
     expect(log).toHaveTextContent("ubuntu 24.04 x86_64");
@@ -495,7 +516,7 @@ describe("Installer", () => {
     const first = render(<Installer client={client} />);
 
     await waitFor(() => expect(client.install).toHaveBeenCalledTimes(1));
-    act(() => client.installs[0].emit(...successRecords().slice(0, 4)));
+    emit(client.installs[0], ...successRecords().slice(0, 4));
     first.unmount();
 
     // Re-entering the install — a remount, a route change, a re-render — must
@@ -514,7 +535,7 @@ describe("Installer", () => {
     const first = render(<Installer client={client} />);
 
     await waitFor(() => expect(client.installs).toHaveLength(1));
-    act(() => client.installs[0].emit(...successRecords().slice(0, 4)));
+    emit(client.installs[0], ...successRecords().slice(0, 4));
 
     // Quitting the app takes the ssh process and the in-memory run with it.
     first.unmount();
@@ -525,7 +546,7 @@ describe("Installer", () => {
     render(<Installer client={client} />);
 
     await waitFor(() => expect(client.installs).toHaveLength(2));
-    act(() => client.installs[1].emit(...successRecords(true).slice(0, 6)));
+    emit(client.installs[1], ...successRecords(true).slice(0, 6));
 
     expect(screen.getByText(/Continuing an earlier run/)).toBeInTheDocument();
     const steps = screen.getByRole("list", { name: "Install steps" });
@@ -541,13 +562,13 @@ describe("Installer", () => {
   });
 
   it("offers retry and back on failure, and retry resumes rather than restarts", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     const client = createMockProvisionClient();
     seedRunningInstall();
     render(<Installer client={client} />);
 
     await waitFor(() => expect(client.installs).toHaveLength(1));
-    act(() => client.installs[0].emit(...failureRecords()));
+    emit(client.installs[0], ...failureRecords());
 
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent("DIRECTORY_UNUSABLE");
@@ -559,7 +580,7 @@ describe("Installer", () => {
 
     await waitFor(() => expect(client.installs).toHaveLength(2));
     // The retried run reports itself as a resume; nothing is repeated.
-    act(() => client.installs[1].emit(...successRecords(true).slice(0, 6)));
+    emit(client.installs[1], ...successRecords(true).slice(0, 6));
     expect(screen.getByText(/Continuing an earlier run/)).toBeInTheDocument();
     // And it is a run in progress again, so the way out closes.
     expect(screen.queryByRole("button", { name: "Back" })).not.toBeInTheDocument();
@@ -567,13 +588,13 @@ describe("Installer", () => {
   });
 
   it("lets a failed run go back to the plan so a bad value can be corrected", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     const client = createMockProvisionClient();
     seedRunningInstall();
     render(<Installer client={client} />);
 
     await waitFor(() => expect(client.installs).toHaveLength(1));
-    act(() => client.installs[0].emit(...failureRecords()));
+    emit(client.installs[0], ...failureRecords());
     await screen.findByRole("alert");
 
     await user.click(screen.getByRole("button", { name: "Back" }));
@@ -703,7 +724,7 @@ describe("Installer", () => {
   });
 
   it("never gates: continuing works with nothing connected", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     stubTools();
     const onClose = vi.fn();
     seedRunningInstall();
@@ -745,7 +766,7 @@ describe("Installer", () => {
     replaceConnection({ host: "100.64.0.10", port: 9420, authToken: "old", sshUser: "hive" });
     const before = localStorage.getItem(CONNECTION_STORAGE_KEY);
     const onClose = vi.fn();
-    const user = userEvent.setup();
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     const client = createMockProvisionClient();
     render(<Installer client={client} onClose={onClose} cancellable />);
 

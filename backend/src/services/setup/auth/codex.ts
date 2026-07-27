@@ -5,7 +5,12 @@ import type { RunCommand } from "../command.js";
 import type { ToolDetection } from "../detect.js";
 import { ToolAuthError, type AuthFlow, type ToolAuthOutcome } from "./flow.js";
 import { outputTail, parseDeviceCode, parseVerificationUri, stripAnsi } from "./output.js";
-import { spawnPipedAuthProcess, type AuthProcess, type SpawnAuthProcess } from "./process.js";
+import {
+  raceExit,
+  spawnPipedAuthProcess,
+  type AuthProcess,
+  type SpawnAuthProcess,
+} from "./process.js";
 
 /**
  * Codex sign-in.
@@ -116,19 +121,6 @@ export interface CodexAuthDeps {
   spawn?: SpawnAuthProcess;
   timeoutMs?: number;
   home?: string;
-}
-
-type RaceResult = { kind: "exit"; code: number } | { kind: "timeout" };
-
-function raceExit(process: AuthProcess, timeoutMs: number): Promise<RaceResult> {
-  return new Promise<RaceResult>((resolve) => {
-    const timer = setTimeout(() => resolve({ kind: "timeout" }), timeoutMs);
-    timer.unref?.();
-    void process.exit.then((code) => {
-      clearTimeout(timer);
-      resolve({ kind: "exit", code });
-    });
-  });
 }
 
 export function codexAuthFlow(deps: CodexAuthDeps): AuthFlow {

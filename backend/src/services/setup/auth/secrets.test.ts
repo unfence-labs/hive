@@ -12,12 +12,19 @@ import {
 const TOKEN = "sk-ant-oat01-AbC123_dEf456-GhI789jklMNO";
 
 let dataDir: string;
-let secretsPath: string;
+let configPath: string;
 let originalEnv: string | undefined;
+
+async function readStoredToken(): Promise<string | undefined> {
+  const config = JSON.parse(await readFile(configPath, "utf-8")) as {
+    claudeCodeOAuthToken?: string;
+  };
+  return config.claudeCodeOAuthToken;
+}
 
 beforeEach(async () => {
   dataDir = await mkdtemp(join(tmpdir(), "hive-secrets-"));
-  secretsPath = join(dataDir, "setup-secrets.json");
+  configPath = join(dataDir, "config.json");
   originalEnv = process.env.CLAUDE_CODE_OAUTH_TOKEN;
   delete process.env.CLAUDE_CODE_OAUTH_TOKEN;
 });
@@ -46,40 +53,48 @@ describe("token validation", () => {
 });
 
 describe("storing the token", () => {
-  it("writes it readable only by the account that owns it", async () => {
+  it("writes it into the config readable only by the account that owns it", async () => {
     await makeClaudeTokenWriter(dataDir)(TOKEN);
 
-    expect(JSON.parse(await readFile(secretsPath, "utf-8"))).toEqual({
-      claudeCodeOAuthToken: TOKEN,
-    });
-    expect((await stat(secretsPath)).mode & 0o777).toBe(0o600);
+    expect(await readStoredToken()).toBe(TOKEN);
+    expect((await stat(configPath)).mode & 0o777).toBe(0o600);
     expect(process.env.CLAUDE_CODE_OAUTH_TOKEN).toBe(TOKEN);
     expect(getClaudeOAuthToken()).toBe(TOKEN);
   });
 
   it("leaves no temporary file behind", async () => {
     await makeClaudeTokenWriter(dataDir)(TOKEN);
-    expect(await readdir(dataDir)).toEqual(["setup-secrets.json"]);
+    expect(await readdir(dataDir)).toEqual(["config.json"]);
   });
 
-  it("replaces an existing token without a window where it is world-readable", async () => {
+  it("replaces an existing token", async () => {
     const write = makeClaudeTokenWriter(dataDir);
     await write(TOKEN);
     const replacement = `${TOKEN}XYZ`;
 
     await write(replacement);
 
-    expect(JSON.parse(await readFile(secretsPath, "utf-8")).claudeCodeOAuthToken).toBe(
-      replacement,
-    );
-    expect((await stat(secretsPath)).mode & 0o777).toBe(0o600);
+    expect(await readStoredToken()).toBe(replacement);
+    expect((await stat(configPath)).mode & 0o777).toBe(0o600);
+  });
+
+  it("keeps the rest of the config when the token lands", async () => {
+    await writeFile(configPath, JSON.stringify({ defaultModelId: "claude:opus" }), "utf-8");
+
+    await makeClaudeTokenWriter(dataDir)(TOKEN);
+
+    const config = JSON.parse(await readFile(configPath, "utf-8")) as {
+      defaultModelId?: string;
+    };
+    expect(config.defaultModelId).toBe("claude:opus");
+    expect(await readStoredToken()).toBe(TOKEN);
   });
 
   it("refuses a value that is not a token, and writes nothing", async () => {
     await expect(makeClaudeTokenWriter(dataDir)("not-a-token")).rejects.toThrow(
       /not a claude authentication token/i,
     );
-    await expect(stat(secretsPath)).rejects.toThrow();
+    await expect(stat(configPath)).rejects.toThrow();
     expect(process.env.CLAUDE_CODE_OAUTH_TOKEN).toBeUndefined();
   });
 });
@@ -108,10 +123,10 @@ describe("loading the token at boot", () => {
 
   it.each([
     ["unreadable JSON", "{not json"],
-    ["a file with no token in it", '{"somethingElse":true}'],
+    ["a config with no token in it", '{"defaultModelId":"claude:opus"}'],
     ["a token that no longer validates", '{"claudeCodeOAuthToken":"nope"}'],
   ])("ignores %s instead of refusing to boot", async (_label, contents) => {
-    await writeFile(secretsPath, contents, { mode: 0o600 });
+    await writeFile(configPath, contents, { mode: 0o600 });
 
     await expect(loadSetupSecrets(dataDir)).resolves.toBe(false);
     expect(process.env.CLAUDE_CODE_OAUTH_TOKEN).toBeUndefined();

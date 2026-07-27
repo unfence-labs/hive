@@ -11,6 +11,7 @@ import AgentSettings from "@/pages/settings/AgentSettings";
  */
 const mocks = vi.hoisted(() => ({
   getTools: vi.fn(),
+  getStatus: vi.fn(),
   startOperation: vi.fn(),
   startAuth: vi.fn(),
   submitAuthCode: vi.fn(),
@@ -19,7 +20,10 @@ const mocks = vi.hoisted(() => ({
   createSetupApi: vi.fn(),
 }));
 
-vi.mock("@/hooks/useApi", () => ({ api: { post: mocks.apiPost } }));
+vi.mock("@/hooks/useApi", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/hooks/useApi")>()),
+  api: { post: mocks.apiPost },
+}));
 
 vi.mock("@/lib/setup-api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/setup-api")>()),
@@ -27,6 +31,7 @@ vi.mock("@/lib/setup-api", async (importOriginal) => ({
     mocks.createSetupApi(target);
     return {
       getTools: mocks.getTools,
+      getStatus: mocks.getStatus,
       startOperation: mocks.startOperation,
       startAuth: mocks.startAuth,
       submitAuthCode: mocks.submitAuthCode,
@@ -44,6 +49,7 @@ vi.mock("@/components/AppLayout", () => ({
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.getTools.mockResolvedValue({ tools: [], operations: [], authSessions: [] });
+  mocks.getStatus.mockResolvedValue({ operations: [], authSessions: [] });
 });
 
 function renderPage() {

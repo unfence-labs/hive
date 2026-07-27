@@ -86,23 +86,18 @@ export interface AuthExpectation {
   expectedTokenSha256?: string;
 }
 
-/** Accept either a bare plaintext token or a full expectation. */
-export type AuthExpectationInput = string | AuthExpectation | undefined;
-
-function normalizeExpectation(input: AuthExpectationInput): AuthExpectation {
-  if (input === undefined) return {};
-  if (typeof input === "string") return { expectedToken: input };
-  return input;
+/** Routes exempt from the auth, Host and origin guards; they carry no secrets. */
+function isPublicRoute(url: string): boolean {
+  return url.startsWith("/health");
 }
 
 export function isAuthorized(
   headers: Record<string, string | string[] | undefined>,
-  expectationInput?: AuthExpectationInput,
+  expectation?: AuthExpectation,
   fallbackToken?: string
 ): boolean {
-  const expectation = normalizeExpectation(expectationInput);
-  const expectedToken = expectation.expectedToken;
-  const expectedTokenSha256 = expectation.expectedTokenSha256?.trim().toLowerCase();
+  const expectedToken = expectation?.expectedToken;
+  const expectedTokenSha256 = expectation?.expectedTokenSha256?.trim().toLowerCase();
   // No expectation configured → open (dev/local default).
   if (!expectedToken && !expectedTokenSha256) return true;
 
@@ -146,7 +141,7 @@ export function isAllowedHostHeader(
 
 export function createHostGuardHook(extraAllowed: readonly string[] = []) {
   return async (req: FastifyRequest, reply: FastifyReply): Promise<void> => {
-    if (req.url.startsWith("/health")) return;
+    if (isPublicRoute(req.url)) return;
     if (isAllowedHostHeader(headerString(req.headers.host), extraAllowed)) return;
     reply.status(403).send({ error: "Forbidden host" });
   };
@@ -159,7 +154,7 @@ export function createHostGuardHook(extraAllowed: readonly string[] = []) {
  */
 export function createWebSocketOriginGuardHook(allowedOrigins: ReadonlySet<string>) {
   return async (req: FastifyRequest, reply: FastifyReply): Promise<void> => {
-    if (req.url.startsWith("/health")) return;
+    if (isPublicRoute(req.url)) return;
     const upgrade = headerString(req.headers.upgrade)?.toLowerCase();
     if (upgrade !== "websocket") return;
 
@@ -169,12 +164,11 @@ export function createWebSocketOriginGuardHook(allowedOrigins: ReadonlySet<strin
   };
 }
 
-export function createAuthHook(expectationInput?: AuthExpectationInput) {
-  const expectation = normalizeExpectation(expectationInput);
-  const enabled = Boolean(expectation.expectedToken || expectation.expectedTokenSha256);
+export function createAuthHook(expectation?: AuthExpectation) {
+  const enabled = Boolean(expectation?.expectedToken || expectation?.expectedTokenSha256);
   return async (req: FastifyRequest, reply: FastifyReply): Promise<void> => {
     if (!enabled) return;
-    if (req.url.startsWith("/health")) return;
+    if (isPublicRoute(req.url)) return;
     // Support ?token= query param for resources loaded via <img src> / AsyncImage
     // and for browser WebSockets, neither of which can set request headers.
     // A repeated `?token=a&token=b` parses to an array; that shape is ambiguous,

@@ -3,6 +3,7 @@ import { ChevronRight } from "lucide-react";
 import { InstallerScreen } from "./InstallerScreen";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
+import { isValidPort } from "@/lib/server-connection";
 import {
   isUsableAddress,
   isUsableDirectory,
@@ -31,10 +32,9 @@ export function NetworkScreen({ inputs, onContinue, onBack }: NetworkScreenProps
   const [advanced, setAdvanced] = useState(false);
 
   const portNumber = Number(port);
-  const portValid = Number.isInteger(portNumber) && portNumber >= 1 && portNumber <= 65_535;
   const valid =
     isUsableAddress(address) &&
-    portValid &&
+    isValidPort(portNumber) &&
     isUsableDirectory(installDir) &&
     isUsableDirectory(dataDir);
 

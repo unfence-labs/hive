@@ -3,7 +3,7 @@ import { promisify } from "node:util";
 import type { FastifyInstance } from "fastify";
 import WebSocket from "ws";
 import { browserSessionManager } from "../services/browser-session-manager.js";
-import { isAuthorized, type AuthExpectationInput } from "../utils/auth.js";
+import { isAuthorized, type AuthExpectation } from "../utils/auth.js";
 import { buildWorkspaceEnv } from "../utils/env.js";
 
 const PING_INTERVAL_MS = 30_000;
@@ -27,7 +27,7 @@ export type BrowserViewportSetter = (
 ) => Promise<void>;
 
 export interface BrowserWsRoutesOptions {
-  auth?: AuthExpectationInput;
+  auth?: AuthExpectation;
   setViewport?: BrowserViewportSetter;
 }
 

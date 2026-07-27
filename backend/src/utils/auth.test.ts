@@ -76,23 +76,19 @@ describe("isAuthorized", () => {
   });
 
   it("accepts matching bearer token", () => {
-    expect(isAuthorized({ authorization: "Bearer secret" }, "secret")).toBe(true);
+    expect(isAuthorized({ authorization: "Bearer secret" }, { expectedToken: "secret" })).toBe(true);
   });
 
   it("rejects mismatched token", () => {
-    expect(isAuthorized({ authorization: "Bearer nope" }, "secret")).toBe(false);
+    expect(isAuthorized({ authorization: "Bearer nope" }, { expectedToken: "secret" })).toBe(false);
   });
 
   it("accepts matching fallback token", () => {
-    expect(isAuthorized({}, "secret", "secret")).toBe(true);
-  });
-
-  it("accepts a matching token via object expectation", () => {
-    expect(isAuthorized(bearer("secret"), { expectedToken: "secret" })).toBe(true);
+    expect(isAuthorized({}, { expectedToken: "secret" }, "secret")).toBe(true);
   });
 
   it("accepts the x-hive-token header", () => {
-    expect(isAuthorized({ "x-hive-token": "secret" }, "secret")).toBe(true);
+    expect(isAuthorized({ "x-hive-token": "secret" }, { expectedToken: "secret" })).toBe(true);
   });
 });
 
@@ -159,9 +155,9 @@ describe("isAuthorized — constant-time comparison", () => {
   it("reaches the constant-time comparison whatever the presented length is", () => {
     // Each of these must reach timingSafeEqual. A length short-circuit would
     // skip the comparison for the mismatched lengths and drop the call count.
-    expect(isAuthorized(bearer("x"), "a-much-longer-secret")).toBe(false);
-    expect(isAuthorized(bearer("a-much-longer-provided-token"), "s")).toBe(false);
-    expect(isAuthorized(bearer("secret"), "secret")).toBe(true);
+    expect(isAuthorized(bearer("x"), { expectedToken: "a-much-longer-secret" })).toBe(false);
+    expect(isAuthorized(bearer("a-much-longer-provided-token"), { expectedToken: "s" })).toBe(false);
+    expect(isAuthorized(bearer("secret"), { expectedToken: "secret" })).toBe(true);
 
     expect(timingSafeEqualOperandSizes).toEqual([
       [DIGEST_BYTES, DIGEST_BYTES],
@@ -187,7 +183,7 @@ describe("isAuthorized — constant-time comparison", () => {
 
 describe("createAuthHook", () => {
   it("allows health endpoint without auth", async () => {
-    const hook = createAuthHook("secret");
+    const hook = createAuthHook({ expectedToken: "secret" });
     const reply = {
       status: () => reply,
       send: () => undefined,
@@ -212,7 +208,7 @@ describe("createAuthHook", () => {
         payload = body;
       },
     };
-    const hook = createAuthHook("secret");
+    const hook = createAuthHook({ expectedToken: "secret" });
     await hook({ url: "/api/projects", headers: {} } as never, reply as never);
 
     expect(statusCode).toBe(401);
@@ -220,7 +216,7 @@ describe("createAuthHook", () => {
   });
 
   it("accepts matching ?token= query param", async () => {
-    const hook = createAuthHook("secret");
+    const hook = createAuthHook({ expectedToken: "secret" });
     const reply = {
       status: () => reply,
       send: () => undefined,
@@ -242,7 +238,7 @@ describe("createAuthHook", () => {
       },
       send() {},
     };
-    const hook = createAuthHook("secret");
+    const hook = createAuthHook({ expectedToken: "secret" });
     await hook(
       { url: "/api/attachments/img.jpg", headers: {}, query: { token: "wrong" } } as never,
       reply as never,
@@ -252,7 +248,7 @@ describe("createAuthHook", () => {
 
   it("rejects a repeated ?token= query param instead of throwing", async () => {
     const { state, reply } = replyRecorder();
-    const hook = createAuthHook("secret");
+    const hook = createAuthHook({ expectedToken: "secret" });
     await expect(
       hook(
         {

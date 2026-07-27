@@ -5,9 +5,9 @@
 # a step that must re-run on every invocation.
 #
 # Options come from parse_args in main.sh:
-#   OPT_HOST OPT_PORT OPT_INSTALL_DIR OPT_DATA_DIR OPT_FIREWALL_IFACE
-#   OPT_SSH_KEY OPT_RELEASE_FILE, plus HIVE_VERSION and ARCH_TAG. Paths
-#   derived from them are computed by resolve_paths().
+#   OPT_PORT OPT_INSTALL_DIR OPT_DATA_DIR OPT_FIREWALL_IFACE OPT_SSH_KEY,
+#   plus HIVE_VERSION and ARCH_TAG. Paths derived from them are computed by
+#   resolve_paths().
 
 # Base packages. Deliberately minimal: everything Hive itself runs lives under
 # /opt/hive, so the only system packages are the ones the backend shells out to
@@ -280,7 +280,6 @@ step_probe_os() {
     "systemd is required: Hive installs itself as a systemd service"
   [ -n "$ARCH_TAG" ] || die UNSUPPORTED_ARCH \
     "unsupported architecture $(uname -m): Hive needs x86-64 or arm64"
-  STEP_DATA="$(printf '{"os":"%s %s","arch":"%s"}' "${ID}" "${VERSION_ID}" "$ARCH_TAG")"
 }
 
 # ---------------------------------------------------------------------------
@@ -336,8 +335,8 @@ step_probe_env() {
     esac
   fi
 
-  STEP_DATA="$(printf '{"update":%s,"installDir":"%s","dataDir":"%s","port":%s}' \
-    "$update" "$HIVE_OPT" "$HIVE_DATA_DIR" "$OPT_PORT")"
+  # The update/fresh distinction is the one finding a client renders.
+  STEP_DATA="$(printf '{"update":%s}' "$update")"
 }
 
 # ---------------------------------------------------------------------------
@@ -367,7 +366,7 @@ guard_create_user() {
 # has to name it exactly as a fresh one does. Without this the caller would have
 # to assume the name, and an assumption cannot follow a configurable account.
 skipdata_create_user() {
-  printf '{"user":"%s","dataDir":"%s"}' "$HIVE_USER" "$HIVE_DATA_DIR"
+  printf '{"user":"%s"}' "$HIVE_USER"
 }
 
 step_create_user() {
@@ -378,7 +377,7 @@ step_create_user() {
   mkdir -p "$(dirname "$HIVE_DATA_DIR")"
   install -d -o "$HIVE_USER" -g "$HIVE_USER" -m 700 "$HIVE_DATA_DIR"
   install -d -o "$HIVE_USER" -g "$HIVE_USER" -m 755 "$HIVE_TOOLS_DIR" "$HIVE_TOOLS_DIR/bin"
-  STEP_DATA="$(printf '{"user":"%s","dataDir":"%s"}' "$HIVE_USER" "$HIVE_DATA_DIR")"
+  STEP_DATA="$(printf '{"user":"%s"}' "$HIVE_USER")"
 }
 
 # ---------------------------------------------------------------------------
@@ -408,15 +407,9 @@ guard_authorize_ssh_key() {
   authorized_key_present "$OPT_SSH_KEY"
 }
 
-skipdata_authorize_ssh_key() {
-  if [ -z "$OPT_SSH_KEY" ]; then printf '{"authorized":false,"reason":"no-key-supplied"}'
-  else printf '{"authorized":true,"reason":"already-authorized"}'
-  fi
-}
-
+# probe_env already died on an invalid key, so the key that reaches this step
+# is known to be well-formed.
 step_authorize_ssh_key() {
-  ssh_key_valid "$OPT_SSH_KEY" || die SSH_KEY_INVALID \
-    "the value passed for the $HIVE_USER account's public key is not an OpenSSH public key"
   install -d -o "$HIVE_USER" -g "$HIVE_USER" -m 700 "$HIVE_SSH_DIR"
   # Append. Keys the operator added by hand are never read, rewritten or
   # removed — the file is only ever grown by this step.
@@ -430,10 +423,6 @@ step_authorize_ssh_key() {
   printf '%s\n' "$OPT_SSH_KEY" >>"$HIVE_AUTHORIZED_KEYS"
   chown "$HIVE_USER:$HIVE_USER" "$HIVE_AUTHORIZED_KEYS"
   chmod 600 "$HIVE_AUTHORIZED_KEYS"
-  authorized_key_present "$OPT_SSH_KEY" || die SSH_KEY_INVALID \
-    "the public key was written to $HIVE_AUTHORIZED_KEYS but could not be read back"
-  STEP_DATA="$(printf '{"authorized":true,"user":"%s","keys":%s}' \
-    "$HIVE_USER" "$(grep -c . "$HIVE_AUTHORIZED_KEYS")")"
 }
 
 # ---------------------------------------------------------------------------
@@ -481,7 +470,6 @@ step_install_node() {
   # Drop superseded runtimes; the active one is a symlink target, never removed.
   find "$HIVE_RUNTIME_DIR" -mindepth 1 -maxdepth 1 -type d -name 'node-v*' \
     ! -name "node-v$NODE_VERSION-linux-$ARCH_TAG" -exec rm -rf {} +
-  STEP_DATA="$(printf '{"nodeVersion":"v%s","runtimeDir":"%s"}' "$NODE_VERSION" "$HIVE_RUNTIME_DIR/current")"
 }
 
 # ---------------------------------------------------------------------------
@@ -532,7 +520,6 @@ step_install_agent_clis() {
     as_hive "$bin" --version >/dev/null 2>&1 || die AGENT_CLI_INSTALL_FAILED \
       "'$bin' is not runnable as the $HIVE_USER service account after installation"
   done
-  STEP_DATA="$(printf '{"gh":"%s"}' "$GH_VERSION")"
 }
 
 # ---------------------------------------------------------------------------
@@ -564,7 +551,10 @@ assert_release_abi() {
   local rel="$1" declared runtime
   declared="$("$HIVE_NODE_BIN" -p 'require(process.argv[1]).hive?.nodeAbi ?? ""' \
     "$rel/package.json" 2>/dev/null || true)"
-  [ -n "$declared" ] || return 0   # older tarballs carry no manifest
+  # build-backend-tarball.sh always writes hive.nodeAbi; a tarball without it
+  # is not a Hive release.
+  [ -n "$declared" ] || die RELEASE_DOWNLOAD_FAILED \
+    "the release manifest declares no Node ABI"
   runtime="$("$HIVE_NODE_BIN" -p 'process.versions.modules')"
   [ "$declared" = "$runtime" ] || die RELEASE_DOWNLOAD_FAILED \
     "release was built for Node ABI $declared but the pinned runtime is ABI $runtime"
@@ -583,30 +573,24 @@ step_install_release() {
   install -d -o "$HIVE_USER" -g "$HIVE_USER" -m 755 "$HIVE_OPT/releases" "$HIVE_OPT/shared"
   ln -sfn "$HIVE_DATA_DIR" "$HIVE_OPT/shared/data"
 
-  if [ -n "$OPT_RELEASE_FILE" ]; then
-    tarball="$OPT_RELEASE_FILE"
-    [ -f "$tarball" ] || die RELEASE_DOWNLOAD_FAILED "release file not found: $tarball"
-    checksum="$(sha256_of "$tarball")"
-  else
-    base_url="${HIVE_RELEASE_BASE_URL:-https://github.com/unfence-labs/hive/releases/download/v$HIVE_VERSION}"
-    asset_url="$base_url/hive-backend-$HIVE_VERSION-linux-$ARCH_TAG.tar.gz"
-    # The published digest is fetched first, so nothing is unpacked before the
-    # download has been checked against it. A missing asset fails as a download
-    # error; a present but unusable digest fails as a checksum error.
-    STEP_ERR_CODE=RELEASE_DOWNLOAD_FAILED
-    DOWNLOAD_FILE="$(mktemp "$HIVE_VAR_DIR/download.XXXXXX")"
-    run_logged install_release curl -fsSL --retry 3 --retry-delay 2 \
-      -o "$DOWNLOAD_FILE" "$asset_url.sha256"
-    STEP_ERR_CODE=""
-    expected="$(cut -d' ' -f1 <"$DOWNLOAD_FILE")"
-    rm -f "$DOWNLOAD_FILE"; DOWNLOAD_FILE=""
-    expected="${expected,,}"
-    [[ "$expected" =~ ^[0-9a-f]{64}$ ]] || die CHECKSUM_MISMATCH \
-      "invalid or missing checksum at $asset_url.sha256"
-    download_verified install_release "$asset_url" "$expected" RELEASE_DOWNLOAD_FAILED
-    tarball="$DOWNLOAD_FILE"
-    checksum="$expected"
-  fi
+  base_url="${HIVE_RELEASE_BASE_URL:-https://github.com/unfence-labs/hive/releases/download/v$HIVE_VERSION}"
+  asset_url="$base_url/hive-backend-$HIVE_VERSION-linux-$ARCH_TAG.tar.gz"
+  # The published digest is fetched first, so nothing is unpacked before the
+  # download has been checked against it. A missing asset fails as a download
+  # error; a present but unusable digest fails as a checksum error.
+  STEP_ERR_CODE=RELEASE_DOWNLOAD_FAILED
+  DOWNLOAD_FILE="$(mktemp "$HIVE_VAR_DIR/download.XXXXXX")"
+  run_logged install_release curl -fsSL --retry 3 --retry-delay 2 \
+    -o "$DOWNLOAD_FILE" "$asset_url.sha256"
+  STEP_ERR_CODE=""
+  expected="$(cut -d' ' -f1 <"$DOWNLOAD_FILE")"
+  rm -f "$DOWNLOAD_FILE"; DOWNLOAD_FILE=""
+  expected="${expected,,}"
+  [[ "$expected" =~ ^[0-9a-f]{64}$ ]] || die CHECKSUM_MISMATCH \
+    "invalid or missing checksum at $asset_url.sha256"
+  download_verified install_release "$asset_url" "$expected" RELEASE_DOWNLOAD_FAILED
+  tarball="$DOWNLOAD_FILE"
+  checksum="$expected"
 
   rel="$HIVE_OPT/releases/$HIVE_VERSION-$checksum"
   if ! verify_release_dir "$rel"; then
@@ -647,7 +631,6 @@ step_install_release() {
       exit 137
     fi
   fi
-  STEP_DATA="$(printf '{"version":"%s"}' "$HIVE_VERSION")"
 }
 
 # ---------------------------------------------------------------------------
@@ -658,11 +641,9 @@ title_generate_token() { echo "Generate the access token"; }
 # and cannot be recovered from a resumed run. Every run therefore rotates it.
 guard_generate_token() { return 1; }
 
+# /dev/urandom is guaranteed on the pinned Ubuntu/Debian targets, and RUN_ID
+# already trusts it bare.
 random_hex_32() {
-  # Two independent sources so a missing openssl is not a silent failure.
-  if command -v openssl >/dev/null 2>&1; then
-    openssl rand -hex 32 2>/dev/null | tr -d '\n' && return 0
-  fi
   head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n'
 }
 
@@ -691,7 +672,7 @@ title_write_secrets() { echo "Write the service configuration"; }
 hive_env_base() {
   cat <<EOF
 NODE_ENV=production
-HOST=$OPT_HOST
+HOST=0.0.0.0
 PORT=$OPT_PORT
 DATA_DIR=$HIVE_DATA_DIR
 HIVE_AUTH_TOKEN_SHA256=$HIVE_AUTH_TOKEN_SHA256
@@ -708,9 +689,7 @@ guard_write_secrets() { return 1; }
 step_write_secrets() {
   local tmp written
   : >"$HIVE_RESTART_REQUIRED"
-  install -d -m 755 "$HIVE_ETC_DIR"
-  : >"$HIVE_INSTALL_MARKER"
-  chmod 600 "$HIVE_INSTALL_MARKER"
+  claim_install_dir
   tmp="$(mktemp)"
   hive_env_base >"$tmp"
   # Root-owned and readable by nobody else. systemd reads EnvironmentFile as
@@ -958,7 +937,6 @@ step_write_uninstall() {
   rm -f "$tmp"
   bash -n "$HIVE_UNINSTALL_SCRIPT" || die UNKNOWN \
     "the generated uninstall script is not valid bash"
-  STEP_DATA="$(printf '{"path":"%s","purgeFlag":"--purge"}' "$HIVE_UNINSTALL_SCRIPT")"
 }
 
 # ---------------------------------------------------------------------------
@@ -1022,7 +1000,7 @@ prune_releases() {
 }
 
 rollback_release() {
-  local previous i
+  local previous
   previous="$(readlink -f "$HIVE_OPT/previous" 2>/dev/null || true)"
   [ -n "$previous" ] && [ -d "$previous" ] || return 1
   emit_log health_check "Health check failed; restoring the previous release"
@@ -1033,7 +1011,7 @@ rollback_release() {
   # recoverable rollback would report itself as unrecoverable.
   systemctl reset-failed hive >/dev/null 2>&1 || true
   systemctl restart hive || return 1
-  for i in $(seq 1 10); do
+  for _ in $(seq 1 10); do
     if health_ok; then
       atomic_marker "$HIVE_ACTIVATED_RELEASE" "$previous"
       rm -f "$HIVE_OPT/previous"
@@ -1045,9 +1023,9 @@ rollback_release() {
 }
 
 step_health_check() {
-  local i attempts="${HIVE_HEALTH_ATTEMPTS:-30}" current pending
+  local attempts="${HIVE_HEALTH_ATTEMPTS:-30}" current pending
   [[ "$attempts" =~ ^[1-9][0-9]*$ ]] || attempts=30
-  for i in $(seq 1 "$attempts"); do
+  for _ in $(seq 1 "$attempts"); do
     if health_ok; then
       current="$(readlink -f "$HIVE_OPT/current" 2>/dev/null || true)"
       pending="$(cat "$HIVE_PENDING_RELEASE" 2>/dev/null || true)"
@@ -1057,7 +1035,6 @@ step_health_check() {
       atomic_marker "$HIVE_ACTIVATED_RELEASE" "$current"
       rm -f "$HIVE_OPT/previous" "$HIVE_PENDING_RELEASE"
       prune_releases
-      STEP_DATA="$(printf '{"attempts":%d,"port":%s}' "$i" "$OPT_PORT")"
       return 0
     fi
     sleep 2
@@ -1089,7 +1066,6 @@ step_verify_auth() {
     die AUTH_NOT_ENFORCED \
       "an unauthenticated request to /api/projects returned $code instead of 401; the service was stopped"
   fi
-  STEP_DATA='{"unauthenticatedStatus":401}'
 }
 
 # ---------------------------------------------------------------------------

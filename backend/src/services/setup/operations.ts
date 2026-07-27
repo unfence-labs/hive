@@ -1,5 +1,4 @@
-import { randomUUID } from "node:crypto";
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { nanoid } from "nanoid";
 import {
@@ -12,6 +11,7 @@ import {
   type ToolOperationKind,
   type ToolOperationPhase,
 } from "@hive/shared/setup-types";
+import { writeAtomic } from "../../utils/file-sync.js";
 
 const STATE_FILE = "setup-operations.json";
 
@@ -44,7 +44,6 @@ export class ToolOperationError extends Error {
 export interface ToolOperationStore {
   /** Most recent operation per tool, running or recently finished. */
   list: () => ToolOperation[];
-  get: (id: string) => ToolOperation | null;
   /**
    * Start work for a tool, or attach to the operation already running for it.
    * Serialisation is per tool rather than per tool-and-kind: install and
@@ -131,12 +130,7 @@ export async function createToolOperationStore(
   function persist(): Promise<void> {
     const snapshot = [...operations.values()];
     writeChain = writeChain
-      .then(async () => {
-        await mkdir(dataDir, { recursive: true });
-        const tmp = join(dataDir, `${STATE_FILE}.${randomUUID()}.tmp`);
-        await writeFile(tmp, JSON.stringify(snapshot, null, 2), "utf-8");
-        await rename(tmp, path);
-      })
+      .then(() => writeAtomic(path, JSON.stringify(snapshot, null, 2)))
       .catch((error: unknown) => {
         options.onUnexpectedError?.("persist", error);
       });
@@ -204,12 +198,6 @@ export async function createToolOperationStore(
     list() {
       prune();
       return structuredClone([...operations.values()]);
-    },
-
-    get(id) {
-      prune();
-      const found = [...operations.values()].find((operation) => operation.id === id);
-      return found ? structuredClone(found) : null;
     },
 
     async start(tool, kind, run) {

@@ -12,7 +12,7 @@ import {
 } from "../agents/session-dispatch.js";
 import type { SessionOptions } from "../agents/agent-manager.js";
 import { errorMessage } from "../utils/errors.js";
-import { isAuthorized, type AuthExpectationInput } from "../utils/auth.js";
+import { isAuthorized, type AuthExpectation } from "../utils/auth.js";
 import type { WsIncoming, WsOutgoing, HubIncoming, HubOutgoing } from "../types.js";
 import { getScriptStatus } from "../services/script-runner.js";
 import { resolveChatCwd } from "../agents/chat-context.js";
@@ -34,7 +34,7 @@ interface PrStatusProvider {
 export interface StreamRoutesOptions {
   dataDir?: string;
   sessionOptions?: SessionOptions;
-  auth?: AuthExpectationInput;
+  auth?: AuthExpectation;
   gitSyncSnapshotProvider?: GitSyncSnapshotProvider;
   prStatusProvider?: PrStatusProvider;
 }

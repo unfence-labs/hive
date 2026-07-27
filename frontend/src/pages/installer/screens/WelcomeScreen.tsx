@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { DEFAULT_BACKEND_PORT, switchServer } from "@/lib/server-connection";
+import { DEFAULT_BACKEND_PORT, isValidPort, switchServer } from "@/lib/server-connection";
 import { openExternal } from "@/lib/open-external";
 
 /** The prerequisites page an operator reads before starting. */
@@ -31,12 +31,7 @@ export function WelcomeScreen({ onInstall, onConnected, onCancel }: WelcomeScree
   const [error, setError] = useState<string | null>(null);
 
   const portNumber = Number(port);
-  const canConnect =
-    host.trim().length > 0 &&
-    Number.isInteger(portNumber) &&
-    portNumber >= 1 &&
-    portNumber <= 65_535 &&
-    !connecting;
+  const canConnect = host.trim().length > 0 && isValidPort(portNumber) && !connecting;
 
   const connect = async () => {
     setConnecting(true);

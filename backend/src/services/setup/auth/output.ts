@@ -8,6 +8,8 @@
  * that carries a hyperlink target, and the URL itself.
  */
 
+import { TOOL_OUTPUT_EXCERPT_MAX } from "@hive/shared/setup-types";
+
 const ESC = "\u001b";
 const BEL = "\u0007";
 
@@ -132,8 +134,10 @@ export function redactSecrets(input: string): string {
 }
 
 /**
- * The tail of terminal output, readable and safe to store: escapes removed,
- * blank lines dropped, credentials redacted, bounded to `maxLines`.
+ * The tail of command output, readable and safe to store: escapes removed,
+ * blank lines dropped, credentials redacted, bounded to `maxLines` and to
+ * {@link TOOL_OUTPUT_EXCERPT_MAX} characters. The tail rather than the head
+ * because CLIs put the error last and the banner first.
  */
 export function outputTail(input: string, maxLines = 12): string | undefined {
   const lines = redactSecrets(stripAnsi(input))
@@ -141,5 +145,7 @@ export function outputTail(input: string, maxLines = 12): string | undefined {
     .map((line) => line.trimEnd())
     .filter(Boolean);
   const tail = lines.slice(-maxLines).join("\n");
-  return tail || undefined;
+  if (!tail) return undefined;
+  if (tail.length <= TOOL_OUTPUT_EXCERPT_MAX) return tail;
+  return `…${tail.slice(-TOOL_OUTPUT_EXCERPT_MAX)}`;
 }

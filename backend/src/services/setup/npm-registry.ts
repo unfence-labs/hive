@@ -1,4 +1,16 @@
+import { compareVersions } from "../../utils/version.js";
+
 const NPM_REGISTRY_TIMEOUT_MS = 5_000;
+
+/**
+ * How long a looked-up version stays trusted. The registry's `latest` moves on
+ * the package's release cadence, not on the panel's poll cadence, so asking
+ * again within minutes only re-learns the same answer. Failures are not
+ * cached: a registry that was unreachable should be retried, not remembered.
+ */
+const CACHE_TTL_MS = 5 * 60_000;
+
+const latestVersionCache = new Map<string, { version: string; fetchedAt: number }>();
 
 /**
  * Latest published version of an npm package. Returns null on any failure —
@@ -7,6 +19,8 @@ const NPM_REGISTRY_TIMEOUT_MS = 5_000;
  */
 export async function fetchLatestNpmVersion(packageName: string): Promise<string | null> {
   if (!packageName) return null;
+  const cached = latestVersionCache.get(packageName);
+  if (cached && Date.now() - cached.fetchedAt < CACHE_TTL_MS) return cached.version;
   try {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), NPM_REGISTRY_TIMEOUT_MS);
@@ -16,7 +30,9 @@ export async function fetchLatestNpmVersion(packageName: string): Promise<string
       });
       if (!res.ok) return null;
       const data = (await res.json()) as { version?: string };
-      return data.version ?? null;
+      const version = data.version ?? null;
+      if (version) latestVersionCache.set(packageName, { version, fetchedAt: Date.now() });
+      return version;
     } finally {
       clearTimeout(timer);
     }
@@ -26,20 +42,9 @@ export async function fetchLatestNpmVersion(packageName: string): Promise<string
 }
 
 /**
- * Compare two semver-ish strings. True when `latest` is newer. Only numeric
- * segments are compared, and any ambiguity answers false: offering a
- * pointless update is worse than missing one.
+ * True when `latest` is newer than `installed`. Any ambiguity answers false:
+ * offering a pointless update is worse than missing one.
  */
 export function isNewerVersion(installed: string, latest: string): boolean {
-  const installedParts = installed.split(".").map(Number);
-  const latestParts = latest.split(".").map(Number);
-  const length = Math.max(installedParts.length, latestParts.length);
-  for (let i = 0; i < length; i++) {
-    const a = installedParts[i] ?? 0;
-    const b = latestParts[i] ?? 0;
-    if (Number.isNaN(a) || Number.isNaN(b)) return false;
-    if (b > a) return true;
-    if (a > b) return false;
-  }
-  return false;
+  return compareVersions(latest, installed) > 0;
 }

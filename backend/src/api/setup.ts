@@ -1,11 +1,9 @@
 import type { FastifyInstance } from "fastify";
 import {
-  AGENT_AUTH_TOOL_IDS,
-  isAgentAuthToolId,
-  isSetupToolId,
   SETUP_TOOL_IDS,
   TOOL_OPERATION_KINDS,
-  type AgentAuthToolId,
+  type SetupStatusResponse,
+  type SetupToolId,
   type StartToolOperationResponse,
   type ToolAuthSession,
   type ToolOperationKind,
@@ -41,22 +39,20 @@ const AUTH_TOOL_PARAMS = {
   type: "object",
   additionalProperties: false,
   required: ["tool"],
-  properties: { tool: { type: "string", enum: [...AGENT_AUTH_TOOL_IDS] } },
+  properties: { tool: { type: "string", enum: [...SETUP_TOOL_IDS] } },
 } as const;
 
 /**
  * Tool detection, install, update and sign-in.
  *
- * Operations are addressed individually at `/api/setup/operations/:id`, but
- * the tool listing carries them too. That redundancy is deliberate: a client
- * that reloads has no operation id to ask about, and the whole point is that
- * an install running for minutes survives the operator going elsewhere. Sign-in
- * sessions ride along for the same reason, and have no per-id route at all
- * because there is at most one per tool.
- *
- * GitHub is missing from the sign-in routes on purpose. Hive speaks GitHub's
- * device-code endpoints directly at `/api/account/*`, so there is no child
- * process to supervise and nothing here to add.
+ * Two reads on purpose: `/tools` runs the real detection probes, `/status`
+ * answers from memory. A client polling for progress needs the operations and
+ * sign-in sessions many times a minute, and none of that changes what is
+ * installed — so progress polling must not spawn a probe per tick. Operations
+ * have no per-id route: a client that reloads has no operation id to ask
+ * about, and the whole point is that an install running for minutes survives
+ * the operator going elsewhere. Sign-in sessions work the same way, with at
+ * most one per tool.
  */
 export async function setupRoutes(
   app: FastifyInstance,
@@ -85,7 +81,12 @@ export async function setupRoutes(
     authSessions: authStore.list(),
   }));
 
-  app.post<{ Params: { tool: string; kind: ToolOperationKind } }>(
+  app.get("/api/setup/status", async (): Promise<SetupStatusResponse> => ({
+    operations: store.list(),
+    authSessions: authStore.list(),
+  }));
+
+  app.post<{ Params: { tool: SetupToolId; kind: ToolOperationKind } }>(
     "/api/setup/tools/:tool/:kind",
     {
       schema: {
@@ -102,13 +103,10 @@ export async function setupRoutes(
     },
     async (req, reply): Promise<StartToolOperationResponse | undefined> => {
       const { tool, kind } = req.params;
-      if (!isSetupToolId(tool)) {
-        return reply.status(400).send({ error: "Unknown tool" });
-      }
       const spec = findToolSpec(tool);
-      if (!spec || !isManaged(spec)) {
+      if (!isManaged(spec)) {
         return reply.status(400).send({
-          error: `Hive does not install ${spec?.label ?? tool} itself.`,
+          error: `Hive does not install ${spec.label} itself.`,
         });
       }
 
@@ -116,28 +114,9 @@ export async function setupRoutes(
     },
   );
 
-  app.get<{ Params: { id: string } }>(
-    "/api/setup/operations/:id",
-    {
-      schema: {
-        params: {
-          type: "object",
-          additionalProperties: false,
-          required: ["id"],
-          properties: { id: { type: "string", pattern: "^op-[A-Za-z0-9_-]{10}$" } },
-        },
-      },
-    },
-    async (req, reply) => {
-      const operation = store.get(req.params.id);
-      if (!operation) return reply.status(404).send({ error: "Operation not found" });
-      return operation;
-    },
-  );
-
   // ── Sign-in ────────────────────────────────────────────────────────
 
-  app.post<{ Params: { tool: AgentAuthToolId }; Body?: { force?: boolean } }>(
+  app.post<{ Params: { tool: SetupToolId }; Body?: { force?: boolean } }>(
     "/api/setup/auth/:tool/start",
     {
       schema: {
@@ -150,9 +129,6 @@ export async function setupRoutes(
       },
     },
     async (req, reply): Promise<ToolAuthSession | undefined> => {
-      if (!isAgentAuthToolId(req.params.tool)) {
-        return reply.status(400).send({ error: "Unknown tool" });
-      }
       try {
         const result = await authStore.start(req.params.tool, {
           force: req.body?.force === true,
@@ -175,7 +151,7 @@ export async function setupRoutes(
     },
   );
 
-  app.post<{ Params: { tool: AgentAuthToolId }; Body: { code: string } }>(
+  app.post<{ Params: { tool: SetupToolId }; Body: { code: string } }>(
     "/api/setup/auth/:tool/code",
     {
       schema: {
@@ -189,9 +165,6 @@ export async function setupRoutes(
       },
     },
     async (req, reply): Promise<ToolAuthSession | undefined> => {
-      if (!isAgentAuthToolId(req.params.tool)) {
-        return reply.status(400).send({ error: "Unknown tool" });
-      }
       try {
         return authStore.submitCode(req.params.tool, req.body.code.trim());
       } catch (error) {
@@ -202,13 +175,10 @@ export async function setupRoutes(
     },
   );
 
-  app.post<{ Params: { tool: AgentAuthToolId } }>(
+  app.post<{ Params: { tool: SetupToolId } }>(
     "/api/setup/auth/:tool/cancel",
     { schema: { params: AUTH_TOOL_PARAMS } },
     async (req, reply): Promise<ToolAuthSession | undefined> => {
-      if (!isAgentAuthToolId(req.params.tool)) {
-        return reply.status(400).send({ error: "Unknown tool" });
-      }
       const session = authStore.cancel(req.params.tool);
       if (!session) return reply.status(404).send({ error: "No sign-in to cancel" });
       return session;

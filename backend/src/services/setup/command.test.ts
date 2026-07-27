@@ -50,12 +50,19 @@ describe("outputExcerpt", () => {
 
   it("bounds long output and keeps the tail, where the error is", () => {
     const excerpt = outputExcerpt(
-      result({ stdout: "banner\n".repeat(5_000), stderr: "npm error the real cause" }),
+      result({ stdout: `banner ${"x".repeat(5_000)}`, stderr: "npm error the real cause" }),
     );
     expect(excerpt).toBeDefined();
     expect(excerpt!.length).toBe(TOOL_OUTPUT_EXCERPT_MAX + 1);
     expect(excerpt!.startsWith("…")).toBe(true);
     expect(excerpt!.endsWith("npm error the real cause")).toBe(true);
+  });
+
+  it("keeps only the last lines of a chatty command", () => {
+    const excerpt = outputExcerpt(
+      result({ stdout: "banner\n".repeat(50), stderr: "npm error the real cause" }),
+    );
+    expect(excerpt).toBe([...Array<string>(11).fill("banner"), "npm error the real cause"].join("\n"));
   });
 });
 

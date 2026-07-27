@@ -1,10 +1,10 @@
 /**
  * Shared setup error taxonomy.
  *
- * `scripts/provision/lib.sh` carries the same list in `SETUP_ERROR_CODES` and
- * emits one of these codes on the `run_end` record of a failed provisioning
- * run. `test/provision/contract.sh` asserts the two stay in sync, including
- * that every `die <CODE>` in the shell sources names a code declared here.
+ * The provisioning script emits one of these codes on the `run_end` record of
+ * a failed run. `test/provision/contract.sh` collects every code the shell
+ * sources can emit (`die <CODE>`, `STEP_ERR_CODE`) and asserts that set
+ * matches this list exactly.
  */
 
 export const SETUP_ERROR_CODES = [

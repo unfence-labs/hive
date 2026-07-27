@@ -4,13 +4,11 @@
 
 # 9420 is the production port (backend/ecosystem.config.cjs); 3000 is the
 # development one and is never used here.
-OPT_HOST="0.0.0.0"
 OPT_PORT="${OPT_ENV_PORT:-9420}"
 OPT_INSTALL_DIR="$OPT_ENV_INSTALL_DIR"
 OPT_DATA_DIR="$OPT_ENV_DATA_DIR"
 OPT_FIREWALL_IFACE="$OPT_ENV_FIREWALL_IFACE"
 OPT_SSH_KEY="$OPT_ENV_SSH_KEY"
-OPT_RELEASE_FILE=""
 OPT_PREFLIGHT=0
 ARCH_TAG=""
 HIVE_VERSION=""
@@ -34,7 +32,6 @@ Options (each has an environment-variable equivalent that the flag overrides):
                             directory that grows
                             (default /home/hive/.hive, $HIVE_DATA_DIR)
   --port <n>                Port for the backend (default 9420, $HIVE_PORT)
-  --host <addr>             Bind address for the backend (default 0.0.0.0)
   --firewall-interface <if> Scope the firewall rule to one network interface
                             instead of opening the port to everyone
                             ($HIVE_FIREWALL_INTERFACE). Only ever consulted
@@ -43,9 +40,6 @@ Options (each has an environment-variable equivalent that the flag overrides):
                             service account, so an editor or terminal session
                             connects as hive and not as root
                             ($HIVE_SSH_PUBLIC_KEY)
-  --ssh-public-key-file <p> Read that key from a file
-  --release-file <path>     Install a local release tarball instead of
-                            downloading (prerelease script versions only)
   --reset                   Discard recorded step state and run every step again
   -h, --help                Show this help
 
@@ -62,25 +56,16 @@ Progress is written to stdout as NDJSON, one record per line.
 EOF
 }
 
+missing() { echo "missing value for $1" >&2; exit 2; }
+
 parse_args() {
-  local key_file=""
   while [ $# -gt 0 ]; do
     case "$1" in
-      --host|--port|--install-dir|--data-dir|--firewall-interface\
-      |--ssh-public-key|--ssh-public-key-file|--release-file)
-        [ "$#" -ge 2 ] || { echo "missing value for $1" >&2; exit 2; }
-        case "$1" in
-          --host) OPT_HOST="$2" ;;
-          --port) OPT_PORT="$2" ;;
-          --install-dir) OPT_INSTALL_DIR="$2" ;;
-          --data-dir) OPT_DATA_DIR="$2" ;;
-          --firewall-interface) OPT_FIREWALL_IFACE="$2" ;;
-          --ssh-public-key) OPT_SSH_KEY="$2" ;;
-          --ssh-public-key-file) key_file="$2" ;;
-          --release-file) OPT_RELEASE_FILE="$2" ;;
-        esac
-        shift
-        ;;
+      --port) [ $# -ge 2 ] || missing "$1"; OPT_PORT="$2"; shift ;;
+      --install-dir) [ $# -ge 2 ] || missing "$1"; OPT_INSTALL_DIR="$2"; shift ;;
+      --data-dir) [ $# -ge 2 ] || missing "$1"; OPT_DATA_DIR="$2"; shift ;;
+      --firewall-interface) [ $# -ge 2 ] || missing "$1"; OPT_FIREWALL_IFACE="$2"; shift ;;
+      --ssh-public-key) [ $# -ge 2 ] || missing "$1"; OPT_SSH_KEY="$2"; shift ;;
       --preflight) OPT_PREFLIGHT=1 ;;
       --reset) DO_RESET=1 ;;
       -h|--help) usage; exit 0 ;;
@@ -89,20 +74,12 @@ parse_args() {
     shift
   done
 
-  if [ -n "$key_file" ]; then
-    [ -r "$key_file" ] || { echo "cannot read public key file: $key_file" >&2; exit 2; }
-    OPT_SSH_KEY="$(head -1 "$key_file")"
-  fi
   # Trailing whitespace and CRs survive copy/paste out of a terminal and would
   # otherwise be appended verbatim to authorized_keys.
   OPT_SSH_KEY="${OPT_SSH_KEY//$'\r'/}"
   OPT_SSH_KEY="${OPT_SSH_KEY#"${OPT_SSH_KEY%%[![:space:]]*}"}"
   OPT_SSH_KEY="${OPT_SSH_KEY%"${OPT_SSH_KEY##*[![:space:]]}"}"
 
-  if [[ ! "$OPT_HOST" =~ ^[A-Za-z0-9.:-]+$ ]] || [[ "$OPT_HOST" = -* ]]; then
-    echo "invalid bind host: $OPT_HOST" >&2
-    exit 2
-  fi
   if [[ ! "$OPT_PORT" =~ ^[0-9]+$ ]] || [ "$OPT_PORT" -lt 1 ] || [ "$OPT_PORT" -gt 65535 ]; then
     echo "invalid port: $OPT_PORT" >&2
     exit 2
@@ -129,19 +106,13 @@ parse_args() {
   OPT_INSTALL_DIR="${OPT_INSTALL_DIR%/}"
   OPT_DATA_DIR="${OPT_DATA_DIR%/}"
 
-  HIVE_VERSION="${HIVE_VERSION:-$SCRIPT_VERSION}"
-  if [[ ! "$HIVE_VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$ ]]; then
-    echo "invalid Hive version: $HIVE_VERSION" >&2
-    exit 2
-  fi
-  # A local tarball and an alternate release origin are development and test
-  # affordances: a published release must always come from the published URL,
-  # verified against its published checksum.
+  # The backend release always matches the script that installs it; build.sh
+  # already validated the version string.
+  HIVE_VERSION="$SCRIPT_VERSION"
+  # An alternate release origin is a development and test affordance: a
+  # published release must always come from the published URL, verified against
+  # its published checksum.
   if [[ "$HIVE_VERSION" != *-* ]]; then
-    if [ -n "$OPT_RELEASE_FILE" ]; then
-      echo "--release-file is only available for prerelease script versions" >&2
-      exit 2
-    fi
     HIVE_RELEASE_BASE_URL=""
   fi
 }

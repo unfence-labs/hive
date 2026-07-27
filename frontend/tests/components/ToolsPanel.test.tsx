@@ -7,26 +7,25 @@ import type {
   ToolsResponse,
   ToolStatus,
 } from "@hive/shared/setup-types";
-import { SetupApiError } from "@/lib/setup-api";
+import { ApiError } from "@/hooks/useApi";
 import { ToolsPanel } from "@/components/setup/ToolsPanel";
 import { createWrapper } from "../test-utils";
 
 const mocks = vi.hoisted(() => ({
   getTools: vi.fn(),
+  getStatus: vi.fn(),
   startOperation: vi.fn(),
   startAuth: vi.fn(),
   submitAuthCode: vi.fn(),
   cancelAuth: vi.fn(),
   refreshModelCatalog: vi.fn(),
-  apiPost: vi.fn(),
 }));
-
-vi.mock("@/hooks/useApi", () => ({ api: { post: mocks.apiPost } }));
 
 vi.mock("@/lib/setup-api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/setup-api")>()),
   createSetupApi: () => ({
     getTools: mocks.getTools,
+    getStatus: mocks.getStatus,
     startOperation: mocks.startOperation,
     startAuth: mocks.startAuth,
     submitAuthCode: mocks.submitAuthCode,
@@ -63,11 +62,17 @@ function operation(overrides: Partial<ToolOperation> & Pick<ToolOperation, "tool
 }
 
 function respond(response: Partial<ToolsResponse>): void {
-  mocks.getTools.mockResolvedValue({
+  const full: ToolsResponse = {
     tools: [],
     operations: [],
     authSessions: [],
     ...response,
+  };
+  mocks.getTools.mockResolvedValue(full);
+  // Progress is read from the cheap status endpoint; serve the same view.
+  mocks.getStatus.mockResolvedValue({
+    operations: full.operations,
+    authSessions: full.authSessions,
   });
 }
 
@@ -77,6 +82,7 @@ function renderPanel() {
 }
 
 beforeEach(() => {
+  mocks.getStatus.mockResolvedValue({ operations: [], authSessions: [] });
   mocks.startOperation.mockResolvedValue({
     operation: operation({ tool: "claude" }),
     joined: false,
@@ -392,7 +398,7 @@ describe("ToolsPanel sign-in", () => {
       tools: [tool({ id: "codex", label: "Codex", installed: true, authenticated: true })],
     });
     mocks.startAuth
-      .mockRejectedValueOnce(new SetupApiError(409, "This signs you out first."))
+      .mockRejectedValueOnce(new ApiError(409, "This signs you out first."))
       .mockResolvedValueOnce(session({ tool: "codex", state: "starting" }));
     const user = userEvent.setup();
 
@@ -413,7 +419,7 @@ describe("ToolsPanel sign-in", () => {
     respond({
       tools: [tool({ id: "codex", label: "Codex", installed: true, authenticated: true })],
     });
-    mocks.startAuth.mockRejectedValue(new SetupApiError(409, "This signs you out first."));
+    mocks.startAuth.mockRejectedValue(new ApiError(409, "This signs you out first."));
     const user = userEvent.setup();
 
     renderPanel();
@@ -494,25 +500,37 @@ describe("ToolsPanel sign-in", () => {
     expect(await screen.findByText(/Either one on its own is enough/i)).toBeInTheDocument();
   });
 
-  it("drives GitHub through the device flow Hive already speaks", async () => {
+  it("drives GitHub through the same sign-in sessions as the agent CLIs", async () => {
     respond({
       tools: [tool({ id: "gh", label: "GitHub CLI", installed: true, managed: false })],
     });
-    mocks.apiPost.mockResolvedValue({
-      userCode: "ABCD-1234",
-      verificationUri: "https://github.com/login/device",
-      expiresIn: 900,
-      interval: 5,
-    });
+    mocks.startAuth.mockResolvedValue(session({ tool: "gh", state: "starting" }));
     const user = userEvent.setup();
 
     renderPanel();
     await user.click(await screen.findByRole("button", { name: "Connect GitHub" }));
 
-    expect(mocks.apiPost).toHaveBeenCalledWith("/api/account/connect");
+    expect(mocks.startAuth).toHaveBeenCalledWith("gh", { force: undefined });
+  });
+
+  it("shows the GitHub device code the server is polling for", async () => {
+    respond({
+      tools: [tool({ id: "gh", label: "GitHub CLI", installed: true, managed: false })],
+      authSessions: [
+        session({
+          tool: "gh",
+          state: "awaiting_authorization",
+          verificationUri: "https://github.com/login/device",
+          userCode: "ABCD-1234",
+        }),
+      ],
+    });
+
+    renderPanel();
+
     expect(await screen.findByText("ABCD-1234")).toBeInTheDocument();
-    // Not the sign-in session API: GitHub has no CLI process to supervise.
-    expect(mocks.startAuth).not.toHaveBeenCalled();
+    // GitHub confirms in the browser; there is nothing to paste back.
+    expect(screen.getByText("Waiting for authorization…")).toBeInTheDocument();
   });
 
   it("cancels a running sign-in", async () => {

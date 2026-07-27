@@ -18,15 +18,16 @@ use std::fs::OpenOptions;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 use tauri::ipc::Channel;
 use tauri::State;
 
 // ── error taxonomy ───────────────────────────────────────────────────────────
 
 /// Transport-level codes owned by this sidecar. The install run's own failures
-/// use `SETUP_ERROR_CODES` from `scripts/provision/lib.sh`; these cover
+/// use the setup error codes from `shared/setup-errors.ts`; these cover
 /// everything that goes wrong before or around it. Mirrored in
 /// `shared/setup-errors.ts` as `SSH_ERROR_CODES`, which the test below asserts.
 pub const SSH_ERROR_CODES: &[&str] = &[
@@ -164,16 +165,12 @@ const PROVISION_MAIN: &str = include_str!(concat!(
     "/../../scripts/provision/main.sh"
 ));
 
-fn version_for_build(debug: bool) -> &'static str {
-    if debug {
+fn hive_version() -> &'static str {
+    if cfg!(debug_assertions) {
         "0.0.0-dev"
     } else {
         env!("CARGO_PKG_VERSION")
     }
-}
-
-fn hive_version() -> &'static str {
-    version_for_build(cfg!(debug_assertions))
 }
 
 /// Bundle the fragments exactly the way `scripts/provision/build.sh` does: the
@@ -366,7 +363,6 @@ pub struct ProvisionOptions {
     /// Authorized on the hive service account, so an editor or terminal session
     /// connects as hive rather than as the install account.
     ssh_public_key: Option<String>,
-    reset: bool,
 }
 
 impl ProvisionOptions {
@@ -415,10 +411,6 @@ impl ProvisionOptions {
             args.push("--ssh-public-key".into());
             args.push(normalize_public_key(key)?);
         }
-        // --reset discards recorded step state; preflight records none.
-        if self.reset && !preflight {
-            args.push("--reset".into());
-        }
         Ok(args)
     }
 }
@@ -436,11 +428,12 @@ pub enum PrivilegeMode {
     SudoPassword,
 }
 
+/// The wire shape the UI reads (`report.privilege.mode`). The raw root /
+/// sudoNoPassword booleans stay inside `privilege_finding`, which is the only
+/// logic that needs them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PrivilegeFinding {
-    root: bool,
-    sudo_no_password: bool,
     mode: PrivilegeMode,
 }
 
@@ -462,11 +455,7 @@ fn privilege_finding(checks: &[PreflightCheck]) -> Option<PrivilegeFinding> {
     } else {
         PrivilegeMode::SudoPassword
     };
-    Some(PrivilegeFinding {
-        root,
-        sudo_no_password,
-        mode,
-    })
+    Some(PrivilegeFinding { mode })
 }
 
 /// The remote command line. `-k` makes sudo ignore any cached credential, so a
@@ -915,12 +904,11 @@ fn fingerprint_for_host_key(host_key: &str) -> Result<String, ProvisionError> {
 }
 
 static KNOWN_HOSTS_LOCK: Mutex<()> = Mutex::new(());
-static UNIQUE_FILE_ID: AtomicU64 = AtomicU64::new(0);
 
+/// The file is app-private and only ever contains lines this module writes as
+/// plain `host algorithm blob`, so the host field is an exact match.
 fn known_host_matches(field: &str, host: &str) -> bool {
-    field
-        .split(',')
-        .any(|entry| entry == host || entry == format!("[{host}]:22"))
+    field == host
 }
 
 /// The entry currently trusted for `host`, if any.
@@ -993,10 +981,11 @@ fn write_known_host(host: &str, host_key: &str) -> Result<(), ProvisionError> {
     }
     let contents = replace_known_host(&existing, host, host_key)?;
 
-    let id = UNIQUE_FILE_ID.fetch_add(1, Ordering::Relaxed);
-    let temp = parent.join(format!(".known_hosts-{}-{id}.tmp", std::process::id()));
+    // A fixed name is safe: KNOWN_HOSTS_LOCK serializes every writer in this
+    // single-instance app, so there is never a concurrent writer to race.
+    let temp = parent.join("known_hosts.tmp");
     let mut options = OpenOptions::new();
-    options.create_new(true).write(true);
+    options.create(true).truncate(true).write(true);
     #[cfg(unix)]
     {
         use std::os::unix::fs::OpenOptionsExt;
@@ -1030,9 +1019,6 @@ pub struct PreflightCheck {
     detail: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     data: Option<serde_json::Value>,
-    /// The code the install would fail with, on a failing check.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    error_code: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -1042,10 +1028,6 @@ pub struct PreflightReport {
     blockers: Vec<String>,
     checks: Vec<PreflightCheck>,
     privilege: PrivilegeFinding,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    script_version: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    run_id: Option<String>,
 }
 
 fn string_field(record: &serde_json::Value, key: &str) -> Option<String> {
@@ -1064,7 +1046,6 @@ fn preflight_check(record: &serde_json::Value) -> Option<PreflightCheck> {
         status: string_field(record, "status")?,
         detail: string_field(record, "detail").unwrap_or_default(),
         data: record.get("data").cloned(),
-        error_code: string_field(record, "errorCode"),
     })
 }
 
@@ -1079,9 +1060,6 @@ fn build_preflight_report(
         .iter()
         .find(|record| record.get("event").and_then(serde_json::Value::as_str) == Some("preflight"))
         .ok_or_else(|| ProvisionError::unknown("preflight ended without a summary"))?;
-    let start = records.iter().find(|record| {
-        record.get("event").and_then(serde_json::Value::as_str) == Some("preflight_start")
-    });
     let privilege = privilege_finding(&checks)
         .ok_or_else(|| ProvisionError::unknown("preflight reported no usable privilege finding"))?;
     Ok(PreflightReport {
@@ -1102,8 +1080,6 @@ fn build_preflight_report(
             .unwrap_or_default(),
         checks,
         privilege,
-        script_version: start.and_then(|record| string_field(record, "scriptVersion")),
-        run_id: start.and_then(|record| string_field(record, "runId")),
     })
 }
 
@@ -1151,11 +1127,14 @@ fn error_from_terminal(record: &serde_json::Value) -> Option<ProvisionError> {
 
 /// Runs the install and guarantees the stream closes with exactly one terminal
 /// `run_end` record: the script's own when it produced one, a synthesized one
-/// otherwise.
+/// otherwise. The privilege mode comes from the cached preflight finding when
+/// one is fresh for this connection, and from a fresh preflight otherwise —
+/// always decided on this side, never by the webview.
 fn run_install(
     connection: &Connection,
     options: &ProvisionOptions,
     password: Option<Secret>,
+    privilege_cache: &Mutex<Option<PrivilegeCache>>,
     on_event: &Channel<serde_json::Value>,
 ) -> Result<(), ProvisionError> {
     let surface = |error: ProvisionError| {
@@ -1163,21 +1142,22 @@ fn run_install(
         error
     };
 
-    let privilege = execute_preflight(connection, options)
-        .map_err(surface)?
-        .privilege;
-    let _ = on_event.send(serde_json::json!({
-        "v": 1,
-        "event": "privilege_resolved",
-        "mode": privilege.mode,
-        "root": privilege.root,
-        "sudoNoPassword": privilege.sudo_no_password,
-    }));
+    let mode = match cached_privilege_mode(privilege_cache, connection) {
+        Some(mode) => mode,
+        None => {
+            let mode = execute_preflight(connection, options)
+                .map_err(surface)?
+                .privilege
+                .mode;
+            cache_privilege_mode(privilege_cache, connection, mode);
+            mode
+        }
+    };
 
     // The password is bound to the mode preflight established. Anything
     // supplied for a mode that does not consume one is dropped here and never
     // reaches the wire: an unread password line becomes the script's first line.
-    let password = match privilege.mode {
+    let password = match mode {
         PrivilegeMode::SudoPassword => Some(password.ok_or_else(|| {
             surface(ProvisionError::new(
                 "SSH_PASSWORD_REQUIRED",
@@ -1188,7 +1168,7 @@ fn run_install(
     };
 
     let args = options.script_args(false).map_err(surface)?;
-    let command = remote_command(privilege.mode, &args);
+    let command = remote_command(mode, &args);
     let payload = stdin_payload(password.as_ref());
     let outcome = run_remote(
         connection,
@@ -1209,11 +1189,59 @@ fn run_install(
 
 // ── run state ────────────────────────────────────────────────────────────────
 
-/// One install at a time, per app. Nothing else is tracked: a run cannot be
-/// cancelled, so there is no reason to hold on to its ssh process.
+/// How long a preflight's privilege finding stays good for the install that
+/// follows it. Long enough to cover the screens between connect and install,
+/// short enough that a server whose sudo rules changed is re-asked.
+const PRIVILEGE_CACHE_TTL: Duration = Duration::from_secs(300);
+
+/// The privilege mode the last preflight established, keyed by the connection
+/// identity it was established over. Lets `run_install` skip a second remote
+/// preflight — several seconds of dead air — right after the connect screen ran
+/// one, while keeping the mode decided Rust-side.
+struct PrivilegeCache {
+    host: String,
+    user: String,
+    key_path: String,
+    mode: PrivilegeMode,
+    at: Instant,
+}
+
+fn cache_privilege_mode(
+    cache: &Mutex<Option<PrivilegeCache>>,
+    connection: &Connection,
+    mode: PrivilegeMode,
+) {
+    if let Ok(mut slot) = cache.lock() {
+        *slot = Some(PrivilegeCache {
+            host: connection.host.clone(),
+            user: connection.user().to_string(),
+            key_path: connection.key_path.clone(),
+            mode,
+            at: Instant::now(),
+        });
+    }
+}
+
+fn cached_privilege_mode(
+    cache: &Mutex<Option<PrivilegeCache>>,
+    connection: &Connection,
+) -> Option<PrivilegeMode> {
+    let slot = cache.lock().ok()?;
+    let entry = slot.as_ref()?;
+    (entry.host == connection.host
+        && entry.user == connection.user()
+        && entry.key_path == connection.key_path
+        && entry.at.elapsed() < PRIVILEGE_CACHE_TTL)
+        .then_some(entry.mode)
+}
+
+/// One install at a time, per app. Beyond the privilege cache nothing else is
+/// tracked: a run cannot be cancelled, so there is no reason to hold on to its
+/// ssh process.
 #[derive(Default)]
 pub struct ProvisionState {
     running: Arc<AtomicBool>,
+    privilege: Arc<Mutex<Option<PrivilegeCache>>>,
 }
 
 struct RunGuard(Arc<AtomicBool>);
@@ -1302,16 +1330,23 @@ pub async fn provision_trust_host(host: String, host_key: String) -> Result<(), 
 }
 
 /// Run the script's preflight over the same connection and return its findings.
+/// The privilege finding is cached so the install that follows can reuse it.
 #[tauri::command]
 pub async fn provision_preflight(
+    state: State<'_, ProvisionState>,
     connection: Connection,
     options: ProvisionOptions,
 ) -> Result<PreflightReport, ProvisionError> {
     connection.validate()?;
     options.validate()?;
-    tauri::async_runtime::spawn_blocking(move || execute_preflight(&connection, &options))
-        .await
-        .map_err(|error| ProvisionError::unknown(error.to_string()))?
+    let cache = Arc::clone(&state.privilege);
+    tauri::async_runtime::spawn_blocking(move || {
+        let report = execute_preflight(&connection, &options)?;
+        cache_privilege_mode(&cache, &connection, report.privilege.mode);
+        Ok(report)
+    })
+    .await
+    .map_err(|error| ProvisionError::unknown(error.to_string()))?
 }
 
 #[tauri::command]
@@ -1328,9 +1363,10 @@ pub async fn provision_start(
         validate_password(secret)?;
     }
     let running = Arc::clone(&state.running);
+    let privilege_cache = Arc::clone(&state.privilege);
     tauri::async_runtime::spawn_blocking(move || {
         let _guard = RunGuard::acquire(&running)?;
-        run_install(&connection, &options, password, &on_event)
+        run_install(&connection, &options, password, &privilege_cache, &on_event)
     })
     .await
     .map_err(|error| ProvisionError::unknown(error.to_string()))?
@@ -1339,13 +1375,13 @@ pub async fn provision_start(
 #[cfg(test)]
 mod tests {
     use super::{
-        build_preflight_report, error_from_terminal, is_run_end, known_host_entry,
+        build_preflight_report, error_from_terminal, hive_version, is_run_end, known_host_entry,
         list_keys_blocking, looks_like_private_key, normalize_public_key, privilege_finding,
         provision_script, public_key_identity, redact, remote_command, replace_known_host,
         same_host_key, select_host_key, shell_quote, ssh_error_code, stdin_payload, tail,
         terminal_error, validate_directory, validate_host, validate_interface, validate_key_path,
-        validate_password, validate_user, version_for_build, PreflightCheck, PrivilegeMode,
-        ProvisionOptions, RemoteOutcome, Secret, SSH_ERROR_CODES,
+        validate_password, validate_user, PreflightCheck, PrivilegeMode, ProvisionOptions,
+        RemoteOutcome, Secret, SSH_ERROR_CODES,
     };
 
     const SHARED_SETUP_ERRORS: &str = include_str!(concat!(
@@ -1359,7 +1395,6 @@ mod tests {
             status: "ok".into(),
             detail: String::new(),
             data: Some(data),
-            error_code: None,
         }
     }
 
@@ -1450,19 +1485,15 @@ mod tests {
             data_dir: Some("/srv/hive".into()),
             firewall_interface: Some("wg0".into()),
             ssh_public_key: Some(format!("ssh-ed25519 {ED25519_BLOB} lenny@box")),
-            reset: true,
         };
         let command = remote_command(PrivilegeMode::Root, &args(&options, false));
         assert!(command.contains(&format!("'--ssh-public-key' 'ssh-ed25519 {ED25519_BLOB}'")));
         assert!(command.contains("'--port' '9420'"));
         assert!(command.contains("'--firewall-interface' 'wg0'"));
-        assert!(command.contains("'--reset'"));
         assert!(!command.contains("lenny@box"));
 
-        // Preflight records no step state, so --reset has nothing to discard.
         let preflight = args(&options, true);
         assert_eq!(preflight.first().map(String::as_str), Some("--preflight"));
-        assert!(!preflight.contains(&"--reset".to_string()));
 
         // No interface is the ordinary case, and it is the absence of the flag
         // that tells the script to open the port rather than scope the rule.
@@ -1732,10 +1763,7 @@ mod tests {
         assert!(!report.ok);
         assert_eq!(report.blockers, vec!["port".to_string()]);
         assert_eq!(report.checks.len(), 3);
-        assert_eq!(report.checks[2].error_code.as_deref(), Some("PORT_IN_USE"));
         assert_eq!(report.privilege.mode, PrivilegeMode::SudoPassword);
-        assert_eq!(report.run_id.as_deref(), Some("p-1234"));
-        assert_eq!(report.script_version.as_deref(), Some("0.0.0-dev"));
 
         // A truncated stream is an error, not a verdict of "not ready".
         assert!(build_preflight_report(&records[..3]).is_err());
@@ -1851,7 +1879,7 @@ mod tests {
         let script = provision_script();
         assert!(script.starts_with(&format!(
             "#!/usr/bin/env bash\nSCRIPT_VERSION=\"{}\"\n__hive_provision() {{\n",
-            version_for_build(cfg!(debug_assertions))
+            hive_version()
         )));
         // The wrapper is what makes a truncated stream a syntax error at EOF
         // that executes nothing.

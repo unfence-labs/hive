@@ -1,6 +1,6 @@
 import type { SetupToolId } from "@hive/shared/setup-types";
 import { parseVersionFromOutput } from "../../agents/providers/registry.js";
-import { SETUP_TOOLS, type SetupToolSpec } from "./catalog.js";
+import type { SetupToolSpec } from "./catalog.js";
 import { runCommand, type RunCommand } from "./command.js";
 
 /** Probes must never hold up a status request; they answer or they are absent. */
@@ -94,14 +94,4 @@ export async function detectTool(
     // spawn failure.
     authenticated: installed ? await probeAuthenticated(spec.id, deps) : false,
   };
-}
-
-/** Probe every tool in parallel. Never cached: an install must show up at once. */
-export async function detectTools(
-  deps: DetectDeps = defaultDetectDeps(),
-): Promise<Record<SetupToolId, ToolDetection>> {
-  const entries = await Promise.all(
-    SETUP_TOOLS.map(async (spec) => [spec.id, await detectTool(spec, deps)] as const),
-  );
-  return Object.fromEntries(entries) as Record<SetupToolId, ToolDetection>;
 }

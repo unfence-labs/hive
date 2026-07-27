@@ -1,9 +1,7 @@
 import { execFile as execFileCallback } from "node:child_process";
 import { promisify } from "node:util";
-import {
-  TOOL_OUTPUT_EXCERPT_MAX,
-  type ToolFailureReason,
-} from "@hive/shared/setup-types";
+import type { ToolFailureReason } from "@hive/shared/setup-types";
+import { outputTail } from "./auth/output.js";
 
 const execFile = promisify(execFileCallback);
 
@@ -71,13 +69,7 @@ export function classifyFailure(result: CommandResult): ToolFailureReason {
   return "command_failed";
 }
 
-/**
- * The tail of the output, bounded. The tail rather than the head because npm
- * puts the error last and the banner first.
- */
+/** Bounded tail of a command's combined output, ready to show or store. */
 export function outputExcerpt(result: CommandResult): string | undefined {
-  const raw = `${result.stdout}\n${result.stderr}`.trim();
-  if (!raw) return undefined;
-  if (raw.length <= TOOL_OUTPUT_EXCERPT_MAX) return raw;
-  return `…${raw.slice(-TOOL_OUTPUT_EXCERPT_MAX)}`;
+  return outputTail(`${result.stdout}\n${result.stderr}`);
 }

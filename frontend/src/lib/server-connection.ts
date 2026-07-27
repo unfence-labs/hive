@@ -28,18 +28,30 @@ export class ServerConnectionError extends Error {
 }
 
 /**
- * Reject values that are unusable as a URL, or that an SSH command line could
- * read as an option rather than a host or a user.
+ * Accept values that are usable as a URL host, and that an SSH command line
+ * could not read as an option rather than a host.
  */
+export function isValidHost(host: string): boolean {
+  return /^[A-Za-z0-9.:[\]-]+$/.test(host) && !host.startsWith("-");
+}
+
+export function isValidPort(port: number): boolean {
+  return Number.isInteger(port) && port >= 1 && port <= 65_535;
+}
+
+export function isValidUserName(user: string): boolean {
+  return /^[A-Za-z_][A-Za-z0-9._-]*$/.test(user);
+}
+
 export function validateServerConnection(connection: ServerConnection): void {
-  if (!/^[A-Za-z0-9.:[\]-]+$/.test(connection.host) || connection.host.startsWith("-")) {
+  if (!isValidHost(connection.host)) {
     throw new ServerConnectionError("invalid", "Enter a valid hostname or IP address.");
   }
-  if (!Number.isInteger(connection.port) || connection.port < 1 || connection.port > 65_535) {
+  if (!isValidPort(connection.port)) {
     throw new ServerConnectionError("invalid", "Port must be between 1 and 65535.");
   }
   for (const user of [connection.sshUser, connection.adminUser]) {
-    if (user && !/^[A-Za-z_][A-Za-z0-9._-]*$/.test(user)) {
+    if (user && !isValidUserName(user)) {
       throw new ServerConnectionError("invalid", "Enter a valid user name.");
     }
   }

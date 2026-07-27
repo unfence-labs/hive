@@ -4,9 +4,9 @@ import { join } from "node:path";
 import Fastify, { type FastifyInstance } from "fastify";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
+  SetupStatusResponse,
   StartToolOperationResponse,
   ToolAuthSession,
-  ToolOperation,
   ToolsResponse,
 } from "@hive/shared/setup-types";
 import type { CommandResult } from "../services/setup/command.js";
@@ -34,6 +34,7 @@ let app: FastifyInstance;
 let dataDir: string;
 let gate: { promise: Promise<void>; resolve: () => void };
 let installCalls: string[];
+let probeCalls: string[];
 
 function ok(stdout = ""): CommandResult {
   return { stdout, stderr: "", exitCode: 0, timedOut: false };
@@ -54,6 +55,7 @@ function makeDeps(probes: Record<string, CommandResult>): ToolsServiceDeps {
       await gate.promise;
       return ok("added 1 package");
     }
+    probeCalls.push([command, ...args].join(" "));
     return probes[[command, ...args].join(" ")] ?? missing();
   };
   return {
@@ -121,6 +123,7 @@ function scriptedFlow(prompt?: AuthorizationPrompt): {
 beforeEach(async () => {
   dataDir = await mkdtemp(join(tmpdir(), "hive-setup-api-"));
   installCalls = [];
+  probeCalls = [];
   let resolve!: () => void;
   const promise = new Promise<void>((r) => {
     resolve = r;
@@ -217,22 +220,6 @@ describe("POST /api/setup/tools/:tool/:kind", () => {
 });
 
 describe("operation visibility", () => {
-  it("addresses a running operation individually", async () => {
-    await build();
-    const started = (await app.inject({ method: "POST", url: "/api/setup/tools/claude/install" }))
-      .json<StartToolOperationResponse>();
-
-    const res = await app.inject({
-      method: "GET",
-      url: `/api/setup/operations/${started.operation.id}`,
-    });
-    expect(res.statusCode).toBe(200);
-    expect(res.json<ToolOperation>()).toMatchObject({
-      id: started.operation.id,
-      status: "running",
-    });
-  });
-
   it("surfaces the running operation to a client that has no operation id", async () => {
     await build();
     const started = (await app.inject({ method: "POST", url: "/api/setup/tools/claude/install" }))
@@ -242,18 +229,6 @@ describe("operation visibility", () => {
     const body = (await app.inject({ method: "GET", url: "/api/setup/tools" })).json<ToolsResponse>();
     expect(body.operations).toHaveLength(1);
     expect(body.operations[0]).toMatchObject({ id: started.operation.id, status: "running" });
-  });
-
-  it("404s an operation it does not know", async () => {
-    await build();
-    const res = await app.inject({ method: "GET", url: "/api/setup/operations/op-aaaaaaaaaa" });
-    expect(res.statusCode).toBe(404);
-  });
-
-  it("rejects a malformed operation id before it reaches the store", async () => {
-    await build();
-    const res = await app.inject({ method: "GET", url: "/api/setup/operations/..%2Fetc" });
-    expect(res.statusCode).toBe(400);
   });
 
   it("reports a failed install with a typed reason and a bounded excerpt", async () => {
@@ -282,13 +257,40 @@ describe("operation visibility", () => {
     await store.whenIdle();
 
     const operation = (
-      await app.inject({ method: "GET", url: `/api/setup/operations/${started.operation.id}` })
-    ).json<ToolOperation>();
+      await app.inject({ method: "GET", url: "/api/setup/status" })
+    ).json<SetupStatusResponse>().operations.find((o) => o.id === started.operation.id);
 
-    expect(operation.status).toBe("failed");
-    expect(operation.failure?.reason).toBe("network");
-    expect(operation.failure?.outputExcerpt).toContain("ENOTFOUND");
-    expect(operation.failure?.outputExcerpt?.length).toBeLessThanOrEqual(2_000);
+    expect(operation?.status).toBe("failed");
+    expect(operation?.failure?.reason).toBe("network");
+    expect(operation?.failure?.outputExcerpt).toContain("ENOTFOUND");
+    expect(operation?.failure?.outputExcerpt?.length).toBeLessThanOrEqual(2_000);
+  });
+});
+
+describe("GET /api/setup/status", () => {
+  it("reports operations and sign-in sessions without re-running detection", async () => {
+    const claude = scriptedFlow({ verificationUri: "https://claude.com/x", needsCode: true });
+    await build(
+      {},
+      createToolAuthStore({ flows: { claude: { flow: claude.flow } }, detect: async () => detection() }),
+    );
+    const started = (await app.inject({ method: "POST", url: "/api/setup/tools/claude/install" }))
+      .json<StartToolOperationResponse>();
+    await app.inject({ method: "POST", url: "/api/setup/auth/claude/start" });
+    const probesBefore = probeCalls.length;
+
+    const res = await app.inject({ method: "GET", url: "/api/setup/status" });
+
+    expect(res.statusCode).toBe(200);
+    const body = res.json<SetupStatusResponse>();
+    expect(body.operations).toHaveLength(1);
+    expect(body.operations[0]).toMatchObject({ id: started.operation.id, status: "running" });
+    expect(body.authSessions).toHaveLength(1);
+    expect(body.authSessions[0]).toMatchObject({ tool: "claude", state: "awaiting_code" });
+    // The whole point of the route: a progress poll spawns no probe.
+    expect(probeCalls).toHaveLength(probesBefore);
+
+    claude.finish("cancelled");
   });
 });
 
@@ -319,11 +321,11 @@ describe("restart recovery", () => {
     await restart();
 
     const operation = (
-      await app.inject({ method: "GET", url: `/api/setup/operations/${started.operation.id}` })
-    ).json<ToolOperation>();
+      await app.inject({ method: "GET", url: "/api/setup/status" })
+    ).json<SetupStatusResponse>().operations.find((o) => o.id === started.operation.id);
 
-    expect(operation.status).toBe("failed");
-    expect(operation.failure?.reason).toBe("interrupted");
+    expect(operation?.status).toBe("failed");
+    expect(operation?.failure?.reason).toBe("interrupted");
   });
 
   it("lets the operator start over after a reaped operation", async () => {
@@ -458,7 +460,36 @@ describe("POST /api/setup/auth/:tool/start", () => {
     claude.finish("cancelled");
   });
 
-  it("does not offer a sign-in route for GitHub, which has its own flow", async () => {
+  it("drives the GitHub sign-in through the same session machinery", async () => {
+    const github = scriptedFlow({
+      verificationUri: "https://github.com/login/device",
+      userCode: "ABCD-1234",
+    });
+    await build(
+      {},
+      createToolAuthStore({ flows: { gh: { flow: github.flow } }, detect: async () => detection() }),
+    );
+
+    const res = await app.inject({ method: "POST", url: "/api/setup/auth/gh/start" });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json<ToolAuthSession>()).toMatchObject({
+      tool: "gh",
+      state: "awaiting_authorization",
+      userCode: "ABCD-1234",
+      needsCode: false,
+    });
+
+    github.finish("connected");
+    await authStore.whenIdle();
+
+    // The cheap status poll sees it end, so no client needs a GitHub-shaped path.
+    const body = (await app.inject({ method: "GET", url: "/api/setup/status" }))
+      .json<SetupStatusResponse>();
+    expect(body.authSessions[0]).toMatchObject({ tool: "gh", state: "connected" });
+  });
+
+  it("rejects a sign-in for a tool the store has no flow for", async () => {
     await build();
     const res = await app.inject({ method: "POST", url: "/api/setup/auth/gh/start" });
     expect(res.statusCode).toBe(400);
@@ -581,7 +612,7 @@ describe("POST /api/setup/auth/claude/token", () => {
 
     expect(res.statusCode).toBe(200);
     const stored = JSON.parse(
-      await readFile(join(dataDir, "setup-secrets.json"), "utf-8"),
+      await readFile(join(dataDir, "config.json"), "utf-8"),
     ) as { claudeCodeOAuthToken: string };
     expect(stored.claudeCodeOAuthToken).toBe(VALID_CLAUDE_TOKEN);
   });

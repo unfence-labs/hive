@@ -1,6 +1,7 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { SetupToolId } from "@hive/shared/setup-types";
+import { NPM_PACKAGES, PROVIDER_LABELS } from "../../agents/providers/registry.js";
 
 export interface SetupToolSpec {
   id: SetupToolId;
@@ -12,23 +13,31 @@ export interface SetupToolSpec {
 }
 
 /**
- * The tools Hive drives. `gh` is listed so its state is reported, but carries
- * no package: the provisioning script installs it from a checksum-pinned
- * tarball, and Hive will not offer an install path it cannot verify.
+ * The tools Hive drives. Labels and packages for the agent CLIs come from the
+ * provider registry, which owns them. `gh` is listed so its state is reported,
+ * but carries no package: the provisioning script installs it from a
+ * checksum-pinned tarball, and Hive will not offer an install path it cannot
+ * verify.
  */
 export const SETUP_TOOLS: readonly SetupToolSpec[] = [
   {
     id: "claude",
-    label: "Claude Code",
+    label: PROVIDER_LABELS.claude,
     command: "claude",
-    npmPackage: "@anthropic-ai/claude-code",
+    npmPackage: NPM_PACKAGES.claude,
   },
-  { id: "codex", label: "Codex", command: "codex", npmPackage: "@openai/codex" },
+  {
+    id: "codex",
+    label: PROVIDER_LABELS.codex,
+    command: "codex",
+    npmPackage: NPM_PACKAGES.codex,
+  },
   { id: "gh", label: "GitHub CLI", command: "gh", npmPackage: "" },
 ];
 
-export function findToolSpec(id: SetupToolId): SetupToolSpec | undefined {
-  return SETUP_TOOLS.find((tool) => tool.id === id);
+export function findToolSpec(id: SetupToolId): SetupToolSpec {
+  // Every id in SetupToolId has a catalog entry, so the lookup cannot miss.
+  return SETUP_TOOLS.find((tool) => tool.id === id)!;
 }
 
 export function isManaged(spec: SetupToolSpec): boolean {

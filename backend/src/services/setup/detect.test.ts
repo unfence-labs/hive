@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
-import { findToolSpec, SETUP_TOOLS } from "./catalog.js";
+import { findToolSpec } from "./catalog.js";
 import type { CommandResult, RunCommand } from "./command.js";
-import { detectTool, detectTools, type DetectDeps } from "./detect.js";
+import { detectTool, type DetectDeps } from "./detect.js";
 
 function ok(stdout: string, stderr = ""): CommandResult {
   return { stdout, stderr, exitCode: 0, timedOut: false };
@@ -22,8 +22,8 @@ function deps(
   return { run, env } satisfies DetectDeps;
 }
 
-const claude = findToolSpec("claude")!;
-const gh = findToolSpec("gh")!;
+const claude = findToolSpec("claude");
+const gh = findToolSpec("gh");
 
 describe("detectTool", () => {
   it("reports the installed version parsed from --version", async () => {
@@ -121,16 +121,5 @@ describe("detectTool", () => {
       deps({ "gh --version": ok("gh version 2.62.0") }),
     );
     expect(signedOut.authenticated).toBe(false);
-  });
-});
-
-describe("detectTools", () => {
-  it("returns an entry for every tool in the catalog", async () => {
-    const detected = await detectTools(deps({ "gh --version": ok("gh version 2.62.0") }));
-
-    expect(Object.keys(detected).sort()).toEqual(SETUP_TOOLS.map((t) => t.id).sort());
-    expect(detected.gh.installed).toBe(true);
-    expect(detected.claude.installed).toBe(false);
-    expect(detected.codex.installed).toBe(false);
   });
 });

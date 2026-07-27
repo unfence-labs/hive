@@ -44,16 +44,12 @@ export interface PreflightCheck {
   status: PreflightStatus;
   detail: string;
   data?: Record<string, unknown>;
-  /** The code the install would fail with, on a failing check. */
-  errorCode?: string;
 }
 
 /** How the install would gain root, as preflight found it — never as we guess. */
 export type PrivilegeMode = "root" | "sudoNoPassword" | "sudoPassword";
 
 export interface PrivilegeFinding {
-  root: boolean;
-  sudoNoPassword: boolean;
   mode: PrivilegeMode;
 }
 
@@ -63,8 +59,6 @@ export interface PreflightReport {
   blockers: string[];
   checks: PreflightCheck[];
   privilege: PrivilegeFinding;
-  scriptVersion?: string;
-  runId?: string;
 }
 
 export interface ProvisionConnection {
@@ -130,13 +124,8 @@ export interface ProvisionRecord {
   status?: string;
   title?: string;
   line?: string;
-  reason?: string;
   errorCode?: string;
   detail?: string;
-  exitCode?: number;
-  durationMs?: number;
-  runId?: string;
-  scriptVersion?: string;
   resume?: boolean;
   stepsPlanned?: string[];
   data?: Record<string, unknown>;

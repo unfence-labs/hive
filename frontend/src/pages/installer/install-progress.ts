@@ -6,8 +6,8 @@ import type { ProvisionRecord } from "@/lib/provision-client";
  *
  * The record shapes are `scripts/provision/lib.sh`'s: `run_start`, `run_end`,
  * and one `step` record per start / log / ok / skip / error. Anything else the
- * sidecar forwards (its own `privilege_resolved`, preflight findings) is not
- * part of this view and is ignored rather than guessed at.
+ * sidecar forwards is not part of this view and is ignored rather than
+ * guessed at.
  */
 
 export type InstallStepStatus = "pending" | "running" | "done" | "skipped" | "failed";
@@ -16,13 +16,6 @@ export interface InstallStep {
   id: string;
   title: string;
   status: InstallStepStatus;
-}
-
-export interface InstallLogLine {
-  /** Monotonic within a run; used as a stable React key. */
-  seq: number;
-  step: string;
-  line: string;
 }
 
 export interface InstallFailure {
@@ -37,7 +30,8 @@ export interface InstallProgress {
   /** The script reported it is continuing an earlier run rather than beginning one. */
   resumed: boolean;
   steps: InstallStep[];
-  logs: InstallLogLine[];
+  /** The streamed output's text, one line per entry. */
+  logs: string[];
   /**
    * The token the run generated, off the `generate_token` step. It lives in
    * memory until it is written to the connection record, and is never part of
@@ -89,18 +83,6 @@ function stringData(record: ProvisionRecord, key: string): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
 }
 
-/**
- * Keep the first failure. A step's own error names the thing that broke; the
- * `run_end` that follows it repeats the code with less context, and a
- * sidecar-synthesized terminal record has none at all.
- */
-function firstFailure(
-  current: InstallFailure | undefined,
-  candidate: InstallFailure,
-): InstallFailure {
-  return current ?? candidate;
-}
-
 function applyStep(state: InstallProgress, record: ProvisionRecord): InstallProgress {
   const step = record.step as string;
   switch (record.status) {
@@ -116,8 +98,7 @@ function applyStep(state: InstallProgress, record: ProvisionRecord): InstallProg
     case "log":
       return {
         ...state,
-        logs: [...state.logs, { seq: record.seq ?? state.logs.length, step, line: record.line ?? "" }]
-          .slice(-INSTALL_LOG_LIMIT),
+        logs: [...state.logs, record.line ?? ""].slice(-INSTALL_LOG_LIMIT),
       };
     case "ok":
     case "skip":
@@ -135,11 +116,14 @@ function applyStep(state: InstallProgress, record: ProvisionRecord): InstallProg
       return {
         ...state,
         steps: upsert(state.steps, step, { status: "failed" }),
-        failure: firstFailure(state.failure, {
+        // The first failure wins, here and below: a step's own error names the
+        // thing that broke; the `run_end` that follows it repeats the code with
+        // less context, and a sidecar-synthesized terminal record has none.
+        failure: state.failure ?? {
           code: record.errorCode ?? "UNKNOWN",
           detail: record.detail ?? "the step failed without a diagnostic",
           step,
-        }),
+        },
       };
     default:
       return state;
@@ -170,10 +154,10 @@ export function applyInstallRecord(
       return {
         ...state,
         status: "failed",
-        failure: firstFailure(state.failure, {
+        failure: state.failure ?? {
           code: record.errorCode ?? "UNKNOWN",
           detail: record.detail ?? "the install ended without a diagnostic",
-        }),
+        },
       };
     }
     // A run that finished without reporting a token would land the app on a
@@ -183,10 +167,10 @@ export function applyInstallRecord(
       return {
         ...state,
         status: "failed",
-        failure: firstFailure(state.failure, {
+        failure: state.failure ?? {
           code: "UNKNOWN",
           detail: "the install finished but reported no access token",
-        }),
+        },
       };
     }
     // Likewise for the service account. Guessing it would store a connection
@@ -196,10 +180,10 @@ export function applyInstallRecord(
       return {
         ...state,
         status: "failed",
-        failure: firstFailure(state.failure, {
+        failure: state.failure ?? {
           code: "UNKNOWN",
           detail: "the install finished but reported no service account",
-        }),
+        },
       };
     }
     return { ...state, status: "succeeded" };

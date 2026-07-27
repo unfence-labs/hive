@@ -204,7 +204,6 @@ a verdict.
 | `--install-dir` | `HIVE_INSTALL_DIR` | `/opt/hive` | Hive, its private Node runtime and the uninstaller |
 | `--data-dir` | `HIVE_DATA_DIR` | `/home/hive/.hive` | Projects, worktrees and sessions — the directory that grows |
 | `--port` | `HIVE_PORT` | `9420` | Backend port |
-| `--host` | — | `0.0.0.0` | Bind address |
 | `--firewall-interface` | `HIVE_FIREWALL_INTERFACE` | — | Scope the one firewall rule to this interface instead of opening the port. Only consulted when a firewall is already active |
 | `--ssh-public-key` | `HIVE_SSH_PUBLIC_KEY` | — | Authorize this key on the `hive` account |
 | `--preflight` | — | — | Report and change nothing |
@@ -416,9 +415,9 @@ Public backend surface exposed by route modules under `backend/src/api/`.
 | Team agents | `GET/POST /api/agents`, `PATCH/DELETE /api/agents/:id` |
 | Prompts | `GET/POST /api/prompt-templates`, `PUT/DELETE /api/prompt-templates/:id`, `GET/PUT/DELETE /api/prompts/base`, `GET/PUT/DELETE /api/prompts/brain`, `GET/PUT/DELETE /api/prompts/issue-draft` |
 | Settings | `GET/PUT /api/settings/defaults`, `GET/PUT /api/settings/notifications`, `POST /api/settings/notifications/test`, `POST /api/settings/notifications/test-apns`, `POST /api/devices/apns`, `GET/PUT/DELETE /api/settings/instructions`, `POST /api/settings/instructions/sync`, `GET/POST /api/settings/skills`, `GET/PUT/DELETE /api/settings/skills/:id`, `POST /api/settings/skills/:id/sync`, `POST /api/settings/skills/sync-missing`, `GET/POST /api/settings/subagents`, `GET /api/settings/subagents/:id`, `PUT/DELETE /api/settings/subagents/:id/providers/:provider`, `POST /api/settings/subagents/:id/providers/:provider/counterpart` |
-| Account | `GET /api/account/status`, `POST /api/account/connect`, `POST /api/account/connect/poll`, `POST /api/account/disconnect` |
-| Tool setup | `GET /api/setup/tools`, `POST /api/setup/tools/:tool/:kind` (`kind` = `install` \| `update`), `GET /api/setup/operations/:id` |
-| Agent sign-in | `POST /api/setup/auth/:tool/start` (`tool` = `claude` \| `codex`), `POST /api/setup/auth/:tool/code`, `POST /api/setup/auth/:tool/cancel`, `POST /api/setup/auth/claude/token` |
+| Account | `GET /api/account/status`, `POST /api/account/disconnect` |
+| Tool setup | `GET /api/setup/tools`, `GET /api/setup/status`, `POST /api/setup/tools/:tool/:kind` (`kind` = `install` \| `update`) |
+| Tool sign-in | `POST /api/setup/auth/:tool/start` (`tool` = `claude` \| `codex` \| `gh`), `POST /api/setup/auth/:tool/code`, `POST /api/setup/auth/:tool/cancel`, `POST /api/setup/auth/claude/token` |
 | Scripts & prefs | `GET /api/workspaces/:wsId/scripts`, `POST /api/workspaces/:wsId/scripts/:type/start`, `POST /api/workspaces/:wsId/scripts/:type/stop`, `POST /api/workspaces/:wsId/terminal/start`, `POST /api/workspaces/:wsId/terminal/stop`, `POST /api/workspaces/:wsId/terminal-tabs/:sessionId/start`, `POST /api/workspaces/:wsId/terminal-tabs/:sessionId/stop`, `GET/PUT /api/ui-preferences` |
 
 `wsId=brain` is valid for session and hub routes through the shared session dispatcher.

@@ -57,8 +57,8 @@ function makeDeps(scenario: Scenario = {}) {
   return { deps, onToolsChanged, runInstall };
 }
 
-const claude = findToolSpec("claude")!;
-const gh = findToolSpec("gh")!;
+const claude = findToolSpec("claude");
+const gh = findToolSpec("gh");
 
 const noop = { setPhase: () => {} };
 

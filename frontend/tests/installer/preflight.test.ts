@@ -14,7 +14,7 @@ function reportWith(...checks: PreflightCheck[]): PreflightReport {
     ok: true,
     blockers: [],
     checks,
-    privilege: { root: true, sudoNoPassword: true, mode: "root" },
+    privilege: { mode: "root" },
   };
 }
 

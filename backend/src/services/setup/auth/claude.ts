@@ -6,7 +6,12 @@ import {
   type ToolAuthOutcome,
 } from "./flow.js";
 import { outputTail, parseClaudeToken, parseVerificationUri } from "./output.js";
-import { spawnPtyAuthProcess, type AuthProcess, type SpawnAuthProcess } from "./process.js";
+import {
+  raceExit,
+  spawnPtyAuthProcess,
+  type AuthProcess,
+  type SpawnAuthProcess,
+} from "./process.js";
 import { isValidClaudeToken, type ClaudeTokenWriter } from "./secrets.js";
 
 /**
@@ -31,19 +36,6 @@ export interface ClaudeAuthDeps {
   writeToken: ClaudeTokenWriter;
   spawn?: SpawnAuthProcess;
   timeoutMs?: number;
-}
-
-type RaceResult = { kind: "exit"; code: number } | { kind: "timeout" };
-
-function raceExit(process: AuthProcess, timeoutMs: number): Promise<RaceResult> {
-  return new Promise<RaceResult>((resolve) => {
-    const timer = setTimeout(() => resolve({ kind: "timeout" }), timeoutMs);
-    timer.unref?.();
-    void process.exit.then((code) => {
-      clearTimeout(timer);
-      resolve({ kind: "exit", code });
-    });
-  });
 }
 
 export function claudeAuthFlow(deps: ClaudeAuthDeps): AuthFlow {

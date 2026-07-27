@@ -1,4 +1,5 @@
-import { useCallback, useMemo, useSyncExternalStore } from "react";
+import { useCallback, useSyncExternalStore } from "react";
+import { isValidPort } from "@/lib/server-connection";
 
 /**
  * The one server this client talks to. Stored as a single record so address,
@@ -51,14 +52,14 @@ function normalizeConnection(value: unknown): ServerConnection | null {
   const host = trimmedString(candidate.host);
   const { port } = candidate;
   if (!host) return null;
-  if (!Number.isInteger(port) || (port as number) < 1 || (port as number) > 65_535) return null;
+  if (typeof port !== "number" || !isValidPort(port)) return null;
 
   const authToken = trimmedString(candidate.authToken);
   const sshUser = trimmedString(candidate.sshUser);
   const adminUser = trimmedString(candidate.adminUser);
   return {
     host,
-    port: port as number,
+    port,
     ...(candidate.protocol === "https" ? { protocol: "https" as const } : {}),
     ...(authToken ? { authToken } : {}),
     ...(sshUser ? { sshUser } : {}),
@@ -66,7 +67,7 @@ function normalizeConnection(value: unknown): ServerConnection | null {
   };
 }
 
-function parseStored(raw: string | null): ServerConnection | null {
+function parseStored(raw: string): ServerConnection | null {
   if (!raw) return null;
   try {
     return normalizeConnection(JSON.parse(raw));
@@ -75,10 +76,32 @@ function parseStored(raw: string | null): ServerConnection | null {
   }
 }
 
+/**
+ * Parse-once cache, keyed by the raw stored string. The URL and token are read
+ * on every HTTP request, every image URL and every subscriber render, so the
+ * JSON parse must only run when the stored record actually changes. Keying by
+ * the raw string makes invalidation automatic: any write — through `notify()`
+ * or another tab's storage event — misses the cache on the next read.
+ */
+let cached: { raw: string; connection: ServerConnection | null; url: string } = {
+  raw: "",
+  connection: null,
+  url: "",
+};
+
+function readStore(): typeof cached {
+  const raw = localStorage.getItem(CONNECTION_STORAGE_KEY) ?? "";
+  if (cached.raw !== raw) {
+    const connection = parseStored(raw);
+    cached = { raw, connection, url: serverUrlFor(connection) };
+  }
+  return cached;
+}
+
 /** Raw store snapshot. Empty string when nothing valid is stored. */
 function getSnapshot(): string {
-  const stored = localStorage.getItem(CONNECTION_STORAGE_KEY);
-  return parseStored(stored) ? (stored as string) : "";
+  const store = readStore();
+  return store.connection ? store.raw : "";
 }
 
 function getServerSnapshot(): string {
@@ -87,7 +110,7 @@ function getServerSnapshot(): string {
 
 /** Read the connection outside of React. */
 export function getConnection(): ServerConnection | null {
-  return parseStored(getSnapshot());
+  return readStore().connection;
 }
 
 /** Write (or clear) the connection as one atomic record. */
@@ -117,7 +140,7 @@ export function serverUrlFor(connection: ServerConnection | null): string {
 
 /** Read the derived server URL outside of React (for useApi, ws transports). */
 export function getServerUrl(): string {
-  return serverUrlFor(getConnection());
+  return readStore().url;
 }
 
 /**
@@ -126,12 +149,14 @@ export function getServerUrl(): string {
  * requires a rebuild.
  */
 export function getAuthToken(): string {
-  return getConnection()?.authToken ?? "";
+  return readStore().connection?.authToken ?? "";
 }
 
 export function useConnection() {
   const raw = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
-  const connection = useMemo(() => parseStored(raw), [raw]);
+  // Referentially stable per stored record: the cache hands back the same
+  // parsed object until the raw string changes.
+  const connection = raw ? readStore().connection : null;
   const setConnection = useCallback((next: ServerConnection | null) => replaceConnection(next), []);
   return {
     connection,

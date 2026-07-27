@@ -25,6 +25,11 @@ async function readState(): Promise<ToolOperation[]> {
   ) as ToolOperation[];
 }
 
+/** Look an operation up the way a client does: on the listing, by id. */
+function find(store: ToolOperationStore, id: string): ToolOperation | undefined {
+  return store.list().find((operation) => operation.id === id);
+}
+
 beforeEach(async () => {
   dataDir = await mkdtemp(join(tmpdir(), "hive-setup-ops-"));
 });
@@ -48,7 +53,7 @@ describe("tool operation store", () => {
     expect(operation.id).toMatch(/^op-[A-Za-z0-9_-]{10}$/);
 
     await store.whenIdle();
-    const finished = store.get(operation.id);
+    const finished = find(store, operation.id);
     expect(finished?.status).toBe("succeeded");
     expect(finished?.phase).toBe("done");
     expect(finished?.finishedAt).toBeTruthy();
@@ -140,7 +145,7 @@ describe("failure reporting", () => {
     });
     await store.whenIdle();
 
-    const failed = store.get(operation.id);
+    const failed = find(store, operation.id);
     expect(failed?.status).toBe("failed");
     expect(failed?.failure).toEqual({
       reason: "network",
@@ -158,7 +163,7 @@ describe("failure reporting", () => {
     });
     await store.whenIdle();
 
-    expect(store.get(operation.id)?.failure?.outputExcerpt).toHaveLength(2_000);
+    expect(find(store, operation.id)?.failure?.outputExcerpt).toHaveLength(2_000);
   });
 
   it("reports an unexpected throw as a command failure and surfaces it to the logger", async () => {
@@ -170,7 +175,7 @@ describe("failure reporting", () => {
     });
     await store.whenIdle();
 
-    expect(store.get(operation.id)?.failure).toEqual({
+    expect(find(store, operation.id)?.failure).toEqual({
       reason: "command_failed",
       message: "something nobody typed",
     });
@@ -204,7 +209,7 @@ describe("durability across a restart", () => {
     // A new process over the same data directory: the old run has no process
     // behind it and nothing else would ever move it off "running".
     const rebooted = await createToolOperationStore({ dataDir });
-    const recovered = rebooted.get(operation.id);
+    const recovered = find(rebooted, operation.id);
     expect(recovered?.status).toBe("failed");
     expect(recovered?.failure?.reason).toBe("interrupted");
     expect(recovered?.finishedAt).toBeTruthy();
@@ -212,7 +217,7 @@ describe("durability across a restart", () => {
     // And the reaping is itself durable — a third boot must not re-reap or
     // resurrect it.
     const again = await createToolOperationStore({ dataDir });
-    expect(again.get(operation.id)?.failure?.reason).toBe("interrupted");
+    expect(find(again, operation.id)?.failure?.reason).toBe("interrupted");
 
     gate.resolve();
     await first.whenIdle();
@@ -224,7 +229,7 @@ describe("durability across a restart", () => {
     await first.whenIdle();
 
     const rebooted = await createToolOperationStore({ dataDir });
-    expect(rebooted.get(operation.id)?.status).toBe("succeeded");
+    expect(find(rebooted, operation.id)?.status).toBe("succeeded");
   });
 
   it("reports a failed state write instead of taking the process down with it", async () => {
@@ -238,7 +243,7 @@ describe("durability across a restart", () => {
     await store.whenIdle();
 
     // The operation still ran to a terminal state; only durability was lost.
-    expect(store.get(operation.id)?.status).toBe("succeeded");
+    expect(find(store, operation.id)?.status).toBe("succeeded");
     expect(onUnexpectedError).toHaveBeenCalledWith("persist", expect.anything());
   });
 
@@ -270,10 +275,10 @@ describe("retention", () => {
 
     const { operation } = await store.start("claude", "install", async () => {});
     await store.whenIdle();
-    expect(store.get(operation.id)?.status).toBe("succeeded");
+    expect(find(store, operation.id)?.status).toBe("succeeded");
 
     clock += 61_000;
-    expect(store.get(operation.id)).toBeNull();
+    expect(find(store, operation.id)).toBeUndefined();
     expect(store.list()).toEqual([]);
   });
 
@@ -290,7 +295,7 @@ describe("retention", () => {
     });
 
     clock += 3_600_000;
-    expect(store.get(operation.id)?.status).toBe("running");
+    expect(find(store, operation.id)?.status).toBe("running");
 
     gate.resolve();
     await store.whenIdle();
