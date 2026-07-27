@@ -28,7 +28,7 @@ import { ensureDataDir, getDataDir, loadAllProjects, saveProject } from "./state
 import { type SessionOptions, rebuildNotifier, stopAllSessions } from "./agents/agent-manager.js";
 import { GitSyncService } from "./services/git-sync.js";
 import { settingsRoutes } from "./api/settings.js";
-import { agentSettingsRoutes } from "./api/agents-settings.js";
+import { setupRoutes } from "./api/setup.js";
 import { providerUsageRoutes } from "./api/provider-usage.js";
 import { stopProviderUsagePolling } from "./services/provider-usage.js";
 import { accountRoutes } from "./api/account.js";
@@ -371,7 +371,7 @@ export async function buildApp(opts: BuildAppOptions = {}) {
     }),
   );
   await app.register((instance: FastifyInstance) => settingsRoutes(instance));
-  await app.register((instance: FastifyInstance) => agentSettingsRoutes(instance));
+  await app.register((instance: FastifyInstance) => setupRoutes(instance));
   await app.register((instance: FastifyInstance) => providerUsageRoutes(instance));
   await app.register((instance: FastifyInstance) => accountRoutes(instance));
   await app.register((instance: FastifyInstance) => scriptRoutes(instance));

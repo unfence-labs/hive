@@ -122,16 +122,17 @@ describe("buildApp", () => {
     });
   });
 
-  it("registers agent settings routes", async () => {
+  it("registers setup tool routes", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response("Not Found", { status: 404 }),
     );
     app = await buildApp();
-    const res = await app.inject({ method: "GET", url: "/api/settings/cli" });
+    const res = await app.inject({ method: "GET", url: "/api/setup/tools" });
 
     expect(res.statusCode).toBe(200);
     expect(res.json()).toEqual({
-      agents: expect.any(Array),
+      tools: expect.any(Array),
+      operations: expect.any(Array),
     });
   });
 

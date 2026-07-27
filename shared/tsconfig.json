@@ -8,6 +8,7 @@
     "agent-activity.ts",
     "project-env.ts",
     "setup-errors.ts",
+    "setup-types.ts",
     "sidebar-preferences.ts",
     "workspace-files.ts"
   ]
