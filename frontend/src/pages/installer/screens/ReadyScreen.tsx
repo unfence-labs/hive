@@ -20,10 +20,10 @@ export function ReadyScreen({ inputs, escalates, onContinue, onBack }: ReadyScre
     ["Server", `${user ?? "root"}@${host}`],
     ["Backend port", String(inputs.port)],
     [
-      "Exposure",
-      inputs.networkMode === "tailnet"
-        ? `Private network only (${inputs.tailnetInterface})`
-        : "Public address, protected by the access token",
+      "Firewall rule",
+      inputs.firewallInterface
+        ? `Only on ${inputs.firewallInterface}, if a firewall is active`
+        : `Port ${inputs.port} opened, if a firewall is active`,
     ],
     ["Install directory", inputs.installDir],
     ["Data directory", inputs.dataDir],

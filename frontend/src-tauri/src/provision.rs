@@ -275,16 +275,6 @@ fn validate_directory(label: &str, path: &str) -> Result<(), ProvisionError> {
     }
 }
 
-fn validate_network_mode(mode: &str) -> Result<(), ProvisionError> {
-    if matches!(mode, "public" | "tailnet") {
-        Ok(())
-    } else {
-        Err(ProvisionError::invalid(format!(
-            "invalid network mode: {mode:?} (expected public or tailnet)"
-        )))
-    }
-}
-
 fn validate_interface(interface: &str) -> Result<(), ProvisionError> {
     let shaped = !interface.is_empty()
         && !interface.starts_with('-')
@@ -370,8 +360,9 @@ pub struct ProvisionOptions {
     port: Option<u16>,
     install_dir: Option<String>,
     data_dir: Option<String>,
-    network_mode: Option<String>,
-    tailnet_interface: Option<String>,
+    /// Restrict the one firewall rule to this interface instead of opening the
+    /// port. Absent is the normal case, and the only one the script needs.
+    firewall_interface: Option<String>,
     /// Authorized on the hive service account, so an editor or terminal session
     /// connects as hive rather than as the install account.
     ssh_public_key: Option<String>,
@@ -389,10 +380,7 @@ impl ProvisionOptions {
         if let Some(dir) = &self.data_dir {
             validate_directory("data directory", dir)?;
         }
-        if let Some(mode) = &self.network_mode {
-            validate_network_mode(mode)?;
-        }
-        if let Some(interface) = &self.tailnet_interface {
+        if let Some(interface) = &self.firewall_interface {
             validate_interface(interface)?;
         }
         if let Some(key) = &self.ssh_public_key {
@@ -419,12 +407,8 @@ impl ProvisionOptions {
             args.push("--data-dir".into());
             args.push(dir.clone());
         }
-        if let Some(mode) = &self.network_mode {
-            args.push("--network-mode".into());
-            args.push(mode.clone());
-        }
-        if let Some(interface) = &self.tailnet_interface {
-            args.push("--tailnet-interface".into());
+        if let Some(interface) = &self.firewall_interface {
+            args.push("--firewall-interface".into());
             args.push(interface.clone());
         }
         if let Some(key) = &self.ssh_public_key {
@@ -1359,9 +1343,9 @@ mod tests {
         list_keys_blocking, looks_like_private_key, normalize_public_key, privilege_finding,
         provision_script, public_key_identity, redact, remote_command, replace_known_host,
         same_host_key, select_host_key, shell_quote, ssh_error_code, stdin_payload, tail,
-        terminal_error, validate_directory, validate_host, validate_key_path,
-        validate_network_mode, validate_password, validate_user, version_for_build, PreflightCheck,
-        PrivilegeMode, ProvisionOptions, RemoteOutcome, Secret, SSH_ERROR_CODES,
+        terminal_error, validate_directory, validate_host, validate_interface, validate_key_path,
+        validate_password, validate_user, version_for_build, PreflightCheck, PrivilegeMode,
+        ProvisionOptions, RemoteOutcome, Secret, SSH_ERROR_CODES,
     };
 
     const SHARED_SETUP_ERRORS: &str = include_str!(concat!(
@@ -1424,9 +1408,11 @@ mod tests {
             );
         }
 
-        assert!(validate_network_mode("public").is_ok());
-        assert!(validate_network_mode("tailnet").is_ok());
-        assert!(validate_network_mode("--reset").is_err());
+        assert!(validate_interface("eth0").is_ok());
+        assert!(validate_interface("wg-home.1").is_ok());
+        for interface in ["", "-oProxyCommand=bad", "eth 0", "eth0;rm", "eth/0"] {
+            assert!(validate_interface(interface).is_err(), "{interface}");
+        }
     }
 
     #[test]
@@ -1462,14 +1448,14 @@ mod tests {
             port: Some(9420),
             install_dir: Some("/opt/hive".into()),
             data_dir: Some("/srv/hive".into()),
-            network_mode: Some("tailnet".into()),
-            tailnet_interface: Some("tailscale0".into()),
+            firewall_interface: Some("wg0".into()),
             ssh_public_key: Some(format!("ssh-ed25519 {ED25519_BLOB} lenny@box")),
             reset: true,
         };
         let command = remote_command(PrivilegeMode::Root, &args(&options, false));
         assert!(command.contains(&format!("'--ssh-public-key' 'ssh-ed25519 {ED25519_BLOB}'")));
         assert!(command.contains("'--port' '9420'"));
+        assert!(command.contains("'--firewall-interface' 'wg0'"));
         assert!(command.contains("'--reset'"));
         assert!(!command.contains("lenny@box"));
 
@@ -1477,6 +1463,14 @@ mod tests {
         let preflight = args(&options, true);
         assert_eq!(preflight.first().map(String::as_str), Some("--preflight"));
         assert!(!preflight.contains(&"--reset".to_string()));
+
+        // No interface is the ordinary case, and it is the absence of the flag
+        // that tells the script to open the port rather than scope the rule.
+        let open = ProvisionOptions {
+            port: Some(9420),
+            ..Default::default()
+        };
+        assert!(!args(&open, false).contains(&"--firewall-interface".to_string()));
     }
 
     // ── privilege modes ──────────────────────────────────────────────────────

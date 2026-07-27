@@ -45,11 +45,68 @@ function check(
   return { check: name, status, detail, ...(errorCode ? { errorCode } : {}) };
 }
 
+/** A check carrying the `data` object the script emits alongside its prose. */
+function checkWithData(
+  name: string,
+  status: PreflightCheck["status"],
+  detail: string,
+  data: Record<string, unknown>,
+): PreflightCheck {
+  return { check: name, status, detail, data };
+}
+
+/** The interfaces `preflight_interfaces` enumerates on a small server. */
+export const SERVER_INTERFACES = [
+  { name: "eth0", addresses: ["203.0.113.10"] },
+  { name: "wg0", addresses: ["10.8.0.2"] },
+];
+
 export const OK_CHECKS: PreflightCheck[] = [
   check("os", "ok", "ubuntu 24.04 is supported"),
   check("port", "ok", "port 9420 is free"),
-  check("firewall", "ok", "no active firewall; the installer will not enable one"),
+  checkWithData("firewall", "ok", "no active firewall; the installer will not enable one", {
+    backend: "ufw",
+    active: false,
+    ruleToApply: null,
+  }),
+  checkWithData("interfaces", "ok", "network interfaces on this server: eth0 wg0", {
+    interfaces: SERVER_INTERFACES,
+  }),
 ];
+
+/**
+ * A server whose ufw is already on. This is the only shape in which the
+ * installer writes a rule, and so the only one that puts the question to the
+ * operator.
+ */
+export function activeFirewallReport(): PreflightReport {
+  return report({
+    checks: [
+      ...OK_CHECKS.filter((entry) => entry.check !== "firewall"),
+      checkWithData(
+        "firewall",
+        "ok",
+        "ufw is active; the installer will add the single rule 'ufw allow 9420/tcp' and change nothing else",
+        { backend: "ufw", active: true, ruleToApply: "ufw allow 9420/tcp" },
+      ),
+    ],
+  });
+}
+
+/** An active firewall the installer refuses to edit: nothing to choose. */
+export function foreignFirewallReport(): PreflightReport {
+  return report({
+    checks: [
+      ...OK_CHECKS.filter((entry) => entry.check !== "firewall"),
+      checkWithData(
+        "firewall",
+        "warn",
+        "nftables is active and is not modified by this installer",
+        { backend: "nftables", active: true, ruleToApply: null },
+      ),
+    ],
+  });
+}
 
 export function report(overrides: Partial<PreflightReport> = {}): PreflightReport {
   const privilegeMode: PrivilegeMode = overrides.privilege?.mode ?? "root";

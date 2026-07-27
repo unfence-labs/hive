@@ -5,9 +5,9 @@
 # a step that must re-run on every invocation.
 #
 # Options come from parse_args in main.sh:
-#   OPT_HOST OPT_PORT OPT_INSTALL_DIR OPT_DATA_DIR OPT_NETWORK_MODE
-#   OPT_TAILNET_IFACE OPT_SSH_KEY OPT_RELEASE_FILE, plus HIVE_VERSION and
-#   ARCH_TAG. Paths derived from them are computed by resolve_paths().
+#   OPT_HOST OPT_PORT OPT_INSTALL_DIR OPT_DATA_DIR OPT_FIREWALL_IFACE
+#   OPT_SSH_KEY OPT_RELEASE_FILE, plus HIVE_VERSION and ARCH_TAG. Paths
+#   derived from them are computed by resolve_paths().
 
 # Base packages. Deliberately minimal: everything Hive itself runs lives under
 # /opt/hive, so the only system packages are the ones the backend shells out to
@@ -76,7 +76,7 @@ HIVE_INSTALL_MARKER="$HIVE_ETC_DIR/.hive-install"
 HIVE_RESTART_REQUIRED="$HIVE_VAR_DIR/restart-required"
 # The exact firewall rule this install added, if any. The uninstall script
 # deletes that rule and nothing else, so a rule the operator wrote by hand —
-# or one an earlier install added under a different mode — is never guessed at.
+# or one an earlier install added in a different shape — is never guessed at.
 HIVE_FIREWALL_RULE_FILE="$HIVE_VAR_DIR/firewall-rule"
 HIVE_PENDING_RELEASE="$HIVE_VAR_DIR/pending-release"
 HIVE_ACTIVATED_RELEASE="$HIVE_VAR_DIR/activated-release"
@@ -205,8 +205,30 @@ firewall_active() {
   esac
 }
 
-tailnet_iface_exists() {
-  ip -o link show "$1" >/dev/null 2>&1
+# The kernel's own view, not iproute2's: preflight runs before apt_baseline
+# installs anything, and a server bare enough to lack `ip` still has to be able
+# to answer which interfaces it has.
+iface_exists() { [ -e "/sys/class/net/$1" ]; }
+
+# The server's own network interfaces, reported by preflight so a client can
+# offer the operator the interfaces this server really has instead of asking
+# them to type a name. Loopback is excluded: a rule scoped to it would leave
+# Hive reachable from nowhere at all.
+list_ifaces() {
+  local path name
+  for path in /sys/class/net/*; do
+    [ -e "$path" ] || continue                   # unmatched glob, not a device
+    name="${path##*/}"
+    [ "$name" = lo ] || printf '%s\n' "$name"
+  done
+}
+
+# Addresses a client could actually reach Hive on, so link-local and host scope
+# are left out. Needs iproute2, which is not guaranteed at preflight time — an
+# interface with no addresses listed is a missing tool, never a missing address.
+iface_addresses() {
+  command -v ip >/dev/null 2>&1 || return 0
+  ip -o addr show dev "$1" scope global 2>/dev/null | awk '{print $4}' | cut -d/ -f1
 }
 
 # No `grep -q`: its early exit can SIGPIPE ss, turning a found port into a
@@ -281,9 +303,9 @@ assert_dir_usable() {
 
 # Always re-runs. Every finding here is about the server as it is right now:
 # the port may have been taken since the last run, a filesystem may have filled
-# up, the tailnet interface may have gone away. A cached "conflict-free" answer
-# from a previous run is worth nothing, and the update/fresh distinction has to
-# reach the stream on every run for a client to render it.
+# up. A cached "conflict-free" answer from a previous run is worth nothing, and
+# the update/fresh distinction has to reach the stream on every run for a
+# client to render it.
 guard_probe_env() { return 1; }
 
 step_probe_env() {
@@ -296,15 +318,6 @@ step_probe_env() {
 
   assert_dir_usable "the install directory" "$HIVE_OPT" "$HIVE_INSTALL_MIN_MB"
   assert_dir_usable "the data directory" "$HIVE_DATA_DIR" "$HIVE_DATA_MIN_MB"
-
-  # Hive no longer installs or configures the private network: it is a
-  # prerequisite the operator arranges. Without the interface the firewall rule
-  # below would match nothing, and the install would come up healthy but
-  # unreachable — so this is a hard stop, not a warning.
-  if [ "$OPT_NETWORK_MODE" = tailnet ] && ! tailnet_iface_exists "$OPT_TAILNET_IFACE"; then
-    die TAILNET_INTERFACE_MISSING \
-      "network mode 'tailnet' needs the interface $OPT_TAILNET_IFACE, which does not exist on this server"
-  fi
 
   if [ -n "$OPT_SSH_KEY" ] && ! ssh_key_valid "$OPT_SSH_KEY"; then
     die SSH_KEY_INVALID \
@@ -323,8 +336,8 @@ step_probe_env() {
     esac
   fi
 
-  STEP_DATA="$(printf '{"update":%s,"installDir":"%s","dataDir":"%s","port":%s,"networkMode":"%s"}' \
-    "$update" "$HIVE_OPT" "$HIVE_DATA_DIR" "$OPT_PORT" "$OPT_NETWORK_MODE")"
+  STEP_DATA="$(printf '{"update":%s,"installDir":"%s","dataDir":"%s","port":%s}' \
+    "$update" "$HIVE_OPT" "$HIVE_DATA_DIR" "$OPT_PORT")"
 }
 
 # ---------------------------------------------------------------------------
@@ -780,9 +793,9 @@ title_firewall_rule() { echo "Check the firewall"; }
 # reported, never edited: their rules carry runtime/permanent and zone
 # semantics that cannot be guessed at safely from an installer.
 # Every rule this install added, one per line, appended and never rewritten.
-# A run that switches network mode adds a second rule rather than replacing the
-# first, and the uninstaller has to remove both — a record that only remembered
-# the latest would leave the earlier one behind for good.
+# A run that changes the shape of the rule adds a second one rather than
+# replacing the first, and the uninstaller has to remove both — a record that
+# only remembered the latest would leave the earlier one behind for good.
 record_firewall_rule() {
   local spec="$1"
   [ -f "$HIVE_FIREWALL_RULE_FILE" ] || : >"$HIVE_FIREWALL_RULE_FILE"
@@ -790,9 +803,10 @@ record_firewall_rule() {
     printf '%s\n' "$spec" >>"$HIVE_FIREWALL_RULE_FILE"
 }
 
+# No interface means open the port; an interface means restrict the rule to it.
 ufw_rule_spec() {
-  if [ "$OPT_NETWORK_MODE" = tailnet ]; then
-    printf 'allow in on %s' "$OPT_TAILNET_IFACE"
+  if [ -n "$OPT_FIREWALL_IFACE" ]; then
+    printf 'allow in on %s' "$OPT_FIREWALL_IFACE"
   else
     printf 'allow %s/tcp' "$OPT_PORT"
   fi
@@ -825,6 +839,15 @@ step_firewall_rule() {
     STEP_DATA="$(printf '{"backend":"%s","active":true,"ruleApplied":false,"reason":"unsupported-firewall-backend","port":%s}' \
       "$backend" "$OPT_PORT")"
     return 0
+  fi
+
+  # The only place a named interface still has to exist: a rule scoped to an
+  # interface that is not there matches nothing, and the install would come up
+  # healthy but unreachable. Checked here rather than up front, because it is
+  # only a question at all when a rule is really about to be written.
+  if [ -n "$OPT_FIREWALL_IFACE" ] && ! iface_exists "$OPT_FIREWALL_IFACE"; then
+    die FIREWALL_RULE_FAILED \
+      "the rule was to be restricted to $OPT_FIREWALL_IFACE, which does not exist on this server"
   fi
 
   spec="$(ufw_rule_spec)"
@@ -1219,26 +1242,37 @@ preflight_firewall() {
   fi
 }
 
-preflight_network_mode() {
-  [ "$OPT_NETWORK_MODE" = tailnet ] || {
-    emit_check network_mode ok \
-      "network mode 'public': Hive will be reachable on port $OPT_PORT from anywhere that can route to this server" \
-      "$(printf '{"mode":"public","port":%s}' "$OPT_PORT")"
+# What this server's network interfaces are, so a client asking whether to
+# scope the firewall rule can offer the ones that exist rather than a free-text
+# field. Never a blocker: an interface list is information, and an operator who
+# names none is opening the port, which needs no interface at all.
+preflight_interfaces() {
+  local name addr entries="" addrs names="" addressed=0
+  # When the addresses can be read, an interface carrying none is dropped: a
+  # container host's dozen veth devices have only link-local addresses, cannot
+  # be routed to, and are noise in front of the two interfaces that can. When
+  # they cannot be read, every interface is listed rather than none.
+  command -v ip >/dev/null 2>&1 && addressed=1
+  while IFS= read -r name; do
+    [ -n "$name" ] || continue
+    addrs=""
+    while IFS= read -r addr; do
+      [ -n "$addr" ] || continue
+      addrs+="$(printf '"%s",' "$(json_escape "$addr")")"
+    done < <(iface_addresses "$name")
+    [ "$addressed" = 0 ] || [ -n "$addrs" ] || continue
+    entries+="$(printf '{"name":"%s","addresses":[%s]},' "$(json_escape "$name")" "${addrs%,}")"
+    names+="$name "
+  done < <(list_ifaces)
+  if [ -z "$names" ]; then
+    emit_check interfaces warn \
+      "this server has no addressable network interface other than loopback" \
+      '{"interfaces":[]}'
     return 0
-  }
-  # Hive does not install or configure the private network. Without the
-  # interface the firewall rule would match nothing and the install would come
-  # up healthy but unreachable — the worst kind of failure, because everything
-  # reports success. Hard blocker.
-  if tailnet_iface_exists "$OPT_TAILNET_IFACE"; then
-    emit_check tailnet_interface ok "the tailnet interface $OPT_TAILNET_IFACE exists" \
-      "$(printf '{"mode":"tailnet","interface":"%s","present":true}' "$OPT_TAILNET_IFACE")"
-  else
-    emit_check tailnet_interface fail \
-      "network mode 'tailnet' needs the interface $OPT_TAILNET_IFACE, which does not exist on this server; bring the private network up first" \
-      "$(printf '{"mode":"tailnet","interface":"%s","present":false}' "$OPT_TAILNET_IFACE")" \
-      TAILNET_INTERFACE_MISSING
   fi
+  emit_check interfaces ok \
+    "network interfaces on this server: ${names% }" \
+    "$(printf '{"interfaces":[%s]}' "${entries%,}")"
 }
 
 preflight_ssh_key() {
@@ -1263,7 +1297,7 @@ run_preflight() {
   preflight_dir install_dir "the install directory" "$HIVE_OPT" "$HIVE_INSTALL_MIN_MB"
   preflight_dir data_dir "the data directory" "$HIVE_DATA_DIR" "$HIVE_DATA_MIN_MB"
   preflight_firewall
-  preflight_network_mode
+  preflight_interfaces
   preflight_ssh_key
   emit_preflight_summary
 }

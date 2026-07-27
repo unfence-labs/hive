@@ -15,9 +15,11 @@ import { CONNECTION_STORAGE_KEY, getConnection, replaceConnection } from "@/hook
 import {
   ACCESS_TOKEN,
   UNTRUSTED_HOST,
+  activeFirewallReport,
   blockedReport,
   createMockProvisionClient,
   failureRecords,
+  foreignFirewallReport,
   report,
   successRecords,
 } from "./mock-provision-client";
@@ -123,7 +125,7 @@ describe("Installer", () => {
     expect(screen.getByRole("button", { name: "Cancel" })).toBeInTheDocument();
   });
 
-  it("collects the exposure mode, address, port and the advanced directories", async () => {
+  it("collects the address, the port and the advanced directories, and asks nothing about the network", async () => {
     const user = userEvent.setup();
     const client = createMockProvisionClient();
     render(<Installer client={client} />);
@@ -134,15 +136,14 @@ describe("Installer", () => {
     expect(screen.getByLabelText("Port")).toHaveValue("9420");
     expect(screen.queryByLabelText("Install directory")).not.toBeInTheDocument();
 
+    // How the server is reachable is the operator's business, so there is no
+    // exposure question here at all — and nothing to answer it with.
+    expect(screen.queryAllByRole("radio")).toHaveLength(0);
+
     await user.click(screen.getByRole("button", { name: "Advanced" }));
     expect(screen.getByLabelText("Install directory")).toHaveValue("/opt/hive");
     expect(screen.getByLabelText("Data directory")).toHaveValue("/home/hive/.hive");
-    // The interface only exists for the mode that needs it.
-    expect(screen.queryByLabelText("Private network interface")).not.toBeInTheDocument();
-    await user.click(
-      screen.getByRole("radio", { name: "Reachable only over a private network" }),
-    );
-    expect(screen.getByLabelText("Private network interface")).toHaveValue("tailscale0");
+    expect(screen.queryAllByRole("radio")).toHaveLength(0);
 
     const address = screen.getByLabelText("Address");
     expect(screen.getByRole("button", { name: "Continue" })).toBeDisabled();
@@ -183,7 +184,7 @@ describe("Installer", () => {
     await waitFor(() => expect(client.preflight).toHaveBeenCalledTimes(1));
     expect(client.preflight).toHaveBeenCalledWith(
       { host: "203.0.113.10", user: "root", keyPath: "/home/lenny/.ssh/id_ed25519" },
-      expect.objectContaining({ port: 9420, installDir: "/opt/hive", networkMode: "public" }),
+      { port: 9420, installDir: "/opt/hive", dataDir: "/home/hive/.hive" },
     );
   });
 
@@ -253,15 +254,7 @@ describe("Installer", () => {
   it("reports a non-blocking finding without standing in the way", async () => {
     const client = createMockProvisionClient({
       identity: { ...UNTRUSTED_HOST, trusted: true },
-      preflight: report({
-        checks: [
-          {
-            check: "firewall",
-            status: "warn",
-            detail: "nftables is active and is not modified by this installer",
-          },
-        ],
-      }),
+      preflight: foreignFirewallReport(),
     });
     seed("connect");
     render(<Installer client={client} />);
@@ -270,6 +263,94 @@ describe("Installer", () => {
       await screen.findByText("nftables is active and is not modified by this installer"),
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Continue" })).toBeEnabled();
+  });
+
+  // ── the one firewall question ──────────────────────────────────────────────
+
+  it("never asks about the firewall when no firewall is active", async () => {
+    const client = createMockProvisionClient({
+      identity: { ...UNTRUSTED_HOST, trusted: true },
+    });
+    seed("connect");
+    render(<Installer client={client} />);
+
+    // The report says plainly what will happen and on which port, and there is
+    // nothing to decide: no rule is written, so no question is put.
+    expect(
+      await screen.findByText("no active firewall; the installer will not enable one"),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/This server runs an active firewall/)).not.toBeInTheDocument();
+    expect(screen.queryAllByRole("radio")).toHaveLength(0);
+  });
+
+  it("never asks about a firewall it refuses to edit", async () => {
+    const client = createMockProvisionClient({
+      identity: { ...UNTRUSTED_HOST, trusted: true },
+      preflight: foreignFirewallReport(),
+    });
+    seed("connect");
+    render(<Installer client={client} />);
+
+    await screen.findByText("nftables is active and is not modified by this installer");
+    expect(screen.queryByText(/This server runs an active firewall/)).not.toBeInTheDocument();
+    expect(screen.queryAllByRole("radio")).toHaveLength(0);
+  });
+
+  it("asks once, after preflight, when a firewall is active, offering the interfaces the server has", async () => {
+    const client = createMockProvisionClient({
+      identity: { ...UNTRUSTED_HOST, trusted: true },
+      preflight: activeFirewallReport(),
+    });
+    seed("connect");
+    render(<Installer client={client} />);
+
+    expect(await screen.findByText(/This server runs an active firewall/)).toBeInTheDocument();
+    // Open the port, or one of the interfaces preflight really enumerated —
+    // and nothing else. A name that is not on the server cannot be asked for.
+    expect(
+      screen.getByRole("radio", { name: "Open port 9420 to anything that can reach this server" }),
+    ).toBeChecked();
+    expect(screen.getByRole("radio", { name: "Allow it only on eth0" })).toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: "Allow it only on wg0" })).toBeInTheDocument();
+    expect(screen.queryAllByRole("radio")).toHaveLength(3);
+  });
+
+  it("carries the chosen interface into the plan and the install", async () => {
+    const user = userEvent.setup();
+    const client = createMockProvisionClient({
+      identity: { ...UNTRUSTED_HOST, trusted: true },
+      preflight: activeFirewallReport(),
+    });
+    seed("connect");
+    render(<Installer client={client} />);
+
+    await user.click(await screen.findByRole("radio", { name: "Allow it only on wg0" }));
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+
+    expect(await screen.findByText("Only on wg0, if a firewall is active")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Start the install" }));
+
+    await waitFor(() => expect(client.installs).toHaveLength(1));
+    expect(client.installs[0].request.options).toMatchObject({ firewallInterface: "wg0" });
+  });
+
+  it("opens the port when the operator does not restrict it", async () => {
+    const user = userEvent.setup();
+    const client = createMockProvisionClient({
+      identity: { ...UNTRUSTED_HOST, trusted: true },
+      preflight: activeFirewallReport(),
+    });
+    seed("connect");
+    render(<Installer client={client} />);
+
+    await user.click(await screen.findByRole("button", { name: "Continue" }));
+
+    expect(await screen.findByText("Port 9420 opened, if a firewall is active")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Start the install" }));
+
+    await waitFor(() => expect(client.installs).toHaveLength(1));
+    // The absence of the option is what opens the port; there is no mode to set.
+    expect(client.installs[0].request.options).not.toHaveProperty("firewallInterface");
   });
 
   it("surfaces an unreachable server with its hint and a retry", async () => {
@@ -318,11 +399,10 @@ describe("Installer", () => {
       user: "root",
       keyPath: "/home/lenny/.ssh/id_ed25519",
     });
-    expect(client.installs[0].request.options).toMatchObject({
+    expect(client.installs[0].request.options).toEqual({
       port: 9420,
       installDir: "/opt/hive",
       dataDir: "/home/hive/.hive",
-      networkMode: "public",
     });
   });
 

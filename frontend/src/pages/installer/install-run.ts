@@ -46,8 +46,7 @@ export function installRunKey(request: InstallRequest): string {
     options.port,
     options.installDir,
     options.dataDir,
-    options.networkMode,
-    options.tailnetInterface,
+    options.firewallInterface,
   ]);
 }
 

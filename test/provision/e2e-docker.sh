@@ -154,6 +154,13 @@ token_from_stream() {
   grep -o '"accessToken":"[0-9a-f]\{64\}"' "$1" | head -1 | cut -d'"' -f4
 }
 
+# The interface names preflight enumerated, one per line. This is the list a
+# client offers the operator, so reading it back is how a lane proves the
+# firewall question can only ever name an interface the server really has.
+enumerated_interfaces() {
+  grep -o '"check":"interfaces".*' "$1" | grep -o '"name":"[^"]*"' | cut -d'"' -f4
+}
+
 assert_run_ok() {
   grep -q '"event":"run_end","status":"ok"' "$1" \
     || { tail -30 "$1" >&2; die "the run did not finish ok"; }
@@ -614,6 +621,40 @@ mode_neighbour() {
   [ -n "$token2" ] && [ -n "$token" ] || die "no token was reported"
   echo "OK: Hive is reachable through the active firewall"
 
+  # -- Phase C: the operator restricts the rule to one interface -------------
+  # The interface is not typed: it is taken from what preflight enumerated,
+  # which is the whole point of enumerating it.
+  log "Phase C: the operator scopes the rule to one of this server's interfaces"
+  run_provision --preflight --port "$PORT" >"$WORK/neighbour-pre.ndjson" 2>&1 \
+    || die "preflight failed on the busy server"
+  grep -q '"check":"firewall".*"active":true' "$WORK/neighbour-pre.ndjson" \
+    || { grep '"check":"firewall"' "$WORK/neighbour-pre.ndjson" >&2
+         die "preflight did not report the active firewall it must ask about"; }
+  local iface
+  iface="$(enumerated_interfaces "$WORK/neighbour-pre.ndjson" | head -1)"
+  [ -n "$iface" ] || die "preflight enumerated no interface to choose from"
+  echo "OK: preflight offers $(enumerated_interfaces "$WORK/neighbour-pre.ndjson" | tr '\n' ' ')"
+
+  rules_before="$(ufw_rules)"
+  run_provision --port "$PORT" --firewall-interface "$iface" >"$WORK/neighbour-c.ndjson" \
+    || { tail -30 "$WORK/neighbour-c.ndjson" >&2; die "the interface-scoped run failed"; }
+  assert_run_ok "$WORK/neighbour-c.ndjson"
+
+  [ "$(sh_server 'ufw status verbose | grep "^Default:"')" = "$policy_before" ] \
+    || die "the default policy changed on the interface-scoped run"
+  added="$(comm -13 <(printf '%s\n' "$rules_before") <(ufw_rules))"
+  grep -q "Anywhere on $iface" <<<"$added" \
+    || { printf '%s\n' "$added" >&2; die "no rule scoped to $iface was added"; }
+  grep -q '"ruleApplied":true,"rule":"ufw allow in on '"$iface"'"' "$WORK/neighbour-c.ndjson" \
+    || { grep firewall_rule "$WORK/neighbour-c.ndjson" >&2
+         die "the interface-scoped rule was not reported on the progress stream"; }
+  echo "OK: exactly the rule 'ufw allow in on $iface' was added and reported"
+
+  assert_neighbour_80_alive "after scoping Hive's rule to $iface"
+  peer_can_reach "$SERVER_HOST" "$PORT" /health \
+    || die "a peer on $iface cannot reach Hive after the rule was scoped to it"
+  echo "OK: Hive still answers on $iface, and the neighbour is untouched"
+
   log "PASS (Hive installs onto a busy server without disturbing what runs there)"
 }
 
@@ -677,14 +718,14 @@ mode_preflight() {
   set -e
   [ "$rc" = 0 ] || { tail -20 "$WORK/pre.ndjson" >&2; die "preflight exited $rc; it must always exit 0"; }
 
-  # A missing tailnet interface, a busy port and a non-default directory are the
+  # An interface this server does not have, and a non-default directory, are the
   # findings most likely to tempt a check into "fixing" something.
   set +e
-  run_provision --preflight --network-mode tailnet >"$WORK/pre-tailnet.ndjson" 2>&1; rc=$?
+  run_provision --preflight --firewall-interface hive-absent0 >"$WORK/pre-iface.ndjson" 2>&1; rc=$?
   run_provision --preflight --install-dir /srv/hive-app --data-dir /mnt/hive-data \
     --ssh-public-key "$TEST_SSH_KEY" >"$WORK/pre-paths.ndjson" 2>&1
   set -e
-  [ "$rc" = 0 ] || die "preflight in tailnet mode exited $rc"
+  [ "$rc" = 0 ] || die "preflight with an absent interface exited $rc"
 
   log "Compare the snapshots"
   snapshot_fs | grep -vFf "$WORK/churn.paths" - >"$WORK/fs.after" || true
@@ -706,19 +747,39 @@ mode_preflight() {
   in_server id hive >/dev/null 2>&1 && die "preflight created the service account"
   echo "OK: no state directory, no log file, no service account"
 
-  log "It still reported findings, and the tailnet blocker is a blocker"
+  log "It still reported findings, including what this server's network looks like"
   grep -q '"event":"preflight","ok":true' "$WORK/pre.ndjson" \
     || { grep '"status":"fail"' "$WORK/pre.ndjson" >&2; die "preflight did not pass on a clean server"; }
   local check
-  for check in os systemd arch privilege existing_install port install_dir data_dir firewall; do
+  for check in os systemd arch privilege existing_install port install_dir data_dir firewall interfaces; do
     grep -q "\"check\":\"$check\"" "$WORK/pre.ndjson" || die "preflight did not report '$check'"
   done
-  grep -q '"check":"tailnet_interface","status":"fail"' "$WORK/pre-tailnet.ndjson" \
-    || die "a missing tailnet interface was not reported as a failure"
-  grep -q '"errorCode":"TAILNET_INTERFACE_MISSING"' "$WORK/pre-tailnet.ndjson" \
-    || die "the tailnet blocker carried no error code"
-  grep -q '"event":"preflight","ok":false,"blockers":\["tailnet_interface"\]' "$WORK/pre-tailnet.ndjson" \
-    || die "the tailnet blocker did not reach the summary"
+
+  # The two things the firewall question is derived from: whether a firewall is
+  # active, and which interfaces exist. Both have to be on the stream, because
+  # the client asks its one question out of them and nothing else.
+  grep -q '"check":"firewall".*"active":\(true\|false\)' "$WORK/pre.ndjson" \
+    || die "preflight did not report whether a host firewall is active"
+  grep -q '"check":"interfaces".*"interfaces":\[{"name":"' "$WORK/pre.ndjson" \
+    || { grep '"check":"interfaces"' "$WORK/pre.ndjson" >&2
+         die "preflight did not enumerate the server's network interfaces"; }
+  [ "$(enumerated_interfaces "$WORK/pre.ndjson")" = "eth0" ] \
+    || die "the enumerated interfaces are not this container's: $(enumerated_interfaces "$WORK/pre.ndjson")"
+  grep -q '"check":"interfaces".*"name":"lo"' "$WORK/pre.ndjson" \
+    && die "loopback was offered as somewhere Hive could be reached"
+  echo "OK: the firewall state and the interface list both reached the stream"
+
+  # An interface that is not there is no longer a refusal to install: it is a
+  # rule that would never be written. Nothing may block on it.
+  grep -q '"event":"preflight","ok":true' "$WORK/pre-iface.ndjson" \
+    || { grep '"status":"fail"' "$WORK/pre-iface.ndjson" >&2
+         die "an absent interface blocked preflight"; }
+  grep -q 'hive-absent0' "$WORK/pre-iface.ndjson" \
+    && die "preflight invented a finding about an interface it was merely handed"
+  grep -q 'TAILNET_INTERFACE_MISSING\|tailnet' "$WORK/pre-iface.ndjson" \
+    && die "the retired interface blocker is still being emitted"
+  echo "OK: an absent interface is not a blocker, and the old blocker is gone"
+
   grep -q '"check":"install_dir".*"path":"/srv/hive-app"' "$WORK/pre-paths.ndjson" \
     || die "preflight did not check the configured install directory"
   grep -q '"check":"data_dir".*"path":"/mnt/hive-data"' "$WORK/pre-paths.ndjson" \
@@ -811,6 +872,22 @@ mode_uninstall() {
   assert_run_ok "$WORK/uninst.ndjson"
   sh_server "ufw status | grep -q '^$PORT/tcp'" || die "no firewall rule was added"
 
+  # Re-run with the rule scoped to an interface instead. Both shapes are now
+  # recorded, and the uninstaller has to take both back out: a record that
+  # remembered only the latest would leave the first one behind for good.
+  log "Re-run with the rule scoped to an interface, so two rules are recorded"
+  run_provision --preflight --port "$PORT" >"$WORK/uninst-pre.ndjson" 2>&1 \
+    || die "preflight failed before the interface-scoped re-run"
+  local iface
+  iface="$(enumerated_interfaces "$WORK/uninst-pre.ndjson" | head -1)"
+  [ -n "$iface" ] || die "preflight enumerated no interface to scope the rule to"
+  run_provision --port "$PORT" --firewall-interface "$iface" >"$WORK/uninst2.ndjson" \
+    || { tail -30 "$WORK/uninst2.ndjson" >&2; die "the interface-scoped re-run failed"; }
+  assert_run_ok "$WORK/uninst2.ndjson"
+  sh_server "ufw status | grep -q 'Anywhere on $iface'" \
+    || die "the interface-scoped rule was not added"
+  echo "OK: both an open-port rule and a rule scoped to $iface are in place"
+
   log "Leave something behind that stands in for the operator's work"
   sh_server "runuser -u hive -- touch /home/hive/.hive/my-precious-project" \
     || die "could not write to the data directory"
@@ -833,6 +910,8 @@ mode_uninstall() {
   sh_server 'test ! -e /var/lib/hive' || die "the provisioning state survived"
   in_server id hive >/dev/null 2>&1 && die "the service account survived"
   sh_server "ufw status | grep -q '^$PORT/tcp'" && die "the firewall rule this install added survived"
+  sh_server "ufw status | grep -q 'Anywhere on $iface'" \
+    && die "the interface-scoped rule this install added survived"
   [ "$(sh_server 'ufw status | head -1')" = "Status: active" ] \
     || die "the uninstaller disabled the operator's firewall"
   echo "OK: unit, install directory, runtime, configuration, state, account and rule are all gone"

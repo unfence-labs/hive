@@ -32,6 +32,12 @@ CODE="$WORK/provision-code.txt"
 grep -hv '^[[:space:]]*#' "$PROV"/lib.sh "$PROV"/steps.sh "$PROV"/main.sh \
   | sed '/^usage() {$/,/^}$/d' >"$CODE"
 
+# Same, but keeping the --help text: it is part of the option surface, so it is
+# held to the naming rules even though it is not code.
+SPEECH="$WORK/provision-speech.txt"
+grep -hv '^[[:space:]]*#' "$PROV"/lib.sh "$PROV"/steps.sh "$PROV"/main.sh \
+  "$ROOT/shared/setup-errors.ts" >"$SPEECH"
+
 # ---------------------------------------------------------------------------
 # 1. The bash and TypeScript error taxonomies stay in sync
 # ---------------------------------------------------------------------------
@@ -82,12 +88,21 @@ fi
 refute "no vendor runtime repository is added to the operator's system" \
   grep -niE 'nodesource|apt_install nodejs|apt-get install.*nodejs' "$CODE"
 
-# The private network is a prerequisite the operator arranges. The script may
-# name the interface — it has to, to check that it exists and to scope a
-# firewall rule to it — but it may never install, authenticate or bring up
-# Tailscale itself.
-refute "Tailscale is never installed, authenticated or brought up" \
-  grep -niE 'tailscale (up|down|login)|install_tailscale|ts_authkey|--authkey|apt[^|]*tailscale|pkgs\.tailscale\.com' "$CODE"
+# The mechanism is generic: an interface is an interface. WireGuard, ZeroTier,
+# Nebula and a plain second NIC are all the same thing to a firewall rule, and
+# none of them is a "tailnet". No vendor of one may be named in an option, an
+# error code, a variable or a message — naming one turns a parameter into a
+# recommendation the product cannot enforce, and the script has never installed,
+# authenticated or brought up any of them either.
+# Comments are exempt, and only they: a design note may cite the installers this
+# one was measured against, but no option, error code, variable, message or line
+# of help text may name one of them.
+vendors="$(grep -niE 'tailscale|tailnet|zerotier|wireguard|nebula|headscale' "$SPEECH" || true)"
+if [ -z "$vendors" ]; then
+  pass "no private-network vendor is named in an option, a code, a variable or a message"
+else
+  fail "a vendor name reached the option surface: $(tr '\n' ' ' <<<"$vendors")"
+fi
 
 refute "the development port 3000 does not appear in the provisioner" \
   grep -nE '\b3000\b' "$CODE"
@@ -117,9 +132,9 @@ refute "no firewall other than ufw is ever modified" \
   grep -nE 'firewall-cmd[^|]*--(add|remove|set|reload|permanent)' "$CODE"
 
 # The one rule that may be added, and the only two shapes it may take.
-expect "exactly one ufw rule is applied, per network mode" \
-  grep -q "printf 'allow in on %s' \"\$OPT_TAILNET_IFACE\"" "$PROV/steps.sh"
-expect "the public-mode rule opens only the configured port" \
+expect "a named interface restricts the rule to that interface" \
+  grep -q "printf 'allow in on %s' \"\$OPT_FIREWALL_IFACE\"" "$PROV/steps.sh"
+expect "no named interface opens only the configured port" \
   grep -q "printf 'allow %s/tcp' \"\$OPT_PORT\"" "$PROV/steps.sh"
 
 # `ufw <spec>` must be the only ufw invocation that is not a read of its state.
@@ -303,8 +318,7 @@ paths_out="$(bash -c '
   OPT_DATA_DIR=/mnt/big/hive-data
   OPT_PORT=9999
   OPT_HOST=0.0.0.0
-  OPT_NETWORK_MODE=tailnet
-  OPT_TAILNET_IFACE=wg0
+  OPT_FIREWALL_IFACE=wg0
   HIVE_AUTH_TOKEN_SHA256=deadbeef
   resolve_paths
   printf "opt=%s data=%s runtime=%s node=%s uninstall=%s\n" \
@@ -341,16 +355,16 @@ expect "the systemd unit can write the configured data directory" \
 expect "the backend is told to use the configured data directory" \
   grep -q '^DATA_DIR=/mnt/big/hive-data' <<<"$paths_out"
 expect "the backend is told to use the configured port" grep -q '^PORT=9999' <<<"$paths_out"
-expect "tailnet mode restricts the rule to the configured interface" \
+expect "a configured interface restricts the rule to that interface" \
   grep -qx 'allow in on wg0' <<<"$paths_out"
 
-public_rule="$(bash -c '
+open_rule="$(bash -c '
   # shellcheck disable=SC1090
   source "$1"; source "$2"
-  OPT_NETWORK_MODE=public OPT_PORT=9999 OPT_TAILNET_IFACE=wg0
+  OPT_PORT=9999 OPT_FIREWALL_IFACE=""
   ufw_rule_spec
 ' _ "$PROV/lib.sh" "$PROV/steps.sh")"
-expect "public mode opens only the configured port" [ "$public_rule" = "allow 9999/tcp" ]
+expect "no interface opens only the configured port" [ "$open_rule" = "allow 9999/tcp" ]
 
 # ---------------------------------------------------------------------------
 # 7. The generated uninstall script
@@ -410,32 +424,34 @@ if bash "$bundle" --preflight --port 9420 >"$pre_out" 2>"$WORK/preflight.err"; t
 else
   fail "preflight exited non-zero: $(cat "$WORK/preflight.err")"
 fi
-for check in os systemd arch privilege existing_install port install_dir data_dir firewall; do
+for check in os systemd arch privilege existing_install port install_dir data_dir firewall interfaces; do
   expect "preflight reports the '$check' check" \
     grep -q "\"check\":\"$check\"" "$pre_out"
 done
 expect "preflight ends with a summary and a clean terminal event" \
   bash -c 'grep -q "\"event\":\"preflight\",\"ok\":" "$1" && grep -q "\"event\":\"run_end\",\"status\":\"ok\"" "$1"' _ "$pre_out"
 
-# The tailnet interface is a hard blocker, and it is the reason the check
-# exists: without it the firewall rule matches nothing and the install comes up
-# healthy but unreachable.
-tail_out="$WORK/preflight-tailnet.ndjson"
-if bash "$bundle" --preflight --network-mode tailnet --tailnet-interface hive-absent0 >"$tail_out" 2>&1; then
-  pass "preflight still exits 0 when the tailnet interface is missing"
+# Preflight enumerates the server's interfaces so a client can offer a real
+# list. The list is what makes it impossible to ask for an interface that is not
+# there — which is why there is no interface blocker any more.
+expect "preflight enumerates the server's network interfaces by name" \
+  grep -qE '"check":"interfaces","status":"(ok|warn)".*"interfaces":\[' "$pre_out"
+
+# An interface that does not exist is now a rule that is never written, not a
+# refusal to install. Preflight still reports and never blocks.
+iface_out="$WORK/preflight-interface.ndjson"
+if bash "$bundle" --preflight --firewall-interface hive-absent0 >"$iface_out" 2>&1; then
+  pass "preflight exits 0 for an interface this server does not have"
 else
-  fail "preflight exited non-zero on a missing tailnet interface"
+  fail "preflight exited non-zero for an absent interface"
 fi
-expect "a missing tailnet interface is reported as a blocker" \
-  bash -c 'grep -q "\"check\":\"tailnet_interface\",\"status\":\"fail\"" "$1" &&
-           grep -q "\"errorCode\":\"TAILNET_INTERFACE_MISSING\"" "$1" &&
-           grep -q "\"blockers\":\[.*\"tailnet_interface\".*\]" "$1"' _ "$tail_out"
-expect "public mode does not require a tailnet interface" \
-  bash -c '! grep -q "tailnet_interface" "$1"' _ "$pre_out"
+expect "an absent interface is not a preflight blocker" \
+  bash -c 'grep -q "\"event\":\"preflight\",\"ok\":" "$1" &&
+           ! grep -q "hive-absent0" "$1"' _ "$iface_out"
 
 # Every errorCode preflight can name must be one the taxonomy declares, or a
 # client would render a blocker it has no hint for.
-pre_codes="$(grep -ohE '"errorCode":"[A-Z_]+"' "$pre_out" "$tail_out" | cut -d'"' -f4 | sort -u)"
+pre_codes="$(grep -ohE '"errorCode":"[A-Z_]+"' "$pre_out" "$iface_out" | cut -d'"' -f4 | sort -u)"
 undeclared_pre="$(comm -23 <(printf '%s\n' "$pre_codes") <(printf '%s\n' "$bash_codes") | grep -v '^$' || true)"
 if [ -z "$undeclared_pre" ]; then
   pass "preflight findings name only declared error codes"
@@ -490,6 +506,10 @@ refute "a truncated bundle fails to parse and executes nothing" bash "$truncated
 expect "the bundle prints help without root" bash "$bundle" --help
 refute "the bundle rejects an out-of-range port" bash "$bundle" --port 99999
 refute "the bundle rejects an unknown option" bash "$bundle" --nope
+refute "the network mode is gone from the option surface" \
+  bash "$bundle" --network-mode public
+refute "the bundle rejects an interface name that could be read as an option" \
+  bash "$bundle" --firewall-interface '-oProxyCommand=bad'
 
 bash "$PROV/build.sh" 9.9.9 >/dev/null
 refute "--release-file is refused for non-prerelease script versions" \

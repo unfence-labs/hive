@@ -32,7 +32,9 @@ describe("installer machine", () => {
     expect(DEFAULT_BACKEND_PORT).toBe(9420);
     expect(machine.inputs.installDir).toBe(DEFAULT_INSTALL_DIR);
     expect(machine.inputs.dataDir).toBe(DEFAULT_DATA_DIR);
-    expect(machine.inputs.networkMode).toBe("public");
+    // No network question is answered before the server has been looked at, so
+    // there is nothing here to answer it with.
+    expect(machine.inputs.firewallInterface).toBeUndefined();
   });
 
   it("walks the sequence forward and back, and back is available everywhere but welcome", () => {
@@ -80,7 +82,7 @@ describe("installer machine", () => {
 
     localStorage.setItem(
       INSTALLER_STORAGE_KEY,
-      JSON.stringify({ schema: INSTALLER_SCHEMA, state: "tailscale", inputs: {} }),
+      JSON.stringify({ schema: INSTALLER_SCHEMA, state: "no-such-screen", inputs: {} }),
     );
     expect(loadMachine().state).toBe("welcome");
   });

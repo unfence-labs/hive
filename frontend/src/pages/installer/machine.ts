@@ -21,13 +21,9 @@ export const INSTALLER_STATES = [
 
 export type InstallerState = (typeof INSTALLER_STATES)[number];
 
-/** How the server will be exposed. Declared by the operator, never inferred. */
-export type NetworkMode = "public" | "tailnet";
-
 /** Defaults mirror `scripts/provision/steps.sh`; changing one means changing both. */
 export const DEFAULT_INSTALL_DIR = "/opt/hive";
 export const DEFAULT_DATA_DIR = "/home/hive/.hive";
-export const DEFAULT_TAILNET_INTERFACE = "tailscale0";
 
 /**
  * Everything the operator declares. The address is the address that reaches
@@ -35,13 +31,18 @@ export const DEFAULT_TAILNET_INTERFACE = "tailscale0";
  * never hands over to a second one.
  */
 export interface InstallerInputs {
-  networkMode: NetworkMode;
   /** `host` or `user@host`. Without a user the install logs in as root. */
   address: string;
   port: number;
   installDir: string;
   dataDir: string;
-  tailnetInterface: string;
+  /**
+   * Restrict the one firewall rule to this interface instead of opening the
+   * port. Only ever set from the interfaces preflight found on the server, and
+   * only when a firewall the installer can edit is already active — so it is
+   * absent on most installs, and that absence is what opens the port.
+   */
+  firewallInterface?: string;
   sshKeyPath?: string;
   /** Public half of the selected key, authorized on the service account. */
   sshPublicKey?: string;
@@ -63,18 +64,16 @@ export interface InstallerMachine {
 }
 
 /** Bump when a shape change would make a stored record misleading. */
-export const INSTALLER_SCHEMA = 1;
+export const INSTALLER_SCHEMA = 2;
 
 export const INSTALLER_STORAGE_KEY = "hive-installer-state";
 
 export function defaultInputs(): InstallerInputs {
   return {
-    networkMode: "public",
     address: "",
     port: DEFAULT_BACKEND_PORT,
     installDir: DEFAULT_INSTALL_DIR,
     dataDir: DEFAULT_DATA_DIR,
-    tailnetInterface: DEFAULT_TAILNET_INTERFACE,
   };
 }
 

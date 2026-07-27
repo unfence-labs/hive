@@ -8,8 +8,7 @@ OPT_HOST="0.0.0.0"
 OPT_PORT="${OPT_ENV_PORT:-9420}"
 OPT_INSTALL_DIR="$OPT_ENV_INSTALL_DIR"
 OPT_DATA_DIR="$OPT_ENV_DATA_DIR"
-OPT_NETWORK_MODE="${OPT_ENV_NETWORK_MODE:-public}"
-OPT_TAILNET_IFACE="${OPT_ENV_TAILNET_IFACE:-tailscale0}"
+OPT_FIREWALL_IFACE="$OPT_ENV_FIREWALL_IFACE"
 OPT_SSH_KEY="$OPT_ENV_SSH_KEY"
 OPT_RELEASE_FILE=""
 OPT_PREFLIGHT=0
@@ -36,12 +35,10 @@ Options (each has an environment-variable equivalent that the flag overrides):
                             (default /home/hive/.hive, $HIVE_DATA_DIR)
   --port <n>                Port for the backend (default 9420, $HIVE_PORT)
   --host <addr>             Bind address for the backend (default 0.0.0.0)
-  --network-mode <mode>     public | tailnet (default public,
-                            $HIVE_NETWORK_MODE). Selects the firewall rule
-                            only. 'tailnet' requires the private network
-                            interface to already exist.
-  --tailnet-interface <if>  Private network interface for tailnet mode
-                            (default tailscale0, $HIVE_TAILNET_INTERFACE)
+  --firewall-interface <if> Scope the firewall rule to one network interface
+                            instead of opening the port to everyone
+                            ($HIVE_FIREWALL_INTERFACE). Only ever consulted
+                            when a firewall is already active.
   --ssh-public-key <key>    Authorize this OpenSSH public key on the hive
                             service account, so an editor or terminal session
                             connects as hive and not as root
@@ -53,8 +50,9 @@ Options (each has an environment-variable equivalent that the flag overrides):
   -h, --help                Show this help
 
 The firewall is never enabled and its default policy is never changed. If a
-firewall is already active, exactly one rule is added for Hive's own port or
-private interface; if none is active, nothing is done and that is reported.
+firewall is already active, exactly one rule is added: Hive's own port, or
+inbound on --firewall-interface when one is given. If none is active, nothing
+is done and that is reported.
 
 An uninstall script is written to <install-dir>/hive-uninstall.sh, carrying the
 paths this run used. It keeps your data unless you pass --purge.
@@ -68,7 +66,7 @@ parse_args() {
   local key_file=""
   while [ $# -gt 0 ]; do
     case "$1" in
-      --host|--port|--install-dir|--data-dir|--network-mode|--tailnet-interface\
+      --host|--port|--install-dir|--data-dir|--firewall-interface\
       |--ssh-public-key|--ssh-public-key-file|--release-file)
         [ "$#" -ge 2 ] || { echo "missing value for $1" >&2; exit 2; }
         case "$1" in
@@ -76,8 +74,7 @@ parse_args() {
           --port) OPT_PORT="$2" ;;
           --install-dir) OPT_INSTALL_DIR="$2" ;;
           --data-dir) OPT_DATA_DIR="$2" ;;
-          --network-mode) OPT_NETWORK_MODE="$2" ;;
-          --tailnet-interface) OPT_TAILNET_IFACE="$2" ;;
+          --firewall-interface) OPT_FIREWALL_IFACE="$2" ;;
           --ssh-public-key) OPT_SSH_KEY="$2" ;;
           --ssh-public-key-file) key_file="$2" ;;
           --release-file) OPT_RELEASE_FILE="$2" ;;
@@ -110,13 +107,12 @@ parse_args() {
     echo "invalid port: $OPT_PORT" >&2
     exit 2
   fi
-  case "$OPT_NETWORK_MODE" in
-    public|tailnet) : ;;
-    *) echo "invalid network mode: $OPT_NETWORK_MODE (expected public or tailnet)" >&2; exit 2 ;;
-  esac
-  # The interface name reaches `ufw allow in on <if>` and `ip link show <if>`.
-  if [[ ! "$OPT_TAILNET_IFACE" =~ ^[A-Za-z0-9._-]+$ ]]; then
-    echo "invalid network interface name: $OPT_TAILNET_IFACE" >&2
+  # The interface name reaches `ufw allow in on <if>` unquoted, so a leading
+  # dash would be read there as an option. Empty is the normal case: no
+  # interface means the rule opens the port.
+  if [ -n "$OPT_FIREWALL_IFACE" ] &&
+     { [[ ! "$OPT_FIREWALL_IFACE" =~ ^[A-Za-z0-9._-]+$ ]] || [[ "$OPT_FIREWALL_IFACE" = -* ]]; }; then
+    echo "invalid network interface name: $OPT_FIREWALL_IFACE" >&2
     exit 2
   fi
   # Both directories become systemd unit values, tar destinations and rm -rf
