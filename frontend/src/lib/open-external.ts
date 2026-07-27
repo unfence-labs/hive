@@ -1,9 +1,12 @@
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { isDesktopShell } from "@/lib/is-desktop";
 
 /**
  * Open a URL in the system browser.
  * Uses the Tauri opener plugin when running as a desktop app,
- * falls back to window.open for browser mode.
+ * falls back to window.open for browser mode. Imported statically: a dynamic
+ * import that fails at click time (stale Vite dep cache, offline chunk) would
+ * fall through to window.open, which a Tauri webview silently drops.
  */
 export async function openExternal(url: string): Promise<void> {
   const isHttp = /^https?:\/\//i.test(url);
@@ -20,7 +23,6 @@ export async function openExternal(url: string): Promise<void> {
   }
 
   try {
-    const { openUrl } = await import("@tauri-apps/plugin-opener");
     await openUrl(url);
   } catch (error) {
     console.warn("Failed to open external URL via Tauri opener:", error);
