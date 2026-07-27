@@ -9,6 +9,9 @@ OPT_INSTALL_DIR="$OPT_ENV_INSTALL_DIR"
 OPT_DATA_DIR="$OPT_ENV_DATA_DIR"
 OPT_FIREWALL_IFACE="$OPT_ENV_FIREWALL_IFACE"
 OPT_SSH_KEY="$OPT_ENV_SSH_KEY"
+# Flag-only on purpose: the debug sidecar passes it in argv, which survives
+# `sudo bash -s` where an environment variable would not.
+OPT_RELEASE_FILE=""
 OPT_PREFLIGHT=0
 ARCH_TAG=""
 HIVE_VERSION=""
@@ -40,6 +43,9 @@ Options (each has an environment-variable equivalent that the flag overrides):
                             service account, so an editor or terminal session
                             connects as hive and not as root
                             ($HIVE_SSH_PUBLIC_KEY)
+  --release-file <path>     Install a local release tarball instead of
+                            downloading one (dev/test only; refused unless the
+                            script version is a prerelease)
   --reset                   Discard recorded step state and run every step again
   -h, --help                Show this help
 
@@ -66,6 +72,7 @@ parse_args() {
       --data-dir) [ $# -ge 2 ] || missing "$1"; OPT_DATA_DIR="$2"; shift ;;
       --firewall-interface) [ $# -ge 2 ] || missing "$1"; OPT_FIREWALL_IFACE="$2"; shift ;;
       --ssh-public-key) [ $# -ge 2 ] || missing "$1"; OPT_SSH_KEY="$2"; shift ;;
+      --release-file) [ $# -ge 2 ] || missing "$1"; OPT_RELEASE_FILE="$2"; shift ;;
       --preflight) OPT_PREFLIGHT=1 ;;
       --reset) DO_RESET=1 ;;
       -h|--help) usage; exit 0 ;;
@@ -106,13 +113,23 @@ parse_args() {
   OPT_INSTALL_DIR="${OPT_INSTALL_DIR%/}"
   OPT_DATA_DIR="${OPT_DATA_DIR%/}"
 
+  # The release file is read by sha256sum and tar and recorded nowhere: same
+  # shape rules as the directories.
+  if [ -n "$OPT_RELEASE_FILE" ] &&
+     { [[ ! "$OPT_RELEASE_FILE" =~ ^(/[A-Za-z0-9._-]+)+$ ]] || [[ "$OPT_RELEASE_FILE" == *".."* ]]; }; then
+    echo "invalid release file: $OPT_RELEASE_FILE (must be an absolute path with no traversal)" >&2
+    exit 2
+  fi
+
   # The backend release always matches the script that installs it; build.sh
   # already validated the version string.
   HIVE_VERSION="$SCRIPT_VERSION"
-  # An alternate release origin is a development and test affordance: a
-  # published release must always come from the published URL, verified against
-  # its published checksum.
+  # Alternate release origins — a local tarball or a different base URL — are
+  # development and test affordances: a stable release must always come from
+  # the published URL, verified against its published checksum.
   if [[ "$HIVE_VERSION" != *-* ]]; then
+    [ -z "$OPT_RELEASE_FILE" ] || die RELEASE_DOWNLOAD_FAILED \
+      "--release-file is only available for prerelease script versions"
     HIVE_RELEASE_BASE_URL=""
   fi
 }

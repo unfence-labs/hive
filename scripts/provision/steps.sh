@@ -561,10 +561,16 @@ assert_release_abi() {
 }
 
 guard_install_release() {
-  local current
+  local current recorded
   current="$(readlink -f "$HIVE_OPT/current" 2>/dev/null || true)"
   [ -n "$current" ] || return 1
   [ "$(cat "$current/.hive-version" 2>/dev/null || true)" = "$HIVE_VERSION" ] || return 1
+  # A sideloaded dev release keeps its version across rebuilds, so the version
+  # marker alone would skip a genuinely new tarball; the checksum decides.
+  if [ -n "$OPT_RELEASE_FILE" ] && [ -f "$OPT_RELEASE_FILE" ]; then
+    recorded="$(cat "$current/.tarball.sha256" 2>/dev/null || true)"
+    { [ -n "$recorded" ] && [ "$recorded" = "$(sha256_of "$OPT_RELEASE_FILE")" ]; } || return 1
+  fi
   verify_release_dir "$current"
 }
 step_install_release() {
@@ -573,24 +579,36 @@ step_install_release() {
   install -d -o "$HIVE_USER" -g "$HIVE_USER" -m 755 "$HIVE_OPT/releases" "$HIVE_OPT/shared"
   ln -sfn "$HIVE_DATA_DIR" "$HIVE_OPT/shared/data"
 
-  base_url="${HIVE_RELEASE_BASE_URL:-https://github.com/unfence-labs/hive/releases/download/v$HIVE_VERSION}"
-  asset_url="$base_url/hive-backend-$HIVE_VERSION-linux-$ARCH_TAG.tar.gz"
-  # The published digest is fetched first, so nothing is unpacked before the
-  # download has been checked against it. A missing asset fails as a download
-  # error; a present but unusable digest fails as a checksum error.
-  STEP_ERR_CODE=RELEASE_DOWNLOAD_FAILED
-  DOWNLOAD_FILE="$(mktemp "$HIVE_VAR_DIR/download.XXXXXX")"
-  run_logged install_release curl -fsSL --retry 3 --retry-delay 2 \
-    -o "$DOWNLOAD_FILE" "$asset_url.sha256"
-  STEP_ERR_CODE=""
-  expected="$(cut -d' ' -f1 <"$DOWNLOAD_FILE")"
-  rm -f "$DOWNLOAD_FILE"; DOWNLOAD_FILE=""
-  expected="${expected,,}"
-  [[ "$expected" =~ ^[0-9a-f]{64}$ ]] || die CHECKSUM_MISMATCH \
-    "invalid or missing checksum at $asset_url.sha256"
-  download_verified install_release "$asset_url" "$expected" RELEASE_DOWNLOAD_FAILED
-  tarball="$DOWNLOAD_FILE"
-  checksum="$expected"
+  if [ -n "$OPT_RELEASE_FILE" ]; then
+    # A locally built tarball uploaded by a debug sidecar. parse_args already
+    # refused this option for stable script versions; everything after the
+    # checksum is the same path the downloaded release takes.
+    [ -f "$OPT_RELEASE_FILE" ] || die RELEASE_DOWNLOAD_FAILED \
+      "release file not found: $OPT_RELEASE_FILE"
+    tarball="$OPT_RELEASE_FILE"
+    checksum="$(sha256_of "$tarball")"
+  else
+    [ "$HIVE_VERSION" != "0.0.0-dev" ] || die RELEASE_DOWNLOAD_FAILED \
+      "a dev build has no published release: run 'bash scripts/release/build-backend-tarball.sh 0.0.0-dev <x64|arm64>' in the repo — the debug app uploads it from dist-release/ automatically (or set HIVE_DEV_RELEASE_TARBALL to a tarball path) — then retry"
+    base_url="${HIVE_RELEASE_BASE_URL:-https://github.com/unfence-labs/hive/releases/download/v$HIVE_VERSION}"
+    asset_url="$base_url/hive-backend-$HIVE_VERSION-linux-$ARCH_TAG.tar.gz"
+    # The published digest is fetched first, so nothing is unpacked before the
+    # download has been checked against it. A missing asset fails as a download
+    # error; a present but unusable digest fails as a checksum error.
+    STEP_ERR_CODE=RELEASE_DOWNLOAD_FAILED
+    DOWNLOAD_FILE="$(mktemp "$HIVE_VAR_DIR/download.XXXXXX")"
+    run_logged install_release curl -fsSL --retry 3 --retry-delay 2 \
+      -o "$DOWNLOAD_FILE" "$asset_url.sha256"
+    STEP_ERR_CODE=""
+    expected="$(cut -d' ' -f1 <"$DOWNLOAD_FILE")"
+    rm -f "$DOWNLOAD_FILE"; DOWNLOAD_FILE=""
+    expected="${expected,,}"
+    [[ "$expected" =~ ^[0-9a-f]{64}$ ]] || die CHECKSUM_MISMATCH \
+      "invalid or missing checksum at $asset_url.sha256"
+    download_verified install_release "$asset_url" "$expected" RELEASE_DOWNLOAD_FAILED
+    tarball="$DOWNLOAD_FILE"
+    checksum="$expected"
+  fi
 
   rel="$HIVE_OPT/releases/$HIVE_VERSION-$checksum"
   if ! verify_release_dir "$rel"; then

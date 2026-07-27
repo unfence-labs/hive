@@ -538,6 +538,18 @@ refute "the network mode is gone from the option surface" \
 refute "the bundle rejects an interface name that could be read as an option" \
   bash "$bundle" --firewall-interface '-oProxyCommand=bad'
 
+# --release-file is a dev/test affordance: a prerelease bundle parses it, a
+# stable bundle refuses it — a stable install must never sideload a release.
+expect "--release-file is parsed by a prerelease bundle" \
+  bash "$bundle" --release-file /var/lib/hive/uploads/x.tar.gz --help
+refute "--release-file rejects a path that could escape quoting" \
+  bash "$bundle" --release-file '/tmp/x;rm -rf /.tar.gz'
+bash "$PROV/build.sh" 9.9.9 >/dev/null
+stable_out="$(bash "$bundle" --release-file /var/lib/hive/uploads/x.tar.gz 2>/dev/null || true)"
+expect "--release-file is refused for stable script versions" \
+  grep -q '"errorCode":"RELEASE_DOWNLOAD_FAILED"' <<<"$stable_out"
+bash "$PROV/build.sh" 9.9.9-contract >/dev/null
+
 if command -v shellcheck >/dev/null 2>&1; then
   expect "shellcheck is clean on the sources and the bundle" \
     shellcheck "$PROV/build.sh" "$PROV/lib.sh" "$PROV/steps.sh" "$PROV/main.sh" "$bundle" \

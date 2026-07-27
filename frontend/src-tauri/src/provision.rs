@@ -18,7 +18,7 @@ use std::fs::OpenOptions;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tauri::ipc::Channel;
@@ -458,18 +458,22 @@ fn privilege_finding(checks: &[PreflightCheck]) -> Option<PrivilegeFinding> {
     Some(PrivilegeFinding { mode })
 }
 
-/// The remote command line. `-k` makes sudo ignore any cached credential, so a
+/// How a mode escalates. `-k` makes sudo ignore any cached credential, so a
 /// still-valid ticket cannot cause the password line to go unread; `-S` reads
 /// it from stdin; `-p ''` suppresses the prompt (which goes to stderr, leaving
 /// the NDJSON on stdout clean).
-fn remote_command(mode: PrivilegeMode, args: &[String]) -> String {
-    let prefix = match mode {
+fn escalation_prefix(mode: PrivilegeMode) -> &'static str {
+    match mode {
         PrivilegeMode::Root => "",
         PrivilegeMode::SudoNoPassword => "sudo -n -- ",
         PrivilegeMode::SudoPassword => "sudo -k -S -p '' -- ",
-    };
+    }
+}
+
+/// The remote command line for the streamed script.
+fn remote_command(mode: PrivilegeMode, args: &[String]) -> String {
     let quoted: Vec<String> = args.iter().map(|arg| shell_quote(arg)).collect();
-    format!("{prefix}bash -s -- {}", quoted.join(" "))
+    format!("{}bash -s -- {}", escalation_prefix(mode), quoted.join(" "))
 }
 
 // ── ssh transport ────────────────────────────────────────────────────────────
@@ -480,7 +484,9 @@ fn known_hosts_path() -> Result<PathBuf, ProvisionError> {
         .ok_or_else(|| ProvisionError::unknown("configuration directory unavailable"))
 }
 
-fn ssh_args(connection: &Connection) -> Result<Vec<String>, ProvisionError> {
+/// Options shared by ssh and scp. scp takes no `-l`; the user goes into its
+/// destination spec instead, which is why the login flag lives in `ssh_args`.
+fn ssh_opts(key_path: &str) -> Result<Vec<String>, ProvisionError> {
     let known_hosts = known_hosts_path()?;
     Ok(vec![
         "-o".into(),
@@ -501,10 +507,15 @@ fn ssh_args(connection: &Connection) -> Result<Vec<String>, ProvisionError> {
         "-o".into(),
         "ServerAliveCountMax=8".into(),
         "-i".into(),
-        connection.key_path.clone(),
-        "-l".into(),
-        connection.user().to_string(),
+        key_path.to_string(),
     ])
+}
+
+fn ssh_args(connection: &Connection) -> Result<Vec<String>, ProvisionError> {
+    let mut args = ssh_opts(&connection.key_path)?;
+    args.push("-l".into());
+    args.push(connection.user().to_string());
+    Ok(args)
 }
 
 /// Map ssh and sudo diagnostics onto the sidecar's codes. Order matters: the
@@ -1110,6 +1121,175 @@ fn execute_preflight(
     build_preflight_report(&records)
 }
 
+// ── dev release upload (debug builds only) ──────────────────────────────────
+//
+// The repository is private, so a debug build has no GitHub release to install
+// from. Instead it uploads a locally built tarball over the same SSH
+// connection and hands the script `--release-file <remote path>` — an argv
+// flag on purpose: argv survives `sudo bash -s`, environment variables do not.
+// Release builds never look for a tarball and refuse the flag outright.
+
+fn release_asset_name(version: &str, arch: &str) -> String {
+    format!("hive-backend-{version}-linux-{arch}.tar.gz")
+}
+
+/// `uname -m` output mapped to the release arch tags the build script uses.
+fn arch_tag(uname_m: &str) -> &str {
+    match uname_m {
+        "x86_64" => "x64",
+        "aarch64" | "arm64" => "arm64",
+        other => other,
+    }
+}
+
+/// `uname -m` on the server: the tarball must match the server's architecture,
+/// not this machine's.
+fn probe_arch(connection: &Connection) -> Result<String, ProvisionError> {
+    let output = Command::new("ssh")
+        .args(ssh_args(connection)?)
+        .arg(&connection.host)
+        .arg("uname -m")
+        .output()
+        .map_err(|error| {
+            ProvisionError::new("SSH_UNREACHABLE", format!("could not start ssh: {error}"))
+        })?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(ProvisionError::new(
+            ssh_error_code(&stderr),
+            tail(stderr.trim(), 300).to_string(),
+        ));
+    }
+    Ok(arch_tag(String::from_utf8_lossy(&output.stdout).trim()).to_string())
+}
+
+/// The locally built tarball a debug build installs from, if any:
+/// HIVE_DEV_RELEASE_TARBALL wins; otherwise the repository's `dist-release/`
+/// output for this version and the server's architecture, when it exists.
+fn local_release_tarball(connection: &Connection) -> Result<Option<PathBuf>, ProvisionError> {
+    if !cfg!(debug_assertions) {
+        return Ok(None);
+    }
+    if let Ok(path) = std::env::var("HIVE_DEV_RELEASE_TARBALL") {
+        return Ok(Some(PathBuf::from(path)));
+    }
+    let dist = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../dist-release");
+    if !dist.is_dir() {
+        return Ok(None);
+    }
+    let candidate = dist.join(release_asset_name(hive_version(), &probe_arch(connection)?));
+    Ok(candidate.exists().then_some(candidate))
+}
+
+/// The script args that point the install at an uploaded tarball. Refusing
+/// here as well as in `local_release_tarball` keeps a release build from ever
+/// sideloading, whatever path handed it a remote file.
+fn release_file_args(
+    remote_path: Option<&str>,
+    debug: bool,
+) -> Result<Vec<String>, ProvisionError> {
+    match remote_path {
+        None => Ok(Vec::new()),
+        Some(path) if debug => Ok(vec!["--release-file".into(), path.into()]),
+        Some(_) => Err(ProvisionError::new(
+            "RELEASE_DOWNLOAD_FAILED",
+            "local release uploads are debug-only",
+        )),
+    }
+}
+
+/// An IPv6 literal must be bracketed in an scp destination.
+fn scp_host(host: &str) -> String {
+    if host.contains(':') {
+        format!("[{host}]")
+    } else {
+        host.to_string()
+    }
+}
+
+static UPLOAD_ID: AtomicU64 = AtomicU64::new(0);
+
+/// A per-run unique name, so two runs can never race on the same remote file.
+fn next_upload_paths() -> (String, String) {
+    let id = UPLOAD_ID.fetch_add(1, Ordering::Relaxed);
+    let name = format!("hive-backend-dev-{}-{id}.tar.gz", std::process::id());
+    let remote = format!("/var/lib/hive/uploads/{name}");
+    (name, remote)
+}
+
+/// A synthetic step-log line in the script's own record shape, so the upload
+/// shows up in the install log without inventing a new event.
+fn upload_log_record(line: &str) -> serde_json::Value {
+    serde_json::json!({
+        "v": 1,
+        "seq": 0,
+        "step": "install_release",
+        "status": "log",
+        "line": line,
+    })
+}
+
+/// scp the tarball into the login account's home (the account that
+/// authenticates may not write /var/lib, and scp has no escalation of its
+/// own), then move it under /var/lib/hive/uploads with the same escalation the
+/// script run will use. Returns the remote path handed to `--release-file`.
+fn upload_release(
+    connection: &Connection,
+    mode: PrivilegeMode,
+    password: Option<&Secret>,
+    tarball: &std::path::Path,
+) -> Result<String, ProvisionError> {
+    let failed = |detail: String| ProvisionError::new("RELEASE_DOWNLOAD_FAILED", detail);
+    let tarball = std::fs::canonicalize(tarball)
+        .map_err(|error| failed(format!("unusable release tarball: {error}")))?;
+    if !tarball.is_file() {
+        return Err(failed(format!(
+            "release tarball is not a file: {}",
+            tarball.display()
+        )));
+    }
+
+    let (upload_name, remote_path) = next_upload_paths();
+    let mut scp_args = ssh_opts(&connection.key_path)?;
+    scp_args.push(tarball.to_string_lossy().into_owned());
+    scp_args.push(format!(
+        "{}@{}:{upload_name}",
+        connection.user(),
+        scp_host(&connection.host)
+    ));
+    let scp = Command::new("scp")
+        .args(&scp_args)
+        .output()
+        .map_err(|error| failed(format!("could not start scp: {error}")))?;
+    if !scp.status.success() {
+        let stderr = String::from_utf8_lossy(&scp.stderr);
+        return Err(failed(format!(
+            "scp failed: {}",
+            tail(stderr.trim(), 300)
+        )));
+    }
+
+    let stage = format!("mkdir -p /var/lib/hive/uploads && mv -- ./{upload_name} {remote_path}");
+    let command = format!("{}sh -c {}", escalation_prefix(mode), shell_quote(&stage));
+    // Same stdin contract as the script run: SudoPassword consumes the one
+    // password line, the other modes read nothing.
+    let mut payload = Vec::new();
+    if mode == PrivilegeMode::SudoPassword {
+        if let Some(secret) = password {
+            payload.extend_from_slice(secret.expose().as_bytes());
+            payload.push(b'\n');
+        }
+    }
+    let outcome = run_remote(connection, &command, payload, password, &mut |_| {})?;
+    if !outcome.success {
+        return Err(failed(format!(
+            "could not stage the uploaded release: {}",
+            tail(outcome.stderr.trim(), 300)
+        )));
+    }
+    Ok(remote_path)
+}
+
 // ── install ──────────────────────────────────────────────────────────────────
 
 /// Mirror the script's own terminal record into the command's result, so a
@@ -1167,7 +1347,20 @@ fn run_install(
         _ => None,
     };
 
-    let args = options.script_args(false).map_err(surface)?;
+    let mut args = options.script_args(false).map_err(surface)?;
+    // Debug builds with a locally built tarball upload it first and point the
+    // script at the uploaded copy instead of the GitHub release.
+    if let Some(tarball) = local_release_tarball(connection).map_err(surface)? {
+        let _ = on_event.send(upload_log_record(&format!(
+            "uploading local release tarball {}",
+            tarball.display()
+        )));
+        let remote_path =
+            upload_release(connection, mode, password.as_ref(), &tarball).map_err(surface)?;
+        args.extend(
+            release_file_args(Some(&remote_path), cfg!(debug_assertions)).map_err(surface)?,
+        );
+    }
     let command = remote_command(mode, &args);
     let payload = stdin_payload(password.as_ref());
     let outcome = run_remote(
@@ -1375,11 +1568,12 @@ pub async fn provision_start(
 #[cfg(test)]
 mod tests {
     use super::{
-        build_preflight_report, error_from_terminal, hive_version, is_run_end, known_host_entry,
-        list_keys_blocking, looks_like_private_key, normalize_public_key, privilege_finding,
-        provision_script, public_key_identity, redact, remote_command, replace_known_host,
-        same_host_key, select_host_key, shell_quote, ssh_error_code, stdin_payload, tail,
-        terminal_error, validate_directory, validate_host, validate_interface, validate_key_path,
+        arch_tag, build_preflight_report, error_from_terminal, hive_version, is_run_end,
+        known_host_entry, list_keys_blocking, looks_like_private_key, normalize_public_key,
+        privilege_finding, provision_script, public_key_identity, redact, release_asset_name,
+        release_file_args, remote_command, replace_known_host, same_host_key, scp_host,
+        select_host_key, shell_quote, ssh_error_code, stdin_payload, tail, terminal_error,
+        validate_directory, validate_host, validate_interface, validate_key_path,
         validate_password, validate_user, PreflightCheck, PrivilegeMode, ProvisionOptions,
         RemoteOutcome, Secret, SSH_ERROR_CODES,
     };
@@ -1502,6 +1696,45 @@ mod tests {
             ..Default::default()
         };
         assert!(!args(&open, false).contains(&"--firewall-interface".to_string()));
+    }
+
+    // ── dev release upload ───────────────────────────────────────────────────
+
+    #[test]
+    fn the_release_asset_follows_the_server_architecture() {
+        assert_eq!(arch_tag("x86_64"), "x64");
+        assert_eq!(arch_tag("aarch64"), "arm64");
+        assert_eq!(arch_tag("arm64"), "arm64");
+        // Unknown machines pass through and simply never match a built asset.
+        assert_eq!(arch_tag("riscv64"), "riscv64");
+        assert_eq!(
+            release_asset_name("0.0.0-dev", "x64"),
+            "hive-backend-0.0.0-dev-linux-x64.tar.gz"
+        );
+        assert_eq!(scp_host("fd7a:115c:a1e0::1"), "[fd7a:115c:a1e0::1]");
+        assert_eq!(scp_host("203.0.113.10"), "203.0.113.10");
+    }
+
+    #[test]
+    fn an_uploaded_release_reaches_the_script_as_a_flag() {
+        let mut args = vec!["--port".to_string(), "9420".to_string()];
+        args.extend(
+            release_file_args(Some("/var/lib/hive/uploads/x.tar.gz"), true).expect("args"),
+        );
+        let command = remote_command(PrivilegeMode::Root, &args);
+        assert!(command.ends_with("'--release-file' '/var/lib/hive/uploads/x.tar.gz'"));
+
+        // No tarball, no flag — in any build.
+        assert!(release_file_args(None, true).expect("args").is_empty());
+        assert!(release_file_args(None, false).expect("args").is_empty());
+    }
+
+    #[test]
+    fn release_uploads_are_debug_only() {
+        let error =
+            release_file_args(Some("/var/lib/hive/uploads/x.tar.gz"), false).unwrap_err();
+        assert_eq!(error.code, "RELEASE_DOWNLOAD_FAILED");
+        assert!(error.detail.contains("debug-only"));
     }
 
     // ── privilege modes ──────────────────────────────────────────────────────
