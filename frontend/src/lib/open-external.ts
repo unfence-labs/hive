@@ -1,3 +1,5 @@
+import { isDesktopShell } from "@/lib/is-desktop";
+
 /**
  * Open a URL in the system browser.
  * Uses the Tauri opener plugin when running as a desktop app,
@@ -5,7 +7,7 @@
  */
 export async function openExternal(url: string): Promise<void> {
   const isHttp = /^https?:\/\//i.test(url);
-  const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+  const isTauri = isDesktopShell();
 
   if (!isTauri) {
     // Keep fallback synchronous in browser mode so popup blockers do not drop it.

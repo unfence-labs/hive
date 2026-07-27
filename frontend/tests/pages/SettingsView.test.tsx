@@ -48,7 +48,7 @@ describe("ConnectionSettings", () => {
 
     expect(screen.getByRole("heading", { name: "Connection" }).closest("div")).toHaveAttribute("data-tauri-drag-region");
     expect(screen.getByPlaceholderText("100.x.x.x")).toHaveValue("");
-    expect(screen.getByPlaceholderText("3000")).toHaveValue("3000");
+    expect(screen.getByPlaceholderText("9420")).toHaveValue("9420");
     expect(screen.getByPlaceholderText("Paste the access token")).toHaveValue("");
     expect(screen.getByText("Not configured")).toBeInTheDocument();
   });
@@ -66,7 +66,7 @@ describe("ConnectionSettings", () => {
     render(<ConnectionSettings />);
 
     expect(screen.getByPlaceholderText("100.x.x.x")).toHaveValue("100.64.0.10");
-    expect(screen.getByPlaceholderText("3000")).toHaveValue("3001");
+    expect(screen.getByPlaceholderText("9420")).toHaveValue("3001");
     expect(screen.getByPlaceholderText("Paste the access token")).toHaveValue("stored-token");
     expect(screen.getByPlaceholderText("hive")).toHaveValue("hive");
     expect(screen.getByText("root")).toBeInTheDocument();
@@ -106,12 +106,12 @@ describe("ConnectionSettings", () => {
 
     await waitFor(() => expect(onRefreshConnection).toHaveBeenCalledTimes(1));
     expect(fetchMock).toHaveBeenCalledWith(
-      "http://100.64.0.10:3000/api/projects",
+      "http://100.64.0.10:9420/api/projects",
       expect.objectContaining({ headers: { Authorization: "Bearer tok" } }),
     );
     expect(getConnection()).toMatchObject({
       host: "100.64.0.10",
-      port: 3000,
+      port: 9420,
       authToken: "tok",
       sshUser: "hive",
     });
@@ -179,7 +179,7 @@ describe("ConnectionSettings", () => {
     await user.type(screen.getByPlaceholderText("100.x.x.x"), "100.64.0.10");
     expect(connect).toBeEnabled();
 
-    const port = screen.getByPlaceholderText("3000");
+    const port = screen.getByPlaceholderText("9420");
     await user.clear(port);
     await user.type(port, "99999");
     expect(connect).toBeDisabled();
@@ -217,7 +217,7 @@ describe("ConnectionSettings", () => {
 
     act(() => replaceConnection({ host: "installed.ts.net", port: 4000, authToken: "issued" }));
     expect(host).toHaveValue("installed.ts.net");
-    expect(screen.getByPlaceholderText("3000")).toHaveValue("4000");
+    expect(screen.getByPlaceholderText("9420")).toHaveValue("4000");
     expect(screen.getByPlaceholderText("Paste the access token")).toHaveValue("issued");
   });
 

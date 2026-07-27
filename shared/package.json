@@ -6,6 +6,7 @@
   "exports": {
     "./agent-activity": "./dist/agent-activity.js",
     "./project-env": "./dist/project-env.js",
+    "./setup-errors": "./dist/setup-errors.js",
     "./sidebar-preferences": "./dist/sidebar-preferences.js",
     "./workspace-files": "./dist/workspace-files.js"
   },

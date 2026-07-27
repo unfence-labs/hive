@@ -1,9 +1,6 @@
 {
   "$schema": "https://unpkg.com/knip@6/schema.json",
   "ignoreExportsUsedInFile": true,
-  "ignore": [
-    "shared/setup-errors.ts"
-  ],
   "ignoreIssues": {
     "frontend/src/components/ai-elements/**": ["exports", "types"],
     "frontend/src/components/ui/**": ["exports", "types"]

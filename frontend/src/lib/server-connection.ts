@@ -10,6 +10,13 @@ import { wsTransport } from "@/lib/ws-transport";
  */
 export type ServerConnectionFailure = "invalid" | "unreachable" | "unauthorized" | "forbidden";
 
+/**
+ * The port an installed Hive backend listens on: the production port from
+ * `backend/ecosystem.config.cjs`, which `scripts/provision/main.sh` also
+ * defaults to. 3000 is the development port and never appears in the UI.
+ */
+export const DEFAULT_BACKEND_PORT = 9420;
+
 export class ServerConnectionError extends Error {
   constructor(
     public readonly reason: ServerConnectionFailure,

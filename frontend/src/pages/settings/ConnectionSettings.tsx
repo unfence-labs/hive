@@ -5,7 +5,8 @@ import { CenterCard } from "@/components/CenterCard";
 import { useConnection } from "@/hooks/useConnection";
 import type { ConnectionStatus } from "@/hooks/useConnectionStatus";
 import { useConnectionStatus } from "@/hooks/useConnectionStatus";
-import { switchServer } from "@/lib/server-connection";
+import { DEFAULT_BACKEND_PORT, switchServer } from "@/lib/server-connection";
+import { isDesktopShell } from "@/lib/is-desktop";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -56,13 +57,18 @@ const STATUS_CONFIG: Record<ConnectionStatus, StatusConfig> = {
 
 interface ConnectionSettingsProps {
   onRefreshConnection?: () => void;
+  /** Opens the installer over the app. Desktop only; abandoning it changes nothing. */
+  onOpenInstaller?: () => void;
 }
 
-export default function ConnectionSettings({ onRefreshConnection }: ConnectionSettingsProps) {
+export default function ConnectionSettings({
+  onRefreshConnection,
+  onOpenInstaller,
+}: ConnectionSettingsProps) {
   const { connection } = useConnection();
   const { status, check } = useConnectionStatus();
   const [hostDraft, setHostDraft] = useState(connection?.host ?? "");
-  const [portDraft, setPortDraft] = useState(String(connection?.port ?? 3000));
+  const [portDraft, setPortDraft] = useState(String(connection?.port ?? DEFAULT_BACKEND_PORT));
   const [tokenDraft, setTokenDraft] = useState(connection?.authToken ?? "");
   const [sshUserDraft, setSshUserDraft] = useState(connection?.sshUser ?? "");
   const [connecting, setConnecting] = useState(false);
@@ -77,7 +83,7 @@ export default function ConnectionSettings({ onRefreshConnection }: ConnectionSe
   if (connection !== syncedFrom) {
     setSyncedFrom(connection);
     setHostDraft(connection?.host ?? "");
-    setPortDraft(String(connection?.port ?? 3000));
+    setPortDraft(String(connection?.port ?? DEFAULT_BACKEND_PORT));
     setTokenDraft(connection?.authToken ?? "");
     setSshUserDraft(connection?.sshUser ?? "");
   }
@@ -183,7 +189,7 @@ export default function ConnectionSettings({ onRefreshConnection }: ConnectionSe
                     id="server-port"
                     value={portDraft}
                     onChange={(e) => setPortDraft(e.target.value)}
-                    placeholder="3000"
+                    placeholder={String(DEFAULT_BACKEND_PORT)}
                     inputMode="numeric"
                     className="font-mono text-xs"
                   />
@@ -260,6 +266,18 @@ export default function ConnectionSettings({ onRefreshConnection }: ConnectionSe
               </div>
             </div>
           </section>
+
+          {onOpenInstaller && isDesktopShell() && (
+            <section className="rounded-lg border border-border/50 bg-card/50 p-5">
+              <h2 className="text-sm font-medium text-foreground">Install Hive on a server</h2>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Opens the installer over the app. Nothing changes here unless you finish it.
+              </p>
+              <Button size="sm" variant="outline" className="mt-3" onClick={onOpenInstaller}>
+                Open the installer
+              </Button>
+            </section>
+          )}
         </div>
       </CenterCard>
     </div>

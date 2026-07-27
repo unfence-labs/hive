@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import App from "@/App";
+import { getConnection, replaceConnection } from "@/hooks/useConnection";
 
 function renderApp() {
   const queryClient = new QueryClient({
@@ -120,10 +121,33 @@ vi.mock("@/pages/settings/AppearanceSettings", () => ({
 }));
 
 vi.mock("@/pages/settings/ConnectionSettings", () => ({
-  default: ({ onRefreshConnection }: { onRefreshConnection?: () => void }) => (
-    <button type="button" onClick={onRefreshConnection}>
-      refresh connection
-    </button>
+  default: ({
+    onRefreshConnection,
+    onOpenInstaller,
+  }: {
+    onRefreshConnection?: () => void;
+    onOpenInstaller?: () => void;
+  }) => (
+    <>
+      <button type="button" onClick={onRefreshConnection}>
+        refresh connection
+      </button>
+      <button type="button" onClick={onOpenInstaller}>
+        open installer
+      </button>
+    </>
+  ),
+}));
+
+vi.mock("@/pages/installer/Installer", () => ({
+  default: ({ onClose }: { onClose?: () => void }) => (
+    <div data-testid="installer">
+      {onClose && (
+        <button type="button" onClick={onClose}>
+          close installer
+        </button>
+      )}
+    </div>
   ),
 }));
 
@@ -165,9 +189,17 @@ vi.mock("@/components/AppLayout", async () => {
   };
 });
 
+type DesktopWindow = Window & { __TAURI_INTERNALS__?: unknown };
+
+function runInDesktopShell(): void {
+  (window as DesktopWindow).__TAURI_INTERNALS__ = {};
+}
+
 describe("App", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    localStorage.clear();
+    delete (window as DesktopWindow).__TAURI_INTERNALS__;
     mocks.projects = makeProjects();
     mocks.loading = false;
     window.history.pushState({}, "", "/projects");
@@ -316,6 +348,49 @@ describe("App", () => {
 
     expect(screen.getByRole("button", { name: "open add project" })).toBeInTheDocument();
     expect(window.location.pathname).toBe("/home");
+  });
+
+  it("opens the installer in the desktop shell when no server is configured", async () => {
+    runInDesktopShell();
+
+    renderApp();
+
+    expect(await screen.findByTestId("installer")).toBeInTheDocument();
+    // A layer in front of the app, not a variant of it: the app is still there.
+    expect(screen.getByTestId("app-layout")).toBeInTheDocument();
+    // With no server there is no way out but the welcome screen's own paths.
+    expect(screen.queryByRole("button", { name: "close installer" })).not.toBeInTheDocument();
+  });
+
+  it("leaves the web build alone when no server is configured", () => {
+    renderApp();
+
+    expect(screen.queryByTestId("installer")).not.toBeInTheDocument();
+  });
+
+  it("does not open the installer once a server is configured", () => {
+    runInDesktopShell();
+    replaceConnection({ host: "100.64.0.10", port: 9420 });
+
+    renderApp();
+
+    expect(screen.queryByTestId("installer")).not.toBeInTheDocument();
+  });
+
+  it("opens the installer on demand from Settings, and closing it changes nothing", async () => {
+    const user = userEvent.setup();
+    runInDesktopShell();
+    replaceConnection({ host: "100.64.0.10", port: 9420, authToken: "tok" });
+    window.history.pushState({}, "", "/settings/connection");
+    renderApp();
+
+    await user.click(await screen.findByRole("button", { name: "open installer" }));
+    expect(await screen.findByTestId("installer")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "close installer" }));
+
+    expect(screen.queryByTestId("installer")).not.toBeInTheDocument();
+    expect(getConnection()).toMatchObject({ host: "100.64.0.10", port: 9420, authToken: "tok" });
   });
 
   it("redirects /projects to /home", () => {

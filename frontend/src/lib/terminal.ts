@@ -1,10 +1,8 @@
+import { isDesktopShell as isTauri } from "@/lib/is-desktop";
+
 export interface TerminalApp {
   id: string;
   name: string;
-}
-
-function isTauri(): boolean {
-  return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 }
 
 /**

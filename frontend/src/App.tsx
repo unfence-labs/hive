@@ -6,6 +6,8 @@ import WorkspaceLauncher from "@/components/WorkspaceLauncher";
 import HomeView from "@/pages/HomeView";
 import NotificationSettings from "@/pages/settings/NotificationSettings";
 import { useProjects } from "@/hooks/useProjects";
+import { useConnection } from "@/hooks/useConnection";
+import { isDesktopShell } from "@/lib/is-desktop";
 import { BRAIN_WORKSPACE_ID } from "@/lib/brain";
 import type { Project } from "@/types";
 import { WorkspaceLiveDataProvider } from "@/contexts/WorkspaceLiveDataContext";
@@ -30,6 +32,7 @@ const SkillsSettings = lazy(() => import("@/pages/settings/SkillsSettings"));
 const InstructionsSettings = lazy(() => import("@/pages/settings/InstructionsSettings"));
 const SubagentsSettings = lazy(() => import("@/pages/settings/SubagentsSettings"));
 const CreateAutomationDialog = lazy(() => import("@/components/CreateAutomationDialog"));
+const Installer = lazy(() => import("@/pages/installer/Installer"));
 
 function NotificationToastsBridge({ projects }: { projects: Project[] }) {
   useNotificationToasts(projects);
@@ -40,6 +43,12 @@ export default function App() {
   const { projects, loading, fetchProjects, createProjectWithWorkspace, createNewProjectWithWorkspace } = useProjects();
   const [showAddProject, setShowAddProject] = useState(false);
   const [showAddAutomation, setShowAddAutomation] = useState(false);
+  // The installer is a layer in front of the app, not a variant of it: with no
+  // server configured the desktop shell has nothing else to show, and an
+  // already-configured app can open it again from Settings.
+  const { isConfigured } = useConnection();
+  const [installerRequested, setInstallerRequested] = useState(false);
+  const showInstaller = installerRequested || (isDesktopShell() && !isConfigured);
   // "New workspace from…" picker — owned here so both the global shortcuts
   // (WorkspaceLauncher) and the sidebar "+" context menu can open it.
   const [workspaceFrom, setWorkspaceFrom] = useState<{ open: boolean; projectId?: string }>({ open: false });
@@ -89,6 +98,13 @@ export default function App() {
           onCreate={createNewProjectWithWorkspace}
         />
         <Suspense fallback={null}>
+          {showInstaller && (
+            <Installer
+              {...(isConfigured ? { onClose: () => setInstallerRequested(false) } : {})}
+            />
+          )}
+        </Suspense>
+        <Suspense fallback={null}>
           {showAddAutomation && (
             <CreateAutomationDialog
               open={showAddAutomation}
@@ -121,7 +137,15 @@ export default function App() {
               <Route path="settings" element={<Navigate to="/settings/appearance" replace />} />
               <Route path="settings/account" element={<AccountSettings />} />
               <Route path="settings/appearance" element={<AppearanceSettings />} />
-              <Route path="settings/connection" element={<ConnectionSettings onRefreshConnection={() => { wsTransport.disconnectAll(); fetchProjects(); }} />} />
+              <Route
+                path="settings/connection"
+                element={
+                  <ConnectionSettings
+                    onRefreshConnection={() => { wsTransport.disconnectAll(); fetchProjects(); }}
+                    onOpenInstaller={() => setInstallerRequested(true)}
+                  />
+                }
+              />
               <Route path="settings/notifications" element={<NotificationSettings />} />
               <Route path="settings/cli" element={<AgentSettings />} />
               <Route path="settings/models" element={<ModelsSettings />} />
