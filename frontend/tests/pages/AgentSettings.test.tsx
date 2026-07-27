@@ -12,12 +12,22 @@ import AgentSettings from "@/pages/settings/AgentSettings";
 const mocks = vi.hoisted(() => ({
   getTools: vi.fn(),
   startOperation: vi.fn(),
+  startAuth: vi.fn(),
+  submitAuthCode: vi.fn(),
+  cancelAuth: vi.fn(),
+  apiPost: vi.fn(),
 }));
 
-vi.mock("@/lib/setup-api", () => ({
+vi.mock("@/hooks/useApi", () => ({ api: { post: mocks.apiPost } }));
+
+vi.mock("@/lib/setup-api", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/setup-api")>()),
   createSetupApi: () => ({
     getTools: mocks.getTools,
     startOperation: mocks.startOperation,
+    startAuth: mocks.startAuth,
+    submitAuthCode: mocks.submitAuthCode,
+    cancelAuth: mocks.cancelAuth,
   }),
 }));
 
@@ -29,7 +39,7 @@ vi.mock("@/components/AppLayout", () => ({
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mocks.getTools.mockResolvedValue({ tools: [], operations: [] });
+  mocks.getTools.mockResolvedValue({ tools: [], operations: [], authSessions: [] });
 });
 
 function renderPage() {
@@ -65,6 +75,7 @@ describe("AgentSettings", () => {
         },
       ],
       operations: [],
+      authSessions: [],
     });
 
     renderPage();

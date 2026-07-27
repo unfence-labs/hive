@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
@@ -9,15 +9,37 @@ import {
   LogIn,
 } from "lucide-react";
 import {
+  isAgentAuthToolId,
+  isToolAuthTerminal,
+  TOOL_AUTH_FAILURE_HINTS,
   TOOL_FAILURE_HINTS,
+  type AgentAuthToolId,
   type SetupToolId,
+  type ToolAuthSession,
   type ToolOperation,
   type ToolOperationKind,
   type ToolStatus,
 } from "@hive/shared/setup-types";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { ProviderIcon, type KnownProvider } from "@/components/chat/ProviderIcon";
-import { createSetupApi, type SetupApiTarget } from "@/lib/setup-api";
+import { SignInPrompt } from "@/components/setup/SignInPrompt";
+import { useGitHubDeviceFlow } from "@/hooks/useGitHubDeviceFlow";
+import {
+  createSetupApi,
+  CONFIRM_REQUIRED_STATUS,
+  SetupApiError,
+  type SetupApiTarget,
+} from "@/lib/setup-api";
 import { refreshModelCatalog } from "@/hooks/useModels";
 import { cn } from "@/lib/utils";
 
@@ -44,6 +66,19 @@ const PHASE_LABELS: Record<ToolOperation["phase"], string> = {
   running: "Downloading and installing…",
   verifying: "Verifying the install…",
   done: "Finishing…",
+};
+
+/** The account being connected, which is not always what the tool is called. */
+const CONNECT_LABELS: Record<SetupToolId, string> = {
+  claude: "Connect Claude",
+  codex: "Connect Codex",
+  gh: "Connect GitHub",
+};
+
+/** How a sign-in that did not connect is explained, without a failure behind it. */
+const AUTH_OUTCOME_MESSAGES: Partial<Record<ToolAuthSession["state"], string>> = {
+  expired: "The sign-in code expired before it was confirmed. Start again.",
+  cancelled: "Sign-in cancelled.",
 };
 
 /**
@@ -78,10 +113,14 @@ export function ToolsPanel({
     queryFn: ({ signal }) => api.getTools(signal),
     // The server is the source of truth for progress, so poll while something
     // is running and stop the moment nothing is.
-    refetchInterval: (query) =>
-      query.state.data?.operations.some((op) => op.status === "running")
-        ? POLL_INTERVAL_MS
-        : false,
+    refetchInterval: (query) => {
+      const state = query.state.data;
+      if (!state) return false;
+      const busy =
+        state.operations.some((op) => op.status === "running") ||
+        state.authSessions.some((session) => !isToolAuthTerminal(session.state));
+      return busy ? POLL_INTERVAL_MS : false;
+    },
   });
 
   const start = useMutation({
@@ -89,6 +128,56 @@ export function ToolsPanel({
       api.startOperation(tool, kind),
     onSettled: () => queryClient.invalidateQueries({ queryKey }),
   });
+
+  const invalidate = (): void => {
+    void queryClient.invalidateQueries({ queryKey });
+  };
+
+  const [authError, setAuthError] = useState<Partial<Record<SetupToolId, string>>>({});
+  const setError = (tool: SetupToolId, message: string | undefined): void =>
+    setAuthError((current) => ({ ...current, [tool]: message }));
+
+  // A refusal to sign the server out of a working tool is a question, not an
+  // error: hold it until the operator answers, then retry with the answer.
+  const [confirm, setConfirm] = useState<{ tool: AgentAuthToolId; message: string } | null>(
+    null,
+  );
+
+  const startAuth = useMutation({
+    mutationFn: ({ tool, force }: { tool: AgentAuthToolId; force?: boolean }) =>
+      api.startAuth(tool, { force }),
+    onMutate: ({ tool }) => setError(tool, undefined),
+    onError: (err, { tool }) => {
+      if (err instanceof SetupApiError && err.status === CONFIRM_REQUIRED_STATUS) {
+        setConfirm({ tool, message: err.message });
+        return;
+      }
+      setError(tool, err instanceof Error ? err.message : "Could not start sign-in.");
+    },
+    onSettled: invalidate,
+  });
+
+  const submitCode = useMutation({
+    mutationFn: ({ tool, code }: { tool: AgentAuthToolId; code: string }) =>
+      api.submitAuthCode(tool, code),
+    onMutate: ({ tool }) => setError(tool, undefined),
+    onError: (err, { tool }) =>
+      setError(tool, err instanceof Error ? err.message : "That code was not accepted."),
+    onSettled: invalidate,
+  });
+
+  const cancelAuth = useMutation({
+    mutationFn: (tool: AgentAuthToolId) => api.cancelAuth(tool),
+    onSettled: invalidate,
+  });
+
+  const github = useGitHubDeviceFlow();
+  // The panel's GitHub row and the Account page drive the same flow, so the
+  // badge here has to react to a sign-in completing anywhere.
+  useEffect(() => {
+    if (github.phase.kind === "connected") invalidate();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [github.phase.kind]);
 
   // A harness that just landed must not stay hidden behind the catalog the
   // model picker cached before it existed. The trigger is the running →
@@ -127,6 +216,10 @@ export function ToolsPanel({
     );
   }
 
+  const anyAgentConnected = data.tools.some(
+    (tool) => isAgentAuthToolId(tool.id) && tool.authenticated,
+  );
+
   return (
     <div className={cn("space-y-4", className)}>
       {data.tools.map((tool) => (
@@ -136,8 +229,55 @@ export function ToolsPanel({
           operation={operationFor(tool.id)}
           pending={start.isPending && start.variables?.tool === tool.id}
           onRun={(kind) => start.mutate({ tool: tool.id, kind })}
+          authSession={data.authSessions.find((session) => session.tool === tool.id)}
+          authError={authError[tool.id]}
+          authPending={startAuth.isPending && startAuth.variables?.tool === tool.id}
+          codePending={submitCode.isPending && submitCode.variables?.tool === tool.id}
+          onConnect={() => {
+            if (isAgentAuthToolId(tool.id)) startAuth.mutate({ tool: tool.id });
+            else void github.connect();
+          }}
+          onSubmitCode={(code) => {
+            if (isAgentAuthToolId(tool.id)) submitCode.mutate({ tool: tool.id, code });
+          }}
+          onCancelAuth={() => {
+            if (isAgentAuthToolId(tool.id)) cancelAuth.mutate(tool.id);
+            else github.cancel();
+          }}
+          github={tool.id === "gh" ? github : undefined}
         />
       ))}
+
+      {/*
+        Hive runs a session on whichever harness is connected, so this is a
+        statement of what works, never a gate. Nothing above is disabled for
+        want of the other one.
+      */}
+      <p className="text-xs text-muted-foreground">
+        {anyAgentConnected
+          ? "Connected. One agent harness is enough — connecting the other adds its models, it is not required."
+          : "Connect Claude Code or Codex to run sessions. Either one on its own is enough."}
+      </p>
+
+      <AlertDialog open={confirm !== null} onOpenChange={(open) => !open && setConfirm(null)}>
+        <AlertDialogContent className="bg-popover">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Sign in again?</AlertDialogTitle>
+            <AlertDialogDescription>{confirm?.message}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (confirm) startAuth.mutate({ tool: confirm.tool, force: true });
+                setConfirm(null);
+              }}
+            >
+              Continue
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
@@ -147,15 +287,65 @@ function ToolCard({
   operation,
   pending,
   onRun,
+  authSession,
+  authError,
+  authPending,
+  codePending,
+  onConnect,
+  onSubmitCode,
+  onCancelAuth,
+  github,
 }: {
   tool: ToolStatus;
   operation?: ToolOperation;
   pending: boolean;
   onRun: (kind: ToolOperationKind) => void;
+  authSession?: ToolAuthSession;
+  authError?: string;
+  authPending: boolean;
+  codePending: boolean;
+  onConnect: () => void;
+  onSubmitCode: (code: string) => void;
+  onCancelAuth: () => void;
+  github?: ReturnType<typeof useGitHubDeviceFlow>;
 }) {
   const running = operation?.status === "running";
   const busy = running || pending;
   const providers = TOOL_PROVIDERS[tool.id];
+
+  // GitHub's flow is client-driven against GitHub's own endpoints, the agent
+  // CLIs' are server-driven child processes. Both end up describing the same
+  // thing to the operator, so they are flattened into one shape here.
+  const prompt = github
+    ? github.phase.kind === "connecting"
+      ? {
+          verificationUri: github.phase.verificationUri,
+          userCode: github.phase.userCode,
+          needsCode: false,
+        }
+      : undefined
+    : authSession &&
+        (authSession.state === "awaiting_authorization" ||
+          authSession.state === "awaiting_code")
+      ? {
+          verificationUri: authSession.verificationUri ?? "",
+          userCode: authSession.userCode,
+          needsCode: authSession.needsCode,
+        }
+      : undefined;
+
+  const signingIn =
+    authPending ||
+    (authSession !== undefined &&
+      (authSession.state === "starting" || authSession.state === "verifying"));
+
+  const problem =
+    authError ??
+    (github?.phase.kind === "error" ? github.phase.message : undefined) ??
+    (authSession?.state === "failed" && authSession.failure
+      ? `${authSession.failure.message} ${TOOL_AUTH_FAILURE_HINTS[authSession.failure.reason]}`
+      : undefined) ??
+    (authSession && AUTH_OUTCOME_MESSAGES[authSession.state]);
 
   return (
     <section
@@ -211,6 +401,18 @@ function ToolCard({
           </p>
         )}
 
+        {tool.installed && !prompt && (
+          <Button
+            size="sm"
+            variant={tool.authenticated ? "ghost" : "default"}
+            disabled={busy || signingIn}
+            onClick={onConnect}
+          >
+            {signingIn && <Loader2 className="mr-1.5 h-3 w-3 animate-spin" />}
+            {tool.authenticated ? "Sign in again" : CONNECT_LABELS[tool.id]}
+          </Button>
+        )}
+
         {running && operation && (
           <span className="flex items-center gap-2 text-xs text-muted-foreground">
             <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -218,6 +420,31 @@ function ToolCard({
           </span>
         )}
       </div>
+
+      {prompt && (
+        <SignInPrompt
+          inputId={`sign-in-code-${tool.id}`}
+          verificationUri={prompt.verificationUri}
+          userCode={prompt.userCode}
+          onSubmitCode={prompt.needsCode ? onSubmitCode : undefined}
+          codeLabel={`Paste the code ${tool.label} asked for`}
+          submitting={codePending}
+          onCancel={onCancelAuth}
+          error={authError}
+        />
+      )}
+
+      {!prompt && problem && (
+        <p className="mt-3 text-xs text-destructive" role="alert">
+          {problem}
+        </p>
+      )}
+
+      {!prompt && authSession?.state === "failed" && authSession.failure?.outputExcerpt && (
+        <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap break-all rounded bg-muted/50 p-2 font-mono text-[11px] text-muted-foreground">
+          {authSession.failure.outputExcerpt}
+        </pre>
+      )}
 
       {operation?.status === "failed" && operation.failure && (
         <FailurePanel failure={operation.failure} kind={operation.kind} label={tool.label} />

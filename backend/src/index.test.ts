@@ -133,6 +133,7 @@ describe("buildApp", () => {
     expect(res.json()).toEqual({
       tools: expect.any(Array),
       operations: expect.any(Array),
+      authSessions: expect.any(Array),
     });
   });
 

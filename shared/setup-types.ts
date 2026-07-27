@@ -111,6 +111,12 @@ export interface ToolsResponse {
    * here, which is what makes navigating away from the panel safe.
    */
   operations: ToolOperation[];
+  /**
+   * Sign-in flows the backend drives, at most one per tool. Carried alongside
+   * the tools for the same reason operations are: the panel polls one endpoint,
+   * and a client that reloads mid-sign-in still finds the code it must enter.
+   */
+  authSessions: ToolAuthSession[];
 }
 
 export interface StartToolOperationResponse {
@@ -121,3 +127,107 @@ export interface StartToolOperationResponse {
 
 /** Upper bound on a persisted/serialised command excerpt, in characters. */
 export const TOOL_OUTPUT_EXCERPT_MAX = 2_000;
+
+// ── Sign-in ──────────────────────────────────────────────────────────
+
+/**
+ * Tools whose sign-in the backend drives as a child process.
+ *
+ * GitHub is absent on purpose: Hive speaks GitHub's device-code endpoints
+ * directly (`/api/account/*`), so there is no CLI process to supervise. The
+ * split is about who owns the flow, not about which tools can be connected.
+ */
+export const AGENT_AUTH_TOOL_IDS = ["claude", "codex"] as const;
+
+export type AgentAuthToolId = (typeof AGENT_AUTH_TOOL_IDS)[number];
+
+export function isAgentAuthToolId(value: string): value is AgentAuthToolId {
+  return (AGENT_AUTH_TOOL_IDS as readonly string[]).includes(value);
+}
+
+/**
+ * Where a sign-in has got to.
+ *
+ * `awaiting_authorization` and `awaiting_code` are both "the operator has
+ * something to do", but they are not the same something: the first is waiting
+ * on a browser confirmation the provider reports back over its own channel,
+ * the second cannot progress until a code is handed to the CLI's stdin.
+ */
+export type ToolAuthState =
+  | "starting"
+  | "awaiting_authorization"
+  | "awaiting_code"
+  | "verifying"
+  | "connected"
+  | "expired"
+  | "cancelled"
+  | "failed";
+
+export const TOOL_AUTH_TERMINAL_STATES: readonly ToolAuthState[] = [
+  "connected",
+  "expired",
+  "cancelled",
+  "failed",
+];
+
+export function isToolAuthTerminal(state: ToolAuthState): boolean {
+  return TOOL_AUTH_TERMINAL_STATES.includes(state);
+}
+
+/**
+ * Why a sign-in did not end connected. `expired` is a state rather than a
+ * failure reason (a code that ran out is not a malfunction), so it does not
+ * appear here.
+ */
+export type ToolAuthFailureReason =
+  | "not_installed"
+  | "unsupported_cli"
+  | "timeout"
+  | "command_failed"
+  | "no_credential";
+
+export const TOOL_AUTH_FAILURE_HINTS: Record<ToolAuthFailureReason, string> = {
+  not_installed:
+    "The tool is not installed on this server. Install it above, then sign in.",
+  unsupported_cli:
+    "The installed CLI is too old for this sign-in flow. Update it above, then try again.",
+  timeout:
+    "The sign-in was still waiting after the time limit and was stopped. Start it again.",
+  command_failed: "The sign-in command ran and failed. The output below says why.",
+  no_credential:
+    "The sign-in finished but left no usable credential. Start it again, or paste a token directly.",
+};
+
+export interface ToolAuthFailure {
+  reason: ToolAuthFailureReason;
+  message: string;
+  /** Bounded tail of the command's output, with any credential redacted. */
+  outputExcerpt?: string;
+}
+
+export interface ToolAuthSession {
+  tool: SetupToolId;
+  state: ToolAuthState;
+  /** Page the operator opens to authorise. */
+  verificationUri?: string;
+  /** One-time code to enter at {@link verificationUri}, when the flow uses one. */
+  userCode?: string;
+  /** True while the flow cannot progress until a code is submitted back. */
+  needsCode: boolean;
+  startedAt: string;
+  /** When the surfaced code stops being accepted, if the provider bounds it. */
+  expiresAt?: string;
+  finishedAt?: string;
+  failure?: ToolAuthFailure;
+}
+
+/**
+ * Returned by a start request that Hive refused to run because running it
+ * would destroy something. Codex deletes its stored credential the moment the
+ * device flow begins, so an operator who is already signed in has to say yes
+ * to being signed out first.
+ */
+export interface ToolAuthConfirmationRequired {
+  code: "confirm_required";
+  message: string;
+}

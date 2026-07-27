@@ -1,3 +1,4 @@
+import { getClaudeOAuthToken } from "../../services/setup/auth/secrets.js";
 import { StreamParser } from "../stream-parser.js";
 import {
   findModel,
@@ -91,7 +92,14 @@ export class ClaudeProvider implements AgentProvider {
   }
 
   buildEnv(_options: ProviderMessageOptions): Record<string, string> {
+    const oauthToken = getClaudeOAuthToken();
     return {
+      // A token connected through the UI has to be handed over explicitly.
+      // buildWorkspaceEnv strips every CLAUDE_CODE_* variable so a backend
+      // started from inside a Claude Code session cannot leak that session's
+      // credentials into agent runs; passing it here re-adds only the one
+      // credential Hive itself provisioned.
+      ...(oauthToken ? { CLAUDE_CODE_OAUTH_TOKEN: oauthToken } : {}),
       // Keep the Task/subagent system on: synchronous subagents (the parent turn
       // waits for the result) work fine in print mode and are used heavily.
       CLAUDE_CODE_ENABLE_TASKS: "true",

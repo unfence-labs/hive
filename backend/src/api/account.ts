@@ -69,11 +69,42 @@ async function loginWithToken(token: string): Promise<void> {
   });
 }
 
-async function setupGitCredentials(): Promise<void> {
+/**
+ * Scopes the token must carry.
+ *
+ * - `repo` covers cloning, pushing, and the pull-request and issue calls the
+ *   workspace flows make against private repositories.
+ * - `workflow` is separate from `repo` at GitHub's end: without it a push is
+ *   rejected outright when the branch touches `.github/workflows`, which is a
+ *   thing agents editing a repository do.
+ * - `read:org` is what `gh` needs to see organisation repositories and to
+ *   satisfy SAML single sign-on.
+ * - `read:user` and `user:email` back the connected-account card.
+ *
+ * `delete_repo` is deliberately absent. Only the cleanup path that removes a
+ * repository Hive itself just created would use it, and asking every operator
+ * to grant repository deletion to service that is a bad trade; that cleanup
+ * reports its failure instead.
+ */
+const OAUTH_SCOPES = "repo workflow read:user user:email read:org";
+
+/**
+ * Point git at the GitHub CLI's credentials.
+ *
+ * Returns the failure rather than throwing it. By this point the token is
+ * already stored and `gh` is genuinely signed in, so answering the request
+ * with an error would be a false report of a sign-in that did work — but
+ * saying nothing would leave the operator to discover it as an unexplained
+ * push failure later.
+ */
+async function setupGitCredentials(): Promise<string | null> {
   try {
     await gh(["auth", "setup-git"]);
-  } catch {
-    // non-fatal: git credentials are a nice-to-have
+    return null;
+  } catch (err: unknown) {
+    const detail =
+      (err as { stderr?: string }).stderr?.trim() || (err as Error).message;
+    return `GitHub is connected, but configuring git credentials failed: ${detail}`;
   }
 }
 
@@ -109,7 +140,7 @@ export async function accountRoutes(app: FastifyInstance): Promise<void> {
       },
       body: JSON.stringify({
         client_id: clientId,
-        scope: "repo read:user user:email read:org",
+        scope: OAUTH_SCOPES,
       }),
     });
 
@@ -201,10 +232,11 @@ export async function accountRoutes(app: FastifyInstance): Promise<void> {
     }
 
     // Login with the token, configure git, fetch user profile
+    let gitCredentialError: string | null;
     try {
       await loginWithToken(data.access_token);
       _resetGhState();
-      await setupGitCredentials();
+      gitCredentialError = await setupGitCredentials();
     } catch (err: unknown) {
       const message = (err as Error).message ?? "Failed to configure gh";
       return reply.status(500).send({ error: message });
@@ -213,7 +245,11 @@ export async function accountRoutes(app: FastifyInstance): Promise<void> {
     pendingDeviceFlow = null;
 
     const user = await fetchGitHubUser();
-    return { status: "complete", user };
+    return {
+      status: "complete",
+      user,
+      ...(gitCredentialError ? { gitCredentialError } : {}),
+    };
   });
 
   app.post("/api/account/disconnect", async (_req, reply) => {

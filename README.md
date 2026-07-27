@@ -268,6 +268,8 @@ Per-package commands (`backend`, `frontend`, `ios`) are documented in **[AGENTS.
 
 Connection host, port, access token, SSH user, Telegram, APNs, theme, accent color, CLI status, prompt settings, instructions, skills, Team agents, and subagents are configured **in the UI**.
 
+Agent and GitHub accounts are connected **in the UI** too, with no terminal: Settings → CLI tools signs in Claude Code, Codex, and GitHub. Each is a browser confirmation — GitHub and Codex use device codes, Claude opens a page and takes an authorization code back. Connecting either Claude or Codex is enough to run sessions; nothing requires both.
+
 <details>
 <summary><b>Production backend (pm2)</b></summary>
 
@@ -368,6 +370,7 @@ Public backend surface exposed by route modules under `backend/src/api/`.
 | Settings | `GET/PUT /api/settings/defaults`, `GET/PUT /api/settings/notifications`, `POST /api/settings/notifications/test`, `POST /api/settings/notifications/test-apns`, `POST /api/devices/apns`, `GET/PUT/DELETE /api/settings/instructions`, `POST /api/settings/instructions/sync`, `GET/POST /api/settings/skills`, `GET/PUT/DELETE /api/settings/skills/:id`, `POST /api/settings/skills/:id/sync`, `POST /api/settings/skills/sync-missing`, `GET/POST /api/settings/subagents`, `GET /api/settings/subagents/:id`, `PUT/DELETE /api/settings/subagents/:id/providers/:provider`, `POST /api/settings/subagents/:id/providers/:provider/counterpart` |
 | Account | `GET /api/account/status`, `POST /api/account/connect`, `POST /api/account/connect/poll`, `POST /api/account/disconnect` |
 | Tool setup | `GET /api/setup/tools`, `POST /api/setup/tools/:tool/:kind` (`kind` = `install` \| `update`), `GET /api/setup/operations/:id` |
+| Agent sign-in | `POST /api/setup/auth/:tool/start` (`tool` = `claude` \| `codex`), `POST /api/setup/auth/:tool/code`, `POST /api/setup/auth/:tool/cancel`, `POST /api/setup/auth/claude/token` |
 | Scripts & prefs | `GET /api/workspaces/:wsId/scripts`, `POST /api/workspaces/:wsId/scripts/:type/start`, `POST /api/workspaces/:wsId/scripts/:type/stop`, `POST /api/workspaces/:wsId/terminal/start`, `POST /api/workspaces/:wsId/terminal/stop`, `POST /api/workspaces/:wsId/terminal-tabs/:sessionId/start`, `POST /api/workspaces/:wsId/terminal-tabs/:sessionId/stop`, `GET/PUT /api/ui-preferences` |
 
 `wsId=brain` is valid for session and hub routes through the shared session dispatcher.

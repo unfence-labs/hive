@@ -228,8 +228,28 @@ describe("POST /api/account/connect", () => {
         Accept: "application/json",
         "Content-Type": "application/json",
       },
-      body: expect.stringContaining("repo read:user user:email read:org"),
+      body: expect.stringContaining("repo workflow read:user user:email read:org"),
     });
+  });
+
+  it("requests workflow scope, without which pushes touching .github/workflows are rejected", async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        device_code: "dc-1",
+        user_code: "CODE",
+        verification_uri: "https://github.com/login/device",
+        expires_in: 900,
+        interval: 5,
+      }),
+    });
+
+    await app.inject({ method: "POST", url: "/api/account/connect" });
+
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(body.scope.split(" ")).toContain("workflow");
+    // Repository deletion is not something every operator should have to grant.
+    expect(body.scope.split(" ")).not.toContain("delete_repo");
   });
 
   it("uses GITHUB_CLIENT_ID env var when set", async () => {
@@ -422,7 +442,41 @@ describe("POST /api/account/connect/poll", () => {
     expect(res.statusCode).toBe(200);
     expect(res.json().status).toBe("complete");
     expect(res.json().user.login).toBe("octocat");
+    expect(res.json().gitCredentialError).toBeUndefined();
     expect(mocks._resetGhState).toHaveBeenCalled();
+    expect(mocks.gh.mock.calls.map((call) => call[0])).toContainEqual(["auth", "setup-git"]);
+  });
+
+  it("reports a git credential helper failure instead of swallowing it", async () => {
+    await initDeviceFlow();
+
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({ access_token: "gho_token_123" }),
+    });
+
+    mocks.execFile.mockImplementation(
+      (_cmd: string, _args: string[], cb: (err: Error | null) => void) => {
+        cb(null);
+        return { stdin: { write: vi.fn(), end: vi.fn() } };
+      },
+    );
+
+    mocks.gh.mockImplementation(async (args: string[]) => {
+      if (args[0] === "auth" && args[1] === "setup-git") {
+        throw Object.assign(new Error("exit 1"), { stderr: "gh: could not write .gitconfig" });
+      }
+      return { stdout: JSON.stringify({ login: "octocat" }), stderr: "" };
+    });
+
+    const res = await app.inject({ method: "POST", url: "/api/account/connect/poll" });
+
+    // The sign-in itself worked, so it is still reported as complete — but the
+    // part that did not is named rather than lost.
+    expect(res.statusCode).toBe(200);
+    expect(res.json().status).toBe("complete");
+    expect(res.json().user.login).toBe("octocat");
+    expect(res.json().gitCredentialError).toContain("could not write .gitconfig");
   });
 
   it("returns 500 when loginWithToken fails", async () => {

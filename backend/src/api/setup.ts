@@ -1,13 +1,23 @@
 import type { FastifyInstance } from "fastify";
 import {
+  AGENT_AUTH_TOOL_IDS,
+  isAgentAuthToolId,
   isSetupToolId,
   SETUP_TOOL_IDS,
   TOOL_OPERATION_KINDS,
+  type AgentAuthToolId,
   type StartToolOperationResponse,
+  type ToolAuthSession,
   type ToolOperationKind,
   type ToolsResponse,
 } from "@hive/shared/setup-types";
 import { findToolSpec, isManaged } from "../services/setup/catalog.js";
+import { ToolAuthError } from "../services/setup/auth/flow.js";
+import { makeClaudeTokenWriter } from "../services/setup/auth/secrets.js";
+import {
+  defaultToolAuthStore,
+  type ToolAuthStore,
+} from "../services/setup/auth/sessions.js";
 import {
   createToolOperationStore,
   type ToolOperationStore,
@@ -24,33 +34,55 @@ export interface SetupRoutesOptions {
   dataDir?: string;
   deps?: ToolsServiceDeps;
   store?: ToolOperationStore;
+  authStore?: ToolAuthStore;
 }
 
+const AUTH_TOOL_PARAMS = {
+  type: "object",
+  additionalProperties: false,
+  required: ["tool"],
+  properties: { tool: { type: "string", enum: [...AGENT_AUTH_TOOL_IDS] } },
+} as const;
+
 /**
- * Tool detection, install and update.
+ * Tool detection, install, update and sign-in.
  *
  * Operations are addressed individually at `/api/setup/operations/:id`, but
  * the tool listing carries them too. That redundancy is deliberate: a client
  * that reloads has no operation id to ask about, and the whole point is that
- * an install running for minutes survives the operator going elsewhere.
+ * an install running for minutes survives the operator going elsewhere. Sign-in
+ * sessions ride along for the same reason, and have no per-id route at all
+ * because there is at most one per tool.
+ *
+ * GitHub is missing from the sign-in routes on purpose. Hive speaks GitHub's
+ * device-code endpoints directly at `/api/account/*`, so there is no child
+ * process to supervise and nothing here to add.
  */
 export async function setupRoutes(
   app: FastifyInstance,
   opts: SetupRoutesOptions = {},
 ): Promise<void> {
+  const dataDir = opts.dataDir ?? getDataDir();
   const deps = opts.deps ?? defaultToolsServiceDeps();
   const store =
     opts.store ??
     (await createToolOperationStore({
-      dataDir: opts.dataDir ?? getDataDir(),
+      dataDir,
       onUnexpectedError: (operationId, error) => {
         app.log.error({ err: error }, `setup operation ${operationId} failed`);
       },
     }));
+  const authStore =
+    opts.authStore ??
+    defaultToolAuthStore(dataDir, (tool, error) => {
+      app.log.error({ err: error }, `setup sign-in for ${tool} failed`);
+    });
+  const writeClaudeToken = makeClaudeTokenWriter(dataDir);
 
   app.get("/api/setup/tools", async (): Promise<ToolsResponse> => ({
     tools: await getToolsStatus(deps),
     operations: store.list(),
+    authSessions: authStore.list(),
   }));
 
   app.post<{ Params: { tool: string; kind: ToolOperationKind } }>(
@@ -100,6 +132,118 @@ export async function setupRoutes(
       const operation = store.get(req.params.id);
       if (!operation) return reply.status(404).send({ error: "Operation not found" });
       return operation;
+    },
+  );
+
+  // ── Sign-in ────────────────────────────────────────────────────────
+
+  app.post<{ Params: { tool: AgentAuthToolId }; Body?: { force?: boolean } }>(
+    "/api/setup/auth/:tool/start",
+    {
+      schema: {
+        params: AUTH_TOOL_PARAMS,
+        body: {
+          type: ["object", "null"],
+          additionalProperties: false,
+          properties: { force: { type: "boolean" } },
+        },
+      },
+    },
+    async (req, reply): Promise<ToolAuthSession | undefined> => {
+      if (!isAgentAuthToolId(req.params.tool)) {
+        return reply.status(400).send({ error: "Unknown tool" });
+      }
+      try {
+        const result = await authStore.start(req.params.tool, {
+          force: req.body?.force === true,
+        });
+        // 409 rather than a success carrying a question: the flow did not
+        // start, and a client that ignored the body would otherwise show a
+        // sign-in that is not happening.
+        if (result.kind === "confirm_required") {
+          return reply
+            .status(409)
+            .send({ code: "confirm_required", message: result.message });
+        }
+        return result.session;
+      } catch (error) {
+        if (error instanceof ToolAuthError) {
+          return reply.status(400).send({ error: error.message });
+        }
+        throw error;
+      }
+    },
+  );
+
+  app.post<{ Params: { tool: AgentAuthToolId }; Body: { code: string } }>(
+    "/api/setup/auth/:tool/code",
+    {
+      schema: {
+        params: AUTH_TOOL_PARAMS,
+        body: {
+          type: "object",
+          additionalProperties: false,
+          required: ["code"],
+          properties: { code: { type: "string", minLength: 1, maxLength: 2048 } },
+        },
+      },
+    },
+    async (req, reply): Promise<ToolAuthSession | undefined> => {
+      if (!isAgentAuthToolId(req.params.tool)) {
+        return reply.status(400).send({ error: "Unknown tool" });
+      }
+      try {
+        return authStore.submitCode(req.params.tool, req.body.code.trim());
+      } catch (error) {
+        return reply
+          .status(400)
+          .send({ error: error instanceof Error ? error.message : "Invalid code" });
+      }
+    },
+  );
+
+  app.post<{ Params: { tool: AgentAuthToolId } }>(
+    "/api/setup/auth/:tool/cancel",
+    { schema: { params: AUTH_TOOL_PARAMS } },
+    async (req, reply): Promise<ToolAuthSession | undefined> => {
+      if (!isAgentAuthToolId(req.params.tool)) {
+        return reply.status(400).send({ error: "Unknown tool" });
+      }
+      const session = authStore.cancel(req.params.tool);
+      if (!session) return reply.status(404).send({ error: "No sign-in to cancel" });
+      return session;
+    },
+  );
+
+  /**
+   * Paste a Claude token directly.
+   *
+   * The escape hatch for when the driven flow cannot run — an operator who
+   * already has a token from `claude setup-token` elsewhere should not be made
+   * to redo it through a terminal Hive is pretending to be. It goes through the
+   * same validation and the same owner-only atomic write as the driven flow.
+   */
+  app.post<{ Body: { token: string } }>(
+    "/api/setup/auth/claude/token",
+    {
+      schema: {
+        body: {
+          type: "object",
+          additionalProperties: false,
+          required: ["token"],
+          properties: { token: { type: "string", minLength: 1, maxLength: 4096 } },
+        },
+      },
+    },
+    async (req, reply) => {
+      try {
+        await writeClaudeToken(req.body.token.trim());
+      } catch {
+        // The message is fixed, never echoing the input: a rejected token is
+        // still a credential and has no business in a response body or a log.
+        return reply.status(400).send({ error: "That is not a Claude authentication token." });
+      }
+      return { ok: true };
     },
   );
 }

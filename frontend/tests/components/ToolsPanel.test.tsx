@@ -2,23 +2,35 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type {
+  ToolAuthSession,
   ToolOperation,
   ToolsResponse,
   ToolStatus,
 } from "@hive/shared/setup-types";
+import { SetupApiError } from "@/lib/setup-api";
 import { ToolsPanel } from "@/components/setup/ToolsPanel";
 import { createWrapper } from "../test-utils";
 
 const mocks = vi.hoisted(() => ({
   getTools: vi.fn(),
   startOperation: vi.fn(),
+  startAuth: vi.fn(),
+  submitAuthCode: vi.fn(),
+  cancelAuth: vi.fn(),
   refreshModelCatalog: vi.fn(),
+  apiPost: vi.fn(),
 }));
 
-vi.mock("@/lib/setup-api", () => ({
+vi.mock("@/hooks/useApi", () => ({ api: { post: mocks.apiPost } }));
+
+vi.mock("@/lib/setup-api", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/setup-api")>()),
   createSetupApi: () => ({
     getTools: mocks.getTools,
     startOperation: mocks.startOperation,
+    startAuth: mocks.startAuth,
+    submitAuthCode: mocks.submitAuthCode,
+    cancelAuth: mocks.cancelAuth,
   }),
 }));
 
@@ -51,7 +63,12 @@ function operation(overrides: Partial<ToolOperation> & Pick<ToolOperation, "tool
 }
 
 function respond(response: Partial<ToolsResponse>): void {
-  mocks.getTools.mockResolvedValue({ tools: [], operations: [], ...response });
+  mocks.getTools.mockResolvedValue({
+    tools: [],
+    operations: [],
+    authSessions: [],
+    ...response,
+  });
 }
 
 function renderPanel() {
@@ -98,7 +115,7 @@ describe("ToolsPanel", () => {
     expect(screen.getByText("Not installed")).toBeInTheDocument();
   });
 
-  it("reports a tool as installed but unsigned-in without offering to sign it in", async () => {
+  it("offers to sign in a tool that is installed but not signed in", async () => {
     respond({
       tools: [tool({ id: "codex", label: "Codex", installed: true, version: "0.5.0" })],
     });
@@ -106,8 +123,16 @@ describe("ToolsPanel", () => {
     renderPanel();
 
     expect(await screen.findByText("Not signed in")).toBeInTheDocument();
-    // Signing in belongs to a later ticket; this panel must not pretend to.
-    expect(screen.queryByRole("button", { name: /sign in/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Connect Codex" })).toBeEnabled();
+  });
+
+  it("does not offer to connect a tool that is not installed yet", async () => {
+    respond({ tools: [tool({ id: "codex", label: "Codex", installed: false })] });
+
+    renderPanel();
+
+    expect(await screen.findByText("Not installed")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Connect Codex" })).not.toBeInTheDocument();
   });
 
   it("installs a missing tool", async () => {
@@ -255,7 +280,9 @@ describe("ToolsPanel", () => {
     renderPanel();
 
     expect(await screen.findByText(/checksum-pinned release/i)).toBeInTheDocument();
-    expect(screen.queryByRole("button")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /install|update/i })).not.toBeInTheDocument();
+    // Signing in is not the same thing as installing, and is still offered.
+    expect(screen.getByRole("button", { name: "Connect GitHub" })).toBeEnabled();
   });
 
   it("surfaces a status failure instead of rendering an empty panel", async () => {
@@ -287,5 +314,225 @@ describe("ToolsPanel", () => {
 
     expect(localSetItem).not.toHaveBeenCalled();
     localSetItem.mockRestore();
+  });
+});
+
+// ── Sign-in ──────────────────────────────────────────────────────────
+
+function session(
+  overrides: Partial<ToolAuthSession> & Pick<ToolAuthSession, "tool" | "state">,
+): ToolAuthSession {
+  return {
+    needsCode: false,
+    startedAt: "2026-07-27T00:00:00.000Z",
+    ...overrides,
+  };
+}
+
+describe("ToolsPanel sign-in", () => {
+  it("offers a connect action for a tool that is installed but not signed in", async () => {
+    respond({
+      tools: [tool({ id: "codex", label: "Codex", installed: true, authenticated: false })],
+    });
+    mocks.startAuth.mockResolvedValue(session({ tool: "codex", state: "starting" }));
+    const user = userEvent.setup();
+
+    renderPanel();
+    await user.click(await screen.findByRole("button", { name: "Connect Codex" }));
+
+    expect(mocks.startAuth).toHaveBeenCalledWith("codex", { force: undefined });
+  });
+
+  it("shows the code and link the server recovered from the CLI", async () => {
+    respond({
+      tools: [tool({ id: "codex", label: "Codex", installed: true })],
+      authSessions: [
+        session({
+          tool: "codex",
+          state: "awaiting_authorization",
+          verificationUri: "https://auth.openai.com/codex/device",
+          userCode: "U927-TJEHB",
+        }),
+      ],
+    });
+
+    renderPanel();
+
+    expect(await screen.findByText("U927-TJEHB")).toBeInTheDocument();
+    expect(screen.getByText("Waiting for authorization…")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /open sign-in page/i })).toBeInTheDocument();
+  });
+
+  it("asks for the code back when the flow needs one, and submits it", async () => {
+    respond({
+      tools: [tool({ id: "claude", label: "Claude Code", installed: true })],
+      authSessions: [
+        session({
+          tool: "claude",
+          state: "awaiting_code",
+          needsCode: true,
+          verificationUri: "https://claude.com/cai/oauth/authorize?state=abc",
+        }),
+      ],
+    });
+    mocks.submitAuthCode.mockResolvedValue(session({ tool: "claude", state: "verifying" }));
+    const user = userEvent.setup();
+
+    renderPanel();
+
+    const input = await screen.findByLabelText(/paste the code/i);
+    await user.type(input, "auth-code-123");
+    await user.click(screen.getByRole("button", { name: "Finish" }));
+
+    expect(mocks.submitAuthCode).toHaveBeenCalledWith("claude", "auth-code-123");
+  });
+
+  it("asks before signing the server out of a Codex that works", async () => {
+    respond({
+      tools: [tool({ id: "codex", label: "Codex", installed: true, authenticated: true })],
+    });
+    mocks.startAuth
+      .mockRejectedValueOnce(new SetupApiError(409, "This signs you out first."))
+      .mockResolvedValueOnce(session({ tool: "codex", state: "starting" }));
+    const user = userEvent.setup();
+
+    renderPanel();
+    await user.click(await screen.findByRole("button", { name: "Sign in again" }));
+
+    // The warning is shown before anything is destroyed, not after.
+    expect(await screen.findByText("This signs you out first.")).toBeInTheDocument();
+    expect(mocks.startAuth).toHaveBeenCalledTimes(1);
+
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+
+    await waitFor(() => expect(mocks.startAuth).toHaveBeenCalledTimes(2));
+    expect(mocks.startAuth).toHaveBeenLastCalledWith("codex", { force: true });
+  });
+
+  it("does not start the flow when the operator declines to be signed out", async () => {
+    respond({
+      tools: [tool({ id: "codex", label: "Codex", installed: true, authenticated: true })],
+    });
+    mocks.startAuth.mockRejectedValue(new SetupApiError(409, "This signs you out first."));
+    const user = userEvent.setup();
+
+    renderPanel();
+    await user.click(await screen.findByRole("button", { name: "Sign in again" }));
+    await screen.findByText("This signs you out first.");
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+
+    await waitFor(() =>
+      expect(screen.queryByText("This signs you out first.")).not.toBeInTheDocument(),
+    );
+    expect(mocks.startAuth).toHaveBeenCalledTimes(1);
+    expect(mocks.startAuth).toHaveBeenCalledWith("codex", { force: undefined });
+  });
+
+  it("reports an expired code as expired rather than as a failure", async () => {
+    respond({
+      tools: [tool({ id: "codex", label: "Codex", installed: true })],
+      authSessions: [session({ tool: "codex", state: "expired" })],
+    });
+
+    renderPanel();
+
+    expect(await screen.findByText(/code expired before it was confirmed/i)).toBeInTheDocument();
+    // Still offered, because trying again is the fix.
+    expect(screen.getByRole("button", { name: "Connect Codex" })).toBeEnabled();
+  });
+
+  it("reports a CLI that is too old, with what to do about it", async () => {
+    respond({
+      tools: [tool({ id: "codex", label: "Codex", installed: true, version: "0.90.0" })],
+      authSessions: [
+        session({
+          tool: "codex",
+          state: "failed",
+          failure: {
+            reason: "unsupported_cli",
+            message: "Codex 0.90.0 does not support device sign-in.",
+            outputExcerpt: "unknown flag --device-auth",
+          },
+        }),
+      ],
+    });
+
+    renderPanel();
+
+    expect(
+      await screen.findByText(/Codex 0\.90\.0 does not support device sign-in/i),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/too old for this sign-in flow/i)).toBeInTheDocument();
+    expect(screen.getByText("unknown flag --device-auth")).toBeInTheDocument();
+  });
+
+  it("never gates one agent harness on the other", async () => {
+    respond({
+      tools: [
+        tool({ id: "claude", label: "Claude Code", installed: true, authenticated: true }),
+        tool({ id: "codex", label: "Codex", installed: true, authenticated: false }),
+      ],
+    });
+
+    renderPanel();
+
+    expect(await screen.findByText(/One agent harness is enough/i)).toBeInTheDocument();
+    // Connecting the second is offered, never demanded.
+    expect(screen.getByRole("button", { name: "Connect Codex" })).toBeEnabled();
+  });
+
+  it("says one harness is enough when neither is connected yet", async () => {
+    respond({
+      tools: [
+        tool({ id: "claude", label: "Claude Code", installed: true }),
+        tool({ id: "codex", label: "Codex", installed: true }),
+      ],
+    });
+
+    renderPanel();
+
+    expect(await screen.findByText(/Either one on its own is enough/i)).toBeInTheDocument();
+  });
+
+  it("drives GitHub through the device flow Hive already speaks", async () => {
+    respond({
+      tools: [tool({ id: "gh", label: "GitHub CLI", installed: true, managed: false })],
+    });
+    mocks.apiPost.mockResolvedValue({
+      userCode: "ABCD-1234",
+      verificationUri: "https://github.com/login/device",
+      expiresIn: 900,
+      interval: 5,
+    });
+    const user = userEvent.setup();
+
+    renderPanel();
+    await user.click(await screen.findByRole("button", { name: "Connect GitHub" }));
+
+    expect(mocks.apiPost).toHaveBeenCalledWith("/api/account/connect");
+    expect(await screen.findByText("ABCD-1234")).toBeInTheDocument();
+    // Not the sign-in session API: GitHub has no CLI process to supervise.
+    expect(mocks.startAuth).not.toHaveBeenCalled();
+  });
+
+  it("cancels a running sign-in", async () => {
+    respond({
+      tools: [tool({ id: "claude", label: "Claude Code", installed: true })],
+      authSessions: [
+        session({
+          tool: "claude",
+          state: "awaiting_code",
+          needsCode: true,
+          verificationUri: "https://claude.com/x",
+        }),
+      ],
+    });
+    mocks.cancelAuth.mockResolvedValue(session({ tool: "claude", state: "cancelled" }));
+    const user = userEvent.setup();
+
+    renderPanel();
+    await user.click(await screen.findByRole("button", { name: "Cancel" }));
+
+    expect(mocks.cancelAuth).toHaveBeenCalledWith("claude");
   });
 });

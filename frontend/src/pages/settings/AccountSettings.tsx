@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Github, Loader2, LogOut, ExternalLink, Copy, Check, AlertCircle, CheckCircle2, Terminal, XCircle } from "lucide-react";
 import { SettingsHeader } from "@/components/AppLayout";
@@ -7,39 +7,18 @@ import { cn } from "@/lib/utils";
 import { api } from "@/hooks/useApi";
 import { openExternal } from "@/lib/open-external";
 import { useClipboardCopy } from "@/hooks/useClipboardCopy";
-
-interface GitHubUser {
-  login: string;
-  name: string;
-  email: string;
-  avatarUrl: string;
-}
-
-interface AccountStatus {
-  ghInstalled: boolean;
-  authenticated: boolean;
-  user?: GitHubUser;
-}
-
-interface ConnectResponse {
-  userCode: string;
-  verificationUri: string;
-  expiresIn: number;
-  interval: number;
-}
-
-interface PollResponse {
-  status: "pending" | "slow_down" | "expired" | "denied" | "complete";
-  user?: GitHubUser;
-  interval?: number;
-}
+import {
+  useGitHubDeviceFlow,
+  type GitHubAccountStatus as AccountStatus,
+  type GitHubUser,
+} from "@/hooks/useGitHubDeviceFlow";
 
 type PageState =
   | { kind: "loading" }
   | { kind: "no-gh" }
   | { kind: "disconnected" }
   | { kind: "connecting"; userCode: string; verificationUri: string }
-  | { kind: "connected"; user: GitHubUser }
+  | { kind: "connected"; user: GitHubUser; gitCredentialError?: string }
   | { kind: "error"; message: string; retryable: boolean };
 
 export default function AccountSettings() {
@@ -47,15 +26,9 @@ export default function AccountSettings() {
   const [state, setState] = useState<PageState>({ kind: "loading" });
   const [disconnecting, setDisconnecting] = useState(false);
   const { copy, isCopied } = useClipboardCopy();
-  const pollTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const pollInterval = useRef(5);
-
-  const stopPolling = useCallback(() => {
-    if (pollTimer.current) {
-      clearTimeout(pollTimer.current);
-      pollTimer.current = null;
-    }
-  }, []);
+  // The device flow itself lives in the hook the tools panel also uses; this
+  // page owns only how the result is presented.
+  const { phase, connect, cancel, reset } = useGitHubDeviceFlow();
 
   const statusQuery = useQuery({
     queryKey: ["account", "status"],
@@ -82,62 +55,41 @@ export default function AccountSettings() {
     }
   }, [state.kind, statusQuery.isFetching, statusQuery.data, statusQuery.error]);
 
-  useEffect(() => stopPolling, [stopPolling]);
-
-  const startPolling = useCallback(
-    (userCode: string, verificationUri: string) => {
-      let errorCount = 0;
-      const poll = async () => {
-        try {
-          const res = await api.post<PollResponse>("/api/account/connect/poll");
-          errorCount = 0;
-          if (res.status === "pending") {
-            pollTimer.current = setTimeout(poll, pollInterval.current * 1000);
-          } else if (res.status === "slow_down") {
-            if (res.interval) pollInterval.current = res.interval;
-            pollTimer.current = setTimeout(poll, pollInterval.current * 1000);
-          } else if (res.status === "complete" && res.user) {
-            setState({ kind: "connected", user: res.user });
-            queryClient.setQueryData<AccountStatus>(["account", "status"], {
-              ghInstalled: true,
-              authenticated: true,
-              user: res.user,
-            });
-          } else if (res.status === "expired") {
-            setState({ kind: "error", message: "Authorization timed out. Please try again.", retryable: true });
-          } else if (res.status === "denied") {
-            setState({ kind: "error", message: "Authorization was denied.", retryable: true });
-          }
-        } catch (err) {
-          errorCount++;
-          if (errorCount >= 3) {
-            const msg = err instanceof Error ? err.message : "Connection failed";
-            setState({ kind: "error", message: `GitHub login failed: ${msg}`, retryable: true });
-          } else {
-            pollTimer.current = setTimeout(poll, pollInterval.current * 1000);
-          }
-        }
-      };
-      setState({ kind: "connecting", userCode, verificationUri });
-      pollTimer.current = setTimeout(poll, pollInterval.current * 1000);
-    },
-    [queryClient],
-  );
-
-  const handleConnect = async () => {
-    try {
-      const res = await api.post<ConnectResponse>("/api/account/connect");
-      pollInterval.current = res.interval || 5;
-      startPolling(res.userCode, res.verificationUri);
-    } catch {
-      setState({ kind: "error", message: "Failed to start GitHub connection flow", retryable: true });
+  // Mirror the device flow into the page's own state, so the sections below
+  // keep rendering from one description of what is on screen.
+  useEffect(() => {
+    if (phase.kind === "idle") return;
+    if (phase.kind === "connecting") {
+      setState({
+        kind: "connecting",
+        userCode: phase.userCode,
+        verificationUri: phase.verificationUri,
+      });
+    } else if (phase.kind === "connected") {
+      setState({
+        kind: "connected",
+        user: phase.user,
+        ...(phase.gitCredentialError
+          ? { gitCredentialError: phase.gitCredentialError }
+          : {}),
+      });
+      queryClient.setQueryData<AccountStatus>(["account", "status"], {
+        ghInstalled: true,
+        authenticated: true,
+        user: phase.user,
+      });
+    } else {
+      setState({ kind: "error", message: phase.message, retryable: true });
     }
-  };
+  }, [phase, queryClient]);
+
+  const handleConnect = () => connect();
 
   const handleDisconnect = async () => {
     setDisconnecting(true);
     try {
       await api.post("/api/account/disconnect");
+      reset();
       setState({ kind: "disconnected" });
       queryClient.setQueryData<AccountStatus>(["account", "status"], {
         ghInstalled: true,
@@ -155,12 +107,13 @@ export default function AccountSettings() {
   };
 
   const handleRetry = () => {
+    reset();
     setState({ kind: "loading" });
     void queryClient.resetQueries({ queryKey: ["account", "status"] });
   };
 
   const handleCancelConnect = () => {
-    stopPolling();
+    cancel();
     setState({ kind: "disconnected" });
   };
 
@@ -293,6 +246,15 @@ export default function AccountSettings() {
                   </p>
                 </div>
               </div>
+              {state.gitCredentialError && (
+                <p
+                  role="alert"
+                  className="mt-4 rounded-md border border-warning-border bg-warning-muted p-3 text-xs text-warning-foreground"
+                >
+                  {state.gitCredentialError} Pushes over HTTPS will ask for credentials
+                  until this is fixed on the server.
+                </p>
+              )}
               <div className="mt-4 border-t border-border/50 pt-4">
                 <button
                   type="button"

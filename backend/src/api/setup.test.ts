@@ -1,20 +1,34 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import Fastify, { type FastifyInstance } from "fastify";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
   StartToolOperationResponse,
+  ToolAuthSession,
   ToolOperation,
   ToolsResponse,
 } from "@hive/shared/setup-types";
 import type { CommandResult } from "../services/setup/command.js";
+import type { ToolDetection } from "../services/setup/detect.js";
+import {
+  ToolAuthError,
+  type AuthFlow,
+  type AuthorizationPrompt,
+  type ToolAuthOutcome,
+} from "../services/setup/auth/flow.js";
+import {
+  createToolAuthStore,
+  type ToolAuthStore,
+} from "../services/setup/auth/sessions.js";
 import {
   createToolOperationStore,
   type ToolOperationStore,
 } from "../services/setup/operations.js";
 import type { ToolsServiceDeps } from "../services/setup/tools-service.js";
 import { setupRoutes } from "./setup.js";
+
+const VALID_CLAUDE_TOKEN = "sk-ant-oat01-AbC123_dEf456-GhI789jklMNO";
 
 let app: FastifyInstance;
 let dataDir: string;
@@ -52,14 +66,56 @@ function makeDeps(probes: Record<string, CommandResult>): ToolsServiceDeps {
 }
 
 let store: ToolOperationStore;
+let authStore: ToolAuthStore;
 
-async function build(probes: Record<string, CommandResult> = {}): Promise<void> {
+async function build(
+  probes: Record<string, CommandResult> = {},
+  auth?: ToolAuthStore,
+): Promise<void> {
   app = Fastify();
   store = await createToolOperationStore({ dataDir });
+  authStore = auth ?? createToolAuthStore({ flows: {}, detect: async () => detection() });
   await app.register((instance: FastifyInstance) =>
-    setupRoutes(instance, { dataDir, deps: makeDeps(probes), store }),
+    setupRoutes(instance, { dataDir, deps: makeDeps(probes), store, authStore }),
   );
   await app.ready();
+}
+
+function detection(overrides: Partial<ToolDetection> = {}): ToolDetection {
+  return { installed: true, version: "1.0.0", authenticated: false, ...overrides };
+}
+
+/**
+ * A sign-in flow under the test's control: it surfaces whatever prompt it was
+ * given, then sits there until the test says how it ends.
+ */
+function scriptedFlow(prompt?: AuthorizationPrompt): {
+  flow: AuthFlow;
+  finish: (outcome: ToolAuthOutcome) => void;
+  fail: (error: unknown) => void;
+  codes: string[];
+} {
+  const codes: string[] = [];
+  let settle!: (outcome: ToolAuthOutcome) => void;
+  let reject!: (error: unknown) => void;
+  const done = new Promise<ToolAuthOutcome>((resolve, rejectFn) => {
+    settle = resolve;
+    reject = rejectFn;
+  });
+
+  return {
+    codes,
+    finish: (outcome) => settle(outcome),
+    fail: (error) => reject(error),
+    flow: (ctx) => {
+      if (prompt) ctx.prompt(prompt);
+      return {
+        done,
+        submitCode: (code) => codes.push(code),
+        cancel: () => settle("cancelled"),
+      };
+    },
+  };
 }
 
 beforeEach(async () => {
@@ -77,6 +133,7 @@ afterEach(async () => {
   // directory disappears underneath it.
   gate.resolve();
   await store?.whenIdle();
+  await authStore?.whenIdle();
   await app?.close();
   await rm(dataDir, { recursive: true, force: true });
   vi.restoreAllMocks();
@@ -100,6 +157,7 @@ describe("GET /api/setup/tools", () => {
     expect(body.tools[1]).toMatchObject({ installed: false, authenticated: false });
     expect(body.tools[2]).toMatchObject({ installed: true, authenticated: true, managed: false });
     expect(body.operations).toEqual([]);
+    expect(body.authSessions).toEqual([]);
   });
 });
 
@@ -277,5 +335,267 @@ describe("restart recovery", () => {
       .json<StartToolOperationResponse>();
     expect(retry.joined).toBe(false);
     expect(retry.operation.status).toBe("running");
+  });
+});
+
+// ── Sign-in ──────────────────────────────────────────────────────────
+
+describe("POST /api/setup/auth/:tool/start", () => {
+  it("starts a sign-in and reports what the operator must do", async () => {
+    const claude = scriptedFlow({
+      verificationUri: "https://claude.com/cai/oauth/authorize?state=abc",
+      needsCode: true,
+    });
+    await build(
+      {},
+      createToolAuthStore({ flows: { claude: { flow: claude.flow } }, detect: async () => detection() }),
+    );
+
+    const res = await app.inject({ method: "POST", url: "/api/setup/auth/claude/start" });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json<ToolAuthSession>()).toMatchObject({
+      tool: "claude",
+      state: "awaiting_code",
+      needsCode: true,
+      verificationUri: "https://claude.com/cai/oauth/authorize?state=abc",
+    });
+
+    claude.finish("cancelled");
+  });
+
+  it("carries the live session on the tools listing a reloaded client polls", async () => {
+    const codex = scriptedFlow({
+      verificationUri: "https://auth.openai.com/codex/device",
+      userCode: "U927-TJEHB",
+    });
+    await build(
+      {},
+      createToolAuthStore({ flows: { codex: { flow: codex.flow } }, detect: async () => detection() }),
+    );
+    await app.inject({ method: "POST", url: "/api/setup/auth/codex/start" });
+
+    const body = (await app.inject({ method: "GET", url: "/api/setup/tools" })).json<ToolsResponse>();
+
+    expect(body.authSessions).toHaveLength(1);
+    expect(body.authSessions[0]).toMatchObject({
+      tool: "codex",
+      state: "awaiting_authorization",
+      userCode: "U927-TJEHB",
+      needsCode: false,
+    });
+
+    codex.finish("cancelled");
+  });
+
+  it("refuses to sign out a working Codex without an explicit yes", async () => {
+    const codex = scriptedFlow();
+    await build(
+      {},
+      createToolAuthStore({
+        flows: { codex: { flow: codex.flow, confirmWhenConnected: "This signs you out first." } },
+        detect: async () => detection({ authenticated: true }),
+      }),
+    );
+
+    const res = await app.inject({ method: "POST", url: "/api/setup/auth/codex/start" });
+
+    expect(res.statusCode).toBe(409);
+    expect(res.json()).toEqual({
+      code: "confirm_required",
+      message: "This signs you out first.",
+    });
+    // Nothing started, so nothing was destroyed.
+    const body = (await app.inject({ method: "GET", url: "/api/setup/tools" })).json<ToolsResponse>();
+    expect(body.authSessions).toEqual([]);
+  });
+
+  it("starts once the operator has said yes", async () => {
+    const codex = scriptedFlow({ verificationUri: "https://auth.openai.com/codex/device" });
+    await build(
+      {},
+      createToolAuthStore({
+        flows: { codex: { flow: codex.flow, confirmWhenConnected: "This signs you out first." } },
+        detect: async () => detection({ authenticated: true }),
+      }),
+    );
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/setup/auth/codex/start",
+      payload: { force: true },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json<ToolAuthSession>().state).toBe("awaiting_authorization");
+
+    codex.finish("cancelled");
+  });
+
+  it("joins the sign-in already running rather than starting a second", async () => {
+    const claude = scriptedFlow({ verificationUri: "https://claude.com/x", needsCode: true });
+    let starts = 0;
+    await build(
+      {},
+      createToolAuthStore({
+        flows: {
+          claude: {
+            flow: (ctx) => {
+              starts += 1;
+              return claude.flow(ctx);
+            },
+          },
+        },
+        detect: async () => detection(),
+      }),
+    );
+
+    await app.inject({ method: "POST", url: "/api/setup/auth/claude/start" });
+    await app.inject({ method: "POST", url: "/api/setup/auth/claude/start" });
+
+    expect(starts).toBe(1);
+
+    claude.finish("cancelled");
+  });
+
+  it("does not offer a sign-in route for GitHub, which has its own flow", async () => {
+    await build();
+    const res = await app.inject({ method: "POST", url: "/api/setup/auth/gh/start" });
+    expect(res.statusCode).toBe(400);
+  });
+});
+
+describe("POST /api/setup/auth/:tool/code", () => {
+  it("hands a pasted code to the flow waiting for one", async () => {
+    const claude = scriptedFlow({ verificationUri: "https://claude.com/x", needsCode: true });
+    await build(
+      {},
+      createToolAuthStore({ flows: { claude: { flow: claude.flow } }, detect: async () => detection() }),
+    );
+    await app.inject({ method: "POST", url: "/api/setup/auth/claude/start" });
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/setup/auth/claude/code",
+      payload: { code: "  abc123  " },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(claude.codes).toEqual(["abc123"]);
+
+    claude.finish("connected");
+  });
+
+  it("rejects a code when nothing is waiting for one", async () => {
+    await build(
+      {},
+      createToolAuthStore({ flows: { claude: { flow: scriptedFlow().flow } }, detect: async () => detection() }),
+    );
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/setup/auth/claude/code",
+      payload: { code: "abc123" },
+    });
+
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error).toMatch(/waiting for a code/i);
+  });
+});
+
+describe("POST /api/setup/auth/:tool/cancel", () => {
+  it("cancels a running sign-in", async () => {
+    const claude = scriptedFlow({ verificationUri: "https://claude.com/x", needsCode: true });
+    await build(
+      {},
+      createToolAuthStore({ flows: { claude: { flow: claude.flow } }, detect: async () => detection() }),
+    );
+    await app.inject({ method: "POST", url: "/api/setup/auth/claude/start" });
+
+    const res = await app.inject({ method: "POST", url: "/api/setup/auth/claude/cancel" });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json<ToolAuthSession>()).toMatchObject({ state: "cancelled", needsCode: false });
+  });
+
+  it("reports nothing to cancel", async () => {
+    await build();
+    const res = await app.inject({ method: "POST", url: "/api/setup/auth/claude/cancel" });
+    expect(res.statusCode).toBe(404);
+  });
+});
+
+describe("a sign-in that fails", () => {
+  it("reports the reason and the output, not just that it failed", async () => {
+    const codex = scriptedFlow();
+    await build(
+      {},
+      createToolAuthStore({ flows: { codex: { flow: codex.flow } }, detect: async () => detection() }),
+    );
+    await app.inject({ method: "POST", url: "/api/setup/auth/codex/start" });
+
+    codex.fail(
+      new ToolAuthError("unsupported_cli", "Codex 0.90.0 does not support device sign-in.", {
+        outputExcerpt: "unknown flag --device-auth",
+      }),
+    );
+    await authStore.whenIdle();
+
+    const body = (await app.inject({ method: "GET", url: "/api/setup/tools" })).json<ToolsResponse>();
+    expect(body.authSessions[0]).toMatchObject({
+      state: "failed",
+      failure: {
+        reason: "unsupported_cli",
+        message: "Codex 0.90.0 does not support device sign-in.",
+        outputExcerpt: "unknown flag --device-auth",
+      },
+    });
+  });
+
+  it("reports an expired code as expired rather than as a failure", async () => {
+    const codex = scriptedFlow({ verificationUri: "https://auth.openai.com/codex/device" });
+    await build(
+      {},
+      createToolAuthStore({ flows: { codex: { flow: codex.flow } }, detect: async () => detection() }),
+    );
+    await app.inject({ method: "POST", url: "/api/setup/auth/codex/start" });
+
+    codex.finish("expired");
+    await authStore.whenIdle();
+
+    const body = (await app.inject({ method: "GET", url: "/api/setup/tools" })).json<ToolsResponse>();
+    expect(body.authSessions[0]).toMatchObject({ state: "expired" });
+    expect(body.authSessions[0].failure).toBeUndefined();
+  });
+});
+
+describe("POST /api/setup/auth/claude/token", () => {
+  it("stores a token pasted directly", async () => {
+    await build();
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/setup/auth/claude/token",
+      payload: { token: `  ${VALID_CLAUDE_TOKEN}  ` },
+    });
+
+    expect(res.statusCode).toBe(200);
+    const stored = JSON.parse(
+      await readFile(join(dataDir, "setup-secrets.json"), "utf-8"),
+    ) as { claudeCodeOAuthToken: string };
+    expect(stored.claudeCodeOAuthToken).toBe(VALID_CLAUDE_TOKEN);
+  });
+
+  it("rejects something that is not a token without echoing it back", async () => {
+    await build();
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/setup/auth/claude/token",
+      payload: { token: "sk-ant-oat01-nearly-but-not" },
+    });
+
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error).not.toContain("sk-ant");
   });
 });

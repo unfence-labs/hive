@@ -1,7 +1,9 @@
 import { getAuthToken, getServerUrl } from "@/hooks/useConnection";
 import type {
+  AgentAuthToolId,
   SetupToolId,
   StartToolOperationResponse,
+  ToolAuthSession,
   ToolOperationKind,
   ToolsResponse,
 } from "@hive/shared/setup-types";
@@ -36,7 +38,18 @@ export interface SetupApi {
     tool: SetupToolId,
     kind: ToolOperationKind,
   ) => Promise<StartToolOperationResponse>;
+  /**
+   * Begin a sign-in. Rejects with a 409 {@link SetupApiError} when starting
+   * would sign the server out of a tool that currently works; the message is
+   * what to ask the operator before retrying with `force`.
+   */
+  startAuth: (tool: AgentAuthToolId, opts?: { force?: boolean }) => Promise<ToolAuthSession>;
+  submitAuthCode: (tool: AgentAuthToolId, code: string) => Promise<ToolAuthSession>;
+  cancelAuth: (tool: AgentAuthToolId) => Promise<ToolAuthSession>;
 }
+
+/** The 409 a start request answers with when it needs an explicit yes first. */
+export const CONFIRM_REQUIRED_STATUS = 409;
 
 /** Detection spawns several probes server-side; give it room. */
 const REQUEST_TIMEOUT_MS = 30_000;
@@ -58,7 +71,9 @@ export function createSetupApi(target: SetupApiTarget = {}): SetupApi {
   async function request<T>(path: string, init?: RequestInit): Promise<T> {
     const base = target.baseUrl || getServerUrl();
     const token = target.authToken ?? (target.baseUrl ? "" : getAuthToken());
-    const headers: Record<string, string> = {};
+    // Merged, not replaced: a caller sending a body has to be able to declare
+    // its type without losing the credential, and vice versa.
+    const headers: Record<string, string> = { ...(init?.headers as Record<string, string>) };
     if (token) headers.Authorization = `Bearer ${token}`;
 
     const timeout = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
@@ -72,11 +87,23 @@ export function createSetupApi(target: SetupApiTarget = {}): SetupApi {
     return (await res.json()) as T;
   }
 
+  function post<T>(path: string, body?: unknown): Promise<T> {
+    return request<T>(path, {
+      method: "POST",
+      ...(body === undefined
+        ? {}
+        : { body: JSON.stringify(body), headers: { "Content-Type": "application/json" } }),
+    });
+  }
+
   return {
     getTools: (signal) => request<ToolsResponse>("/api/setup/tools", { signal }),
     startOperation: (tool, kind) =>
-      request<StartToolOperationResponse>(`/api/setup/tools/${tool}/${kind}`, {
-        method: "POST",
-      }),
+      post<StartToolOperationResponse>(`/api/setup/tools/${tool}/${kind}`),
+    startAuth: (tool, opts) =>
+      post<ToolAuthSession>(`/api/setup/auth/${tool}/start`, { force: opts?.force === true }),
+    submitAuthCode: (tool, code) =>
+      post<ToolAuthSession>(`/api/setup/auth/${tool}/code`, { code }),
+    cancelAuth: (tool) => post<ToolAuthSession>(`/api/setup/auth/${tool}/cancel`),
   };
 }
