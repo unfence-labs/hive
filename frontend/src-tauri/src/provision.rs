@@ -614,7 +614,6 @@ fn run_remote(
     command: &str,
     payload: Vec<u8>,
     password: Option<&Secret>,
-    tracker: &Arc<Mutex<Option<u32>>>,
     on_record: &mut dyn FnMut(serde_json::Value),
 ) -> Result<RemoteOutcome, ProvisionError> {
     let mut child = Command::new("ssh")
@@ -628,9 +627,9 @@ fn run_remote(
         .map_err(|error| {
             ProvisionError::new("SSH_UNREACHABLE", format!("could not start ssh: {error}"))
         })?;
-    // Take the pipes before publishing the pid: a tracker holding the pid of a
-    // child this function then abandoned would let a later cancel signal a
-    // process id that has since been reused.
+    // A child whose pipes cannot be taken can neither be fed the script nor read
+    // for records, so it is killed here rather than left running against the
+    // server with nothing listening.
     let (stdin, stdout, stderr) =
         match (child.stdin.take(), child.stdout.take(), child.stderr.take()) {
             (Some(stdin), Some(stdout), Some(stderr)) => (stdin, stdout, stderr),
@@ -640,9 +639,6 @@ fn run_remote(
                 return Err(ProvisionError::unknown("ssh pipes unavailable"));
             }
         };
-    if let Ok(mut slot) = tracker.lock() {
-        *slot = Some(child.id());
-    }
 
     let mut stdin = stdin;
     let writer = std::thread::spawn(move || {
@@ -679,11 +675,9 @@ fn run_remote(
     }
     let _ = writer.join();
 
-    let status = child.wait();
-    if let Ok(mut slot) = tracker.lock() {
-        *slot = None;
-    }
-    let status = status.map_err(|error| ProvisionError::unknown(error.to_string()))?;
+    let status = child
+        .wait()
+        .map_err(|error| ProvisionError::unknown(error.to_string()))?;
     let stderr_raw = stderr_reader.join().unwrap_or_default();
     let stderr = redact(&String::from_utf8_lossy(&stderr_raw), password);
 
@@ -1135,7 +1129,6 @@ fn build_preflight_report(
 fn execute_preflight(
     connection: &Connection,
     options: &ProvisionOptions,
-    tracker: &Arc<Mutex<Option<u32>>>,
 ) -> Result<PreflightReport, ProvisionError> {
     connection.validate()?;
     let args = options.script_args(true)?;
@@ -1149,7 +1142,6 @@ fn execute_preflight(
         &command,
         stdin_payload(None),
         None,
-        tracker,
         &mut |record| records.push(record),
     )?;
     if outcome.terminal.is_none() {
@@ -1180,7 +1172,6 @@ fn run_install(
     connection: &Connection,
     options: &ProvisionOptions,
     password: Option<Secret>,
-    tracker: &Arc<Mutex<Option<u32>>>,
     on_event: &Channel<serde_json::Value>,
 ) -> Result<(), ProvisionError> {
     let surface = |error: ProvisionError| {
@@ -1188,7 +1179,7 @@ fn run_install(
         error
     };
 
-    let privilege = execute_preflight(connection, options, tracker)
+    let privilege = execute_preflight(connection, options)
         .map_err(surface)?
         .privilege;
     let _ = on_event.send(serde_json::json!({
@@ -1220,7 +1211,6 @@ fn run_install(
         &command,
         payload,
         password.as_ref(),
-        tracker,
         &mut |record| {
             let _ = on_event.send(record);
         },
@@ -1235,10 +1225,11 @@ fn run_install(
 
 // ── run state ────────────────────────────────────────────────────────────────
 
+/// One install at a time, per app. Nothing else is tracked: a run cannot be
+/// cancelled, so there is no reason to hold on to its ssh process.
 #[derive(Default)]
 pub struct ProvisionState {
     running: Arc<AtomicBool>,
-    child: Arc<Mutex<Option<u32>>>,
 }
 
 struct RunGuard(Arc<AtomicBool>);
@@ -1257,17 +1248,6 @@ impl RunGuard {
 impl Drop for RunGuard {
     fn drop(&mut self) {
         self.0.store(false, Ordering::SeqCst);
-    }
-}
-
-impl ProvisionState {
-    /// Terminate the ssh child of the active run. The remote script records its
-    /// progress step by step, so interrupting it and resuming later is safe.
-    pub fn kill_active_run(&self) {
-        let pid = self.child.lock().ok().and_then(|slot| *slot);
-        if let Some(pid) = pid {
-            let _ = Command::new("kill").arg(pid.to_string()).status();
-        }
     }
 }
 
@@ -1345,11 +1325,9 @@ pub async fn provision_preflight(
 ) -> Result<PreflightReport, ProvisionError> {
     connection.validate()?;
     options.validate()?;
-    tauri::async_runtime::spawn_blocking(move || {
-        execute_preflight(&connection, &options, &Arc::new(Mutex::new(None)))
-    })
-    .await
-    .map_err(|error| ProvisionError::unknown(error.to_string()))?
+    tauri::async_runtime::spawn_blocking(move || execute_preflight(&connection, &options))
+        .await
+        .map_err(|error| ProvisionError::unknown(error.to_string()))?
 }
 
 #[tauri::command]
@@ -1366,18 +1344,12 @@ pub async fn provision_start(
         validate_password(secret)?;
     }
     let running = Arc::clone(&state.running);
-    let tracker = Arc::clone(&state.child);
     tauri::async_runtime::spawn_blocking(move || {
         let _guard = RunGuard::acquire(&running)?;
-        run_install(&connection, &options, password, &tracker, &on_event)
+        run_install(&connection, &options, password, &on_event)
     })
     .await
     .map_err(|error| ProvisionError::unknown(error.to_string()))?
-}
-
-#[tauri::command]
-pub fn provision_cancel(state: State<'_, ProvisionState>) {
-    state.kill_active_run();
 }
 
 #[cfg(test)]

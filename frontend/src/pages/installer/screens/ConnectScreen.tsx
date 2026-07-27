@@ -163,6 +163,9 @@ export function ConnectScreen({ client, inputs, onContinue, onBack }: ConnectScr
                 {
                   hostKey: identity?.hostKey,
                   fingerprint: identity?.fingerprint,
+                  // Carried forward so a relaunch knows whether the install can
+                  // resume on its own or has to ask for the password again.
+                  privilegeMode: report?.privilege.mode,
                 },
                 passwordRequired ? password : undefined,
               ),

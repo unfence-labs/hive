@@ -349,6 +349,14 @@ guard_create_user() {
   id "$HIVE_USER" >/dev/null 2>&1 && [ -d "$HIVE_DATA_DIR" ] && \
     [ "$(stat -c '%U:%G' "$HIVE_DATA_DIR" 2>/dev/null)" = "$HIVE_USER:$HIVE_USER" ]
 }
+
+# The account is what editor and terminal sessions connect as, so a resumed run
+# has to name it exactly as a fresh one does. Without this the caller would have
+# to assume the name, and an assumption cannot follow a configurable account.
+skipdata_create_user() {
+  printf '{"user":"%s","dataDir":"%s"}' "$HIVE_USER" "$HIVE_DATA_DIR"
+}
+
 step_create_user() {
   id "$HIVE_USER" >/dev/null 2>&1 || useradd -m -s /bin/bash "$HIVE_USER"
   # A data directory outside the service account's home may need its parents

@@ -5,14 +5,16 @@ interface ReadyScreenProps {
   inputs: InstallerInputs;
   /** The install will escalate with the password collected on the connect step. */
   escalates: boolean;
+  /** Start the install. Past this point there is no way out but through. */
+  onContinue: () => void;
   onBack: () => void;
 }
 
 /**
  * The settled plan, restated before anything on the server is touched. This is
- * the last screen where going back is free: the install runs from this state.
+ * the last screen where going back is free: the next one runs the install.
  */
-export function ReadyScreen({ inputs, escalates, onBack }: ReadyScreenProps) {
+export function ReadyScreen({ inputs, escalates, onContinue, onBack }: ReadyScreenProps) {
   const { host, user } = parseAddress(inputs.address);
   const rows: Array<[string, string]> = [
     ["Server", `${user ?? "root"}@${host}`],
@@ -36,7 +38,9 @@ export function ReadyScreen({ inputs, escalates, onBack }: ReadyScreenProps) {
   return (
     <InstallerScreen
       title="Ready to install"
-      description="The server answered, its identity is approved, and the installer found nothing that blocks it."
+      description="The server answered, its identity is approved, and the installer found nothing that blocks it. Starting the install changes the server; it runs to the end, and there is no cancel."
+      onContinue={onContinue}
+      continueLabel="Start the install"
       onBack={onBack}
     >
       <dl className="divide-y divide-border/40 text-sm">

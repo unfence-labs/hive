@@ -10,9 +10,6 @@ import { isDesktopShell } from "@/lib/is-desktop";
  * Typed surface over the desktop shell's SSH sidecar
  * (`frontend/src-tauri/src/provision.rs`). Every shape here mirrors a `Serialize`
  * struct on that side; keep the two in step.
- *
- * The install run itself is not part of this surface — it belongs to the
- * installer's install step, which streams its own NDJSON.
  */
 
 /** A private key found under ~/.ssh. Only the path is ever stored. */
@@ -116,6 +113,42 @@ export function provisionErrorHint(code: string): string {
   return SETUP_ERROR_HINTS.UNKNOWN;
 }
 
+// ── install stream ───────────────────────────────────────────────────────────
+
+/**
+ * One raw NDJSON record as `scripts/provision/lib.sh` emits it and the sidecar
+ * forwards it, verbatim. Kept raw here so the transport stays a transport: the
+ * installer's reducer is the only place that interprets these.
+ */
+export interface ProvisionRecord {
+  seq?: number;
+  event?: string;
+  step?: string;
+  status?: string;
+  title?: string;
+  line?: string;
+  reason?: string;
+  errorCode?: string;
+  detail?: string;
+  exitCode?: number;
+  durationMs?: number;
+  runId?: string;
+  scriptVersion?: string;
+  resume?: boolean;
+  stepsPlanned?: string[];
+  data?: Record<string, unknown>;
+}
+
+export interface InstallRequest {
+  connection: ProvisionConnection;
+  options: ProvisionOptions;
+  /**
+   * Escalation password, only when preflight said the account needs one. Held
+   * in memory for the length of one run and never written anywhere.
+   */
+  password?: string;
+}
+
 export interface ProvisionClient {
   /** Private keys under ~/.ssh, usable and unusable alike. */
   listKeys(): Promise<SshKey[]>;
@@ -128,6 +161,15 @@ export interface ProvisionClient {
     connection: ProvisionConnection,
     options: ProvisionOptions,
   ): Promise<PreflightReport>;
+  /**
+   * Run the install, streaming every record the script emits. Resolves when the
+   * run ends and rejects with a {@link ProvisionError} when it fails; the stream
+   * carries its own terminal `run_end` either way.
+   */
+  install(
+    request: InstallRequest,
+    onRecord: (record: ProvisionRecord) => void,
+  ): Promise<void>;
 }
 
 async function invoke<T>(command: string, args?: Record<string, unknown>): Promise<T> {
@@ -144,6 +186,19 @@ export function createTauriProvisionClient(): ProvisionClient {
     },
     preflight: (connection, options) =>
       invoke<PreflightReport>("provision_preflight", { connection, options }),
+    install: async ({ connection, options, password }, onRecord) => {
+      const core = await import("@tauri-apps/api/core");
+      const channel = new core.Channel<ProvisionRecord>();
+      channel.onmessage = onRecord;
+      await core.invoke("provision_start", {
+        connection,
+        options,
+        // Explicitly null rather than absent: the sidecar's `Option<Secret>`
+        // reads both as "no password", and null says so on the wire.
+        password: password ?? null,
+        onEvent: channel,
+      });
+    },
   };
 }
 

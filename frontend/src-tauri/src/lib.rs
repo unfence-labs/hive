@@ -62,8 +62,7 @@ pub fn run() {
             provision::provision_test_connection,
             provision::provision_trust_host,
             provision::provision_preflight,
-            provision::provision_start,
-            provision::provision_cancel
+            provision::provision_start
         ])
         .setup(|app| {
             app.manage(provision::ProvisionState::default());

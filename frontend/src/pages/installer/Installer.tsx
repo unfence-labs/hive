@@ -2,16 +2,20 @@ import { useCallback, useEffect, useMemo, useReducer, useState } from "react";
 import {
   clearMachine,
   loadMachine,
+  parseAddress,
   reduce,
   saveMachine,
   type InstallerInputs,
 } from "@/pages/installer/machine";
+import { clearInstallRuns } from "@/pages/installer/install-run";
 import { createProvisionClient, type ProvisionClient } from "@/lib/provision-client";
+import { switchServer } from "@/lib/server-connection";
 import { WelcomeScreen } from "./screens/WelcomeScreen";
 import { NetworkScreen } from "./screens/NetworkScreen";
 import { SshKeyScreen } from "./screens/SshKeyScreen";
 import { ConnectScreen } from "./screens/ConnectScreen";
 import { ReadyScreen } from "./screens/ReadyScreen";
+import { InstallScreen, type InstallResult } from "./screens/InstallScreen";
 
 interface InstallerProps {
   /** Injectable for tests; defaults to the desktop shell's SSH sidecar. */
@@ -58,6 +62,39 @@ export default function Installer({ client: injectedClient, onClose }: Installer
 
   const { state, inputs } = machine;
 
+  /**
+   * The install succeeded: the server it just built becomes the one server this
+   * client talks to, and the installer stops existing.
+   *
+   * The two accounts are stored apart on purpose. `sshUser` is the unprivileged
+   * service account that owns the repositories, and every editor and terminal
+   * session must connect as it; `adminUser` is only the login the install ran
+   * as, kept so a reinstall knows how to get back in. Conflating them makes the
+   * agent's own worktrees root-owned and unwritable.
+   *
+   * The connection is stored without re-probing it. The run already proved the
+   * backend is up and enforcing its token from the server's side; if the port
+   * is not reachable from here, Settings says so and can re-test — whereas
+   * refusing to store a token that was just generated would strand the operator
+   * with an installed server and no way to reach it.
+   */
+  const complete = useCallback(
+    async ({ accessToken, serviceUser }: InstallResult) => {
+      const { host, user } = parseAddress(inputs.address);
+      await switchServer({
+        host,
+        port: inputs.port,
+        authToken: accessToken,
+        sshUser: serviceUser,
+        adminUser: user ?? "root",
+      });
+      clearMachine();
+      clearInstallRuns();
+      onClose?.();
+    },
+    [inputs.address, inputs.port, onClose],
+  );
+
   let screen: React.ReactNode = null;
   switch (state) {
     case "welcome":
@@ -90,11 +127,23 @@ export default function Installer({ client: injectedClient, onClose }: Installer
         />
       );
       break;
-    case "install":
+    case "review":
       screen = (
         <ReadyScreen
           inputs={inputs}
           escalates={escalationPassword !== undefined}
+          onContinue={() => advance()}
+          onBack={back}
+        />
+      );
+      break;
+    case "install":
+      screen = (
+        <InstallScreen
+          client={client}
+          inputs={inputs}
+          {...(escalationPassword === undefined ? {} : { password: escalationPassword })}
+          onComplete={(result) => void complete(result)}
           onBack={back}
         />
       );

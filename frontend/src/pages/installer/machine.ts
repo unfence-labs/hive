@@ -1,14 +1,23 @@
 import { DEFAULT_BACKEND_PORT } from "@/lib/server-connection";
+import type { PrivilegeMode } from "@/lib/provision-client";
 
 /**
  * Installer state machine. Pure and fully testable; `Installer.tsx` owns
  * rendering and side effects.
  *
- * The sequence is linear and freely reversible: nothing on these screens
- * touches the server, so there is no point at which going back is unsafe.
+ * The sequence is linear and reversible up to `review`: nothing before the
+ * install touches the server, so there is no point along that stretch at which
+ * going back is unsafe. `install` is where that stops — see `InstallScreen`.
  */
 
-export const INSTALLER_STATES = ["welcome", "network", "ssh_key", "connect", "install"] as const;
+export const INSTALLER_STATES = [
+  "welcome",
+  "network",
+  "ssh_key",
+  "connect",
+  "review",
+  "install",
+] as const;
 
 export type InstallerState = (typeof INSTALLER_STATES)[number];
 
@@ -39,6 +48,12 @@ export interface InstallerInputs {
   /** The approved known-hosts line, once the fingerprint has been accepted. */
   hostKey?: string;
   fingerprint?: string;
+  /**
+   * How the install reaches root, as the connect step's preflight found it.
+   * Persisted because it decides whether a relaunch can resume the install
+   * unattended or has to ask for the escalation password again.
+   */
+  privilegeMode?: PrivilegeMode;
 }
 
 export interface InstallerMachine {
@@ -143,6 +158,24 @@ export function isUsableDirectory(value: string): boolean {
 // ── persistence ──────────────────────────────────────────────────────────────
 
 /**
+ * Where a relaunch lands.
+ *
+ * Everything past the connect step may depend on an escalation password, and
+ * that is deliberately not in this record. A run that needs one cannot resume
+ * unattended, so it goes back to connect — read-only, and it establishes the
+ * privilege mode and asks for the password again. A run that reaches root
+ * without one resumes exactly where it stopped, including into an install that
+ * was still going: the script is marker-based, so continuing it costs only the
+ * steps that are not already done.
+ */
+export function resumeState(state: InstallerState, inputs: InstallerInputs): InstallerState {
+  if (state !== "review" && state !== "install") return state;
+  return inputs.privilegeMode === "root" || inputs.privilegeMode === "sudoNoPassword"
+    ? state
+    : "connect";
+}
+
+/**
  * Restore where the operator stopped. Anything unreadable, from a different
  * schema, or naming a state that no longer exists starts over rather than
  * resuming into a screen that cannot render its own inputs.
@@ -157,13 +190,11 @@ export function loadMachine(): InstallerMachine {
     const parsed = JSON.parse(raw) as Partial<InstallerMachine>;
     if (parsed.schema !== INSTALLER_SCHEMA) return initialMachine();
     if (!parsed.state || !INSTALLER_STATES.includes(parsed.state)) return initialMachine();
+    const inputs = { ...defaultInputs(), ...(parsed.inputs ?? {}) };
     return {
       schema: INSTALLER_SCHEMA,
-      // Everything past the connect step may depend on an escalation password,
-      // and that is deliberately not in this record. Resuming lands on connect,
-      // which establishes the privilege mode and asks again if it has to.
-      state: parsed.state === "install" ? "connect" : parsed.state,
-      inputs: { ...defaultInputs(), ...(parsed.inputs ?? {}) },
+      state: resumeState(parsed.state, inputs),
+      inputs,
     };
   } catch {
     return initialMachine();

@@ -23,6 +23,7 @@ PROV="$ROOT/scripts/provision"
 MODE="${1:-install}"
 VERSION="0.0.0-e2e"
 IMAGE="hive-provision-e2e"
+BUILDER_IMAGE="node:22"
 NETWORK="hive-provision-e2e"
 RELEASE_HOST="hive-e2e-release"
 SERVER_HOST="hive-e2e-server"
@@ -42,6 +43,13 @@ cleanup() {
   [ -n "$CID" ] && docker rm -f "$CID" >/dev/null 2>&1
   [ -n "$RELEASE_CID" ] && docker rm -f "$RELEASE_CID" >/dev/null 2>&1
   docker network rm "$NETWORK" >/dev/null 2>&1
+  # The build container installs into $WORK/src, and a rootful daemon leaves
+  # those directories owned by root — this shell cannot unlink inside them, so
+  # a plain rm would leak the tree. Deleting from inside a container works
+  # whichever way the daemon runs.
+  if [ -n "$WORK" ] && [ -d "$WORK/src" ]; then
+    docker run --rm -v "$WORK:/work" "$BUILDER_IMAGE" rm -rf /work/src >/dev/null 2>&1
+  fi
   [ -n "$WORK" ] && rm -rf "$WORK"
   return 0
 }
@@ -73,11 +81,18 @@ build_release() {
     # that is supposed to resolve everything from the lockfile.
     ( cd "$ROOT" && git ls-files -z | tar -cf - --null -T - ) | tar -x -C "$src"
     docker run --rm -v "$src:/src" -v "$RELEASE_DIR:/out" -w /src \
-      -e "OUT_DIR=/out" node:22 \
+      -e "OUT_DIR=/out" "$BUILDER_IMAGE" \
       bash scripts/release/build-backend-tarball.sh "$VERSION" "$ARCH_TAG" \
       || die "the backend release build failed"
   fi
   [ -f "$RELEASE_DIR/$ASSET" ] || die "no release tarball at $RELEASE_DIR/$ASSET"
+  # The published checksum: served beside the tarball, and what the script
+  # verifies its download against before it extracts anything. It is recomputed
+  # from the tarball actually about to be served, because neither source
+  # supplies a usable one — the reuse path copies in a tarball with no checksum
+  # beside it, and the build container leaves one this shell cannot overwrite
+  # in place when the daemon runs as root.
+  rm -f "$RELEASE_DIR/$ASSET.sha256"
   ( cd "$RELEASE_DIR" && sha256sum "$ASSET" >"$ASSET.sha256" )
   log "Release: $(cat "$RELEASE_DIR/$ASSET.sha256")"
 }
@@ -264,6 +279,12 @@ mode_install() {
       || die "step '$step' repeated its work on a re-run"
   done
   echo "OK: every download and install step was skipped"
+  # The account is what the desktop app's editor and terminal sessions connect
+  # as. A resumed run skips create_user, so the skip has to carry it too, or the
+  # caller is left assuming a name that may not be the one on the server.
+  grep -q '"step":"create_user","status":"skip".*"data":{"user":"hive"' "$WORK/run2.ndjson" \
+    || die "the re-run did not report the service account it created"
+  echo "OK: the skipped create_user still named the service account"
 
   local token2; token2="$(token_from_stream "$WORK/run2.ndjson")"
   [ -n "$token2" ] && [ "$token1" != "$token2" ] || die "the access token was not rotated on the re-run"

@@ -95,6 +95,36 @@ describe("installer machine", () => {
     expect(loadMachine().state).toBe("connect");
   });
 
+  it("resumes straight back into an install that reaches root without a password", () => {
+    for (const privilegeMode of ["root", "sudoNoPassword"] as const) {
+      for (const state of ["review", "install"] as const) {
+        saveMachine({
+          schema: INSTALLER_SCHEMA,
+          state,
+          inputs: { ...initialMachine().inputs, address: "root@203.0.113.10", privilegeMode },
+        });
+
+        expect(loadMachine().state).toBe(state);
+      }
+    }
+  });
+
+  it("sends an install that needs the escalation password back to connect", () => {
+    for (const state of ["review", "install"] as const) {
+      saveMachine({
+        schema: INSTALLER_SCHEMA,
+        state,
+        inputs: {
+          ...initialMachine().inputs,
+          address: "ops@203.0.113.10",
+          privilegeMode: "sudoPassword",
+        },
+      });
+
+      expect(loadMachine().state).toBe("connect");
+    }
+  });
+
   it("never persists an escalation password, because it never holds one", () => {
     let machine = reduce(initialMachine(), { type: "advance" });
     machine = reduce(machine, { type: "patch", inputs: { address: "root@203.0.113.10" } });

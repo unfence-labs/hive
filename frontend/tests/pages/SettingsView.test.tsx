@@ -225,6 +225,35 @@ describe("ConnectionSettings", () => {
     render(<ConnectionSettings />);
     expect(screen.queryByRole("button", { name: /test connection/i })).not.toBeInTheDocument();
   });
+
+  it("shows the one configured server, can re-test it and re-launch the installer", async () => {
+    replaceConnection({ host: "100.64.0.10", port: 9420, authToken: "issued", sshUser: "hive" });
+    Object.defineProperty(window, "__TAURI_INTERNALS__", { value: {}, configurable: true });
+    const onOpenInstaller = vi.fn();
+    const user = userEvent.setup();
+    try {
+      render(<ConnectionSettings onOpenInstaller={onOpenInstaller} />);
+
+      // One server, not a list: the address is stated once, above the form.
+      expect(screen.getByText("100.64.0.10:9420")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /test connection/i })).toBeInTheDocument();
+
+      await user.click(screen.getByRole("button", { name: "Open the installer" }));
+      expect(onOpenInstaller).toHaveBeenCalledTimes(1);
+    } finally {
+      Reflect.deleteProperty(window, "__TAURI_INTERNALS__");
+    }
+  });
+
+  it("offers nothing that puts the app back into an unconfigured state", () => {
+    replaceConnection({ host: "100.64.0.10", port: 9420, authToken: "issued" });
+    render(<ConnectionSettings onOpenInstaller={vi.fn()} />);
+
+    for (const label of [/disconnect/i, /forget/i, /remove/i, /sign out/i, /reset/i]) {
+      expect(screen.queryByRole("button", { name: label })).not.toBeInTheDocument();
+    }
+    expect(getConnection()).not.toBeNull();
+  });
 });
 
 describe("AppearanceSettings", () => {

@@ -1,10 +1,12 @@
 import { vi } from "vitest";
 import type {
   HostIdentity,
+  InstallRequest,
   PreflightCheck,
   PreflightReport,
   PrivilegeMode,
   ProvisionClient,
+  ProvisionRecord,
   SshKey,
 } from "@/lib/provision-client";
 
@@ -76,11 +78,106 @@ export function blockedReport(): PreflightReport {
   });
 }
 
+// ── install stream ───────────────────────────────────────────────────────────
+
+/** A representative slice of `scripts/provision/main.sh`'s STEPS. */
+export const PLANNED_STEPS = ["probe_os", "create_user", "generate_token", "health_check"];
+
+export const ACCESS_TOKEN = "b".repeat(64);
+
+export function runStart(resume = false): ProvisionRecord {
+  return {
+    seq: 1,
+    event: "run_start",
+    runId: "r-1234",
+    scriptVersion: "1.0.0",
+    resume,
+    stepsPlanned: PLANNED_STEPS,
+  };
+}
+
+/** The records a clean run emits, up to and including its terminal one. */
+export function successRecords(resume = false): ProvisionRecord[] {
+  return [
+    runStart(resume),
+    { seq: 2, step: "probe_os", status: "start", title: "Check the server" },
+    { seq: 3, step: "probe_os", status: "log", line: "ubuntu 24.04 x86_64" },
+    { seq: 4, step: "probe_os", status: "ok", durationMs: 12 },
+    resume
+      ? {
+          seq: 5,
+          step: "create_user",
+          status: "skip",
+          reason: "already-satisfied",
+          // `skipdata_create_user`: a skipped step still names the account.
+          data: { user: "hive", dataDir: "/home/hive/.hive" },
+        }
+      : {
+          seq: 5,
+          step: "create_user",
+          status: "ok",
+          durationMs: 30,
+          data: { user: "hive", dataDir: "/home/hive/.hive" },
+        },
+    { seq: 6, step: "generate_token", status: "start", title: "Generate the access token" },
+    {
+      seq: 7,
+      step: "generate_token",
+      status: "ok",
+      durationMs: 5,
+      data: { accessToken: ACCESS_TOKEN },
+    },
+    { seq: 8, step: "health_check", status: "start", title: "Wait for Hive to become healthy" },
+    { seq: 9, step: "health_check", status: "ok", durationMs: 900 },
+    { seq: 10, event: "run_end", status: "ok" },
+  ];
+}
+
+/** A run that dies inside a step, the way `die` reports it. */
+export function failureRecords(): ProvisionRecord[] {
+  return [
+    runStart(),
+    { seq: 2, step: "probe_os", status: "start", title: "Check the server" },
+    { seq: 3, step: "probe_os", status: "ok", durationMs: 12 },
+    { seq: 4, step: "create_user", status: "start", title: "Create the hive service account" },
+    { seq: 5, step: "create_user", status: "log", line: "useradd: cannot open /etc/passwd" },
+    {
+      seq: 6,
+      step: "create_user",
+      status: "error",
+      exitCode: 1,
+      errorCode: "DIRECTORY_UNUSABLE",
+      detail: "/home/hive/.hive is not writable",
+    },
+    {
+      seq: 7,
+      event: "run_end",
+      status: "error",
+      errorCode: "DIRECTORY_UNUSABLE",
+      detail: "/home/hive/.hive is not writable",
+    },
+  ];
+}
+
+/** One in-flight call to `install`, driven by the test. */
+export interface MockInstall {
+  request: InstallRequest;
+  /** Push records into the run, as the sidecar's channel would. */
+  emit(...records: ProvisionRecord[]): void;
+  /** Resolve the install promise. */
+  finish(): void;
+  /** Reject it, as a sidecar command that never reached the script would. */
+  fail(error: unknown): void;
+}
+
 export interface MockProvisionClient extends ProvisionClient {
   listKeys: ReturnType<typeof vi.fn>;
   testConnection: ReturnType<typeof vi.fn>;
   trustHost: ReturnType<typeof vi.fn>;
   preflight: ReturnType<typeof vi.fn>;
+  install: ReturnType<typeof vi.fn>;
+  /** Every install started so far, oldest first. */
+  installs: MockInstall[];
 }
 
 export function createMockProvisionClient(
@@ -90,10 +187,25 @@ export function createMockProvisionClient(
     preflight: PreflightReport;
   }> = {},
 ): MockProvisionClient {
+  const installs: MockInstall[] = [];
+  const install = vi.fn(
+    (request: InstallRequest, onRecord: (record: ProvisionRecord) => void) =>
+      new Promise<void>((resolve, reject) => {
+        installs.push({
+          request,
+          emit: (...records) => records.forEach(onRecord),
+          finish: resolve,
+          fail: reject,
+        });
+      }),
+  );
+
   return {
     listKeys: vi.fn().mockResolvedValue(overrides.keys ?? [USABLE_KEY, LOCKED_KEY]),
     testConnection: vi.fn().mockResolvedValue(overrides.identity ?? UNTRUSTED_HOST),
     trustHost: vi.fn().mockResolvedValue(undefined),
     preflight: vi.fn().mockResolvedValue(overrides.preflight ?? report()),
+    install,
+    installs,
   };
 }
