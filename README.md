@@ -137,6 +137,10 @@ Remote backend + Tauri setup lives in **[GETTING_STARTED.md](GETTING_STARTED.md)
 npm run lint
 npm run typecheck
 npm run test
+
+# Build the backend release tarball for the host architecture into dist-release/.
+# Requires a Linux host on Node 22 (native modules are compiled during the build).
+npm run release:backend -- 0.0.0-dev
 ```
 
 Per-package commands (`backend`, `frontend`, `ios`) are documented in **[AGENTS.md](AGENTS.md)**.
@@ -297,6 +301,7 @@ Public backend surface exposed by route modules under `backend/src/api/`.
 - Backend/frontend tests use **Vitest**; iOS uses **Swift Testing**.
 - Tests live next to source: `backend/src/**/*.test.ts`, `frontend/tests/**`, `ios/Tests/**`.
 - CI runs Node lint, typecheck, build, and tests, plus iOS Swift package tests and an iOS app compile on every push/PR to `main`.
+- Pushing a `v<version>` tag runs `.github/workflows/release.yml`, which builds the backend tarball on native linux-x64 and linux-arm64 runners and attaches `hive-backend-<version>-linux-<arch>.tar.gz` plus its `.sha256` to the GitHub release. The tag must match the version in `frontend/src-tauri/Cargo.toml`.
 
 Run the narrowest relevant checks during development, then the root checks before considering broad changes done. For iOS changes, also run `cd ios && swift test`.
 
