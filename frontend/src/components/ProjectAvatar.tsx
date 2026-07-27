@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { cn } from "@/lib/utils";
 import { getProjectColor } from "@/lib/project-colors";
-import { getServerUrl } from "@/hooks/useServerUrl";
+import { resolveApiResourceSrc } from "@/lib/image-url";
 
 interface ProjectAvatarProps {
   name: string;
@@ -16,10 +16,13 @@ export function ProjectAvatar({ name, projectId, hasFavicon, faviconVersion, cla
 
   const size = "h-5 w-5";
   const sizeClass = className?.includes("h-") ? "" : size;
-  let faviconUrl = hasFavicon && projectId
-    ? `${getServerUrl()}/api/projects/${projectId}/favicon`
+  // The favicon route is token-protected like any other API resource, and an
+  // <img> cannot set headers — resolveApiResourceSrc appends the token.
+  let faviconPath = hasFavicon && projectId
+    ? `/api/projects/${projectId}/favicon`
     : undefined;
-  if (faviconUrl && faviconVersion) faviconUrl += `?v=${encodeURIComponent(faviconVersion)}`;
+  if (faviconPath && faviconVersion) faviconPath += `?v=${encodeURIComponent(faviconVersion)}`;
+  const faviconUrl = faviconPath ? resolveApiResourceSrc(faviconPath) : undefined;
 
   if (faviconUrl && failedUrl !== faviconUrl) {
     return (

@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { wsTransport } from "@/lib/ws-transport";
+import { replaceConnection } from "@/hooks/useConnection";
 import type { WsOutgoing, HubOutgoing } from "@/types";
 
 class MockWebSocket {
@@ -72,8 +73,7 @@ describe("wsTransport", () => {
     vi.useFakeTimers();
     vi.stubGlobal("WebSocket", MockWebSocket as unknown as typeof WebSocket);
     MockWebSocket.instances = [];
-    localStorage.removeItem("hive-server-url");
-    delete import.meta.env.VITE_HIVE_AUTH_TOKEN;
+    localStorage.clear();
     wsTransport.disconnectAll();
   });
 
@@ -158,8 +158,8 @@ describe("wsTransport", () => {
     expect(syncs[1]).toEqual(expect.arrayContaining(["ws-1", "ws-2"]));
   });
 
-  it("adds token query parameter when auth token is configured", () => {
-    import.meta.env.VITE_HIVE_AUTH_TOKEN = "secret token";
+  it("adds token query parameter when the connection record carries a token", () => {
+    replaceConnection({ host: "127.0.0.1", port: 9000, authToken: "secret token" });
     wsTransport.connect("ws-1");
 
     expect(MockWebSocket.instances).toHaveLength(1);
@@ -167,7 +167,7 @@ describe("wsTransport", () => {
   });
 
   it("uses configured server URL as websocket host", () => {
-    localStorage.setItem("hive-server-url", "http://127.0.0.1:9000");
+    replaceConnection({ host: "127.0.0.1", port: 9000 });
     wsTransport.connect("ws-1");
 
     expect(MockWebSocket.instances).toHaveLength(1);
@@ -175,7 +175,7 @@ describe("wsTransport", () => {
   });
 
   it("maps https configured server URL to wss websocket host", () => {
-    localStorage.setItem("hive-server-url", "https://api.example.com");
+    replaceConnection({ host: "api.example.com", port: 443, protocol: "https" });
     wsTransport.connect("ws-1");
 
     expect(MockWebSocket.instances).toHaveLength(1);

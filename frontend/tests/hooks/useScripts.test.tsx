@@ -6,7 +6,6 @@ import type { ScriptType } from "@/types";
 const mocks = vi.hoisted(() => ({
   apiGet: vi.fn(),
   apiPost: vi.fn(),
-  getServerUrl: vi.fn(),
 }));
 
 vi.mock("@/hooks/useApi", () => ({
@@ -16,10 +15,7 @@ vi.mock("@/hooks/useApi", () => ({
   },
 }));
 
-vi.mock("@/hooks/useServerUrl", () => ({
-  getServerUrl: mocks.getServerUrl,
-}));
-
+import { replaceConnection } from "@/hooks/useConnection";
 import { useScripts } from "@/hooks/useScripts";
 
 class MockWebSocket {
@@ -139,13 +135,11 @@ describe("useScripts", () => {
   beforeEach(() => {
     mocks.apiGet.mockReset();
     mocks.apiPost.mockReset();
-    mocks.getServerUrl.mockReset();
-    mocks.getServerUrl.mockReturnValue("");
+    localStorage.clear();
     mocks.apiGet.mockResolvedValue(scriptsResponse());
     mocks.apiPost.mockResolvedValue(undefined);
     MockWebSocket.instances.length = 0;
     vi.stubGlobal("WebSocket", MockWebSocket as unknown as typeof WebSocket);
-    delete import.meta.env.VITE_HIVE_AUTH_TOKEN;
     delete import.meta.env.VITE_WS_URL;
   });
 
@@ -348,8 +342,7 @@ describe("useScripts", () => {
   });
 
   it("connects websocket with server URL + auth token and sends initial resize", async () => {
-    mocks.getServerUrl.mockReturnValue("http://127.0.0.1:9000");
-    import.meta.env.VITE_HIVE_AUTH_TOKEN = "  secret token  ";
+    replaceConnection({ host: "127.0.0.1", port: 9000, authToken: "  secret token  " });
 
     const { wrapper } = createWrapper();
     const { result } = renderHook(() => useScripts("ws-1"), { wrapper });

@@ -1,19 +1,22 @@
 import { fireEvent, render, screen } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import { ProjectAvatar } from "@/components/ProjectAvatar";
-
-const mocks = vi.hoisted(() => ({
-  getServerUrl: vi.fn(),
-}));
-
-vi.mock("@/hooks/useServerUrl", () => ({
-  getServerUrl: mocks.getServerUrl,
-}));
+import { replaceConnection } from "@/hooks/useConnection";
 
 describe("ProjectAvatar", () => {
   beforeEach(() => {
-    mocks.getServerUrl.mockReset();
-    mocks.getServerUrl.mockReturnValue("http://127.0.0.1:4000");
+    localStorage.clear();
+    replaceConnection({ host: "127.0.0.1", port: 4000 });
+  });
+
+  it("carries the runtime token on the token-protected favicon route", () => {
+    replaceConnection({ host: "127.0.0.1", port: 4000, authToken: "tok" });
+    render(<ProjectAvatar name="Alpha" projectId="p1" hasFavicon />);
+
+    expect(screen.getByRole("img", { name: "Alpha" })).toHaveAttribute(
+      "src",
+      "http://127.0.0.1:4000/api/projects/p1/favicon?token=tok",
+    );
   });
 
   it("renders an image when hasFavicon and projectId are provided", () => {

@@ -5,26 +5,20 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import HomeView from "@/pages/HomeView";
 
 const mocks = vi.hoisted(() => ({
-  useTailscaleConfig: vi.fn(),
+  useConnection: vi.fn(),
 }));
 
-vi.mock("@/hooks/useTailscaleConfig", () => ({
-  useTailscaleConfig: mocks.useTailscaleConfig,
+vi.mock("@/hooks/useConnection", () => ({
+  useConnection: mocks.useConnection,
 }));
 
 describe("HomeView", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.useTailscaleConfig.mockReturnValue({
-      ip: "",
-      port: "",
-      isConfigured: false,
-      setIp: vi.fn(),
-      setPort: vi.fn(),
-    });
+    mocks.useConnection.mockReturnValue({ connection: null, isConfigured: false });
   });
 
-  it("disables the repository action and emphasizes config when tailscale config is missing", async () => {
+  it("disables the repository action and emphasizes config when no server is configured", async () => {
     const user = userEvent.setup();
     const onAddProject = vi.fn();
 
@@ -49,15 +43,12 @@ describe("HomeView", () => {
     expect(docs).toHaveAttribute("target", "_blank");
   });
 
-  it("enables the repository action and demotes config when tailscale config exists", async () => {
+  it("enables the repository action and demotes config when a server is configured", async () => {
     const user = userEvent.setup();
     const onAddProject = vi.fn();
-    mocks.useTailscaleConfig.mockReturnValue({
-      ip: "100.64.0.10",
-      port: "3000",
+    mocks.useConnection.mockReturnValue({
+      connection: { host: "100.64.0.10", port: 3000 },
       isConfigured: true,
-      setIp: vi.fn(),
-      setPort: vi.fn(),
     });
 
     render(

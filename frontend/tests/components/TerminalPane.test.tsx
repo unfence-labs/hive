@@ -11,10 +11,6 @@ vi.mock("@/hooks/useApi", () => ({
   api: { post: mocks.apiPost },
 }));
 
-vi.mock("@/hooks/useServerUrl", () => ({
-  getServerUrl: () => "",
-}));
-
 const state = vi.hoisted(() => ({
   terminals: [] as Array<{ write: ReturnType<typeof vi.fn> }>,
 }));

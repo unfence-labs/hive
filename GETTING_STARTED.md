@@ -180,11 +180,9 @@ Once connected, you can configure additional integrations from the app:
 
 ### Frontend (local)
 
-| Variable | Description |
-|---|---|
-| `VITE_HIVE_AUTH_TOKEN` | Must match the backend `HIVE_AUTH_TOKEN` |
-
-The Tailscale IP and port are configured at runtime in **Settings > Connection**, not via env vars. Telegram notification credentials are configured in **Settings > Notifications** and persisted in `~/.hive/config.json` on the VPS.
+The frontend needs no environment variables for the connection. Host, port and the access token
+(which must match the backend `HIVE_AUTH_TOKEN`) are entered at runtime in **Settings > Connection**
+and stored as a single connection record, so changing the token never requires a rebuild. Telegram notification credentials are configured in **Settings > Notifications** and persisted in `~/.hive/config.json` on the VPS.
 
 ## Updating the Backend
 

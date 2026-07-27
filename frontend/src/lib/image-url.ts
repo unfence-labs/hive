@@ -1,10 +1,10 @@
-import { getServerUrl } from "@/hooks/useServerUrl";
+import { getAuthToken, getServerUrl } from "@/hooks/useConnection";
 
 /** Resolve an API-backed media path to a browser-loadable src. */
 export function resolveApiResourceSrc(dataUrl: string): string {
   if (!dataUrl || dataUrl.startsWith("data:")) return dataUrl;
   const base = getServerUrl();
-  const token = import.meta.env.VITE_HIVE_AUTH_TOKEN?.trim();
+  const token = getAuthToken();
   const hashIndex = dataUrl.indexOf("#");
   const path = hashIndex >= 0 ? dataUrl.slice(0, hashIndex) : dataUrl;
   const hash = hashIndex >= 0 ? dataUrl.slice(hashIndex) : "";

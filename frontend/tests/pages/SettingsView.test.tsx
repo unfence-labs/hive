@@ -1,8 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import ConnectionSettings from "@/pages/settings/ConnectionSettings";
 import AppearanceSettings from "@/pages/settings/AppearanceSettings";
+import { getConnection, replaceConnection } from "@/hooks/useConnection";
 
 const mocks = vi.hoisted(() => ({
   setAccent: vi.fn(),
@@ -29,151 +30,200 @@ describe("ConnectionSettings", () => {
   let check: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
+    vi.restoreAllMocks();
+    localStorage.clear();
     check = vi.fn().mockResolvedValue(undefined);
     mocks.useConnectionStatus.mockReset();
     mocks.useConnectionStatus.mockReturnValue({ status: "unknown", check });
-
-    vi.restoreAllMocks();
-    localStorage.removeItem("hive-server-url");
-    localStorage.removeItem("hive-tailscale-ip");
-    localStorage.removeItem("hive-tailscale-port");
-    localStorage.removeItem("hive-ssh-user");
   });
 
-  it("shows tailscale placeholders and unknown status when not configured", () => {
+  function mockProbe(response: Response | Error) {
+    return vi.spyOn(globalThis, "fetch").mockImplementation(() =>
+      response instanceof Error ? Promise.reject(response) : Promise.resolve(response),
+    );
+  }
+
+  it("shows empty host, token and default port when no server is configured", () => {
     render(<ConnectionSettings />);
 
     expect(screen.getByRole("heading", { name: "Connection" }).closest("div")).toHaveAttribute("data-tauri-drag-region");
     expect(screen.getByPlaceholderText("100.x.x.x")).toHaveValue("");
-    expect(screen.getByPlaceholderText("3000")).toHaveValue("");
-    expect(screen.getByPlaceholderText("root")).toHaveValue("");
+    expect(screen.getByPlaceholderText("3000")).toHaveValue("3000");
+    expect(screen.getByPlaceholderText("Paste the access token")).toHaveValue("");
     expect(screen.getByText("Not configured")).toBeInTheDocument();
   });
 
-  it("persists tailscale IP on blur and schedules a status check", async () => {
-    const timeoutSpy = vi.spyOn(globalThis, "setTimeout");
-    const user = userEvent.setup();
+  it("prefills host, port, token and SSH user from the stored record", () => {
+    replaceConnection({
+      host: "100.64.0.10",
+      port: 3001,
+      authToken: "stored-token",
+      sshUser: "hive",
+      adminUser: "root",
+    });
+    mocks.useConnectionStatus.mockReturnValue({ status: "connected", check });
+
     render(<ConnectionSettings />);
 
-    const ipInput = screen.getByPlaceholderText("100.x.x.x");
-    await user.type(ipInput, " 100.64.0.10 ");
-    await user.tab();
-
-    expect(localStorage.getItem("hive-tailscale-ip")).toBe("100.64.0.10");
-    expect(localStorage.getItem("hive-server-url")).toBeNull();
-    expect(timeoutSpy).toHaveBeenCalledWith(expect.any(Function), 300);
+    expect(screen.getByPlaceholderText("100.x.x.x")).toHaveValue("100.64.0.10");
+    expect(screen.getByPlaceholderText("3000")).toHaveValue("3001");
+    expect(screen.getByPlaceholderText("Paste the access token")).toHaveValue("stored-token");
+    expect(screen.getByPlaceholderText("hive")).toHaveValue("hive");
+    expect(screen.getByText("root")).toBeInTheDocument();
+    expect(screen.getByText("Connected")).toBeInTheDocument();
   });
 
-  it("persists port on Enter and updates computed server URL", async () => {
-    localStorage.setItem("hive-tailscale-ip", "100.64.0.10");
-    const timeoutSpy = vi.spyOn(globalThis, "setTimeout");
-    const user = userEvent.setup();
+  it("shows the token-rejected badge distinctly from an unreachable server", () => {
+    replaceConnection({ host: "100.64.0.10", port: 3000, authToken: "stale" });
+    mocks.useConnectionStatus.mockReturnValue({ status: "unauthorized", check });
+
+    const { unmount } = render(<ConnectionSettings />);
+
+    expect(screen.getByText("Token rejected")).toBeInTheDocument();
+    expect(screen.queryByText("Unreachable")).not.toBeInTheDocument();
+    expect(screen.queryByText("Connected")).not.toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent("rejected this access token");
+    unmount();
+
+    mocks.useConnectionStatus.mockReturnValue({ status: "disconnected", check });
     render(<ConnectionSettings />);
 
-    const portInput = screen.getByPlaceholderText("3000");
-    await user.type(portInput, "3001{Enter}");
-
-    expect(localStorage.getItem("hive-tailscale-port")).toBe("3001");
-    expect(localStorage.getItem("hive-server-url")).toBe("http://100.64.0.10:3001");
-    expect(timeoutSpy).toHaveBeenCalledWith(expect.any(Function), 300);
+    expect(screen.getByText("Unreachable")).toBeInTheDocument();
+    expect(screen.queryByText("Token rejected")).not.toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent("did not answer");
   });
 
-  it("auto-refreshes connection on blur by running check and parent refresh", async () => {
+  it("verifies reachability with the typed token before storing the record", async () => {
+    const fetchMock = mockProbe(new Response("[]", { status: 200 }));
     const user = userEvent.setup();
     const onRefreshConnection = vi.fn();
-    localStorage.setItem("hive-tailscale-port", "3000");
-
     render(<ConnectionSettings onRefreshConnection={onRefreshConnection} />);
 
-    await user.type(screen.getByPlaceholderText("100.x.x.x"), "100.64.0.11");
-    await user.tab();
+    await user.type(screen.getByPlaceholderText("100.x.x.x"), " 100.64.0.10 ");
+    await user.type(screen.getByPlaceholderText("Paste the access token"), "tok");
+    await user.type(screen.getByPlaceholderText("hive"), "hive");
+    await user.click(screen.getByRole("button", { name: "Connect" }));
 
-    await waitFor(() => {
-      expect(check).toHaveBeenCalledTimes(1);
-      expect(onRefreshConnection).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(onRefreshConnection).toHaveBeenCalledTimes(1));
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://100.64.0.10:3000/api/projects",
+      expect.objectContaining({ headers: { Authorization: "Bearer tok" } }),
+    );
+    expect(getConnection()).toMatchObject({
+      host: "100.64.0.10",
+      port: 3000,
+      authToken: "tok",
+      sshUser: "hive",
     });
-
-    expect(localStorage.getItem("hive-tailscale-ip")).toBe("100.64.0.11");
-    expect(localStorage.getItem("hive-tailscale-port")).toBe("3000");
-    expect(localStorage.getItem("hive-server-url")).toBe("http://100.64.0.11:3000");
   });
 
-  // ── SSH User field ────────────────────────────────────────────────────
-
-  it("persists SSH user on blur without triggering a connection check", async () => {
+  it("reports an unreachable server and stores nothing", async () => {
+    mockProbe(new TypeError("Failed to fetch"));
     const user = userEvent.setup();
     render(<ConnectionSettings />);
 
-    const sshUserInput = screen.getByPlaceholderText("root");
-    await user.type(sshUserInput, "  devops  ");
-    await user.tab();
+    await user.type(screen.getByPlaceholderText("100.x.x.x"), "100.64.0.10");
+    await user.click(screen.getByRole("button", { name: "Connect" }));
 
-    expect(localStorage.getItem("hive-ssh-user")).toBe("devops");
-    expect(check).not.toHaveBeenCalled();
+    expect(await screen.findByRole("alert")).toHaveTextContent("The server could not be reached.");
+    expect(getConnection()).toBeNull();
   });
 
-  it("persists SSH user on Enter with trimming", async () => {
+  it("reports a rejected token distinctly from an unreachable server", async () => {
+    mockProbe(new Response("", { status: 401 }));
     const user = userEvent.setup();
     render(<ConnectionSettings />);
 
-    const sshUserInput = screen.getByPlaceholderText("root");
-    await user.type(sshUserInput, "  ubuntu  {Enter}");
+    await user.type(screen.getByPlaceholderText("100.x.x.x"), "100.64.0.10");
+    await user.type(screen.getByPlaceholderText("Paste the access token"), "wrong");
+    await user.click(screen.getByRole("button", { name: "Connect" }));
 
-    expect(localStorage.getItem("hive-ssh-user")).toBe("ubuntu");
+    expect(await screen.findByRole("alert")).toHaveTextContent("The server rejected the access token.");
+    expect(getConnection()).toBeNull();
   });
 
-  it("shows existing SSH user value from localStorage", () => {
-    localStorage.setItem("hive-ssh-user", "existing-user");
-
-    render(<ConnectionSettings />);
-
-    expect(screen.getByPlaceholderText("root")).toHaveValue("existing-user");
-  });
-
-  it("clears SSH user from localStorage when field is emptied and blurred", async () => {
-    localStorage.setItem("hive-ssh-user", "old-user");
-    const user = userEvent.setup();
-
-    render(<ConnectionSettings />);
-
-    const sshUserInput = screen.getByPlaceholderText("root");
-    await user.clear(sshUserInput);
-    await user.tab();
-
-    expect(localStorage.getItem("hive-ssh-user")).toBeNull();
-  });
-
-  it("renders SSH user label with optional marker", () => {
-    render(<ConnectionSettings />);
-
-    expect(screen.getByText("SSH User")).toBeInTheDocument();
-    expect(screen.getByText("(optional)")).toBeInTheDocument();
-  });
-
-  it("renders SSH user help text about VS Code Remote SSH", () => {
-    render(<ConnectionSettings />);
-
-    expect(screen.getByText(/Used for VS Code Remote SSH/i)).toBeInTheDocument();
-  });
-
-  it("SSH user field has font-mono class for readability", () => {
-    render(<ConnectionSettings />);
-
-    const input = screen.getByPlaceholderText("root");
-    expect(input.className).toContain("font-mono");
-  });
-
-  it("does not affect server URL when SSH user changes", async () => {
-    localStorage.setItem("hive-tailscale-ip", "10.0.0.1");
-    localStorage.setItem("hive-tailscale-port", "3000");
-    localStorage.setItem("hive-server-url", "http://10.0.0.1:3000");
-
+  it("keeps the working connection when a new attempt is rejected", async () => {
+    replaceConnection({ host: "old.ts.net", port: 3000, authToken: "good" });
+    mockProbe(new Response("", { status: 401 }));
     const user = userEvent.setup();
     render(<ConnectionSettings />);
 
-    await user.type(screen.getByPlaceholderText("root"), "newuser{Enter}");
+    const host = screen.getByPlaceholderText("100.x.x.x");
+    await user.clear(host);
+    await user.type(host, "new.ts.net");
+    await user.click(screen.getByRole("button", { name: "Connect" }));
 
-    expect(localStorage.getItem("hive-server-url")).toBe("http://10.0.0.1:3000");
+    await screen.findByRole("alert");
+    expect(getConnection()).toMatchObject({ host: "old.ts.net", authToken: "good" });
+  });
+
+  it("preserves the install-owned admin login across a manual reconnect", async () => {
+    replaceConnection({ host: "100.64.0.10", port: 3000, adminUser: "root" });
+    mockProbe(new Response("[]", { status: 200 }));
+    const user = userEvent.setup();
+    render(<ConnectionSettings />);
+
+    await user.type(screen.getByPlaceholderText("hive"), "hive");
+    await user.click(screen.getByRole("button", { name: "Connect" }));
+
+    await waitFor(() => expect(getConnection()).toMatchObject({ sshUser: "hive", adminUser: "root" }));
+  });
+
+  it("disables Connect until the host and port are usable", async () => {
+    const user = userEvent.setup();
+    render(<ConnectionSettings />);
+
+    const connect = screen.getByRole("button", { name: "Connect" });
+    expect(connect).toBeDisabled();
+
+    await user.type(screen.getByPlaceholderText("100.x.x.x"), "100.64.0.10");
+    expect(connect).toBeEnabled();
+
+    const port = screen.getByPlaceholderText("3000");
+    await user.clear(port);
+    await user.type(port, "99999");
+    expect(connect).toBeDisabled();
+  });
+
+  it("runs a visible connection check when a server is configured", async () => {
+    replaceConnection({ host: "100.64.0.10", port: 3000 });
+    let finishCheck: (() => void) | undefined;
+    check.mockImplementation(() => new Promise<void>((resolve) => { finishCheck = resolve; }));
+    const user = userEvent.setup();
+
+    render(<ConnectionSettings />);
+    const button = screen.getByRole("button", { name: /test connection/i });
+    await user.click(button);
+
+    expect(check).toHaveBeenCalledOnce();
+    expect(button).toBeDisabled();
+    expect(button.querySelector("svg")).toHaveClass("animate-spin");
+
+    finishCheck?.();
+    await waitFor(() => expect(button).toBeEnabled());
+  });
+
+  it("re-seeds the form from the record written underneath it", async () => {
+    mockProbe(new Response("[]", { status: 200 }));
+    const user = userEvent.setup();
+    render(<ConnectionSettings />);
+
+    const host = screen.getByPlaceholderText("100.x.x.x");
+    await user.type(host, " 100.64.0.10 ");
+    await user.click(screen.getByRole("button", { name: "Connect" }));
+
+    // The stored host is trimmed; the form must show what was actually stored.
+    await waitFor(() => expect(host).toHaveValue("100.64.0.10"));
+
+    act(() => replaceConnection({ host: "installed.ts.net", port: 4000, authToken: "issued" }));
+    expect(host).toHaveValue("installed.ts.net");
+    expect(screen.getByPlaceholderText("3000")).toHaveValue("4000");
+    expect(screen.getByPlaceholderText("Paste the access token")).toHaveValue("issued");
+  });
+
+  it("hides the connection check until a server is configured", () => {
+    render(<ConnectionSettings />);
+    expect(screen.queryByRole("button", { name: /test connection/i })).not.toBeInTheDocument();
   });
 });
 

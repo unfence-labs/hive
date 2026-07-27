@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { getServerUrl } from "./useServerUrl";
+import { getServerUrl } from "@/hooks/useConnection";
 
 export interface SystemMetrics {
   cpuPercent: number;

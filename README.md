@@ -165,11 +165,10 @@ Per-package commands (`backend`, `frontend`, `ios`) are documented in **[AGENTS.
 | Variable | Default | Description |
 |---|---|---|
 | `VITE_WS_URL` | derived from browser location | Override WS base URL |
-| `VITE_HIVE_AUTH_TOKEN` | unset | Bearer token for API and `token` query for WS |
 
 </details>
 
-Connection host/port, Telegram, APNs, theme, accent color, CLI status, prompt settings, instructions, skills, Team agents, and subagents are configured **in the UI**.
+Connection host, port, access token, SSH user, Telegram, APNs, theme, accent color, CLI status, prompt settings, instructions, skills, Team agents, and subagents are configured **in the UI**.
 
 <details>
 <summary><b>Production backend (pm2)</b></summary>

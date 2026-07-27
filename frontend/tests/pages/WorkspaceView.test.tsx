@@ -21,6 +21,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { WorkspaceLiveDataProvider } from "@/contexts/WorkspaceLiveDataContext";
 import WorkspaceView from "@/pages/WorkspaceView";
+import { replaceConnection } from "@/hooks/useConnection";
 import type { DiffFileStat, DiffStatResponse, Workspace, WorkspaceFileTreeNode } from "@/types";
 
 const mocks = vi.hoisted(() => ({
@@ -414,10 +415,7 @@ function renderWorkspace(initialEntry = "/workspaces/ws-1") {
 }
 
 beforeEach(() => {
-  localStorage.removeItem("hive-server-url");
-  localStorage.removeItem("hive-tailscale-ip");
-  localStorage.removeItem("hive-tailscale-port");
-  localStorage.removeItem("hive-ssh-user");
+  localStorage.clear();
   mocks.openExternal.mockReset();
   mocks.useTerminalApps.mockReset();
   mocks.useTerminalApps.mockReturnValue([]);
@@ -523,11 +521,9 @@ describe("WorkspaceView behavior", () => {
     expect(screen.getByRole("button", { name: "Workspace path copied" })).toBeInTheDocument();
   });
 
-  it("opens VS Code URI with tailscale host and SSH user when configured", async () => {
+  it("opens VS Code URI with the connection host and SSH user when configured", async () => {
     const user = userEvent.setup();
-    localStorage.setItem("hive-tailscale-ip", "100.64.0.77");
-    localStorage.setItem("hive-ssh-user", "dev user");
-    localStorage.setItem("hive-server-url", "http://backend.internal:3000");
+    replaceConnection({ host: "100.64.0.77", port: 3000, sshUser: "dev_user" });
 
     mocks.apiGet.mockImplementation(async (url: string) => {
       const workspaceMatch = url.match(/^\/api\/workspaces\/([^/]+)$/);
@@ -552,14 +548,13 @@ describe("WorkspaceView behavior", () => {
 
     await waitFor(() => {
       expect(mocks.openExternal).toHaveBeenCalledWith(
-        "vscode://vscode-remote/ssh-remote+dev%20user%40100.64.0.77/Users/me/project%20folder",
+        "vscode://vscode-remote/ssh-remote+dev_user%40100.64.0.77/Users/me/project%20folder",
       );
     });
   });
 
-  it("falls back to server URL host for VS Code URI when tailscale IP is not set", async () => {
+  it("falls back to the window host for the VS Code URI when no server is configured", async () => {
     const user = userEvent.setup();
-    localStorage.setItem("hive-server-url", "backend.internal:4444");
 
     mocks.apiGet.mockImplementation(async (url: string) => {
       const workspaceMatch = url.match(/^\/api\/workspaces\/([^/]+)$/);
@@ -581,7 +576,7 @@ describe("WorkspaceView behavior", () => {
 
     await waitFor(() => {
       expect(mocks.openExternal).toHaveBeenCalledWith(
-        "vscode://vscode-remote/ssh-remote+backend.internal/srv/hive/tokyo",
+        "vscode://vscode-remote/ssh-remote+localhost/srv/hive/tokyo",
       );
     });
   });
@@ -593,8 +588,7 @@ describe("WorkspaceView behavior", () => {
       { id: "iterm2", name: "iTerm" },
     ]);
 
-    localStorage.setItem("hive-tailscale-ip", "100.64.0.77");
-    localStorage.setItem("hive-ssh-user", "root");
+    replaceConnection({ host: "100.64.0.77", port: 3000, sshUser: "root" });
 
     mocks.apiGet.mockImplementation(async (url: string) => {
       const workspaceMatch = url.match(/^\/api\/workspaces\/([^/]+)$/);
@@ -631,8 +625,7 @@ describe("WorkspaceView behavior", () => {
     ]);
     mocks.openTerminalSsh.mockResolvedValue(undefined);
 
-    localStorage.setItem("hive-tailscale-ip", "100.64.0.77");
-    localStorage.setItem("hive-ssh-user", "dev");
+    replaceConnection({ host: "100.64.0.77", port: 3000, sshUser: "dev" });
 
     mocks.apiGet.mockImplementation(async (url: string) => {
       const workspaceMatch = url.match(/^\/api\/workspaces\/([^/]+)$/);
@@ -1819,14 +1812,19 @@ describe("WorkspaceView session delete behavior", () => {
 
 describe("WorkspaceView VS Code SSH host resolution", () => {
   function setupWithWorktreePath(opts: {
-    tailscaleIp?: string;
+    host?: string;
     sshUser?: string;
-    serverUrl?: string;
+    adminUser?: string;
     worktreePath?: string;
   } = {}) {
-    if (opts.tailscaleIp) localStorage.setItem("hive-tailscale-ip", opts.tailscaleIp);
-    if (opts.sshUser) localStorage.setItem("hive-ssh-user", opts.sshUser);
-    if (opts.serverUrl) localStorage.setItem("hive-server-url", opts.serverUrl);
+    if (opts.host) {
+      replaceConnection({
+        host: opts.host,
+        port: 3000,
+        sshUser: opts.sshUser,
+        adminUser: opts.adminUser,
+      });
+    }
 
     mocks.useTerminalApps.mockReturnValue([]);
 
@@ -1888,10 +1886,7 @@ describe("WorkspaceView VS Code SSH host resolution", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    localStorage.removeItem("hive-server-url");
-    localStorage.removeItem("hive-tailscale-ip");
-    localStorage.removeItem("hive-tailscale-port");
-    localStorage.removeItem("hive-ssh-user");
+    localStorage.clear();
   });
 
   it("VS Code button is disabled when no SSH host is available", async () => {
@@ -1908,7 +1903,7 @@ describe("WorkspaceView VS Code SSH host resolution", () => {
   });
 
   it("VS Code button disabled when workspace has no worktreePath", async () => {
-    setupWithWorktreePath({ tailscaleIp: "10.0.0.1" });
+    setupWithWorktreePath({ host: "10.0.0.1" });
 
     renderWorkspace();
     await screen.findByText("tokyo");
@@ -1916,33 +1911,10 @@ describe("WorkspaceView VS Code SSH host resolution", () => {
     expect(screen.getByRole("button", { name: "VS Code" })).toBeDisabled();
   });
 
-  it("prefers tailscaleIp over serverUrl hostname for SSH host", async () => {
+  it("resolves the SSH host from the connection record", async () => {
     const user = userEvent.setup();
     setupWithWorktreePath({
-      tailscaleIp: "100.64.0.77",
-      serverUrl: "http://backend.internal:3000",
-      worktreePath: "/srv/hive/tokyo",
-    });
-
-    renderWorkspace();
-    await screen.findByText("tokyo");
-    await user.click(screen.getByRole("button", { name: "VS Code" }));
-
-    await waitFor(() => {
-      expect(mocks.openExternal).toHaveBeenCalledWith(
-        expect.stringContaining("100.64.0.77"),
-      );
-    });
-    // Should NOT use backend.internal
-    expect(mocks.openExternal).not.toHaveBeenCalledWith(
-      expect.stringContaining("backend.internal"),
-    );
-  });
-
-  it("falls back to serverUrl hostname when tailscaleIp is empty", async () => {
-    const user = userEvent.setup();
-    setupWithWorktreePath({
-      serverUrl: "http://my-server.example.com:4444",
+      host: "my-server.example.com",
       worktreePath: "/srv/hive/tokyo",
     });
 
@@ -1957,28 +1929,10 @@ describe("WorkspaceView VS Code SSH host resolution", () => {
     });
   });
 
-  it("extracts hostname from serverUrl without protocol prefix", async () => {
-    const user = userEvent.setup();
-    setupWithWorktreePath({
-      serverUrl: "backend.internal:4444",
-      worktreePath: "/srv/hive/tokyo",
-    });
-
-    renderWorkspace();
-    await screen.findByText("tokyo");
-    await user.click(screen.getByRole("button", { name: "VS Code" }));
-
-    await waitFor(() => {
-      expect(mocks.openExternal).toHaveBeenCalledWith(
-        expect.stringContaining("backend.internal"),
-      );
-    });
-  });
-
   it("prepends sshUser@ to SSH host when SSH user is configured", async () => {
     const user = userEvent.setup();
     setupWithWorktreePath({
-      tailscaleIp: "100.64.0.77",
+      host: "100.64.0.77",
       sshUser: "devuser",
       worktreePath: "/srv/hive/tokyo",
     });
@@ -1997,7 +1951,7 @@ describe("WorkspaceView VS Code SSH host resolution", () => {
   it("does not prepend sshUser when SSH user is empty", async () => {
     const user = userEvent.setup();
     setupWithWorktreePath({
-      tailscaleIp: "100.64.0.77",
+      host: "100.64.0.77",
       worktreePath: "/srv/hive/tokyo",
     });
 
@@ -2015,7 +1969,7 @@ describe("WorkspaceView VS Code SSH host resolution", () => {
   it("encodes spaces in worktreePath segments", async () => {
     const user = userEvent.setup();
     setupWithWorktreePath({
-      tailscaleIp: "10.0.0.1",
+      host: "10.0.0.1",
       worktreePath: "/Users/me/my workspace",
     });
 
@@ -2030,10 +1984,10 @@ describe("WorkspaceView VS Code SSH host resolution", () => {
     });
   });
 
-  it("builds correct URI with all parts: sshUser, tailscaleIp, worktreePath", async () => {
+  it("builds correct URI with all parts: sshUser, host, worktreePath", async () => {
     const user = userEvent.setup();
     setupWithWorktreePath({
-      tailscaleIp: "100.64.0.77",
+      host: "100.64.0.77",
       sshUser: "root",
       worktreePath: "/srv/hive/tokyo",
     });
@@ -2049,11 +2003,14 @@ describe("WorkspaceView VS Code SSH host resolution", () => {
     });
   });
 
-  it("uses sshUser with serverUrl host when tailscaleIp is empty", async () => {
+  // The service account owns the repositories; connecting as the admin login
+  // (root) would rewrite ownership on every save and lock the agent out.
+  it("connects as the service account, never as the admin login", async () => {
     const user = userEvent.setup();
     setupWithWorktreePath({
-      serverUrl: "http://192.168.1.50:3000",
-      sshUser: "admin",
+      host: "192.168.1.50",
+      sshUser: "hive",
+      adminUser: "root",
       worktreePath: "/data/workspaces/tokyo",
     });
 
@@ -2063,7 +2020,7 @@ describe("WorkspaceView VS Code SSH host resolution", () => {
 
     await waitFor(() => {
       expect(mocks.openExternal).toHaveBeenCalledWith(
-        "vscode://vscode-remote/ssh-remote+admin%40192.168.1.50/data/workspaces/tokyo",
+        "vscode://vscode-remote/ssh-remote+hive%40192.168.1.50/data/workspaces/tokyo",
       );
     });
   });
@@ -2075,12 +2032,13 @@ describe("WorkspaceView dropdown terminal interactions", () => {
   function setupDropdownTest(opts: {
     terminalApps?: Array<{ id: string; name: string }>;
     worktreePath?: string;
-    tailscaleIp?: string;
+    host?: string;
     sshUser?: string;
   } = {}) {
     mocks.useTerminalApps.mockReturnValue(opts.terminalApps ?? []);
-    if (opts.tailscaleIp) localStorage.setItem("hive-tailscale-ip", opts.tailscaleIp);
-    if (opts.sshUser) localStorage.setItem("hive-ssh-user", opts.sshUser);
+    if (opts.host) {
+      replaceConnection({ host: opts.host, port: 3000, sshUser: opts.sshUser });
+    }
 
     mocks.apiGet.mockImplementation(async (url: string) => {
       const workspaceMatch = url.match(/^\/api\/workspaces\/([^/]+)$/);
@@ -2140,17 +2098,14 @@ describe("WorkspaceView dropdown terminal interactions", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    localStorage.removeItem("hive-server-url");
-    localStorage.removeItem("hive-tailscale-ip");
-    localStorage.removeItem("hive-tailscale-port");
-    localStorage.removeItem("hive-ssh-user");
+    localStorage.clear();
   });
 
   it("shows 'VS Code' as first item in dropdown", async () => {
     const user = userEvent.setup();
     setupDropdownTest({
       terminalApps: [{ id: "terminal_app", name: "Terminal" }],
-      tailscaleIp: "10.0.0.1",
+      host: "10.0.0.1",
       worktreePath: "/srv/hive/tokyo",
     });
 
@@ -2165,7 +2120,7 @@ describe("WorkspaceView dropdown terminal interactions", () => {
     const user = userEvent.setup();
     setupDropdownTest({
       terminalApps: [{ id: "terminal_app", name: "Terminal" }],
-      tailscaleIp: "10.0.0.1",
+      host: "10.0.0.1",
       worktreePath: "/srv/hive/tokyo",
     });
 
@@ -2183,7 +2138,7 @@ describe("WorkspaceView dropdown terminal interactions", () => {
     const user = userEvent.setup();
     setupDropdownTest({
       terminalApps: [{ id: "terminal_app", name: "Terminal" }],
-      tailscaleIp: "10.0.0.1",
+      host: "10.0.0.1",
       // no worktreePath
     });
 
@@ -2201,7 +2156,7 @@ describe("WorkspaceView dropdown terminal interactions", () => {
     const user = userEvent.setup();
     setupDropdownTest({
       terminalApps: [{ id: "terminal_app", name: "Terminal" }],
-      tailscaleIp: "10.0.0.1",
+      host: "10.0.0.1",
       // no worktreePath
     });
 
@@ -2218,7 +2173,7 @@ describe("WorkspaceView dropdown terminal interactions", () => {
     const user = userEvent.setup();
     setupDropdownTest({
       terminalApps: [{ id: "terminal_app", name: "Terminal" }],
-      tailscaleIp: "10.0.0.1",
+      host: "10.0.0.1",
       sshUser: "root",
       worktreePath: "/srv/hive/tokyo",
     });
@@ -2244,7 +2199,7 @@ describe("WorkspaceView dropdown terminal interactions", () => {
         { id: "terminal_app", name: "Terminal" },
         { id: "iterm2", name: "iTerm" },
       ],
-      tailscaleIp: "10.0.0.1",
+      host: "10.0.0.1",
       sshUser: "dev",
       worktreePath: "/srv/hive/tokyo",
     });
