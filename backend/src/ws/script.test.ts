@@ -40,7 +40,7 @@ beforeEach(async () => {
   app = Fastify();
   await app.register(websocket, { options: { maxPayload: 10 * 1024 * 1024 } });
   await app.register((instance: FastifyInstance) =>
-    scriptWsRoutes(instance, { authToken: "secret" }),
+    scriptWsRoutes(instance, { auth: "secret" }),
   );
   await app.ready();
 });

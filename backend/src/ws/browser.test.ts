@@ -16,7 +16,7 @@ beforeEach(async () => {
   setViewport = vi.fn<BrowserViewportSetter>().mockResolvedValue(undefined);
   app = Fastify();
   await app.register(websocket, { options: { maxPayload: 10 * 1024 * 1024 } });
-  await app.register((instance: FastifyInstance) => browserWsRoutes(instance, { authToken: "secret", setViewport }));
+  await app.register((instance: FastifyInstance) => browserWsRoutes(instance, { auth: "secret", setViewport }));
   await app.ready();
 });
 

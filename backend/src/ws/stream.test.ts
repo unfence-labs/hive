@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import Fastify, { type FastifyInstance } from "fastify";
 import websocket from "@fastify/websocket";
 import WebSocket from "ws";
+import { createHash } from "node:crypto";
 import { chmod, rm, mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createTempDir, createFixtureRepo } from "../utils/test-helpers.js";
@@ -19,6 +20,7 @@ import {
   _clearActiveSessions,
 } from "../agents/agent-manager.js";
 import type { SessionOptions } from "../agents/agent-manager.js";
+import type { AuthExpectationInput } from "../utils/auth.js";
 import { streamRoutes, broadcastToWorkspace, completionProviderForMessage, _getChannelsForTests, _getHubSocketsForTests, _tickHubLivenessForTests } from "./stream.js";
 import {
   _setScriptStatusForTests,
@@ -179,7 +181,7 @@ async function connectHubLateListener(
 }
 
 async function startWsApp(
-  authToken?: string,
+  auth?: AuthExpectationInput,
   sessionOptions: SessionOptions = CONV_CMD,
   gitSyncSnapshotProvider?: {
     getCachedBranchInfo: (
@@ -204,7 +206,7 @@ async function startWsApp(
     streamRoutes(instance, {
       dataDir,
       sessionOptions,
-      authToken,
+      auth,
       gitSyncSnapshotProvider,
       prStatusProvider,
     }),
@@ -1360,6 +1362,31 @@ describe("WS /ws/hub", () => {
 
   it("accepts websocket connections with a valid token query parameter", async () => {
     const secure = await startWsApp("secret");
+    const { wsReady, messages } = connectHub([wsId], {
+      app: secure.app,
+      query: { token: "secret" },
+    });
+    const ws = await wsReady;
+
+    await waitForMessage(messages, (msgs) => msgs.length >= 1);
+    expect(messages[0]).toEqual({ type: "status", status: "idle", streaming: false });
+
+    ws.close();
+    await secure.app.close();
+  });
+
+  it("enforces a hash-only auth expectation on the hub socket", async () => {
+    const secure = await startWsApp({
+      expectedTokenSha256: createHash("sha256").update("secret").digest("hex"),
+    });
+
+    const rejected = await secure.app.injectWS(`/ws/hub`);
+    const closeCode = await new Promise<number>((resolve, reject) => {
+      rejected.on("close", (code) => resolve(code));
+      rejected.on("error", reject);
+    });
+    expect(closeCode).toBe(1008);
+
     const { wsReady, messages } = connectHub([wsId], {
       app: secure.app,
       query: { token: "secret" },

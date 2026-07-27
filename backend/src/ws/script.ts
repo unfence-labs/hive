@@ -1,19 +1,19 @@
 import type { FastifyInstance } from "fastify";
 import { getWorkspace } from "../workspaces/workspace-manager.js";
 import { getScriptProcess } from "../services/script-runner.js";
-import { isAuthorized } from "../utils/auth.js";
+import { isAuthorized, type AuthExpectationInput } from "../utils/auth.js";
 import { attachPtyToSocket } from "./pty-socket.js";
 
 export interface ScriptWsRoutesOptions {
   dataDir?: string;
-  authToken?: string;
+  auth?: AuthExpectationInput;
 }
 
 export async function scriptWsRoutes(
   app: FastifyInstance,
   opts: ScriptWsRoutesOptions = {},
 ) {
-  const { authToken } = opts;
+  const { auth } = opts;
 
   app.get<{
     Params: { wsId: string };
@@ -24,7 +24,7 @@ export async function scriptWsRoutes(
     async (socket, req) => {
       const queryToken =
         typeof req.query.token === "string" ? req.query.token : undefined;
-      if (!isAuthorized(req.headers, authToken, queryToken)) {
+      if (!isAuthorized(req.headers, auth, queryToken)) {
         socket.send(JSON.stringify({ type: "error", message: "Unauthorized" }));
         socket.close(1008, "Unauthorized");
         return;

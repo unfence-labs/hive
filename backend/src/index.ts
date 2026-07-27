@@ -15,7 +15,13 @@ import { completionRoutes } from "./api/completions.js";
 import { modelRoutes } from "./api/models.js";
 import { sessionRoutes } from "./api/agents.js";
 import { streamRoutes } from "./ws/stream.js";
-import { createAuthHook } from "./utils/auth.js";
+import {
+  allowedBrowserOrigins,
+  allowedHostNames,
+  createAuthHook,
+  createHostGuardHook,
+  createWebSocketOriginGuardHook,
+} from "./utils/auth.js";
 import { createRateLimitHook } from "./utils/rate-limit.js";
 import { parsePositiveNumber } from "./utils/env.js";
 import { ensureDataDir, getDataDir, loadAllProjects, saveProject } from "./state/state.js";
@@ -262,7 +268,10 @@ function getCpuPercent(): number {
 // ─────────────────────────────────────────────────────────────────────
 
 export async function buildApp(opts: BuildAppOptions = {}) {
-  const authToken = process.env.HIVE_AUTH_TOKEN?.trim();
+  const auth = {
+    expectedToken: process.env.HIVE_AUTH_TOKEN?.trim(),
+    expectedTokenSha256: process.env.HIVE_AUTH_TOKEN_SHA256?.trim(),
+  };
   const rateLimitMax = parsePositiveNumber(process.env.HIVE_RATE_LIMIT_MAX, DEFAULT_RATE_LIMIT_MAX);
   const rateLimitWindowMs = parsePositiveNumber(
     process.env.HIVE_RATE_LIMIT_WINDOW_MS,
@@ -272,11 +281,16 @@ export async function buildApp(opts: BuildAppOptions = {}) {
     skipPermissions: parseBoolean(process.env.HIVE_CLAUDE_SKIP_PERMISSIONS, true),
   };
   const app = Fastify({ logger: true });
+  const browserOrigins = allowedBrowserOrigins();
   await app.register(cors, {
-    origin: true,
+    origin: (origin, callback) => {
+      callback(null, origin === undefined || browserOrigins.has(origin));
+    },
     methods: ["GET", "HEAD", "PUT", "PATCH", "POST", "DELETE"],
   });
   await app.register(websocket, { options: { maxPayload: 10 * 1024 * 1024 } });
+  // CORS does not cover WebSockets, so browser upgrades get their own check.
+  app.addHook("onRequest", createWebSocketOriginGuardHook(browserOrigins));
 
   app.addHook("onSend", async (req, reply, payload) => {
     if (req.method !== "GET" || reply.statusCode !== 200) return payload;
@@ -302,7 +316,9 @@ export async function buildApp(opts: BuildAppOptions = {}) {
     threshold: 1024,
   });
 
-  app.addHook("onRequest", createAuthHook(authToken));
+  app.addHook("onRequest", createHostGuardHook(allowedHostNames()));
+  // Rate limiting runs before auth: a rejected request ends the lifecycle in the
+  // auth hook, so registering it after would leave failed attempts unlimited.
   app.addHook(
     "onRequest",
     createRateLimitHook({
@@ -310,8 +326,12 @@ export async function buildApp(opts: BuildAppOptions = {}) {
       windowMs: rateLimitWindowMs,
     }),
   );
+  app.addHook("onRequest", createAuthHook(auth));
 
-  app.get("/health", async () => {
+  app.get("/health", async (_req, reply) => {
+    // /health is exempt from the auth, Host and origin guards so a provisioning
+    // script (or a setup screen on any origin) can poll it. It carries no secrets.
+    reply.header("access-control-allow-origin", "*");
     const totalMem = os.totalmem();
     const freeMem = os.freemem();
     const disk = statfsSync("/");
@@ -344,7 +364,7 @@ export async function buildApp(opts: BuildAppOptions = {}) {
   );
   await app.register((instance: FastifyInstance) =>
     streamRoutes(instance, {
-      authToken,
+      auth,
       sessionOptions,
       gitSyncSnapshotProvider: opts.gitSyncSnapshotProvider,
       prStatusProvider: opts.prStatusProvider,
@@ -356,13 +376,13 @@ export async function buildApp(opts: BuildAppOptions = {}) {
   await app.register((instance: FastifyInstance) => accountRoutes(instance));
   await app.register((instance: FastifyInstance) => scriptRoutes(instance));
   await app.register((instance: FastifyInstance) =>
-    scriptWsRoutes(instance, { authToken }),
+    scriptWsRoutes(instance, { auth }),
   );
   await app.register((instance: FastifyInstance) =>
-    terminalWsRoutes(instance, { authToken }),
+    terminalWsRoutes(instance, { auth }),
   );
   await app.register((instance: FastifyInstance) =>
-    browserWsRoutes(instance, { authToken }),
+    browserWsRoutes(instance, { auth }),
   );
   await app.register((instance: FastifyInstance) =>
     automationRoutes(instance, { scheduler: opts.scheduler }),

@@ -12,7 +12,7 @@ import {
 } from "../agents/session-dispatch.js";
 import type { SessionOptions } from "../agents/agent-manager.js";
 import { errorMessage } from "../utils/errors.js";
-import { isAuthorized } from "../utils/auth.js";
+import { isAuthorized, type AuthExpectationInput } from "../utils/auth.js";
 import type { WsIncoming, WsOutgoing, HubIncoming, HubOutgoing } from "../types.js";
 import { getScriptStatus } from "../services/script-runner.js";
 import { resolveChatCwd } from "../agents/chat-context.js";
@@ -34,7 +34,7 @@ interface PrStatusProvider {
 export interface StreamRoutesOptions {
   dataDir?: string;
   sessionOptions?: SessionOptions;
-  authToken?: string;
+  auth?: AuthExpectationInput;
   gitSyncSnapshotProvider?: GitSyncSnapshotProvider;
   prStatusProvider?: PrStatusProvider;
 }
@@ -189,7 +189,7 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
   const {
     dataDir,
     sessionOptions,
-    authToken,
+    auth,
     gitSyncSnapshotProvider,
     prStatusProvider,
   } = opts;
@@ -765,7 +765,7 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
     { websocket: true },
     async (socket, req) => {
       const queryToken = typeof req.query.token === "string" ? req.query.token : undefined;
-      if (!isAuthorized(req.headers, authToken, queryToken)) {
+      if (!isAuthorized(req.headers, auth, queryToken)) {
         if (socket.readyState === socket.OPEN) {
           socket.send(JSON.stringify({ workspaceId: "_auth", event: { type: "error", message: "Unauthorized" } }));
         }
