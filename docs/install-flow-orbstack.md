@@ -84,6 +84,11 @@ accounts → ready**.
 5. **Accounts** — connect GitHub, Claude and Codex on the server.
 6. **Ready** — the app lands in a working Hive at `http://<VM_IP>:9420`.
 
+A prerelease (`0.0.0-dev`) install writes `HIVE_ALLOWED_ORIGINS` with the Vite
+dev origins into `/etc/hive/hive.env`, so the dev app — whose webview origin is
+`http://localhost:5173`, not `tauri://localhost` — passes the production
+CORS and WebSocket origin allowlists. Stable installs never carry this.
+
 Without a tarball (nothing in `dist-release/`, no `HIVE_DEV_RELEASE_TARBALL`),
 the install fails at the release step with `RELEASE_DOWNLOAD_FAILED` and a
 message repeating the build command above — build the tarball and press Retry.

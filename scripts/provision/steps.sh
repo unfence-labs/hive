@@ -698,6 +698,12 @@ HIVE_AUTOMATION_TIMEOUT_SEC=1800
 HOME=$HIVE_HOME
 PATH=$HIVE_SERVICE_PATH
 EOF
+  # A prerelease install is a developer's test server. The webview of a debug
+  # desktop app is served by Vite, so its Origin is the dev server, which the
+  # production CORS/WebSocket allowlists reject. Stable installs never get this.
+  case "${HIVE_VERSION:-}" in
+    *-*) echo "HIVE_ALLOWED_ORIGINS=http://localhost:5173,http://127.0.0.1:5173" ;;
+  esac
 }
 
 # Always re-runs: generate_token rotates the digest on every run, so there is
