@@ -78,6 +78,11 @@ export const OK_CHECKS: PreflightCheck[] = [
  * A server whose ufw is already on. This is the only shape in which the
  * installer writes a rule, and so the only one that puts the question to the
  * operator.
+ *
+ * The installer runs preflight without an interface — the operator picks one
+ * from this very report — so the script reports that a rule is coming without
+ * naming its shape, and `ruleToApply` is null. Anything else here would be a
+ * fixture claiming something the finding above the question never says.
  */
 export function activeFirewallReport(): PreflightReport {
   return report({
@@ -86,8 +91,8 @@ export function activeFirewallReport(): PreflightReport {
       checkWithData(
         "firewall",
         "ok",
-        "ufw is active; the installer will add the single rule 'ufw allow 9420/tcp' and change nothing else",
-        { backend: "ufw", active: true, ruleToApply: "ufw allow 9420/tcp" },
+        "ufw is active; the installer will add exactly one rule so Hive can be reached on port 9420, and change nothing else",
+        { backend: "ufw", active: true, ruleToApply: null },
       ),
     ],
   });

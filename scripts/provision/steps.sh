@@ -1228,9 +1228,23 @@ preflight_firewall() {
   fi
   if firewall_active; then active=true; else active=false; fi
   if [ "$active" = true ] && [ "$backend" = ufw ]; then
-    emit_check firewall ok \
-      "ufw is active; the installer will add the single rule 'ufw $(ufw_rule_spec)' and change nothing else" \
-      "$(printf '{"backend":"ufw","active":true,"ruleToApply":"ufw %s"}' "$(json_escape "$(ufw_rule_spec)")")"
+    # The shape of the rule is reported only when this run was actually given
+    # an interface. Preflight is an inspection, and the shape is not one of the
+    # things it inspects: it comes from an option. A client that runs preflight
+    # first and asks about the interface afterwards — the desktop installer
+    # renders this finding directly above that field — would otherwise print a
+    # rule and then ask the operator to contradict it one field lower.
+    # Under `curl | bash` the option is supplied up front, so these options do
+    # settle the shape, and the finding says so rather than saying less.
+    if [ -n "$OPT_FIREWALL_IFACE" ]; then
+      emit_check firewall ok \
+        "ufw is active; with the interface $OPT_FIREWALL_IFACE this run was given, the installer will add the single rule 'ufw $(ufw_rule_spec)' and change nothing else" \
+        "$(printf '{"backend":"ufw","active":true,"ruleToApply":"ufw %s"}' "$(json_escape "$(ufw_rule_spec)")")"
+    else
+      emit_check firewall ok \
+        "ufw is active; the installer will add exactly one rule so Hive can be reached on port $OPT_PORT, and change nothing else" \
+        '{"backend":"ufw","active":true,"ruleToApply":null}'
+    fi
   elif [ "$active" = true ]; then
     emit_check firewall warn \
       "$backend is active and is not modified by this installer; allow port $OPT_PORT yourself if Hive must be reachable" \

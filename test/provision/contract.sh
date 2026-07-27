@@ -366,6 +366,43 @@ open_rule="$(bash -c '
 ' _ "$PROV/lib.sh" "$PROV/steps.sh")"
 expect "no interface opens only the configured port" [ "$open_rule" = "allow 9999/tcp" ]
 
+# Preflight is an inspection, and the shape of the rule is not something it can
+# inspect: it comes from an option. A client that runs preflight and only then
+# asks which interface to scope the rule to renders that finding right above the
+# question, so a finding that named a rule would be contradicted one field
+# lower. Driven through the real function on a stubbed active ufw, because the
+# point is what it emits, not which words are in the file.
+firewall_finding() {
+  HIVE_LOG_FILE="$WORK/preflight.log.ndjson" bash -c '
+    # shellcheck disable=SC1090
+    source "$1"; source "$2"
+    firewall_backend() { printf ufw; }
+    firewall_active() { return 0; }
+    sudo_nopasswd() { return 0; }
+    OPT_PORT=9999
+    OPT_FIREWALL_IFACE="$3"
+    preflight_firewall
+  ' _ "$PROV/lib.sh" "$PROV/steps.sh" "$1"
+}
+
+fw_open="$(firewall_finding "")"
+fw_scoped="$(firewall_finding wg0)"
+
+expect "an active ufw is reported as found even when no rule shape is known" \
+  grep -q '"check":"firewall","status":"ok".*"backend":"ufw","active":true' <<<"$fw_open"
+expect "and it names the port a rule is needed for" grep -q 'port 9999' <<<"$fw_open"
+refute "preflight states no rule shape when none has been chosen yet" \
+  grep -nE 'allow [0-9]+/tcp|allow in on' <<<"$fw_open"
+expect "the rule to apply is reported as undecided, not guessed" \
+  grep -q '"ruleToApply":null' <<<"$fw_open"
+
+# The `curl | bash` path supplies the interface up front, so there the options
+# really do settle the shape, and preflight says so rather than saying less.
+expect "an interface given up front is reported as the rule it settles" \
+  grep -q "the single rule 'ufw allow in on wg0'" <<<"$fw_scoped"
+expect "and that rule is carried in the finding's data" \
+  grep -q '"ruleToApply":"ufw allow in on wg0"' <<<"$fw_scoped"
+
 # ---------------------------------------------------------------------------
 # 7. The generated uninstall script
 # ---------------------------------------------------------------------------

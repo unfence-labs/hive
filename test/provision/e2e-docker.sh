@@ -630,10 +630,29 @@ mode_neighbour() {
   grep -q '"check":"firewall".*"active":true' "$WORK/neighbour-pre.ndjson" \
     || { grep '"check":"firewall"' "$WORK/neighbour-pre.ndjson" >&2
          die "preflight did not report the active firewall it must ask about"; }
+  # This run is the one the choice is made from, so it must report the firewall
+  # it found without stating the rule the operator has not picked yet. The rule
+  # is reported for real below, on the run that actually writes it.
+  grep '"check":"firewall"' "$WORK/neighbour-pre.ndjson" \
+    | grep -qE 'allow [0-9]+/tcp|allow in on' \
+    && { grep '"check":"firewall"' "$WORK/neighbour-pre.ndjson" >&2
+         die "preflight named a rule the operator had not chosen yet"; }
+  echo "OK: the active firewall is reported without a rule the operator has not chosen"
   local iface
   iface="$(enumerated_interfaces "$WORK/neighbour-pre.ndjson" | head -1)"
   [ -n "$iface" ] || die "preflight enumerated no interface to choose from"
   echo "OK: preflight offers $(enumerated_interfaces "$WORK/neighbour-pre.ndjson" | tr '\n' ' ')"
+
+  # The other path: `curl | bash` supplies the interface up front, and there the
+  # options really do settle the shape, so preflight reports it.
+  run_provision --preflight --port "$PORT" --firewall-interface "$iface" \
+    >"$WORK/neighbour-pre-iface.ndjson" 2>&1 \
+    || die "preflight failed when it was given an interface"
+  grep -q '"check":"firewall".*"ruleToApply":"ufw allow in on '"$iface"'"' \
+    "$WORK/neighbour-pre-iface.ndjson" \
+    || { grep '"check":"firewall"' "$WORK/neighbour-pre-iface.ndjson" >&2
+         die "preflight given an interface did not report the rule that interface settles"; }
+  echo "OK: an interface supplied up front is reported as the rule it settles"
 
   rules_before="$(ufw_rules)"
   run_provision --port "$PORT" --firewall-interface "$iface" >"$WORK/neighbour-c.ndjson" \
