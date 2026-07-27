@@ -3,15 +3,10 @@ import { buildVscodeRemoteUri, openExternal } from "@/lib/open-external";
 
 const mocks = vi.hoisted(() => ({
   invoke: vi.fn(),
-  toastError: vi.fn(),
 }));
 
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: mocks.invoke,
-}));
-
-vi.mock("sonner", () => ({
-  toast: { error: mocks.toastError },
 }));
 
 // ─── buildVscodeRemoteUri ────────────────────────────────────────────────────
@@ -214,7 +209,7 @@ describe("openExternal", () => {
 
   // ── Tauri fallback ────────────────────────────────────────────────────
 
-  it("surfaces a toast carrying the URL when the Tauri opener throws", async () => {
+  it("only warns when the Tauri opener throws", async () => {
     (window as Window & { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ = {};
     mocks.invoke.mockRejectedValue(new Error("plugin unavailable"));
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
@@ -223,12 +218,6 @@ describe("openExternal", () => {
     await openExternal("https://example.com/docs");
 
     expect(warnSpy).toHaveBeenCalled();
-    expect(mocks.toastError).toHaveBeenCalledWith(
-      "Couldn't open the browser",
-      expect.objectContaining({
-        description: expect.stringContaining("https://example.com/docs"),
-      }),
-    );
     // A window.open fallback is silently dropped inside a Tauri webview.
     expect(openSpy).not.toHaveBeenCalled();
   });
