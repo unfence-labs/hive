@@ -2,7 +2,9 @@ name: provision e2e
 
 # Not on every PR: each mode builds a real backend release tarball and boots a
 # systemd container, which takes minutes. `npm run test:provision` covers the
-# cheap contracts on every push.
+# cheap contracts on every push. The install lane runs on pushes to main that
+# touch the provisioning surface, so a regression there cannot land silently;
+# the other lanes stay manual.
 on:
   workflow_dispatch:
     inputs:
@@ -12,6 +14,15 @@ on:
         default: install
         options:
           [install, checksum, chaos, rollback, guards, neighbour, preflight, paths, uninstall]
+  push:
+    branches: [main]
+    paths:
+      - "scripts/provision/**"
+      - "scripts/release/**"
+      - "test/provision/**"
+      - "test/images/**"
+      - "shared/setup-errors.ts"
+      - ".github/workflows/provision-e2e.yml"
 
 permissions:
   contents: read
@@ -25,4 +36,4 @@ jobs:
       - name: Provision contracts
         run: bash test/provision/contract.sh
       - name: Provision end-to-end
-        run: bash test/provision/e2e-docker.sh "${{ inputs.mode }}"
+        run: bash test/provision/e2e-docker.sh "${{ inputs.mode || 'install' }}"
