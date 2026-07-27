@@ -8,6 +8,10 @@ import type { PrivilegeMode } from "@/lib/provision-client";
  * The sequence is linear and reversible up to `review`: nothing before the
  * install touches the server, so there is no point along that stretch at which
  * going back is unsafe. `install` is where that stops — see `InstallScreen`.
+ *
+ * `accounts` is the other side of that: the install has already succeeded and
+ * the server is running, so the rule that forbids navigation during the install
+ * no longer applies. It gates nothing.
  */
 
 export const INSTALLER_STATES = [
@@ -17,6 +21,7 @@ export const INSTALLER_STATES = [
   "connect",
   "review",
   "install",
+  "accounts",
 ] as const;
 
 export type InstallerState = (typeof INSTALLER_STATES)[number];
@@ -166,8 +171,14 @@ export function isUsableDirectory(value: string): boolean {
  * without one resumes exactly where it stopped, including into an install that
  * was still going: the script is marker-based, so continuing it costs only the
  * steps that are not already done.
+ *
+ * `accounts` is not resumed. The install is over, the connection is stored, and
+ * the screen's only content is the tool panel pointed at the server it just
+ * built with credentials held in memory. Everything it offered is in Settings,
+ * which is where a relaunched app should find it.
  */
 export function resumeState(state: InstallerState, inputs: InstallerInputs): InstallerState {
+  if (state === "accounts") return "welcome";
   if (state !== "review" && state !== "install") return state;
   return inputs.privilegeMode === "root" || inputs.privilegeMode === "sudoNoPassword"
     ? state

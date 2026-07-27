@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import type { ReactElement } from "react";
+import type { ToolsResponse } from "@hive/shared/setup-types";
 import Installer from "@/pages/installer/Installer";
 import {
   INSTALLER_SCHEMA,
@@ -23,6 +25,52 @@ import {
   report,
   successRecords,
 } from "./mock-provision-client";
+import { createWrapper } from "../test-utils";
+
+/** The final screen renders the tools panel, and the panel is a query. */
+function renderInstaller(ui: ReactElement) {
+  const { wrapper } = createWrapper();
+  return render(ui, { wrapper });
+}
+
+/**
+ * Answer the tools panel's one read. Every tool is installed and signed out,
+ * which is exactly the state a freshly installed server is in.
+ */
+function stubTools(overrides: Partial<ToolsResponse> = {}) {
+  const body: ToolsResponse = {
+    tools: [
+      { id: "claude", label: "Claude Code", installed: true, version: "1.0.0", latestVersion: "1.0.0", updateAvailable: false, authenticated: false, managed: true },
+      { id: "codex", label: "Codex", installed: true, version: "0.5.0", latestVersion: "0.5.0", updateAvailable: false, authenticated: false, managed: true },
+      { id: "gh", label: "GitHub CLI", installed: true, version: "2.0.0", latestVersion: "2.0.0", updateAvailable: false, authenticated: false, managed: true },
+    ],
+    operations: [],
+    authSessions: [],
+    ...overrides,
+  };
+  return vi.spyOn(globalThis, "fetch").mockImplementation((input) =>
+    Promise.resolve(
+      String(input).includes("/api/setup/tools")
+        ? new Response(JSON.stringify(body), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          })
+        : new Response("{}", { status: 200, headers: { "Content-Type": "application/json" } }),
+    ),
+  );
+}
+
+/** Run an install to completion, landing on the final screen. */
+async function installTo(
+  client: ReturnType<typeof createMockProvisionClient>,
+  onClose: () => void,
+  records = successRecords(),
+) {
+  renderInstaller(<Installer client={client} onClose={onClose} />);
+  await waitFor(() => expect(client.installs).toHaveLength(1));
+  act(() => client.installs[0].emit(...records));
+  return screen.findByRole("heading", { name: "Connect your accounts" });
+}
 
 /** Resume the installer directly on a screen, the way a relaunch would. */
 function seed(state: InstallerState, inputs: Partial<InstallerInputs> = {}) {
@@ -120,7 +168,7 @@ describe("Installer", () => {
   });
 
   it("offers Cancel only when a server is already configured", () => {
-    render(<Installer client={createMockProvisionClient()} onClose={vi.fn()} />);
+    render(<Installer client={createMockProvisionClient()} onClose={vi.fn()} cancellable />);
 
     expect(screen.getByRole("button", { name: "Cancel" })).toBeInTheDocument();
   });
@@ -547,15 +595,13 @@ describe("Installer", () => {
   });
 
   it("lands on the installed server with the service account and the admin login apart", async () => {
+    stubTools();
     const client = createMockProvisionClient();
     const onClose = vi.fn();
     seedRunningInstall({ address: "ops@203.0.113.10" });
-    render(<Installer client={client} onClose={onClose} />);
 
-    await waitFor(() => expect(client.installs).toHaveLength(1));
-    act(() => client.installs[0].emit(...successRecords()));
+    await installTo(client, onClose);
 
-    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
     expect(getConnection()).toEqual({
       host: "203.0.113.10",
       port: 9420,
@@ -565,21 +611,134 @@ describe("Installer", () => {
       // …and the install login is kept only for a future reinstall.
       adminUser: "ops",
     });
-    // The installer is done with this server, so nothing of it survives.
-    expect(localStorage.getItem(INSTALLER_STORAGE_KEY)).toBeNull();
+    // Storing the connection is not the end of the flow: the accounts screen
+    // still has to run, so the installer is still up.
+    expect(onClose).not.toHaveBeenCalled();
   });
 
   it("keeps the service account of a resumed run that never reported one", async () => {
+    stubTools();
     const client = createMockProvisionClient();
+    seedRunningInstall();
+
+    await installTo(client, vi.fn(), successRecords(true));
+
+    expect(getConnection()).toMatchObject({ sshUser: "hive", adminUser: "root" });
+  });
+
+  // ── connecting accounts ────────────────────────────────────────────────────
+
+  it("ends on the same tool panel Settings uses, pointed at the new server", async () => {
+    const fetchMock = stubTools();
+    seedRunningInstall();
+
+    await installTo(createMockProvisionClient(), vi.fn());
+
+    // The panel addresses the server that was just installed, with the token
+    // that server issued — never whatever the client happened to be using.
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        "http://203.0.113.10:9420/api/setup/tools",
+        expect.objectContaining({ headers: { Authorization: `Bearer ${ACCESS_TOKEN}` } }),
+      ),
+    );
+
+    // It is the panel, with its sign-ins, not a reduced copy of it.
+    expect(await screen.findByRole("button", { name: "Connect Claude" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Connect Codex" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Connect GitHub" })).toBeInTheDocument();
+  });
+
+  it("says one agent provider is enough rather than asking for all three", async () => {
+    stubTools();
+    seedRunningInstall();
+
+    await installTo(createMockProvisionClient(), vi.fn());
+
+    expect(screen.getByText(/connecting either Claude or Codex is enough/i)).toBeInTheDocument();
+    // …and the panel says the same against live state, so the two cannot drift.
+    expect(
+      await screen.findByText(
+        "Connect Claude Code or Codex to run sessions. Either one on its own is enough.",
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("treats one connected harness as the whole requirement", async () => {
+    stubTools({
+      tools: [
+        {
+          id: "claude",
+          label: "Claude Code",
+          installed: true,
+          version: "1.0.0",
+          latestVersion: "1.0.0",
+          updateAvailable: false,
+          authenticated: true,
+          managed: true,
+        },
+        {
+          id: "codex",
+          label: "Codex",
+          installed: true,
+          version: "0.5.0",
+          latestVersion: "0.5.0",
+          updateAvailable: false,
+          authenticated: false,
+          managed: true,
+        },
+      ],
+    });
+    seedRunningInstall();
+
+    await installTo(createMockProvisionClient(), vi.fn());
+
+    expect(
+      await screen.findByText(
+        "Connected. One agent harness is enough — connecting the other adds its models, it is not required.",
+      ),
+    ).toBeInTheDocument();
+    // Codex is still offered, and still not asked for.
+    expect(screen.getByRole("button", { name: "Connect Codex" })).toBeEnabled();
+  });
+
+  it("never gates: continuing works with nothing connected", async () => {
+    const user = userEvent.setup();
+    stubTools();
     const onClose = vi.fn();
     seedRunningInstall();
-    render(<Installer client={client} onClose={onClose} />);
 
-    await waitFor(() => expect(client.installs).toHaveLength(1));
-    act(() => client.installs[0].emit(...successRecords(true)));
+    await installTo(createMockProvisionClient(), onClose);
+    await screen.findByRole("button", { name: "Connect Claude" });
 
-    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
-    expect(getConnection()).toMatchObject({ sshUser: "hive", adminUser: "root" });
+    // Nothing is signed in, and nothing about that stands in the way.
+    expect(screen.getAllByText("Not signed in")).toHaveLength(3);
+    const open = screen.getByRole("button", { name: "Open Hive" });
+    expect(open).toBeEnabled();
+    // The install is over, so there is no back — but no skip or required
+    // sign-in either. Continuing is the only control, and it always works.
+    for (const label of [/back/i, /skip/i, /later/i, /retry/i]) {
+      expect(screen.queryByRole("button", { name: label })).not.toBeInTheDocument();
+    }
+
+    await user.click(open);
+
+    // Finishing closes the installer and hands over to the ordinary app…
+    expect(onClose).toHaveBeenCalledTimes(1);
+    // …with the connection it installed intact.
+    expect(getConnection()).toMatchObject({ host: "203.0.113.10", port: 9420 });
+    // Nothing of the run survives to be resumed.
+    expect(localStorage.getItem(INSTALLER_STORAGE_KEY)).toBe(
+      JSON.stringify({ schema: INSTALLER_SCHEMA, state: "welcome", inputs: defaultInputs() }),
+    );
+  });
+
+  it("does not resume onto the accounts screen after a relaunch", () => {
+    seed("accounts", { privilegeMode: "root" });
+
+    // The install is over and the connection is stored; everything that screen
+    // offered lives in Settings, which is where a relaunched app finds it.
+    expect(loadMachine().state).toBe("welcome");
   });
 
   it("leaves an existing connection untouched when a re-launched installer is abandoned", async () => {
@@ -588,7 +747,7 @@ describe("Installer", () => {
     const onClose = vi.fn();
     const user = userEvent.setup();
     const client = createMockProvisionClient();
-    render(<Installer client={client} onClose={onClose} />);
+    render(<Installer client={client} onClose={onClose} cancellable />);
 
     await user.click(screen.getByRole("button", { name: "Cancel" }));
 

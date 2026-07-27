@@ -46,9 +46,17 @@ export default function App() {
   // The installer is a layer in front of the app, not a variant of it: with no
   // server configured the desktop shell has nothing else to show, and an
   // already-configured app can open it again from Settings.
+  //
+  // Once open it comes down only when the installer says so. It stores the
+  // connection partway through — its final screen connects accounts on the
+  // server it just installed — so closing on `isConfigured` would cut the flow
+  // short at exactly the point the newcomer still needs it.
   const { isConfigured } = useConnection();
-  const [installerRequested, setInstallerRequested] = useState(false);
-  const showInstaller = installerRequested || (isDesktopShell() && !isConfigured);
+  const needsInstaller = isDesktopShell() && !isConfigured;
+  const [showInstaller, setShowInstaller] = useState(needsInstaller);
+  useEffect(() => {
+    if (needsInstaller) setShowInstaller(true);
+  }, [needsInstaller]);
   // "New workspace from…" picker — owned here so both the global shortcuts
   // (WorkspaceLauncher) and the sidebar "+" context menu can open it.
   const [workspaceFrom, setWorkspaceFrom] = useState<{ open: boolean; projectId?: string }>({ open: false });
@@ -99,9 +107,7 @@ export default function App() {
         />
         <Suspense fallback={null}>
           {showInstaller && (
-            <Installer
-              {...(isConfigured ? { onClose: () => setInstallerRequested(false) } : {})}
-            />
+            <Installer onClose={() => setShowInstaller(false)} cancellable={isConfigured} />
           )}
         </Suspense>
         <Suspense fallback={null}>
@@ -142,7 +148,7 @@ export default function App() {
                 element={
                   <ConnectionSettings
                     onRefreshConnection={() => { wsTransport.disconnectAll(); fetchProjects(); }}
-                    onOpenInstaller={() => setInstallerRequested(true)}
+                    onOpenInstaller={() => setShowInstaller(true)}
                   />
                 }
               />

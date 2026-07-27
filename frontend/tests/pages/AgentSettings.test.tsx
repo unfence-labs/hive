@@ -16,19 +16,23 @@ const mocks = vi.hoisted(() => ({
   submitAuthCode: vi.fn(),
   cancelAuth: vi.fn(),
   apiPost: vi.fn(),
+  createSetupApi: vi.fn(),
 }));
 
 vi.mock("@/hooks/useApi", () => ({ api: { post: mocks.apiPost } }));
 
 vi.mock("@/lib/setup-api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/setup-api")>()),
-  createSetupApi: () => ({
-    getTools: mocks.getTools,
-    startOperation: mocks.startOperation,
-    startAuth: mocks.startAuth,
-    submitAuthCode: mocks.submitAuthCode,
-    cancelAuth: mocks.cancelAuth,
-  }),
+  createSetupApi: (target?: unknown) => {
+    mocks.createSetupApi(target);
+    return {
+      getTools: mocks.getTools,
+      startOperation: mocks.startOperation,
+      startAuth: mocks.startAuth,
+      submitAuthCode: mocks.submitAuthCode,
+      cancelAuth: mocks.cancelAuth,
+    };
+  },
 }));
 
 vi.mock("@/components/AppLayout", () => ({
@@ -83,6 +87,16 @@ describe("AgentSettings", () => {
     expect(await screen.findByRole("heading", { name: "Claude Code" })).toBeInTheDocument();
     expect(screen.getByText("v1.0.35")).toBeInTheDocument();
     expect(mocks.getTools).toHaveBeenCalled();
+  });
+
+  it("points the panel at the configured server, unlike the installer's copy", async () => {
+    renderPage();
+    await screen.findByRole("heading", { name: "Harness" });
+
+    // No explicit target: here the panel reads the stored connection, which is
+    // the server the installer configured. Same component, same result — which
+    // is what makes skipping a sign-in during the install harmless.
+    expect(mocks.createSetupApi).toHaveBeenCalledWith(undefined);
   });
 
   it("states where installs land, since it is not the system prefix", async () => {

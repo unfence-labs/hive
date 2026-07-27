@@ -139,17 +139,30 @@ vi.mock("@/pages/settings/ConnectionSettings", () => ({
   ),
 }));
 
-vi.mock("@/pages/installer/Installer", () => ({
-  default: ({ onClose }: { onClose?: () => void }) => (
-    <div data-testid="installer">
-      {onClose && (
+vi.mock("@/pages/installer/Installer", async () => {
+  const { replaceConnection: store } = await import("@/hooks/useConnection");
+  return {
+    default: ({ onClose, cancellable }: { onClose?: () => void; cancellable?: boolean }) => (
+      <div data-testid="installer">
         <button type="button" onClick={onClose}>
           close installer
         </button>
-      )}
-    </div>
-  ),
-}));
+        {cancellable && (
+          <button type="button" onClick={onClose}>
+            cancel installer
+          </button>
+        )}
+        {/* Stands in for the install storing the connection it just created. */}
+        <button
+          type="button"
+          onClick={() => store({ host: "203.0.113.10", port: 9420, authToken: "issued" })}
+        >
+          store connection
+        </button>
+      </div>
+    ),
+  };
+});
 
 vi.mock("@/pages/settings/NotificationSettings", () => ({
   default: () => <div>notification settings</div>,
@@ -359,7 +372,24 @@ describe("App", () => {
     // A layer in front of the app, not a variant of it: the app is still there.
     expect(screen.getByTestId("app-layout")).toBeInTheDocument();
     // With no server there is no way out but the welcome screen's own paths.
-    expect(screen.queryByRole("button", { name: "close installer" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "cancel installer" })).not.toBeInTheDocument();
+  });
+
+  it("keeps the installer up once the install stores its connection", async () => {
+    const user = userEvent.setup();
+    runInDesktopShell();
+    renderApp();
+
+    await user.click(await screen.findByRole("button", { name: "store connection" }));
+
+    // The install stores the connection partway through: the final screen —
+    // connect your accounts — still has to run on the server it just built.
+    expect(screen.getByTestId("installer")).toBeInTheDocument();
+    // And now that there is something to go back to, abandoning is offered.
+    expect(screen.getByRole("button", { name: "cancel installer" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "close installer" }));
+    expect(screen.queryByTestId("installer")).not.toBeInTheDocument();
   });
 
   it("leaves the web build alone when no server is configured", () => {
