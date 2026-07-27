@@ -14,13 +14,15 @@ repeating it.
 
 ```text
 +------------------+                             +------------------+
-|  Your machine    | ---- private network ---->  |  Server          |
-|  Desktop app     |            or               |  Hive backend    |
-|  (frontend only) | ---- public address  ---->  |  (Fastify + CLI) |
+|  Your machine    |                             |  Server          |
+|  Desktop app     | -- the address that ---->   |  Hive backend    |
+|  (frontend only) |    reaches the server       |  (Fastify + CLI) |
 +------------------+                             +------------------+
 ```
 
-The server does the work: agent CLIs, git, worktrees, sessions. The client is a view onto it.
+The server does the work: agent CLIs, git, worktrees, sessions. The client is a view onto it. How
+you make that server reachable — a public address, or a private network you run yourself — is yours
+to arrange; Hive does not ask and does not set one up.
 
 ## Which path
 
@@ -53,16 +55,18 @@ The screens, in order:
 
 1. **Set up Hive.** Either start the install, or point the app at a server that already exists by
    entering its address, port and access token. The second is the skip.
-2. **How the server is reached.** Choose private network or public address, and give the address
-   (`host`, or `user@host` to log in as something other than root) and the port. *Advanced* exposes
-   the install directory, the data directory, and — in private mode — the interface name.
+2. **Where the server is.** The address that reaches it (`host`, or `user@host` to log in as
+   something other than root) and the port Hive should listen on. *Advanced* exposes the install
+   directory and the data directory. You are not asked how the server is reachable.
 3. **Choose the SSH key.** Keys under `~/.ssh` are listed. A passphrase-protected key is marked
    unusable unless an agent holds it; run `ssh-add <path>` and rescan. The key you pick is also the
    key authorized on the service account, so editor and terminal sessions connect as `hive`.
 4. **Check the server.** Hive reaches the server, shows its host key fingerprint for approval, then
    runs the installer's own read-only preflight over that connection and lists every finding.
-   Blocking findings name the field that fixes them. If the account needs a `sudo` password, this is
-   where it is asked for. Nothing on the server is changed by this step.
+   Blocking findings name the field that fixes them. If that server runs an active `ufw`, this is
+   also where you choose how the one firewall rule is written: open the port, or allow it only on
+   one of the interfaces the server reported. If the account needs a `sudo` password, this is where
+   it is asked for. Nothing on the server is changed by this step.
 5. **Ready to install.** The settled plan, restated. This is the last screen where going back is
    free.
 6. **Installing Hive.** A live checklist and the raw output. It cannot be cancelled: the script runs
@@ -296,8 +300,8 @@ closed on purpose:
 
 ```bash
 sudo ufw status
-sudo ufw allow in on tailscale0    # private network mode
-sudo ufw allow 9420/tcp            # public mode
+sudo ufw allow 9420/tcp            # open the port
+sudo ufw allow in on <interface>   # or allow it only on one interface
 ```
 
 **Service state on a provisioned server.**

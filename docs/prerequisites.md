@@ -42,28 +42,37 @@ The installer connects over SSH on port 22, with a key.
 
 ## How you will reach the server
 
-You choose one of two modes, on the installer's "How the server is reached" screen. Both leave the
-backend protected by the access token the install generates; the mode selects the firewall rule and
-nothing else.
+All the installer wants is the address that reaches your server, typed on the "Where the server is"
+screen. How you make it reachable is yours to arrange — a public address, or a private network you
+run yourself: Tailscale, WireGuard, ZeroTier, a cloud provider's private network. Hive neither
+installs nor configures any of them and does not ask which one you chose.
 
-**Over a private network.** Hive is opened on a private network interface only (`tailscale0` by
-default).
+> If you want a private network and have none, Tailscale is one of the easier ones to bring up. You
+> would install it beforehand on **both** the server and the machine that runs Hive, following its
+> own [quickstart](https://tailscale.com/docs/how-to/quickstart) and
+> [install on Linux](https://tailscale.com/docs/install/linux) instructions. WireGuard, ZeroTier or a
+> second NIC on a private network work exactly the same way as far as Hive is concerned.
 
-> You bring that network up yourself, beforehand, on **both** the server and the machine that runs
-> Hive. Hive neither installs nor configures it. With Tailscale, that is Tailscale's own
-> instructions — [quickstart](https://tailscale.com/docs/how-to/quickstart) for your own machine and
-> [install on Linux](https://tailscale.com/docs/install/linux) for the server — run on both under the
-> same account.
+The backend binds every interface (`0.0.0.0` on port `9420` by default) and is protected by the
+access token the install generates. Every install run generates a new token and reports it exactly
+once, on its progress stream; it is never written to a log file, and only its SHA-256 digest is
+stored on the server.
 
-The installer checks that the interface exists and refuses to continue if it does not: the firewall
-rule would match nothing, and the install would come up healthy and unreachable.
+The address you type is the address the app keeps using afterwards. The installer never hands over
+to a second one.
 
-**At its public address.** Hive listens on its port and is protected by the access token. Every
-install run generates a new token and reports it exactly once, on its progress stream; it is never
-written to a log file, and only its SHA-256 digest is stored on the server.
+### The firewall question
 
-Whichever you pick, the address you type is the address the app keeps using afterwards. The
-installer never hands over to a second one.
+There is one question about your network, and it is only asked when it has a consequence: when the
+server already runs an **active `ufw`**. It comes on the "Check the server" screen, after the
+installer has inspected the server, and it decides the shape of the single rule it will add:
+
+- **open the port** to anything that can reach the server, or
+- **allow it only on one interface**, chosen from the interfaces that server actually reported.
+
+If no firewall is active you are never asked. Nothing is changed, and the install reports that,
+along with the port the backend listens on. An active `firewalld` or raw `nftables` ruleset is
+reported but never edited, so opening the port there is yours to do.
 
 ## What the installer changes
 
@@ -81,7 +90,8 @@ installer never hands over to a second one.
 - Creates the data directory (`/home/hive/.hive` by default) for projects, worktrees and sessions.
 - If you supply one, appends your public key to `/home/hive/.ssh/authorized_keys` — appended only,
   never rewritten, and never duplicated on a re-run.
-- Adds **one** firewall rule, and only if a firewall is already active. See below.
+- Adds **one** firewall rule, and only if a firewall is already active. See
+  [the firewall question](#the-firewall-question).
 
 ## What the installer does not change
 
@@ -91,10 +101,10 @@ installer never hands over to a second one.
   on nodejs.org and the GitHub CLI from its official release tarball, each verified against a
   checksum pinned in the script before anything is unpacked.
 - **Your firewall policy.** The installer never enables a firewall and never changes its default
-  policy. If `ufw` is already active it adds exactly one rule — the configured port in public mode,
-  or inbound on the private interface in private mode — and nothing else. If no firewall is active
-  it does nothing and says so, so you know what is and is not open. `firewalld` and a raw `nftables`
-  ruleset are detected and reported, never edited.
+  policy. If `ufw` is already active it adds exactly one rule — the configured port, or inbound on
+  the interface you picked — and nothing else. If no firewall is active it does nothing and says so,
+  so you know what is and is not open. `firewalld` and a raw `nftables` ruleset are detected and
+  reported, never edited.
 - **Your SSH configuration.** `sshd` is not reconfigured. The only SSH file written on the server is
   `authorized_keys` on the service account the installer created. On your own machine, approving a
   server's fingerprint writes to Hive's own `known_hosts` inside the app's configuration directory,
@@ -128,5 +138,5 @@ curl -fsSL https://github.com/unfence-labs/hive/releases/latest/download/provisi
 
 It writes nothing, always exits 0, and reports the operating system and architecture, whether the
 port is free, whether the chosen directories are writable with room to spare, whether Hive is
-already installed, whether a firewall is active, whether privilege escalation needs a password, and
-— in private-network mode — whether the interface exists.
+already installed, which host firewall is present and whether it is active, the server's network
+interfaces and their addresses, and whether privilege escalation needs a password.

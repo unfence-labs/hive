@@ -96,7 +96,8 @@ Run Hive as a **local web app**, a **Tauri desktop app** (pointed at a local or 
 - **GitHub CLI** installed and authenticated for GitHub-backed flows (`gh`)
 - _Optional:_ **Codex CLI** (`codex`) for OpenAI model support
 - _Optional (desktop build):_ **Rust** ≥ 1.77 for Tauri
-- _Optional (remote):_ **Tailscale**
+- _Optional (remote):_ a way to reach the server — a public address, or a private network you run
+  yourself (Tailscale, WireGuard, ZeroTier, a cloud provider's private network)
 
 > The backend preflight requires `git`, `claude`, and `gh`. `codex` is optional and only affects its provider features.
 
@@ -143,10 +144,11 @@ The desktop app installs Hive on a server itself, over SSH, with no terminal. Wi
 configured it opens on launch; otherwise it is under **Settings → Connection → Install Hive on a
 server**.
 
-It walks through choosing the exposure mode and the address, picking an SSH key from `~/.ssh`,
-approving the server's host key fingerprint, running the installer's own read-only preflight over
-that same connection and listing every finding while the form is still editable, restating the
-settled plan, and then running the install as a live checklist. The private key never leaves the
+It walks through giving the address and port, picking an SSH key from `~/.ssh`, approving the
+server's host key fingerprint, running the installer's own read-only preflight over that same
+connection and listing every finding while the form is still editable — and, only on a server that
+already runs an active `ufw`, asking there how that one firewall rule should be written — restating
+the settled plan, and then running the install as a live checklist. The private key never leaves the
 machine — only its path is stored, and only its public half is sent, to be authorized on the service
 account. An account that needs a `sudo` password is asked for one, which is used for that install
 only and never written to disk.
@@ -192,10 +194,10 @@ curl -fsSL <url>/provision.sh | bash -s -- --preflight
 ```
 
 Preflight reports the operating system and architecture, whether the port is free, whether the
-chosen directories are writable with room to spare, whether Hive is already installed, whether a
-firewall is active, whether privilege escalation needs a password, and — in `tailnet` mode —
-whether the private network interface exists. It writes nothing and always exits 0: findings are
-data, not a verdict.
+chosen directories are writable with room to spare, whether Hive is already installed, which host
+firewall is present and whether it is active, what network interfaces the server has, and whether
+privilege escalation needs a password. It writes nothing and always exits 0: findings are data, not
+a verdict.
 
 | Option | Environment variable | Default | What it sets |
 |---|---|---|---|
@@ -203,8 +205,7 @@ data, not a verdict.
 | `--data-dir` | `HIVE_DATA_DIR` | `/home/hive/.hive` | Projects, worktrees and sessions — the directory that grows |
 | `--port` | `HIVE_PORT` | `9420` | Backend port |
 | `--host` | — | `0.0.0.0` | Bind address |
-| `--network-mode` | `HIVE_NETWORK_MODE` | `public` | `public` or `tailnet`; selects the firewall rule only |
-| `--tailnet-interface` | `HIVE_TAILNET_INTERFACE` | `tailscale0` | Interface for `tailnet` mode |
+| `--firewall-interface` | `HIVE_FIREWALL_INTERFACE` | — | Scope the one firewall rule to this interface instead of opening the port. Only consulted when a firewall is already active |
 | `--ssh-public-key` | `HIVE_SSH_PUBLIC_KEY` | — | Authorize this key on the `hive` account |
 | `--preflight` | — | — | Report and change nothing |
 
@@ -215,16 +216,18 @@ data, not a verdict.
 curl -fsSL <url>/provision.sh | bash -s -- --port 9420 --install-dir /srv/hive --data-dir /mnt/hive
 ```
 
-A private network (Tailscale, WireGuard, a VPC) is a prerequisite the operator arranges — Hive
-neither installs nor configures one. In `tailnet` mode the installer refuses to continue if the
-interface is absent, because the firewall rule would match nothing and the install would come up
-healthy but unreachable.
+**How the server is reached is the operator's business.** There is no network mode: the installer
+takes the address that reaches the server, and a public address, a private network the operator
+runs themselves (Tailscale, WireGuard, ZeroTier, a cloud provider's private network) or a second NIC
+are all the same to it. Hive neither installs nor configures any of them. The backend binds every
+interface and the access token is the security boundary either way.
 
 **The firewall stays the operator's.** The installer never enables it and never changes its default
 policy. If a firewall is already active it adds exactly one rule — the configured port, or inbound
-on the private interface — and nothing else. If none is active it does nothing and reports that, so
-you know what is and is not open. Every outcome lands on the progress stream. Only `ufw` is
-modified; `firewalld` and a raw `nftables` ruleset are detected and reported, never edited.
+on `--firewall-interface` when one is given — and nothing else. If none is active it does nothing
+and reports that, so you know what is and is not open. Every outcome lands on the progress stream.
+Only `ufw` is modified; `firewalld` and a raw `nftables` ruleset are detected and reported, never
+edited.
 
 Because the service account owns every repository and worktree, pass `--ssh-public-key` so an
 editor or terminal session connects as `hive` rather than root. The key is appended to
