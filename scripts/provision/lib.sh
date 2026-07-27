@@ -8,6 +8,26 @@ set -Eeuo pipefail
 
 SCRIPT_VERSION="${SCRIPT_VERSION:-0.0.0-dev}"
 
+# Environment defaults for the operator-settable options, in the k3s style:
+# one prefixed variable per option, each with a documented default and a
+# command-line equivalent that wins over it.
+#
+# They are captured here, at the very top of the bundle, and not in parse_args:
+# steps.sh declares internal globals of the same names further down, and by the
+# time main.sh runs they would have shadowed the operator's environment.
+# shellcheck disable=SC2034  # consumed by parse_args in main.sh
+OPT_ENV_INSTALL_DIR="${HIVE_INSTALL_DIR:-}"
+# shellcheck disable=SC2034
+OPT_ENV_DATA_DIR="${HIVE_DATA_DIR:-}"
+# shellcheck disable=SC2034
+OPT_ENV_PORT="${HIVE_PORT:-}"
+# shellcheck disable=SC2034
+OPT_ENV_NETWORK_MODE="${HIVE_NETWORK_MODE:-}"
+# shellcheck disable=SC2034
+OPT_ENV_TAILNET_IFACE="${HIVE_TAILNET_INTERFACE:-}"
+# shellcheck disable=SC2034
+OPT_ENV_SSH_KEY="${HIVE_SSH_PUBLIC_KEY:-}"
+
 # Runtime dirs (overridable for tests).
 HIVE_VAR_DIR="${HIVE_VAR_DIR:-/var/lib/hive}"
 STATE_DIR="$HIVE_VAR_DIR/state"
@@ -19,7 +39,9 @@ LOCK_FILE="$HIVE_VAR_DIR/provision.lock"
 # shared/setup-errors.ts; test/provision/contract.sh asserts it.
 # shellcheck disable=SC2034  # read by the bash/TS contract test
 SETUP_ERROR_CODES="UNSUPPORTED_OS UNSUPPORTED_ARCH NOT_ROOT CONCURRENT_RUN \
-EXISTING_INSTALL PORT_IN_USE APT_FAILURE NODE_INSTALL_FAILED \
+EXISTING_INSTALL PORT_IN_USE DIRECTORY_UNUSABLE INSUFFICIENT_DISK_SPACE \
+TAILNET_INTERFACE_MISSING SSH_KEY_INVALID FIREWALL_RULE_FAILED \
+APT_FAILURE NODE_INSTALL_FAILED \
 AGENT_CLI_INSTALL_FAILED RELEASE_DOWNLOAD_FAILED CHECKSUM_MISMATCH \
 TOKEN_GENERATION_FAILED SERVICE_START_FAILED HEALTH_TIMEOUT \
 AUTH_NOT_ENFORCED UNKNOWN"
@@ -99,6 +121,35 @@ emit_step() {
   body="$(printf '"step":"%s","status":"%s"' "$id" "$status")"
   [ -n "$extra" ] && body="$body,$extra"
   emit "$body"
+}
+
+# --- Preflight reporting ---
+#
+# Preflight is a read-only mode: it emits one record per check and a summary,
+# and always exits 0. A check that fails is a finding, not a run failure —
+# the client decides what to do with it, which is why nothing here calls `die`.
+PREFLIGHT_OK=true
+PREFLIGHT_BLOCKERS=""
+
+emit_check() {
+  # emit_check <id> <ok|fail|warn> <detail> [data-json] [errorCode]
+  local id="$1" status="$2" detail="$3" data="${4:-}" code="${5:-}" body
+  body="$(printf '"event":"preflight_check","check":"%s","status":"%s","detail":"%s"' \
+    "$id" "$status" "$(json_escape "$detail")")"
+  [ -n "$data" ] && body="$body,$(printf '"data":%s' "$data")"
+  if [ "$status" = fail ]; then
+    PREFLIGHT_OK=false
+    PREFLIGHT_BLOCKERS+="$id "
+    [ -n "$code" ] && body="$body,$(printf '"errorCode":"%s"' "$code")"
+  fi
+  emit "$body"
+}
+
+emit_preflight_summary() {
+  local blockers="" b
+  for b in $PREFLIGHT_BLOCKERS; do blockers+="\"$b\","; done
+  emit "$(printf '"event":"preflight","ok":%s,"blockers":[%s]' \
+    "$PREFLIGHT_OK" "${blockers%,}")"
 }
 
 emit_log() {
@@ -266,3 +317,13 @@ bootstrap() {
 }
 
 reset_state() { rm -rf "$STATE_DIR" "$STATE_FILE"; mkdir -p "$STATE_DIR"; }
+
+# Preflight's whole contract is that it changes nothing, so it runs none of
+# bootstrap: no directory is created, no lock is taken, no log is opened, and
+# no trap can delete a file. The log sink is /dev/null, which keeps `emit`
+# unchanged while writing the stream to stdout alone. Root is not required
+# either — discovering that the caller cannot escalate is one of the findings.
+preflight_bootstrap() {
+  LOG_FILE=/dev/null
+  RUN_ID="p-$(head -c4 /dev/urandom | od -An -tx1 | tr -d ' \n')"
+}

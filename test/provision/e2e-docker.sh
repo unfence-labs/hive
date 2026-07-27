@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # End-to-end provisioning lane.
 #
-#   test/provision/e2e-docker.sh [install|guards|checksum|rollback|chaos]
+#   test/provision/e2e-docker.sh [install|guards|checksum|rollback|chaos|
+#                                 neighbour|preflight|paths|uninstall]
 #   (default: install)
 #
 # Takes a bare Ubuntu 24.04 container with systemd as PID 1 — no curl, no git,
@@ -13,6 +14,8 @@
 #
 # The backend tarball is built once by scripts/release/build-backend-tarball.sh
 # inside a node:22 container. Set HIVE_E2E_TARBALL to reuse an existing one.
+#
+# shellcheck disable=SC2016  # single-quoted bodies are expanded in the container, not here
 set -Eeuo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -22,7 +25,12 @@ VERSION="0.0.0-e2e"
 IMAGE="hive-provision-e2e"
 NETWORK="hive-provision-e2e"
 RELEASE_HOST="hive-e2e-release"
+SERVER_HOST="hive-e2e-server"
 PORT=9420
+# An ed25519 public key with a valid blob, used to prove the authorized_keys
+# append is idempotent. It is a test fixture and opens nothing: no private
+# half exists, and it only ever reaches a throwaway container.
+TEST_SSH_KEY="ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHZ2hRZjZDZlZTBhMzYxN2E0MmM4YjE0NjUzMWEz hive-e2e"
 CID=""
 RELEASE_CID=""
 WORK=""
@@ -92,8 +100,8 @@ start_stack() {
   docker network create "$NETWORK" >/dev/null
   RELEASE_CID="$(docker run -d --network "$NETWORK" --network-alias "$RELEASE_HOST" \
     -v "$RELEASE_DIR:/usr/share/nginx/html:ro" nginx:alpine)"
-  CID="$(docker run -d --network "$NETWORK" --privileged --cgroupns=host \
-    -v /sys/fs/cgroup:/sys/fs/cgroup "$IMAGE")"
+  CID="$(docker run -d --network "$NETWORK" --network-alias "$SERVER_HOST" --privileged \
+    --cgroupns=host -v /sys/fs/cgroup:/sys/fs/cgroup "$IMAGE")"
   for _ in $(seq 1 60); do
     docker exec "$CID" test -d /run/systemd/system >/dev/null 2>&1 && return 0
     sleep 1
@@ -103,6 +111,16 @@ start_stack() {
 
 in_server() { docker exec "$CID" "$@"; }
 sh_server() { docker exec "$CID" sh -c "$1"; }
+
+# Reach the server the way a real client does: from another host on the
+# network, through the kernel's filter chains. A localhost curl inside the
+# container proves nothing about a firewall, because ufw always lets loopback
+# through — the whole question is whether an outside peer still gets in.
+from_peer() {
+  # from_peer <host> <port> [path]
+  docker exec "$RELEASE_CID" wget -q -T 5 -O - "http://$1:$2${3:-/}" 2>/dev/null
+}
+peer_can_reach() { from_peer "$@" >/dev/null 2>&1; }
 
 # Run the generated provision.sh over stdin, exactly as `curl | bash` would.
 # shellcheck disable=SC2120  # most callers deliberately pass no options
@@ -202,15 +220,44 @@ mode_install() {
   # Arguments go through `bash -s --`, which is how an operator passes options
   # to a piped script.
   log "Run 1: full install on a bare server"
-  run_provision --port "$PORT" >"$WORK/run1.ndjson" \
+  run_provision --port "$PORT" --ssh-public-key "$TEST_SSH_KEY" >"$WORK/run1.ndjson" \
     || { tail -30 "$WORK/run1.ndjson" >&2; die "provisioning failed"; }
   assert_run_ok "$WORK/run1.ndjson"
   assert_provisioned "$WORK/run1.ndjson"
   local token1; token1="$(token_from_stream "$WORK/run1.ndjson")"
 
+  # The service account owns the repositories and worktrees. An editor session
+  # that lands on root instead takes ownership of every file it saves, after
+  # which the agent can no longer write them.
+  log "The operator's key authorizes the hive account, not root"
+  [ "$(sh_server 'stat -c "%U:%G %a" /home/hive/.ssh')" = "hive:hive 700" ] \
+    || die "/home/hive/.ssh is not owned by hive with mode 700"
+  [ "$(sh_server 'stat -c "%U:%G %a" /home/hive/.ssh/authorized_keys')" = "hive:hive 600" ] \
+    || die "authorized_keys is not owned by hive with mode 600"
+  [ "$(sh_server "grep -c 'hive-e2e' /home/hive/.ssh/authorized_keys")" = 1 ] \
+    || die "the key was not appended exactly once"
+  echo "OK: the key is authorized on the hive account"
+
+  # A key the operator adds by hand must survive, and a re-run must not append
+  # a second copy of ours — the same key with a different trailing comment is
+  # still the same key.
+  sh_server 'printf "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHhhbmRhZGRlZGJ5dGhlb3BlcmF0b3JzaGVsbA operator-laptop\n" >>/home/hive/.ssh/authorized_keys'
+
   log "Run 2: re-run resumes instead of repeating the expensive work"
-  run_provision >"$WORK/run2.ndjson" || { tail -30 "$WORK/run2.ndjson" >&2; die "the re-run failed"; }
+  run_provision --ssh-public-key "${TEST_SSH_KEY% *} a-completely-different-comment" \
+    >"$WORK/run2.ndjson" || { tail -30 "$WORK/run2.ndjson" >&2; die "the re-run failed"; }
   assert_run_ok "$WORK/run2.ndjson"
+
+  log "The re-run neither duplicated our key nor removed the hand-added one"
+  [ "$(sh_server "grep -c 'AAAAC3NzaC1lZDI1NTE5AAAAIHZ2hRZjZDZlZTBhMzYxN2E0MmM4YjE0NjUzMWEz' /home/hive/.ssh/authorized_keys")" = 1 ] \
+    || { sh_server 'cat /home/hive/.ssh/authorized_keys' >&2; die "the key was appended twice"; }
+  [ "$(sh_server "grep -c 'operator-laptop' /home/hive/.ssh/authorized_keys")" = 1 ] \
+    || { sh_server 'cat /home/hive/.ssh/authorized_keys' >&2; die "a hand-added key was lost"; }
+  [ "$(sh_server 'grep -c . /home/hive/.ssh/authorized_keys')" = 2 ] \
+    || { sh_server 'cat /home/hive/.ssh/authorized_keys' >&2; die "authorized_keys has the wrong number of entries"; }
+  grep -q '"step":"authorize_ssh_key","status":"skip"' "$WORK/run2.ndjson" \
+    || die "the re-run did not recognise the key as already authorized"
+  echo "OK: two entries — ours once, the operator's untouched"
   local step
   for step in probe_os apt_baseline create_user install_node install_agent_clis install_release; do
     grep -q "\"step\":\"$step\",\"status\":\"skip\"" "$WORK/run2.ndjson" \
@@ -420,14 +467,396 @@ mode_rollback() {
   log "PASS (an unhealthy release is rolled back)"
 }
 
+# ---------------------------------------------------------------------------
+# The premise of the whole design: the operator's server is already doing
+# something else, and the installer is a guest on it.
+# ---------------------------------------------------------------------------
+
+# Two neighbours: a web server on 80, and something on 5432 with no firewall
+# rule of its own. The reference implementation's `ufw default deny incoming`
+# plus `ufw --force enable` severs both on a server where ufw is installed but
+# inactive. They are started with the system Node the installer must not touch.
+start_neighbours() {
+  docker exec -d "$CID" /usr/bin/node -e \
+    'require("http").createServer((_,s)=>s.end("neighbour-80")).listen(80)'
+  docker exec -d "$CID" /usr/bin/node -e \
+    'require("http").createServer((_,s)=>s.end("neighbour-5432")).listen(5432)'
+  for _ in $(seq 1 30); do
+    if peer_can_reach "$SERVER_HOST" 80 && peer_can_reach "$SERVER_HOST" 5432; then return 0; fi
+    sleep 1
+  done
+  die "the neighbouring services never became reachable from a peer"
+}
+
+assert_neighbour_80_alive() {
+  local when="$1"
+  [ "$(from_peer "$SERVER_HOST" 80)" = "neighbour-80" ] \
+    || die "$when: the web server on port 80 is no longer reachable"
+}
+
+assert_neighbours_alive() {
+  local when="$1"
+  assert_neighbour_80_alive "$when"
+  [ "$(from_peer "$SERVER_HOST" 5432)" = "neighbour-5432" ] \
+    || die "$when: the service on port 5432 is no longer reachable"
+  echo "OK: $when, both neighbouring services still answer a peer"
+}
+
+ufw_state() { sh_server 'ufw status verbose 2>/dev/null | head -3'; }
+ufw_rules() { sh_server 'ufw status 2>/dev/null | tail -n +4 | grep -v "^$" | sort || true'; }
+
+mode_neighbour() {
+  build_release; build_provision; start_stack
+
+  log "Give the server a life of its own: a web server on 80 and a service on 5432"
+  sh_server 'DEBIAN_FRONTEND=noninteractive apt-get update -qq >/dev/null 2>&1 &&
+             DEBIAN_FRONTEND=noninteractive apt-get install -y -qq ufw >/dev/null 2>&1' \
+    || die "could not install ufw in the test container"
+  start_neighbours
+  assert_neighbours_alive "before the install"
+
+  # -- Phase A: ufw installed but INACTIVE ---------------------------------
+  # This is the configuration the reference implementation destroys. Nothing
+  # here may change: not the policy, not the enabled state, not one rule.
+  log "Phase A: ufw is installed but inactive — the installer must not touch it"
+  [ "$(sh_server 'ufw status')" = "Status: inactive" ] || die "ufw is not inactive to begin with"
+  run_provision --port "$PORT" >"$WORK/neighbour-a.ndjson" \
+    || { tail -30 "$WORK/neighbour-a.ndjson" >&2; die "provisioning failed"; }
+  assert_run_ok "$WORK/neighbour-a.ndjson"
+
+  assert_neighbours_alive "after installing next to them"
+  [ "$(sh_server 'ufw status')" = "Status: inactive" ] \
+    || { ufw_state >&2; die "the installer enabled the firewall"; }
+  [ -z "$(ufw_rules)" ] || { ufw_rules >&2; die "the installer added a rule to an inactive firewall"; }
+  echo "OK: ufw is still inactive and still has no rules"
+
+  # The fact must reach the stream, or the UI cannot tell the operator what is
+  # and is not open.
+  grep -q '"step":"firewall_rule","status":"ok".*"active":false,"ruleApplied":false,"reason":"firewall-inactive"' \
+    "$WORK/neighbour-a.ndjson" || { grep firewall_rule "$WORK/neighbour-a.ndjson" >&2
+      die "the inactive firewall was not reported on the progress stream"; }
+  echo "OK: the stream reports the firewall as inactive with no rule applied"
+
+  log "Hive itself came up healthy alongside them"
+  local token; token="$(token_from_stream "$WORK/neighbour-a.ndjson")"
+  [ "$(sh_server "curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:$PORT/health")" = 200 ] \
+    || die "/health is not answering 200"
+  peer_can_reach "$SERVER_HOST" "$PORT" /health || die "a peer cannot reach Hive on $PORT"
+  [ "$(sh_server '/usr/bin/node -p "process.versions.node.split(\".\")[0]"')" = 18 ] \
+    || die "the system Node.js was replaced out from under the neighbours"
+  echo "OK: Hive is healthy on $PORT and the system Node is untouched"
+
+  # -- Phase B: ufw ACTIVE, with the operator's own policy ------------------
+  log "Phase B: the operator turns ufw on with their own policy, then re-runs"
+  sh_server "ufw allow 80/tcp >/dev/null && ufw --force enable >/dev/null" \
+    || die "could not enable ufw in the test container"
+  [ "$(sh_server 'ufw status | head -1')" = "Status: active" ] || die "ufw did not come up active"
+  local policy_before rules_before
+  policy_before="$(sh_server 'ufw status verbose | grep "^Default:"')"
+  rules_before="$(ufw_rules)"
+  # Only port 80 is allowed now, so 5432 is unreachable — by the operator's own
+  # policy, which is the point. What matters is that Hive does not author that
+  # policy, and does not change it.
+  assert_neighbour_80_alive "with ufw active and port 80 explicitly allowed"
+  peer_can_reach "$SERVER_HOST" 5432 \
+    && die "port 5432 should be blocked by the operator's own default-deny policy"
+  echo "OK: with ufw active, port 80 answers and 5432 does not — the operator's policy, not ours"
+
+  run_provision --port "$PORT" >"$WORK/neighbour-b.ndjson" \
+    || { tail -30 "$WORK/neighbour-b.ndjson" >&2; die "the re-run failed"; }
+  assert_run_ok "$WORK/neighbour-b.ndjson"
+
+  log "Exactly one rule was added, and the policy was not touched"
+  [ "$(sh_server 'ufw status verbose | grep "^Default:"')" = "$policy_before" ] \
+    || die "the default policy changed: '$policy_before' -> '$(sh_server 'ufw status verbose | grep "^Default:"')'"
+  local added
+  added="$(comm -13 <(printf '%s\n' "$rules_before") <(ufw_rules))"
+  # One `ufw allow <port>/tcp` writes a v4 and a v6 rule; both must be for our
+  # port and nothing else. Any 22/tcp line here is the reference bug returning.
+  if [ -n "$added" ] && ! grep -vq "^$PORT/tcp" <<<"$added"; then
+    echo "OK: the only rules added are $(tr '\n' ' ' <<<"$added")"
+  else
+    printf '%s\n' "$added" >&2
+    die "the installer added rules other than $PORT/tcp"
+  fi
+  grep -q "22/tcp" <<<"$added" && die "the installer added an SSH rule"
+  grep -q '"ruleApplied":true,"rule":"ufw allow '"$PORT"'/tcp"' "$WORK/neighbour-b.ndjson" \
+    || { grep firewall_rule "$WORK/neighbour-b.ndjson" >&2
+         die "the applied rule was not reported on the progress stream"; }
+  echo "OK: the applied rule was reported on the stream"
+
+  assert_neighbour_80_alive "after the second install with ufw active"
+  echo "OK: the web server on port 80 still answers a peer"
+  peer_can_reach "$SERVER_HOST" "$PORT" /health \
+    || die "a peer cannot reach Hive on $PORT through the active firewall"
+  local token2; token2="$(token_from_stream "$WORK/neighbour-b.ndjson")"
+  [ -n "$token2" ] && [ -n "$token" ] || die "no token was reported"
+  echo "OK: Hive is reachable through the active firewall"
+
+  log "PASS (Hive installs onto a busy server without disturbing what runs there)"
+}
+
+# ---------------------------------------------------------------------------
+# Preflight changes nothing
+# ---------------------------------------------------------------------------
+
+# Every path the installer could plausibly write, with mode, owner and size, so
+# a created file, a changed permission or a rewritten config all show up as a
+# diff. /var/log and /var/lib/systemd are excluded: the journal and systemd's
+# own state churn on their own and have nothing to do with this script.
+snapshot_fs() {
+  sh_server 'find /etc /opt /usr/local /home /root /var/lib /srv -xdev \
+    \( -path /var/lib/systemd -o -path /var/lib/dbus -o -path /var/lib/apt \) -prune -o \
+    -printf "%p|%m|%U|%G|%s\n" 2>/dev/null | sort'
+}
+
+snapshot_services() {
+  sh_server 'systemctl list-unit-files --type=service --no-legend --no-pager 2>/dev/null | sort
+             systemctl list-units --type=service --all --plain --no-legend --no-pager 2>/dev/null \
+               | awk "{print \$1, \$2, \$3, \$4}" | sort'
+}
+
+# Paths that differ between two snapshots, whatever the reason.
+changed_paths() {
+  # diff exits 1 when the files differ and grep exits 1 when they do not, and
+  # both are expected outcomes here, so neither may fail the lane.
+  { diff "$1" "$2" || true; } | { grep -E '^[<>]' || true; } \
+    | cut -d' ' -f2- | cut -d'|' -f1 | sort -u
+}
+
+mode_preflight() {
+  build_provision; start_stack
+
+  log "Let the server settle, then measure what changes on its own"
+  in_server systemctl is-system-running --wait >/dev/null 2>&1 || true
+  # A booting systemd writes /etc/.updated and rewrites /etc/mtab by itself.
+  # Rather than assume which paths churn, measure them over an idle interval
+  # and exclude exactly those — so the comparison below is about preflight and
+  # nothing else, and the exclusion list is evidence rather than a guess.
+  snapshot_fs >"$WORK/fs.idle1"
+  sleep 5
+  snapshot_fs >"$WORK/fs.idle2"
+  changed_paths "$WORK/fs.idle1" "$WORK/fs.idle2" >"$WORK/churn.paths"
+  if [ -s "$WORK/churn.paths" ]; then
+    echo "NOTE: excluded $(wc -l <"$WORK/churn.paths") self-changing path(s): $(tr '\n' ' ' <"$WORK/churn.paths")"
+  else
+    echo "OK: the idle server changes nothing on its own; nothing is excluded"
+  fi
+
+  log "Snapshot the filesystem and the service table"
+  snapshot_fs | grep -vFf "$WORK/churn.paths" - >"$WORK/fs.before" || true
+  snapshot_services >"$WORK/svc.before"
+  [ "$(wc -l <"$WORK/fs.before")" -gt 500 ] || die "the filesystem snapshot looks empty"
+  echo "OK: $(wc -l <"$WORK/fs.before") paths and $(wc -l <"$WORK/svc.before") service entries recorded"
+
+  log "Run preflight in every mode that could plausibly write something"
+  local out rc
+  set +e
+  run_provision --preflight >"$WORK/pre.ndjson" 2>&1; rc=$?
+  set -e
+  [ "$rc" = 0 ] || { tail -20 "$WORK/pre.ndjson" >&2; die "preflight exited $rc; it must always exit 0"; }
+
+  # A missing tailnet interface, a busy port and a non-default directory are the
+  # findings most likely to tempt a check into "fixing" something.
+  set +e
+  run_provision --preflight --network-mode tailnet >"$WORK/pre-tailnet.ndjson" 2>&1; rc=$?
+  run_provision --preflight --install-dir /srv/hive-app --data-dir /mnt/hive-data \
+    --ssh-public-key "$TEST_SSH_KEY" >"$WORK/pre-paths.ndjson" 2>&1
+  set -e
+  [ "$rc" = 0 ] || die "preflight in tailnet mode exited $rc"
+
+  log "Compare the snapshots"
+  snapshot_fs | grep -vFf "$WORK/churn.paths" - >"$WORK/fs.after" || true
+  snapshot_services >"$WORK/svc.after"
+  if ! diff -u "$WORK/fs.before" "$WORK/fs.after" >"$WORK/fs.diff"; then
+    head -40 "$WORK/fs.diff" >&2
+    die "preflight modified the filesystem"
+  fi
+  if ! diff -u "$WORK/svc.before" "$WORK/svc.after" >"$WORK/svc.diff"; then
+    head -40 "$WORK/svc.diff" >&2
+    die "preflight modified the service table"
+  fi
+  echo "OK: not one path, mode, owner, size or service entry changed"
+
+  # The things this script creates when it runs for real must all be absent.
+  sh_server 'test ! -e /var/lib/hive && test ! -e /etc/hive && test ! -e /opt/hive' \
+    || die "preflight created one of the installer's own directories"
+  sh_server 'test ! -e /var/lib/hive/provision.log.ndjson' || die "preflight opened a log file"
+  in_server id hive >/dev/null 2>&1 && die "preflight created the service account"
+  echo "OK: no state directory, no log file, no service account"
+
+  log "It still reported findings, and the tailnet blocker is a blocker"
+  grep -q '"event":"preflight","ok":true' "$WORK/pre.ndjson" \
+    || { grep '"status":"fail"' "$WORK/pre.ndjson" >&2; die "preflight did not pass on a clean server"; }
+  local check
+  for check in os systemd arch privilege existing_install port install_dir data_dir firewall; do
+    grep -q "\"check\":\"$check\"" "$WORK/pre.ndjson" || die "preflight did not report '$check'"
+  done
+  grep -q '"check":"tailnet_interface","status":"fail"' "$WORK/pre-tailnet.ndjson" \
+    || die "a missing tailnet interface was not reported as a failure"
+  grep -q '"errorCode":"TAILNET_INTERFACE_MISSING"' "$WORK/pre-tailnet.ndjson" \
+    || die "the tailnet blocker carried no error code"
+  grep -q '"event":"preflight","ok":false,"blockers":\["tailnet_interface"\]' "$WORK/pre-tailnet.ndjson" \
+    || die "the tailnet blocker did not reach the summary"
+  grep -q '"check":"install_dir".*"path":"/srv/hive-app"' "$WORK/pre-paths.ndjson" \
+    || die "preflight did not check the configured install directory"
+  grep -q '"check":"data_dir".*"path":"/mnt/hive-data"' "$WORK/pre-paths.ndjson" \
+    || die "preflight did not check the configured data directory"
+  echo "OK: findings are reported, and a blocker is still a clean exit"
+
+  log "PASS (preflight reports and changes nothing)"
+}
+
+# ---------------------------------------------------------------------------
+# Non-default install and data directories, end to end
+# ---------------------------------------------------------------------------
+
+ALT_INSTALL="/srv/hive-app"
+ALT_DATA="/mnt/hive-data"
+
+mode_paths() {
+  build_release; build_provision; start_stack
+
+  log "Install into $ALT_INSTALL with data in $ALT_DATA"
+  run_provision --port "$PORT" --install-dir "$ALT_INSTALL" --data-dir "$ALT_DATA" \
+    --ssh-public-key "$TEST_SSH_KEY" >"$WORK/paths.ndjson" \
+    || { tail -30 "$WORK/paths.ndjson" >&2; die "provisioning with non-default paths failed"; }
+  assert_run_ok "$WORK/paths.ndjson"
+
+  log "Nothing landed in the defaults"
+  sh_server 'test ! -e /opt/hive' || die "/opt/hive was created despite --install-dir"
+  sh_server 'test ! -e /home/hive/.hive' || die "/home/hive/.hive was created despite --data-dir"
+  echo "OK: neither default path exists"
+
+  log "Everything landed in the configured directories"
+  sh_server "test -x $ALT_INSTALL/runtime/current/bin/node" || die "the private runtime is not in $ALT_INSTALL"
+  sh_server "test -L $ALT_INSTALL/current" || die "the release symlink is not in $ALT_INSTALL"
+  sh_server "test -x $ALT_INSTALL/hive-uninstall.sh" || die "the uninstaller is not in $ALT_INSTALL"
+  [ "$(in_server systemctl show hive -p WorkingDirectory --value)" = "$ALT_INSTALL/current" ] \
+    || die "the unit does not run from $ALT_INSTALL"
+  [ "$(sh_server 'sed -n "s/^DATA_DIR=//p" /etc/hive/hive.env')" = "$ALT_DATA" ] \
+    || die "the backend was not told to use $ALT_DATA"
+  [ "$(sh_server "stat -c '%U:%G %a' $ALT_DATA")" = "hive:hive 700" ] \
+    || die "$ALT_DATA is not owned by hive with mode 700"
+  echo "OK: runtime, release, unit and configuration all follow the options"
+
+  log "The backend is healthy and actually writes to $ALT_DATA"
+  local token; token="$(token_from_stream "$WORK/paths.ndjson")"
+  [ "$(sh_server "curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:$PORT/health")" = 200 ] \
+    || die "/health is not answering 200"
+  [ "$(sh_server "curl -s -o /dev/null -w '%{http_code}' -H 'x-hive-token: $token' http://127.0.0.1:$PORT/api/projects")" = 200 ] \
+    || die "an authenticated request was not accepted"
+  # ProtectSystem=strict makes the whole filesystem read-only except the paths
+  # the unit declares. If ReadWritePaths missed the configured data directory,
+  # the backend could reach it but not write it — which this catches.
+  sh_server "runuser -u hive -- test -w $ALT_DATA" || die "$ALT_DATA is not writable by hive"
+  [ -n "$(sh_server "ls -A $ALT_DATA")" ] || die "the backend wrote nothing to $ALT_DATA"
+  echo "OK: the running backend uses $ALT_DATA — it holds $(sh_server "ls -A $ALT_DATA | tr '\n' ' '")"
+
+  log "The generated uninstaller carries the real paths"
+  sh_server "grep -q 'rm -rf \"$ALT_INSTALL\"' $ALT_INSTALL/hive-uninstall.sh" \
+    || die "the uninstaller does not remove $ALT_INSTALL"
+  sh_server "grep -q 'rm -rf \"$ALT_DATA\"' $ALT_INSTALL/hive-uninstall.sh" \
+    || die "the uninstaller does not know about $ALT_DATA"
+  sh_server "grep -q '/opt/hive' $ALT_INSTALL/hive-uninstall.sh" \
+    && die "the uninstaller still carries the default install directory"
+  echo "OK: the uninstaller was written for this install, not for the defaults"
+
+  log "A re-run finds its own install and treats it as an update"
+  run_provision --port "$PORT" --install-dir "$ALT_INSTALL" --data-dir "$ALT_DATA" \
+    >"$WORK/paths2.ndjson" || { tail -30 "$WORK/paths2.ndjson" >&2; die "the update run failed"; }
+  assert_run_ok "$WORK/paths2.ndjson"
+  grep -q '"step":"probe_env","status":"ok".*"update":true' "$WORK/paths2.ndjson" \
+    || { grep probe_env "$WORK/paths2.ndjson" >&2; die "the re-run was not reported as an update"; }
+  echo "OK: the port it is already listening on is not a conflict with itself"
+
+  log "PASS (a non-default install and data directory are honoured end to end)"
+}
+
+# ---------------------------------------------------------------------------
+# The generated uninstaller
+# ---------------------------------------------------------------------------
+
+mode_uninstall() {
+  build_release; build_provision; start_stack
+
+  log "Install, with an active firewall so a rule is really added"
+  sh_server 'DEBIAN_FRONTEND=noninteractive apt-get update -qq >/dev/null 2>&1 &&
+             DEBIAN_FRONTEND=noninteractive apt-get install -y -qq ufw >/dev/null 2>&1' \
+    || die "could not install ufw in the test container"
+  sh_server 'ufw --force enable >/dev/null' || die "could not enable ufw"
+  run_provision --port "$PORT" --ssh-public-key "$TEST_SSH_KEY" >"$WORK/uninst.ndjson" \
+    || { tail -30 "$WORK/uninst.ndjson" >&2; die "provisioning failed"; }
+  assert_run_ok "$WORK/uninst.ndjson"
+  sh_server "ufw status | grep -q '^$PORT/tcp'" || die "no firewall rule was added"
+
+  log "Leave something behind that stands in for the operator's work"
+  sh_server "runuser -u hive -- touch /home/hive/.hive/my-precious-project" \
+    || die "could not write to the data directory"
+  # Prove the uninstaller does not uninstall the machine along with Hive.
+  sh_server 'dpkg -s git >/dev/null && dpkg -s curl >/dev/null' || die "git/curl are not installed"
+
+  log "Keep a copy of the uninstaller, since it removes itself with the install"
+  sh_server 'cp /opt/hive/hive-uninstall.sh /root/hive-uninstall-copy.sh'
+
+  log "Run it without --purge"
+  sh_server '/opt/hive/hive-uninstall.sh' >"$WORK/uninstall.log" 2>&1 \
+    || { cat "$WORK/uninstall.log" >&2; die "the uninstaller failed"; }
+  cat "$WORK/uninstall.log"
+
+  log "Hive is gone"
+  sh_server 'test ! -e /etc/systemd/system/hive.service' || die "the service unit survived"
+  in_server systemctl is-active --quiet hive && die "the service is still running"
+  sh_server 'test ! -e /opt/hive' || die "the install directory survived"
+  sh_server 'test ! -e /etc/hive' || die "the configuration survived"
+  sh_server 'test ! -e /var/lib/hive' || die "the provisioning state survived"
+  in_server id hive >/dev/null 2>&1 && die "the service account survived"
+  sh_server "ufw status | grep -q '^$PORT/tcp'" && die "the firewall rule this install added survived"
+  [ "$(sh_server 'ufw status | head -1')" = "Status: active" ] \
+    || die "the uninstaller disabled the operator's firewall"
+  echo "OK: unit, install directory, runtime, configuration, state, account and rule are all gone"
+
+  log "The operator's data and the machine's packages are not"
+  sh_server 'test -f /home/hive/.hive/my-precious-project' \
+    || die "the uninstaller removed the data without being asked"
+  sh_server 'dpkg -s git >/dev/null && dpkg -s curl >/dev/null' \
+    || die "the uninstaller removed system packages"
+  sh_server 'test "$(/usr/bin/node -p "process.versions.node.split(\".\")[0]")" = 18' \
+    || die "the uninstaller touched the system Node.js"
+  echo "OK: the data, the packages and the system runtime are untouched"
+
+  log "Now run it with --purge"
+  sh_server '/root/hive-uninstall-copy.sh --purge' >"$WORK/purge.log" 2>&1 \
+    || { cat "$WORK/purge.log" >&2; die "the purge run failed"; }
+  cat "$WORK/purge.log"
+  sh_server 'test ! -e /home/hive/.hive/my-precious-project' || die "--purge left the data behind"
+  sh_server 'test ! -e /home/hive' || die "--purge left the service account home behind"
+  sh_server 'dpkg -s git >/dev/null' || die "--purge removed system packages"
+  echo "OK: --purge removed the data and still left the machine's packages alone"
+
+  log "And the server can be provisioned again from that state"
+  run_provision --port "$PORT" >"$WORK/reinstall.ndjson" \
+    || { tail -30 "$WORK/reinstall.ndjson" >&2; die "re-provisioning after an uninstall failed"; }
+  assert_run_ok "$WORK/reinstall.ndjson"
+  in_server systemctl is-active --quiet hive || die "the reinstalled service is not active"
+  echo "OK: a purged server provisions cleanly again"
+
+  log "PASS (uninstall removes what was installed, keeps the data, and --purge removes that too)"
+}
+
 command -v docker >/dev/null 2>&1 || die "docker is required to run this lane"
 docker info >/dev/null 2>&1 || die "the docker daemon is not reachable"
 
 case "$MODE" in
-  install)  mode_install ;;
-  guards)   mode_guards ;;
-  checksum) mode_checksum ;;
-  rollback) mode_rollback ;;
-  chaos)    mode_chaos ;;
-  *) echo "usage: $0 [install|guards|checksum|rollback|chaos]" >&2; exit 2 ;;
+  install)   mode_install ;;
+  guards)    mode_guards ;;
+  checksum)  mode_checksum ;;
+  rollback)  mode_rollback ;;
+  chaos)     mode_chaos ;;
+  neighbour) mode_neighbour ;;
+  preflight) mode_preflight ;;
+  paths)     mode_paths ;;
+  uninstall) mode_uninstall ;;
+  *) echo "usage: $0 [install|guards|checksum|rollback|chaos|neighbour|preflight|paths|uninstall]" >&2
+     exit 2 ;;
 esac

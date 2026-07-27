@@ -14,6 +14,11 @@ export const SETUP_ERROR_CODES = [
   "CONCURRENT_RUN",
   "EXISTING_INSTALL",
   "PORT_IN_USE",
+  "DIRECTORY_UNUSABLE",
+  "INSUFFICIENT_DISK_SPACE",
+  "TAILNET_INTERFACE_MISSING",
+  "SSH_KEY_INVALID",
+  "FIREWALL_RULE_FAILED",
   "APT_FAILURE",
   "NODE_INSTALL_FAILED",
   "AGENT_CLI_INSTALL_FAILED",
@@ -49,6 +54,16 @@ export const SETUP_ERROR_HINTS: Record<SetupErrorCode, string> = {
     "Something other than Hive already owns /opt/hive on this server. Remove it, or pick a different server, then Retry.",
   PORT_IN_USE:
     "The port Hive wants is already taken by another service. Free it, or re-run the installer with a different --port, then Retry.",
+  DIRECTORY_UNUSABLE:
+    "Hive cannot write to the install or data directory you chose, because its parent does not exist or is not writable. Create the parent, or pick a different --install-dir / --data-dir, then Retry.",
+  INSUFFICIENT_DISK_SPACE:
+    "The filesystem holding the install or data directory does not have enough free space. Free some space, or point --install-dir / --data-dir at a larger filesystem, then Retry.",
+  TAILNET_INTERFACE_MISSING:
+    "Tailnet mode was requested but the private network interface does not exist on this server. Hive does not install or configure the private network — bring it up first (for example `tailscale up`), then Retry.",
+  SSH_KEY_INVALID:
+    "The public key supplied for the hive service account is not a valid OpenSSH public key. Check the key you pasted, then Retry.",
+  FIREWALL_RULE_FAILED:
+    "The server's firewall is active but the rule opening Hive's port could not be added. Add it by hand, or Retry.",
   APT_FAILURE:
     "A system package failed to install. Press Retry. If it fails again, the diagnostic below names the failing package.",
   NODE_INSTALL_FAILED:

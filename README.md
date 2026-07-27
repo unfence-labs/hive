@@ -151,15 +151,66 @@ log file. Every run rotates the token, so keep the value the run reports.
 
 Progress is NDJSON, one record per line, so a client can render a live checklist; failures carry a
 typed code from `shared/setup-errors.ts`. The run takes an exclusive lock and records each step, so
-it is safe to interrupt and re-run.
+it is safe to interrupt and re-run. An existing Hive install is an update, not an error.
 
-A private network (Tailscale, WireGuard, a VPC) and the firewall are prerequisites the operator
-arranges: the script binds the backend to all interfaces and does not touch `ufw` or `iptables`.
+The guiding assumption is that **the server is already doing something else**. Check what the
+installer would find, without changing anything, before you commit to it:
+
+```bash
+curl -fsSL <url>/provision.sh | bash -s -- --preflight
+```
+
+Preflight reports the operating system and architecture, whether the port is free, whether the
+chosen directories are writable with room to spare, whether Hive is already installed, whether a
+firewall is active, whether privilege escalation needs a password, and — in `tailnet` mode —
+whether the private network interface exists. It writes nothing and always exits 0: findings are
+data, not a verdict.
+
+| Option | Environment variable | Default | What it sets |
+|---|---|---|---|
+| `--install-dir` | `HIVE_INSTALL_DIR` | `/opt/hive` | Hive, its private Node runtime and the uninstaller |
+| `--data-dir` | `HIVE_DATA_DIR` | `/home/hive/.hive` | Projects, worktrees and sessions — the directory that grows |
+| `--port` | `HIVE_PORT` | `9420` | Backend port |
+| `--host` | — | `0.0.0.0` | Bind address |
+| `--network-mode` | `HIVE_NETWORK_MODE` | `public` | `public` or `tailnet`; selects the firewall rule only |
+| `--tailnet-interface` | `HIVE_TAILNET_INTERFACE` | `tailscale0` | Interface for `tailnet` mode |
+| `--ssh-public-key` | `HIVE_SSH_PUBLIC_KEY` | — | Authorize this key on the `hive` account |
+| `--preflight` | — | — | Report and change nothing |
+
+`/etc/hive` and `/var/lib/hive` stay fixed.
 
 ```bash
 # Options are passed through `bash -s --`:
-curl -fsSL <url>/provision.sh | bash -s -- --port 9420 --host 0.0.0.0
+curl -fsSL <url>/provision.sh | bash -s -- --port 9420 --install-dir /srv/hive --data-dir /mnt/hive
 ```
+
+A private network (Tailscale, WireGuard, a VPC) is a prerequisite the operator arranges — Hive
+neither installs nor configures one. In `tailnet` mode the installer refuses to continue if the
+interface is absent, because the firewall rule would match nothing and the install would come up
+healthy but unreachable.
+
+**The firewall stays the operator's.** The installer never enables it and never changes its default
+policy. If a firewall is already active it adds exactly one rule — the configured port, or inbound
+on the private interface — and nothing else. If none is active it does nothing and reports that, so
+you know what is and is not open. Every outcome lands on the progress stream. Only `ufw` is
+modified; `firewalld` and a raw `nftables` ruleset are detected and reported, never edited.
+
+Because the service account owns every repository and worktree, pass `--ssh-public-key` so an
+editor or terminal session connects as `hive` rather than root. The key is appended to
+`/home/hive/.ssh/authorized_keys` idempotently: a re-run neither duplicates it nor removes keys you
+added by hand. Without this, files an editor saves become root-owned and the agent can no longer
+write them.
+
+Each install writes `<install-dir>/hive-uninstall.sh`, carrying the paths that run actually used:
+
+```bash
+sudo /opt/hive/hive-uninstall.sh            # remove Hive, keep your data
+sudo /opt/hive/hive-uninstall.sh --purge    # remove your data as well
+```
+
+It removes the service unit, the install directory and private runtime, the configuration, the
+provisioning state, the service account and the one firewall rule the install added. It never
+removes system packages, package repositories, or your data.
 
 ### Scripts
 
@@ -179,7 +230,11 @@ npm run release:provision -- 0.0.0-dev
 # Provisioning checks: contracts run anywhere in a second; the end-to-end lane
 # needs Docker and builds a real release tarball.
 npm run test:provision
-npm run test:provision:e2e            # install | checksum | chaos
+npm run test:provision:e2e            # install | guards | checksum | rollback | chaos
+npm run test:provision:e2e neighbour  # install beside a live service and prove it survives
+npm run test:provision:e2e preflight  # prove preflight changes nothing
+npm run test:provision:e2e paths      # non-default install and data directories
+npm run test:provision:e2e uninstall  # uninstall, and --purge
 ```
 
 Per-package commands (`backend`, `frontend`, `ios`) are documented in **[AGENTS.md](AGENTS.md)**.
@@ -340,7 +395,7 @@ Public backend surface exposed by route modules under `backend/src/api/`.
 - Backend/frontend tests use **Vitest**; iOS uses **Swift Testing**.
 - Tests live next to source: `backend/src/**/*.test.ts`, `frontend/tests/**`, `ios/Tests/**`.
 - CI runs Node lint, typecheck, build, and tests, plus iOS Swift package tests and an iOS app compile on every push/PR to `main`.
-- Provisioning has two lanes. `test/provision/contract.sh` (`npm run test:provision`, in CI) asserts the shell and TypeScript error taxonomies stay in sync, that the deliberate departures from the reference install flow stay departed, that the token never reaches a log file, and that shellcheck is clean. `test/provision/e2e-docker.sh` (`npm run test:provision:e2e`) is the Docker lane: it builds a real backend tarball, provisions a bare Ubuntu 24.04 systemd container from it, and proves the backend comes up healthy, rejects a request with no token, and accepts one with the right token. It runs on demand via `.github/workflows/provision-e2e.yml`.
+- Provisioning has two lanes. `test/provision/contract.sh` (`npm run test:provision`, in CI) asserts the shell and TypeScript error taxonomies stay in sync, that the deliberate departures from the reference install flow stay departed, that the token never reaches a log file, and that shellcheck is clean. `test/provision/e2e-docker.sh` (`npm run test:provision:e2e`) is the Docker lane: it builds a real backend tarball, provisions a bare Ubuntu 24.04 systemd container from it, and proves the backend comes up healthy, rejects a request with no token, and accepts one with the right token. Its `neighbour` mode installs onto a server already running a web server on port 80 and a service on 5432 and proves an outside peer can still reach them afterwards — first with `ufw` installed but inactive, then with `ufw` active under the operator's own policy, where exactly one rule is added and the default policy is untouched. `preflight` compares a filesystem and service-table snapshot before and after, `paths` drives a non-default install and data directory end to end, and `uninstall` proves the generated script removes the install, keeps the data, and removes that too under `--purge`. All modes run on demand via `.github/workflows/provision-e2e.yml`.
 - Pushing a `v<version>` tag runs `.github/workflows/release.yml`, which builds the backend tarball on native linux-x64 and linux-arm64 runners and attaches `hive-backend-<version>-linux-<arch>.tar.gz` plus its `.sha256`, and the generated `provision.sh`, to the GitHub release. The tag must match the version in `frontend/src-tauri/Cargo.toml`.
 
 Run the narrowest relevant checks during development, then the root checks before considering broad changes done. For iOS changes, also run `cd ios && swift test`.

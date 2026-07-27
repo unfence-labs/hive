@@ -10,7 +10,8 @@ on:
         description: Lane to run
         type: choice
         default: install
-        options: [install, checksum, chaos]
+        options:
+          [install, checksum, chaos, rollback, guards, neighbour, preflight, paths, uninstall]
 
 permissions:
   contents: read

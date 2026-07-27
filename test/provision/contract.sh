@@ -26,9 +26,11 @@ refute() {
 }
 
 # Source lines only: the comments explaining a deliberate departure legitimately
-# name the thing that departed.
+# name the thing that departed, and so does the --help text, which documents the
+# defaults and the prerequisites the script does not install.
 CODE="$WORK/provision-code.txt"
-grep -hv '^[[:space:]]*#' "$PROV"/lib.sh "$PROV"/steps.sh "$PROV"/main.sh >"$CODE"
+grep -hv '^[[:space:]]*#' "$PROV"/lib.sh "$PROV"/steps.sh "$PROV"/main.sh \
+  | sed '/^usage() {$/,/^}$/d' >"$CODE"
 
 # ---------------------------------------------------------------------------
 # 1. The bash and TypeScript error taxonomies stay in sync
@@ -80,10 +82,12 @@ fi
 refute "no vendor runtime repository is added to the operator's system" \
   grep -niE 'nodesource|apt_install nodejs|apt-get install.*nodejs' "$CODE"
 
-refute "Tailscale is a prerequisite the operator arranges, not something this installs" \
-  grep -niE 'tailscale|ts_authkey' "$CODE"
-
-refute "the firewall is left untouched" grep -niE '\bufw\b|iptables|\bnft\b' "$CODE"
+# The private network is a prerequisite the operator arranges. The script may
+# name the interface — it has to, to check that it exists and to scope a
+# firewall rule to it — but it may never install, authenticate or bring up
+# Tailscale itself.
+refute "Tailscale is never installed, authenticated or brought up" \
+  grep -niE 'tailscale (up|down|login)|install_tailscale|ts_authkey|--authkey|apt[^|]*tailscale|pkgs\.tailscale\.com' "$CODE"
 
 refute "the development port 3000 does not appear in the provisioner" \
   grep -nE '\b3000\b' "$CODE"
@@ -92,7 +96,48 @@ expect "the Node runtime is installed inside Hive's own install directory" \
   grep -q 'HIVE_RUNTIME_DIR="\$HIVE_OPT/runtime"' "$PROV/steps.sh"
 
 expect "the default port is the production port 9420" \
-  grep -q 'OPT_PORT="\${HIVE_PORT:-9420}"' "$PROV/main.sh"
+  grep -q 'OPT_PORT="\${OPT_ENV_PORT:-9420}"' "$PROV/main.sh"
+
+# ---------------------------------------------------------------------------
+# 2b. The firewall: the single most dangerous thing in the reference branch
+# ---------------------------------------------------------------------------
+#
+# The reference implementation set a default-deny inbound policy, allowed only
+# port 22, and force-enabled ufw. On a server where ufw was installed but
+# inactive that severs every service without an explicit rule; on a server whose
+# SSH listens anywhere but 22 it severs the session running the install. None of
+# those four commands may ever come back.
+
+refute "the firewall is never enabled" grep -nE 'ufw[^|]*\b(--force )?enable\b' "$CODE"
+refute "the firewall's default policy is never changed" grep -nE 'ufw[^|]*\bdefault\b' "$CODE"
+refute "no blanket SSH rule is ever added" grep -nE 'ufw[^|]*allow[^|]*\b(ssh|22)\b' "$CODE"
+refute "iptables and nftables rules are never written" \
+  grep -nE '\biptables\b|\bip6tables\b|\bnft (add|insert|delete|flush)\b' "$CODE"
+refute "no firewall other than ufw is ever modified" \
+  grep -nE 'firewall-cmd[^|]*--(add|remove|set|reload|permanent)' "$CODE"
+
+# The one rule that may be added, and the only two shapes it may take.
+expect "exactly one ufw rule is applied, per network mode" \
+  grep -q "printf 'allow in on %s' \"\$OPT_TAILNET_IFACE\"" "$PROV/steps.sh"
+expect "the public-mode rule opens only the configured port" \
+  grep -q "printf 'allow %s/tcp' \"\$OPT_PORT\"" "$PROV/steps.sh"
+
+# `ufw <spec>` must be the only ufw invocation that is not a read of its state.
+# String literals are stripped first: the step reports what it did in prose,
+# and "ufw was already active" is not an invocation.
+CODE_NOSTR="$WORK/provision-code-nostrings.txt"
+sed 's/"[^"]*"//g' "$CODE" >"$CODE_NOSTR"
+ufw_writes="$(grep -noE '\bufw [a-z-]+' "$CODE_NOSTR" | grep -vE 'ufw (status|delete)' || true)"
+if [ "$(printf '%s\n' "$ufw_writes" | grep -c . || true)" -le 1 ]; then
+  pass "ufw is invoked to read its status, to add one rule, and for nothing else"
+else
+  fail "unexpected ufw invocations: $(tr '\n' ' ' <<<"$ufw_writes")"
+fi
+
+expect "an inactive firewall is reported and left alone" \
+  grep -q '"reason":"firewall-inactive"' "$PROV/steps.sh"
+expect "the applied rule is reported on the progress stream" \
+  grep -q '"ruleApplied":true,"rule":"ufw %s"' "$PROV/steps.sh"
 
 # The pinned runtime major must match the Node the release tarball is compiled
 # against, or the release's native addons cannot load.
@@ -174,7 +219,7 @@ refute "the token digest is never read back out of the environment file to reuse
 # 5. Framework behaviour the resumability guarantees rest on
 # ---------------------------------------------------------------------------
 
-for step in generate_token write_secrets verify_auth; do
+for step in probe_env generate_token write_secrets verify_auth firewall_rule; do
   expect "'$step' re-runs on every invocation" \
     grep -q "guard_$step() { return 1; }" "$PROV/steps.sh"
 done
@@ -234,7 +279,201 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# 6. The bundle: version validation, truncation safety, shellcheck
+# 6. Configurable install directory, data directory and port
+# ---------------------------------------------------------------------------
+#
+# A configurable path that some check still hardcodes is worse than no option
+# at all: the install succeeds and the check silently inspects the wrong place.
+
+hardcoded="$(grep -nE '"/opt/hive|/home/hive/\.hive' "$CODE" \
+  | grep -vE 'HIVE_(INSTALL|DATA)_DIR_DEFAULT=' || true)"
+if [ -z "$hardcoded" ]; then
+  pass "the install and data directories appear only as their declared defaults"
+else
+  fail "hardcoded install/data paths outside the default declarations: $hardcoded"
+fi
+
+# `source` both fragments and drive the real functions: this is the only way to
+# prove the derived paths actually follow the options, rather than that the
+# right words appear in the file.
+paths_out="$(bash -c '
+  # shellcheck disable=SC1090
+  source "$1"; source "$2"
+  OPT_INSTALL_DIR=/srv/hive-app
+  OPT_DATA_DIR=/mnt/big/hive-data
+  OPT_PORT=9999
+  OPT_HOST=0.0.0.0
+  OPT_NETWORK_MODE=tailnet
+  OPT_TAILNET_IFACE=wg0
+  HIVE_AUTH_TOKEN_SHA256=deadbeef
+  resolve_paths
+  printf "opt=%s data=%s runtime=%s node=%s uninstall=%s\n" \
+    "$HIVE_OPT" "$HIVE_DATA_DIR" "$HIVE_RUNTIME_DIR" "$HIVE_NODE_BIN" "$HIVE_UNINSTALL_SCRIPT"
+  echo "--unit--"; hive_unit
+  echo "--env--"; hive_env_base
+  echo "--rule--"; ufw_rule_spec; echo
+  echo "--uninstall--"; hive_uninstall_script
+' _ "$PROV/lib.sh" "$PROV/steps.sh")"
+
+# A step that creates the install directory without stamping the marker first
+# makes the install unresumable: the next run sees a directory it did not
+# record creating and refuses it as a foreign occupant. The chaos lane caught
+# this once; this keeps it caught.
+claims="$(grep -cE 'install -d[^"]*"\$HIVE_OPT"' "$PROV/steps.sh" || true)"
+if [ "$claims" = 1 ]; then
+  pass "the install directory is only ever created through claim_install_dir"
+else
+  fail "\$HIVE_OPT is created in $claims places; it must only be created by claim_install_dir"
+fi
+expect "every step that writes under the install directory claims it first" \
+  bash -c 'for s in install_node install_release write_uninstall; do
+             sed -n "/^step_$s()/,/^}/p" "$1" | grep -q claim_install_dir || exit 1
+           done' _ "$PROV/steps.sh"
+
+expect "the runtime follows --install-dir" \
+  grep -q 'runtime=/srv/hive-app/runtime node=/srv/hive-app/runtime/current/bin/node' <<<"$paths_out"
+expect "the uninstall script is written inside the install directory" \
+  grep -q 'uninstall=/srv/hive-app/hive-uninstall.sh' <<<"$paths_out"
+expect "the systemd unit runs the release from the configured install directory" \
+  grep -q 'WorkingDirectory=/srv/hive-app/current' <<<"$paths_out"
+expect "the systemd unit can write the configured data directory" \
+  grep -q 'ReadWritePaths=.*/mnt/big/hive-data' <<<"$paths_out"
+expect "the backend is told to use the configured data directory" \
+  grep -q '^DATA_DIR=/mnt/big/hive-data' <<<"$paths_out"
+expect "the backend is told to use the configured port" grep -q '^PORT=9999' <<<"$paths_out"
+expect "tailnet mode restricts the rule to the configured interface" \
+  grep -qx 'allow in on wg0' <<<"$paths_out"
+
+public_rule="$(bash -c '
+  # shellcheck disable=SC1090
+  source "$1"; source "$2"
+  OPT_NETWORK_MODE=public OPT_PORT=9999 OPT_TAILNET_IFACE=wg0
+  ufw_rule_spec
+' _ "$PROV/lib.sh" "$PROV/steps.sh")"
+expect "public mode opens only the configured port" [ "$public_rule" = "allow 9999/tcp" ]
+
+# ---------------------------------------------------------------------------
+# 7. The generated uninstall script
+# ---------------------------------------------------------------------------
+
+uninstall="$WORK/hive-uninstall.sh"
+sed -n '/^--uninstall--$/,$p' <<<"$paths_out" | tail -n +2 >"$uninstall"
+
+expect "the generated uninstaller parses" bash -n "$uninstall"
+expect "it carries the real install directory" grep -q 'rm -rf "/srv/hive-app"' "$uninstall"
+expect "it removes the configuration" grep -q 'rm -rf "/etc/hive"' "$uninstall"
+expect "it removes the provisioning state" grep -q 'rm -rf "/var/lib/hive"' "$uninstall"
+expect "it removes the service unit" grep -q 'rm -f "/etc/systemd/system/hive.service"' "$uninstall"
+expect "it removes the service account" grep -q 'userdel' "$uninstall"
+expect "it removes only the firewall rule this install recorded" \
+  grep -q 'ufw delete \$spec' "$uninstall"
+expect "it removes the data directory only under --purge" \
+  bash -c 'grep -A3 "purge\" = 1" "$1" | grep -q "rm -rf \"/mnt/big/hive-data\""' _ "$uninstall"
+
+refute "it never removes system packages" grep -nE 'apt-get (remove|purge)|dpkg -r' "$uninstall"
+refute "it never removes package repositories" \
+  grep -nE '/etc/apt/sources\.list|/etc/apt/keyrings' "$uninstall"
+refute "it never enables, disables or resets the firewall" \
+  grep -nE 'ufw (enable|disable|reset|default)' "$uninstall"
+
+# The uninstaller deletes the directory it is being read from. bash reads a
+# script incrementally, so the body must be parsed in full before the first
+# deletion — the same wrapper trick build.sh uses for the download.
+expect "the uninstaller body is wrapped in a function called on the last line" \
+  bash -c 'grep -q "^__hive_uninstall() {" "$1" && tail -1 "$1" | grep -q "^__hive_uninstall"' _ "$uninstall"
+
+purge_free="$(bash -c 'sed -n "1,/purge\" = 1/p" "$1" | grep -c "mnt/big/hive-data" || true' _ "$uninstall")"
+expect "the data directory is untouched before the --purge branch" [ "$purge_free" = 0 ]
+
+# ---------------------------------------------------------------------------
+# 8. Preflight reports and changes nothing
+# ---------------------------------------------------------------------------
+
+bash "$PROV/build.sh" 9.9.9-contract >/dev/null
+bundle="$PROV/dist/provision.sh"
+
+# No `die` may be reachable from the preflight path: a check that found
+# something is a finding, and the run still exits 0.
+preflight_body="$(sed -n '/^run_preflight()/,/^}/p;/^preflight_[a-z_]*()/,/^}/p' "$PROV/steps.sh")"
+if grep -qE '\bdie [A-Z_]+' <<<"$preflight_body"; then
+  fail "a preflight check calls die; preflight must report, not decide"
+else
+  pass "no preflight check can abort the run"
+fi
+
+refute "preflight never runs bootstrap, so it creates no directory and takes no lock" \
+  bash -c 'sed -n "/OPT_PREFLIGHT\" = 1/,/^  fi/p" "$1" | grep -qE "\bbootstrap\b|mkdir"' _ "$PROV/main.sh"
+
+pre_out="$WORK/preflight.ndjson"
+if bash "$bundle" --preflight --port 9420 >"$pre_out" 2>"$WORK/preflight.err"; then
+  pass "preflight exits 0"
+else
+  fail "preflight exited non-zero: $(cat "$WORK/preflight.err")"
+fi
+for check in os systemd arch privilege existing_install port install_dir data_dir firewall; do
+  expect "preflight reports the '$check' check" \
+    grep -q "\"check\":\"$check\"" "$pre_out"
+done
+expect "preflight ends with a summary and a clean terminal event" \
+  bash -c 'grep -q "\"event\":\"preflight\",\"ok\":" "$1" && grep -q "\"event\":\"run_end\",\"status\":\"ok\"" "$1"' _ "$pre_out"
+
+# The tailnet interface is a hard blocker, and it is the reason the check
+# exists: without it the firewall rule matches nothing and the install comes up
+# healthy but unreachable.
+tail_out="$WORK/preflight-tailnet.ndjson"
+if bash "$bundle" --preflight --network-mode tailnet --tailnet-interface hive-absent0 >"$tail_out" 2>&1; then
+  pass "preflight still exits 0 when the tailnet interface is missing"
+else
+  fail "preflight exited non-zero on a missing tailnet interface"
+fi
+expect "a missing tailnet interface is reported as a blocker" \
+  bash -c 'grep -q "\"check\":\"tailnet_interface\",\"status\":\"fail\"" "$1" &&
+           grep -q "\"errorCode\":\"TAILNET_INTERFACE_MISSING\"" "$1" &&
+           grep -q "\"blockers\":\[.*\"tailnet_interface\".*\]" "$1"' _ "$tail_out"
+expect "public mode does not require a tailnet interface" \
+  bash -c '! grep -q "tailnet_interface" "$1"' _ "$pre_out"
+
+# Every errorCode preflight can name must be one the taxonomy declares, or a
+# client would render a blocker it has no hint for.
+pre_codes="$(grep -ohE '"errorCode":"[A-Z_]+"' "$pre_out" "$tail_out" | cut -d'"' -f4 | sort -u)"
+undeclared_pre="$(comm -23 <(printf '%s\n' "$pre_codes") <(printf '%s\n' "$bash_codes") | grep -v '^$' || true)"
+if [ -z "$undeclared_pre" ]; then
+  pass "preflight findings name only declared error codes"
+else
+  fail "preflight named undeclared codes: $undeclared_pre"
+fi
+
+# ---------------------------------------------------------------------------
+# 9. Service-account SSH access
+# ---------------------------------------------------------------------------
+
+key_out="$(bash -c '
+  # shellcheck disable=SC1090
+  source "$1"; source "$2"
+  ed="ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIB1KcYHkFOVWvKt0FVWQ4hQEXAMPLEKEYBASE64x"
+  ssh_key_valid "$ed home-laptop" && echo "valid-ed25519"
+  ssh_key_valid "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQC test" && echo "valid-rsa"
+  ssh_key_valid "not-a-key at all" || echo "rejects-garbage"
+  ssh_key_valid "rm -rf /" || echo "rejects-command"
+  HIVE_AUTHORIZED_KEYS="$3"
+  printf "%s existing-key\n" "$ed" >"$HIVE_AUTHORIZED_KEYS"
+  printf "ssh-ed25519 AAAAsomeoneelseskey handwritten\n" >>"$HIVE_AUTHORIZED_KEYS"
+  authorized_key_present "$ed a-different-comment" && echo "matches-ignoring-comment"
+  authorized_key_present "ssh-ed25519 AAAAnotpresent x" || echo "misses-absent-key"
+' _ "$PROV/lib.sh" "$PROV/steps.sh" "$WORK/authorized_keys")"
+
+for want in valid-ed25519 valid-rsa rejects-garbage rejects-command \
+            matches-ignoring-comment misses-absent-key; do
+  expect "authorized-keys handling: $want" grep -qx "$want" <<<"$key_out"
+done
+
+expect "the key is appended, never rewritten" \
+  grep -q 'printf .%s\\n. "\$OPT_SSH_KEY" >>"\$HIVE_AUTHORIZED_KEYS"' "$PROV/steps.sh"
+refute "authorized_keys is never truncated or overwritten" \
+  grep -nE '[^>]>[[:space:]]*"\$HIVE_AUTHORIZED_KEYS"' "$CODE"
+
+# ---------------------------------------------------------------------------
+# 10. The bundle: version validation, truncation safety, shellcheck
 # ---------------------------------------------------------------------------
 
 refute "build.sh rejects an unsafe version string" bash "$PROV/build.sh" '1.2.3";id'
