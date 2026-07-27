@@ -39,13 +39,19 @@ password on the connect screen if one is needed.)
 
 The tarball must be built **on Linux, on the target architecture** (native
 modules are compiled during the build and cannot be cross-compiled), against
-Node 22. On a Mac, build it inside a Linux machine — the test VM itself works,
-since OrbStack shares your Mac filesystem:
+Node 22 with a C++ toolchain. On a Mac the shortest path is a `node:22`
+container — the same way the e2e harness builds it, and OrbStack ships Docker:
 
 ```bash
-orb -m hive-test bash -c 'cd /path/to/hive && bash scripts/release/build-backend-tarball.sh 0.0.0-dev arm64'
-# → dist-release/hive-backend-0.0.0-dev-linux-<arch>.tar.gz (+ .sha256)
+cd /path/to/hive                       # your clone, on the Mac
+docker run --rm -v "$PWD":/repo -w /repo node:22 \
+  bash scripts/release/build-backend-tarball.sh 0.0.0-dev arm64
+# → dist-release/hive-backend-0.0.0-dev-linux-arm64.tar.gz (+ .sha256)
 ```
+
+(Building inside an OrbStack Linux machine also works — your Mac filesystem is
+mounted there at the same paths — but a bare VM first needs Node 22 and
+`build-essential`, which the test VM deliberately does not have.)
 
 That is all: the debug sidecar probes the server's `uname -m` and picks up the
 matching `dist-release/hive-backend-0.0.0-dev-linux-<arch>.tar.gz`
