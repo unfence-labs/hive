@@ -1,12 +1,15 @@
-import { openUrl } from "@tauri-apps/plugin-opener";
+import { toast } from "sonner";
 import { isDesktopShell } from "@/lib/is-desktop";
 
 /**
  * Open a URL in the system browser.
  * Uses the Tauri opener plugin when running as a desktop app,
- * falls back to window.open for browser mode. Imported statically: a dynamic
- * import that fails at click time (stale Vite dep cache, offline chunk) would
- * fall through to window.open, which a Tauri webview silently drops.
+ * falls back to window.open for browser mode.
+ *
+ * The plugin stays a dynamic import so a module that fails to load (stale
+ * Vite dep cache, offline chunk) cannot take the whole route tree down with
+ * it — but the failure surfaces as a toast carrying the URL, because the
+ * window.open fallback is silently dropped inside a Tauri webview.
  */
 export async function openExternal(url: string): Promise<void> {
   const isHttp = /^https?:\/\//i.test(url);
@@ -23,14 +26,14 @@ export async function openExternal(url: string): Promise<void> {
   }
 
   try {
+    const { openUrl } = await import("@tauri-apps/plugin-opener");
     await openUrl(url);
   } catch (error) {
     console.warn("Failed to open external URL via Tauri opener:", error);
-    if (isHttp) {
-      window.open(url, "_blank", "noopener,noreferrer");
-    } else {
-      window.location.assign(url);
-    }
+    toast.error("Couldn't open the browser", {
+      description: `Open this link manually: ${url}`,
+      duration: 15_000,
+    });
   }
 }
 

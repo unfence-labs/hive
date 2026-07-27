@@ -3,10 +3,15 @@ import { buildVscodeRemoteUri, openExternal } from "@/lib/open-external";
 
 const mocks = vi.hoisted(() => ({
   openUrl: vi.fn(),
+  toastError: vi.fn(),
 }));
 
 vi.mock("@tauri-apps/plugin-opener", () => ({
   openUrl: mocks.openUrl,
+}));
+
+vi.mock("sonner", () => ({
+  toast: { error: mocks.toastError },
 }));
 
 // ─── buildVscodeRemoteUri ────────────────────────────────────────────────────
@@ -207,7 +212,7 @@ describe("openExternal", () => {
 
   // ── Tauri fallback ────────────────────────────────────────────────────
 
-  it("falls back to window.open for HTTP URL when Tauri opener throws", async () => {
+  it("surfaces a toast carrying the URL when the Tauri opener throws", async () => {
     (window as Window & { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ = {};
     mocks.openUrl.mockRejectedValue(new Error("plugin unavailable"));
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
@@ -216,29 +221,13 @@ describe("openExternal", () => {
     await openExternal("https://example.com/docs");
 
     expect(warnSpy).toHaveBeenCalled();
-    expect(openSpy).toHaveBeenCalledWith(
-      "https://example.com/docs",
-      "_blank",
-      "noopener,noreferrer",
+    expect(mocks.toastError).toHaveBeenCalledWith(
+      "Couldn't open the browser",
+      expect.objectContaining({
+        description: expect.stringContaining("https://example.com/docs"),
+      }),
     );
-  });
-
-  it("falls back to location.assign for non-HTTP URL when Tauri opener throws", async () => {
-    (window as Window & { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ = {};
-    mocks.openUrl.mockRejectedValue(new Error("plugin unavailable"));
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
-    const assignFn = vi.fn();
-    Object.defineProperty(window, "location", {
-      value: { ...window.location, assign: assignFn },
-      writable: true,
-      configurable: true,
-    });
-    const openSpy = vi.spyOn(window, "open").mockImplementation(() => null);
-
-    await openExternal("vscode://vscode-remote/ssh-remote+host/path");
-
-    expect(warnSpy).toHaveBeenCalled();
-    expect(assignFn).toHaveBeenCalledWith("vscode://vscode-remote/ssh-remote+host/path");
+    // A window.open fallback is silently dropped inside a Tauri webview.
     expect(openSpy).not.toHaveBeenCalled();
   });
 
