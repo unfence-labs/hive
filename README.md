@@ -128,9 +128,40 @@ npm run tauri dev              # develop
 npm run tauri build           # package
 ```
 
-Remote backend + Tauri setup lives in **[GETTING_STARTED.md](GETTING_STARTED.md)**.
+Running Hive on a server, and connecting a client to it, is covered in
+**[GETTING_STARTED.md](GETTING_STARTED.md)**.
 
 ### Install on a server
+
+Check **[docs/prerequisites.md](docs/prerequisites.md)** first: supported systems, the access the
+installer needs, and exactly what it does and does not change on a server that already runs other
+software.
+
+#### From the desktop app
+
+The desktop app installs Hive on a server itself, over SSH, with no terminal. With no server
+configured it opens on launch; otherwise it is under **Settings → Connection → Install Hive on a
+server**.
+
+It walks through choosing the exposure mode and the address, picking an SSH key from `~/.ssh`,
+approving the server's host key fingerprint, running the installer's own read-only preflight over
+that same connection and listing every finding while the form is still editable, restating the
+settled plan, and then running the install as a live checklist. The private key never leaves the
+machine — only its path is stored, and only its public half is sent, to be authorized on the service
+account. An account that needs a `sudo` password is asked for one, which is used for that install
+only and never written to disk.
+
+The install itself cannot be cancelled — the script runs on the server, so stopping the local end
+would not stop it — but it resumes: each completed step is recorded on the server, so closing the
+app or pressing Retry continues from there. On success the app stores the connection, including the
+generated access token and `hive` as the SSH user for editor and terminal sessions, and finishes on
+a screen for signing in to Claude, Codex and GitHub.
+
+The desktop shell embeds the same provisioning script described below and streams it over the SSH
+connection, so both paths install exactly the same server. Screen-by-screen detail is in
+[GETTING_STARTED.md](GETTING_STARTED.md#1-guided-installer-desktop).
+
+#### From a terminal
 
 Every release publishes `provision.sh` alongside the backend tarballs. Run it as root on
 Ubuntu 22.04/24.04 or Debian 12/13 (x86-64 or arm64) with systemd:
@@ -244,16 +275,30 @@ Per-package commands (`backend`, `frontend`, `ios`) are documented in **[AGENTS.
 <details>
 <summary><b>Backend environment variables</b></summary>
 
+This table is the single source of truth for backend environment variables; the other documents
+point at it rather than repeating it.
+
 | Variable | Default | Description |
 |---|---|---|
 | `HOST` | `127.0.0.1` | Backend bind address |
 | `PORT` | `3000` | Backend HTTP port |
 | `DATA_DIR` | `~/.hive` | Root storage for projects, workspaces, sessions, prompts, Brain, config, and automations |
-| `HIVE_AUTH_TOKEN` | unset | Requires bearer/token auth for API and WS when set; `/health` stays public |
+| `HIVE_AUTH_TOKEN` | unset | Access token in plaintext. Requires bearer/token auth for API and WS when set; `/health` stays public |
+| `HIVE_AUTH_TOKEN_SHA256` | unset | The same token as a lowercase hex SHA-256 digest, so the plaintext never lands on the server. What `provision.sh` writes. A request authorizes if it matches either form |
+| `HIVE_ALLOWED_HOSTS` | unset | Extra hostnames accepted by the `Host` guard, comma-separated. IP literals, `localhost` and `*.ts.net` are always accepted; anything else gets `403` until listed |
+| `HIVE_ALLOWED_ORIGINS` | unset | Extra browser origins accepted for CORS and WebSocket upgrades, comma-separated. The desktop webview's origins are always accepted, plus `localhost:5173` outside production |
 | `HIVE_RATE_LIMIT_MAX` | `120` | Max requests per IP per window |
 | `HIVE_RATE_LIMIT_WINDOW_MS` | `60000` | Rate-limit window (ms) |
+| `HIVE_AUTOMATION_TIMEOUT_SEC` | `1800` | Per-run timeout for scheduled automations |
 | `HIVE_CLAUDE_SKIP_PERMISSIONS` | `true` | Controls Claude `--dangerously-skip-permissions` |
+| `HIVE_DEBUG_AGENT_LOGS` | unset | Verbose agent process logging when `1`/`true`/`yes`/`on` |
 | `GITHUB_CLIENT_ID` | built in | Override GitHub OAuth app client id |
+
+**With neither `HIVE_AUTH_TOKEN` nor `HIVE_AUTH_TOKEN_SHA256` set, the backend has no expectation to
+check and accepts every request.** `ecosystem.config.cjs` sets neither, so a manually started
+production server is unauthenticated until you configure one. `provision.sh` generates a token,
+writes only its digest, and refuses to finish a run in which an unauthenticated request to
+`/api/projects` does not return `401`.
 
 </details>
 

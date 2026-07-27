@@ -1,203 +1,316 @@
-# Getting Started: Remote Backend + Tauri Desktop
+# Getting Started: Hive on a Server
 
-This guide covers deploying the Hive backend on a VPS and connecting to it from a Tauri desktop client over Tailscale.
+Hive runs a backend on a server you own and talks to it from the desktop app, a browser, or the iOS
+client. This guide covers the three ways to get that backend running, and how to connect a client to
+it.
 
-## Architecture
+Read **[docs/prerequisites.md](docs/prerequisites.md)** first — supported operating systems, what
+access the installer needs, and exactly what it will and will not change on a server that is already
+running other software.
+
+Environment variables are documented once, in the README's
+**[Configuration](README.md#configuration)** section. This guide points at that table rather than
+repeating it.
 
 ```text
-+------------------+          Tailscale          +------------------+
-|  Your Mac        | <--- 100.x.x.x private --> |  VPS             |
-|  Tauri app       |         network             |  Hive backend    |
-|  (frontend only) |                             |  (Fastify + CLI) |
++------------------+                             +------------------+
+|  Your machine    | ---- private network ---->  |  Server          |
+|  Desktop app     |            or               |  Hive backend    |
+|  (frontend only) | ---- public address  ---->  |  (Fastify + CLI) |
 +------------------+                             +------------------+
 ```
 
-The backend runs on a VPS where Claude CLI, Git, GitHub CLI, and all heavy operations happen. The frontend runs locally as a Tauri desktop app and connects to the backend over a Tailscale private network. No ports are exposed to the public internet.
+The server does the work: agent CLIs, git, worktrees, sessions. The client is a view onto it.
 
-## 1. Install Tailscale
+## Which path
 
-### On the VPS (Linux)
+| | |
+|---|---|
+| **[Guided installer](#1-guided-installer-desktop)** | Desktop app. Screen by screen, no terminal. The normal path. |
+| **[`provision.sh`](#2-provisionsh-from-a-terminal)** | Same installer, run from a shell on the server. |
+| **[Manual install](#3-manual-install)** | Build from source and run it yourself. |
+
+The first two produce an identical server: a pinned private Node.js runtime, the agent CLIs, the
+backend under systemd on port 9420, and an access token that is enforced before the run reports
+success.
+
+## 1. Guided installer (desktop)
+
+Build and launch the desktop app:
 
 ```bash
-curl -fsSL https://tailscale.com/install.sh | sh
-sudo tailscale up
+git clone https://github.com/unfence-labs/hive.git
+cd hive
+npm install
+cd frontend
+npm run tauri dev              # or: npm run tauri build
 ```
 
-Copy the auth link from the terminal output and open it in your browser.
+With no server configured, the installer opens by itself. With one configured, open it from
+**Settings → Connection → Install Hive on a server**.
 
-### On your Mac
+The screens, in order:
 
-Install from the Mac App Store (search "Tailscale") or via Homebrew:
+1. **Set up Hive.** Either start the install, or point the app at a server that already exists by
+   entering its address, port and access token. The second is the skip.
+2. **How the server is reached.** Choose private network or public address, and give the address
+   (`host`, or `user@host` to log in as something other than root) and the port. *Advanced* exposes
+   the install directory, the data directory, and — in private mode — the interface name.
+3. **Choose the SSH key.** Keys under `~/.ssh` are listed. A passphrase-protected key is marked
+   unusable unless an agent holds it; run `ssh-add <path>` and rescan. The key you pick is also the
+   key authorized on the service account, so editor and terminal sessions connect as `hive`.
+4. **Check the server.** Hive reaches the server, shows its host key fingerprint for approval, then
+   runs the installer's own read-only preflight over that connection and lists every finding.
+   Blocking findings name the field that fixes them. If the account needs a `sudo` password, this is
+   where it is asked for. Nothing on the server is changed by this step.
+5. **Ready to install.** The settled plan, restated. This is the last screen where going back is
+   free.
+6. **Installing Hive.** A live checklist and the raw output. It cannot be cancelled: the script runs
+   on the server, so stopping this end would not stop it. It is resumable instead — each completed
+   step is recorded on the server, so closing the app or pressing Retry continues from where it
+   stopped rather than starting over.
+7. **Connect your accounts.** The server is up. Sign in to Claude, Codex and GitHub from here.
+   Everything is optional and everything is also in **Settings → CLI tools**.
+
+When the install succeeds the app stores the connection itself — address, port, the generated access
+token, and `hive` as the SSH user for editor and terminal sessions. There is nothing to copy by
+hand.
+
+## 2. `provision.sh` from a terminal
+
+Every release publishes `provision.sh` next to the backend tarballs. Run it as root on the server:
 
 ```bash
-brew install tailscale
-brew services start tailscale
-tailscale up
+curl -fsSL https://github.com/unfence-labs/hive/releases/latest/download/provision.sh | bash
 ```
 
-Log in with the same Tailscale account.
-
-### Verify connectivity
-
-On both machines, get the Tailscale IP:
+Look before you commit — this changes nothing and always exits 0:
 
 ```bash
-tailscale ip -4
+curl -fsSL https://github.com/unfence-labs/hive/releases/latest/download/provision.sh | bash -s -- --preflight
 ```
 
-From your Mac, ping the VPS:
+Options are passed through `bash -s --`, and each has an environment-variable equivalent that the
+flag overrides. The full table is in the README's
+**[Install on a server](README.md#install-on-a-server)** section.
 
 ```bash
-ping 100.x.x.x
+curl -fsSL <url>/provision.sh | bash -s -- \
+  --port 9420 --install-dir /srv/hive --data-dir /mnt/hive \
+  --ssh-public-key "$(cat ~/.ssh/id_ed25519.pub)"
 ```
 
-## 2. Deploy the Backend on the VPS
+Progress is NDJSON, one record per line. **The access token appears exactly once, on that stream**,
+on the `generate_token` step — it is never written to the log file, and only its SHA-256 digest is
+stored on the server. Every run rotates it, so keep the value the run prints:
 
-### Prerequisites
+```text
+{"v":1,...,"step":"generate_token","status":"ok",...,"data":{"accessToken":"<64 hex characters>"}}
+```
 
-The backend runs preflight checks on startup. It exits with a clear error if a required dependency is missing; optional dependencies only disable related features:
+Pass `--ssh-public-key` unless you have a reason not to. The service account owns every repository
+and worktree; an editor or terminal session that connects as root instead silently takes ownership
+of every file it saves, after which the agent can no longer write them.
 
-- **Node.js >= 20**
-- **Git >= 2.17** (worktree support)
-- **Claude CLI** installed and authenticated (`claude` command)
-- **GitHub CLI** (`gh`) installed (startup preflight requirement; authenticate it before GitHub-backed flows)
-- **Codex CLI** (`codex`) optional for OpenAI model support
+The run ends by proving the token is enforced: an unauthenticated request to `/api/projects` must
+return `401`. If it does not, the script stops the service and fails the run.
 
-### Clone and build
+## 3. Manual install
+
+For a server you want to build from source and run yourself.
+
+### Dependencies
+
+The backend runs a startup preflight and exits if a required dependency is missing:
+
+- **git** ≥ 2.17 — required
+- **Claude CLI** (`claude`), installed and authenticated — required
+- **GitHub CLI** (`gh`) — required at startup; authenticate it before GitHub-backed flows
+- **Codex CLI** (`codex`) — optional; only its provider features depend on it
+- **Node.js** ≥ 20
+
+### Build
 
 ```bash
-git clone <repo-url> hive
+git clone https://github.com/unfence-labs/hive.git hive
 cd hive
 npm install
 cd backend
 npm run build
 ```
 
-### Run with PM2
+### Configure the access token
+
+**Set a token.** With neither `HIVE_AUTH_TOKEN` nor `HIVE_AUTH_TOKEN_SHA256` configured, the backend
+has no expectation to check against and accepts every request. `backend/ecosystem.config.cjs` does
+not set either one, so a bare `pm2 start ecosystem.config.cjs --env production` produces an
+unauthenticated server.
+
+Generate one:
 
 ```bash
-npm install -g pm2
+openssl rand -hex 32
 ```
 
-Start the backend, binding to the Tailscale interface only (replace with your VPS Tailscale IP):
+Then configure it in one of two forms. Both are accepted, and a request authorizes when it matches
+either:
+
+| Variable | Value | Use it when |
+|---|---|---|
+| `HIVE_AUTH_TOKEN` | the token itself | Simplest. The plaintext sits in the environment. |
+| `HIVE_AUTH_TOKEN_SHA256` | its lowercase hex SHA-256 | Keeps the plaintext off the server. This is what the guided installer writes. |
 
 ```bash
-HOST=100.x.x.x pm2 start dist/index.js --name hive-backend --update-env
+printf '%s' "<token>" | sha256sum      # produces the digest form
 ```
 
-This ensures the backend is only accessible from your Tailscale network, not from the public internet.
+Clients present the token as `Authorization: Bearer <token>`, as an `x-hive-token` header, or as
+`?token=<token>` on the query string. `/health` is always public.
 
-Make it persistent across reboots:
+### Run
 
 ```bash
+cd backend
+HIVE_AUTH_TOKEN_SHA256=<digest> pm2 start ecosystem.config.cjs --env production
 pm2 save
-pm2 startup
+pm2 startup      # prints a `sudo ...` line to copy-paste
+pm2 logs hive-backend
 ```
 
-The `pm2 startup` command prints a `sudo ...` line to copy-paste and execute.
+`--env production` binds `0.0.0.0:9420` with `DATA_DIR=~/.hive`. Use `--env development` for
+`127.0.0.1:3000` and `~/.hive-dev`. Both are in the README
+[Configuration](README.md#configuration) section.
 
-### Verify
+### Verify that auth is actually on
 
-From your Mac:
+This is the check that matters, and the reason to do it with `-w '%{http_code}'`: a plain `curl`
+against a working server looks the same whether or not the token is enforced.
 
 ```bash
-curl http://100.x.x.x:3000/api/projects
+# Must print 401. Anything else means the server is open.
+curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:9420/api/projects
+
+# Must print 200.
+curl -s -o /dev/null -w '%{http_code}\n' -H "Authorization: Bearer <token>" \
+  http://127.0.0.1:9420/api/projects
 ```
 
-### Useful PM2 commands
+### If the client is a browser or a custom hostname
+
+Two guards sit in front of everything but `/health`, and both are on by default:
+
+- **Host header.** IP literals, `localhost` and `*.ts.net` names are accepted. Reaching the server
+  through any other DNS name returns `403 Forbidden host` until that name is listed in
+  `HIVE_ALLOWED_HOSTS` (comma-separated).
+- **Browser origin.** CORS and WebSocket upgrades accept the desktop webview's own origins, plus
+  `http://localhost:5173` and `http://127.0.0.1:5173` outside production. A web build served from
+  any other origin returns `403 Forbidden origin` until that origin is listed in
+  `HIVE_ALLOWED_ORIGINS` (comma-separated). Native clients send no `Origin` header and are
+  unaffected.
+
+The guided installer sets neither, because a provisioned server is reached by IP or by a MagicDNS
+name from the desktop app, and those already pass.
+
+### Update
 
 ```bash
-pm2 logs hive-backend      # live logs
-pm2 restart hive-backend    # restart
-pm2 status                  # all processes
+cd hive
+git pull
+npm install
+cd backend
+npm run build
+pm2 restart hive-backend
 ```
 
-### Troubleshooting
+## Connect a client
 
-If the backend still shows `Server listening at http://127.0.0.1:3000` in the logs, the `HOST` env var was not picked up. Delete and recreate:
+### Desktop app
 
-```bash
-pm2 delete hive-backend
-HOST=100.x.x.x pm2 start dist/index.js --name hive-backend --update-env
-```
+**Settings → Connection**: host, port, access token, and the SSH user for editor and terminal
+sessions (`hive` on a provisioned server — not the admin login you installed with). The status badge
+distinguishes the failures: *Token rejected* means the server answered and refused the token,
+*Client refused* means it refused this client (see the two guards above), *Unreachable* means it did
+not answer at all.
 
-If you can ping the VPS but not curl the API, check `sudo ufw status`. If UFW is active and blocking, allow Tailscale traffic:
+The guided installer fills all of this in for you.
 
-```bash
-sudo ufw allow in on tailscale0
-```
-
-This is not required when binding to the Tailscale IP directly.
-
-## 3. Connect the Frontend
-
-### Browser (quick test)
-
-Run the frontend locally:
+### Browser
 
 ```bash
 cd frontend
-npm run dev
+npm run dev                    # → http://localhost:5173
 ```
 
-Open the app and go to **Settings > Connection**. Enter your VPS Tailscale IP (e.g. `100.x.x.x`) and port (`3000`). The status badge will show **Connected** (green) once the health check succeeds. All API and WebSocket traffic routes through Tailscale.
+Same **Settings → Connection** form. For a build served from somewhere other than the Vite dev
+server, set `HIVE_ALLOWED_ORIGINS` on the backend.
 
-### Tauri Desktop App
+### iOS
 
-```bash
-cd frontend
-npm run tauri dev
-```
+The iOS client uses the same host, port and access token, entered in its first-run onboarding.
 
-Same as above: configure the Tailscale IP and port in **Settings > Connection**.
-
-To build a distributable app:
+### Package the desktop app
 
 ```bash
 cd frontend
 npm run tauri build
 ```
 
-The output (`.dmg` on macOS, `.msi` on Windows) will be in `frontend/src-tauri/target/release/bundle/`.
+The bundle (`.dmg` on macOS, `.msi` on Windows) lands in
+`frontend/src-tauri/target/release/bundle/`.
 
-### Post-connect setup (optional)
+## After connecting
 
-Once connected, you can configure additional integrations from the app:
+- **Settings → CLI tools** — install, update and sign in to Claude Code, Codex and GitHub, with no
+  terminal. GitHub and Codex use device codes; Claude opens a page and takes an authorization code
+  back. Either Claude or Codex is enough to run sessions.
+- **Settings → Notifications** — Telegram bot token and chat id, with a Test button. Stored in
+  `$DATA_DIR/config.json` on the server.
+- **Settings → Projects → Environment** — project-level environment variables. Hive writes a
+  workspace `.env` only for projects that have any.
 
-- **Settings > Account** — Connect your GitHub account via OAuth device flow. This authenticates the `gh` CLI on the VPS and configures git credentials, enabling PR status detection and authenticated cloning.
-- **Settings > Notifications** — Enable Telegram notifications to receive alerts when an agent turn completes. Enter your bot token and chat ID, then hit "Test" to verify.
-- **Settings > Projects > Environment** — Configure project-level environment variables. Hive stores structured variables locally and generates a workspace `.env` only when a project has variables.
+## Uninstall
 
-## Environment Variables Reference
-
-### Backend (VPS)
-
-| Variable | Recommended Value | Description |
-|---|---|---|
-| `HOST` | `100.x.x.x` (Tailscale IP) | Bind to Tailscale interface only |
-| `PORT` | `3000` | HTTP port |
-| `HIVE_AUTH_TOKEN` | a strong random string | Secures API + WS access |
-
-### Frontend (local)
-
-The frontend needs no environment variables for the connection. Host, port and the access token
-(which must match the backend `HIVE_AUTH_TOKEN`) are entered at runtime in **Settings > Connection**
-and stored as a single connection record, so changing the token never requires a rebuild. Telegram notification credentials are configured in **Settings > Notifications** and persisted in `~/.hive/config.json` on the VPS.
-
-## Updating the Backend
+A provisioned server carries its own uninstaller, generated with the paths that install actually
+used:
 
 ```bash
-cd hive
-git pull
-cd backend
-npm install
-npm run build
-pm2 restart hive-backend
+sudo /opt/hive/hive-uninstall.sh            # remove Hive, keep your data
+sudo /opt/hive/hive-uninstall.sh --purge    # remove your data as well
 ```
 
-## Updating App Icons
+## Troubleshooting
 
-Generate all platform icons from a source PNG (1024x1024 recommended, with macOS squircle corners pre-baked):
+**The install stopped.** The panel names a typed error code and the failing output. Press Retry: the
+script records each completed step on the server and continues from there. Failures that a form
+field can fix say which field.
+
+**`401` from a server you believe is configured.** Every provisioning run rotates the token. Copy
+the current one from the run that installed the server, or reinstall to get a new one.
+
+**`403 Forbidden host` / `403 Forbidden origin`.** See
+[the two guards](#if-the-client-is-a-browser-or-a-custom-hostname).
+
+**Reachable by ping but not by HTTP.** Check the firewall. The installer never enables one and never
+changes its default policy, so a server behind an active firewall it did not add a rule to stays
+closed on purpose:
+
+```bash
+sudo ufw status
+sudo ufw allow in on tailscale0    # private network mode
+sudo ufw allow 9420/tcp            # public mode
+```
+
+**Service state on a provisioned server.**
+
+```bash
+systemctl status hive
+journalctl -u hive -f
+```
+
+## Updating app icons
+
+Generate all platform icons from a source PNG (1024x1024 recommended, with macOS squircle corners
+pre-baked):
 
 ```bash
 cd frontend
