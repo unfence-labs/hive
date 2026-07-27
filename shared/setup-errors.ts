@@ -85,3 +85,45 @@ export const SETUP_ERROR_HINTS: Record<SetupErrorCode, string> = {
   UNKNOWN:
     "Something unexpected went wrong. Review the diagnostic below, then retry the installer.",
 };
+
+/**
+ * Transport-level errors owned by the desktop app's SSH sidecar
+ * (`frontend/src-tauri/src/provision.rs`), which carries the same list in
+ * `SSH_ERROR_CODES`. They cover what goes wrong before or around a run rather
+ * than inside it, so they are deliberately separate from the codes above: those
+ * come off the script's `run_end` record and must stay in lockstep with
+ * `scripts/provision/lib.sh`. A sidecar failure that has no transport cause
+ * reuses `CONCURRENT_RUN` or `UNKNOWN` from the list above.
+ */
+export const SSH_ERROR_CODES = [
+  "SSH_INVALID_INPUT",
+  "SSH_UNREACHABLE",
+  "SSH_AUTH_FAILED",
+  "SSH_HOST_KEY_UNKNOWN",
+  "SSH_HOST_KEY_CHANGED",
+  "SSH_ESCALATION_FAILED",
+  "SSH_PASSWORD_REQUIRED",
+] as const;
+
+export type SshErrorCode = (typeof SSH_ERROR_CODES)[number];
+
+export function isSshErrorCode(value: string): value is SshErrorCode {
+  return (SSH_ERROR_CODES as readonly string[]).includes(value);
+}
+
+export const SSH_ERROR_HINTS: Record<SshErrorCode, string> = {
+  SSH_INVALID_INPUT:
+    "One of the values you entered is not a usable host, user, path or key. Correct it, then Retry.",
+  SSH_UNREACHABLE:
+    "The server did not answer on SSH. Check the address and that port 22 is reachable from here, then Retry.",
+  SSH_AUTH_FAILED:
+    "The server refused the SSH key. Check that the key you picked is authorized for that account — and, if it is passphrase-protected, that it is loaded in your ssh-agent — then Retry.",
+  SSH_HOST_KEY_UNKNOWN:
+    "This server has not been approved yet. Review its fingerprint and approve it, then Retry.",
+  SSH_HOST_KEY_CHANGED:
+    "This server now presents a different host key than the one you approved. Hive will not re-trust it automatically. If you rebuilt the server this is expected — remove it from Hive's approved servers and approve the new fingerprint. Otherwise stop: the connection may be intercepted.",
+  SSH_ESCALATION_FAILED:
+    "The account could not gain root on the server. Check the password you entered, and that the account is allowed to use sudo, then Retry.",
+  SSH_PASSWORD_REQUIRED:
+    "This account needs a password to gain root on the server. Enter it, then Retry.",
+};
