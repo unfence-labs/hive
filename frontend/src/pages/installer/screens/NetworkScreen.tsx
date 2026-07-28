@@ -11,9 +11,9 @@ import {
   type InstallerInputs,
 } from "@/pages/installer/machine";
 
-/** The prerequisites page an operator reads before starting. */
-export const PREREQUISITES_URL =
-  "https://github.com/unfence-labs/hive/blob/main/docs/prerequisites.md";
+/** Explains the reachability paths — Tailscale, VPN, a hardened public IP. */
+export const NETWORKING_GUIDE_URL =
+  "https://github.com/unfence-labs/hive/blob/main/docs/networking.md";
 
 interface NetworkScreenProps {
   inputs: InstallerInputs;
@@ -28,6 +28,10 @@ interface NetworkScreenProps {
  * theirs to arrange — a public address, a VPN, a private NIC — and the backend
  * binds every interface either way. The address typed here is the one that
  * reaches the server right now, and it stays the address afterwards.
+ *
+ * The install only needs an SSH address, so that is the whole form. Hive's own
+ * port is an Advanced detail: it is where the backend will serve, not anything
+ * the install connects to.
  */
 export function NetworkScreen({ inputs, onContinue, onBack }: NetworkScreenProps) {
   const [address, setAddress] = useState(inputs.address);
@@ -45,19 +49,12 @@ export function NetworkScreen({ inputs, onContinue, onBack }: NetworkScreenProps
 
   return (
     <InstallerScreen
-      title="Where the server is"
+      title="Where do you ssh?"
       description={
         <>
-          The address that reaches your server, and the port Hive should listen on. How you make
-          it reachable is your business — Hive does not ask and does not arrange it. Read the{" "}
-          <button
-            type="button"
-            className="cursor-pointer underline underline-offset-2 hover:text-foreground"
-            onClick={() => void openExternal(PREREQUISITES_URL)}
-          >
-            prerequisites
-          </button>{" "}
-          before you start.
+          Hive installs itself over SSH. Type the address exactly as you would after{" "}
+          <code className="font-mono text-xs text-foreground">ssh</code> — a public IP, a
+          Tailscale name, anything that reaches the box.
         </>
       }
       onContinue={() =>
@@ -71,44 +68,36 @@ export function NetworkScreen({ inputs, onContinue, onBack }: NetworkScreenProps
       continueDisabled={!valid}
       onBack={onBack}
     >
-      <div className="grid grid-cols-[1fr_120px] gap-3">
-        <div>
-          <label
-            htmlFor="server-address"
-            className="mb-1.5 block text-xs font-medium text-muted-foreground"
-          >
-            Address
-          </label>
-          <Input
-            id="server-address"
-            value={address}
-            onChange={(event) => setAddress(event.target.value)}
-            placeholder="root@203.0.113.10"
-            autoComplete="off"
-            spellCheck={false}
-            className="font-mono text-xs"
-          />
-          <p className="mt-1 text-[11px] text-muted-foreground/60">
-            The address that reaches the server now, and the one Hive keeps using. Add{" "}
-            <code>user@</code> to log in as something other than root.
-          </p>
-        </div>
-        <div>
-          <label
-            htmlFor="server-port"
-            className="mb-1.5 block text-xs font-medium text-muted-foreground"
-          >
-            Port
-          </label>
-          <Input
-            id="server-port"
-            value={port}
-            onChange={(event) => setPort(event.target.value)}
-            inputMode="numeric"
-            className="font-mono text-xs"
-          />
-        </div>
+      {/* The shadcn Input look, rebuilt around a literal `$ ssh` prefix: the
+          field asks for exactly what the operator types after it. */}
+      <div className="flex h-9 w-full items-center rounded-md border border-input bg-field px-3 shadow-xs transition-[color,box-shadow] focus-within:border-ring focus-within:ring-[3px] focus-within:ring-ring/50">
+        <span
+          aria-hidden
+          className="select-none whitespace-nowrap font-mono text-xs text-muted-foreground"
+        >
+          $ ssh
+        </span>
+        <input
+          id="server-address"
+          aria-label="Address"
+          value={address}
+          onChange={(event) => setAddress(event.target.value)}
+          placeholder="root@203.0.113.10"
+          autoComplete="off"
+          spellCheck={false}
+          className="w-full bg-transparent pl-2 font-mono text-xs text-foreground outline-none placeholder:text-muted-foreground"
+        />
       </div>
+      <p className="mt-2 text-[11px] text-muted-foreground/60">
+        Your network, your rules — Tailscale, VPN, or a public address you harden yourself.{" "}
+        <button
+          type="button"
+          className="cursor-pointer underline underline-offset-2 hover:text-foreground"
+          onClick={() => void openExternal(NETWORKING_GUIDE_URL)}
+        >
+          Networking guide ↗
+        </button>
+      </p>
 
       <div className="mt-6">
         <button
@@ -123,6 +112,24 @@ export function NetworkScreen({ inputs, onContinue, onBack }: NetworkScreenProps
 
         {advanced && (
           <div className="mt-3 space-y-3">
+            <div>
+              <label
+                htmlFor="server-port"
+                className="mb-1.5 block text-xs font-medium text-muted-foreground"
+              >
+                Hive port
+              </label>
+              <Input
+                id="server-port"
+                value={port}
+                onChange={(event) => setPort(event.target.value)}
+                inputMode="numeric"
+                className="w-32 font-mono text-xs"
+              />
+              <p className="mt-1 text-[11px] text-muted-foreground/60">
+                Where the Hive backend serves once installed — nothing to do with SSH.
+              </p>
+            </div>
             <div>
               <label
                 htmlFor="install-dir"

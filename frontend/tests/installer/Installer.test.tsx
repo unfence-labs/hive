@@ -217,17 +217,20 @@ describe("Installer", () => {
 
     await user.click(screen.getByRole("button", { name: "Install on a server" }));
 
-    // The port is pre-filled with the production port.
-    expect(screen.getByLabelText("Port")).toHaveValue("9420");
+    // The install connects over SSH, so up front there is only the address;
+    // Hive's own serving port is an Advanced detail.
+    expect(screen.queryByLabelText("Hive port")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Install directory")).not.toBeInTheDocument();
     // The technical reading moved off the welcome screen to here.
-    expect(screen.getByRole("button", { name: "prerequisites" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /networking guide/i })).toBeInTheDocument();
 
     // How the server is reachable is the operator's business, so there is no
     // exposure question here at all — and nothing to answer it with.
     expect(screen.queryAllByRole("radio")).toHaveLength(0);
 
     await user.click(screen.getByRole("button", { name: "Advanced" }));
+    // The port is pre-filled with the production port.
+    expect(screen.getByLabelText("Hive port")).toHaveValue("9420");
     expect(screen.getByLabelText("Install directory")).toHaveValue("/opt/hive");
     expect(screen.getByLabelText("Data directory")).toHaveValue("/home/hive/.hive");
     expect(screen.queryAllByRole("radio")).toHaveLength(0);
@@ -418,7 +421,11 @@ describe("Installer", () => {
     render(<Installer client={createMockProvisionClient()} />);
 
     expect(await screen.findByLabelText("Address")).toHaveValue("root@198.51.100.7");
-    expect(screen.getByLabelText("Port")).toHaveValue("8080");
+    // The stored port survives too, even though it now lives under Advanced.
+    await userEvent
+      .setup({ advanceTimers: vi.advanceTimersByTime })
+      .click(screen.getByRole("button", { name: "Advanced" }));
+    expect(screen.getByLabelText("Hive port")).toHaveValue("8080");
   });
 
   // ── the install ────────────────────────────────────────────────────────────
