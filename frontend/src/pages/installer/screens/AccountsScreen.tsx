@@ -34,7 +34,7 @@ export function AccountsScreen({ target, accessToken, onFinish }: AccountsScreen
   return (
     <InstallerScreen
       title="Connect your accounts"
-      description="Hive is installed and running on your server, but it cannot run a session until an agent account is signed in on it. Connecting either Claude or Codex is enough — you do not need both, and GitHub only adds cloning repositories and opening pull requests. Nothing here is required: whatever you skip stays in Settings, where it does exactly the same thing."
+      description="Hive is installed and running on your server, but it cannot run a session until an agent account is signed in on it. Connecting either Claude or Codex is enough — you do not need both. Nothing here is required: whatever you skip stays in Settings, where it does exactly the same thing."
       onContinue={onFinish}
       continueLabel="Open Hive"
     >

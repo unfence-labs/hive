@@ -43,7 +43,11 @@ import { cn } from "@/lib/utils";
 /** How often a running operation is re-read. Installs take minutes, not ms. */
 const POLL_INTERVAL_MS = 2_000;
 
-/** Model providers each harness serves (the Claude CLI also runs Kimi sessions). */
+/**
+ * Model providers each harness serves (the Claude CLI also runs Kimi sessions).
+ * Also the definition of what this panel renders: the server reports gh too,
+ * but gh is not an agent harness — its account lives in Settings → Account.
+ */
 const TOOL_PROVIDERS: Partial<Record<SetupToolId, { id: KnownProvider; label: string }[]>> = {
   claude: [
     { id: "claude", label: "Claude" },
@@ -52,10 +56,9 @@ const TOOL_PROVIDERS: Partial<Record<SetupToolId, { id: KnownProvider; label: st
   codex: [{ id: "codex", label: "Codex" }],
 };
 
-const TOOL_BLURBS: Record<SetupToolId, string> = {
+const TOOL_BLURBS: Partial<Record<SetupToolId, string>> = {
   claude: "Runs Claude and Kimi sessions on this server.",
   codex: "Runs Codex sessions on this server.",
-  gh: "Lets Hive clone repositories and open pull requests.",
 };
 
 const PHASE_LABELS: Record<ToolOperation["phase"], string> = {
@@ -66,10 +69,9 @@ const PHASE_LABELS: Record<ToolOperation["phase"], string> = {
 };
 
 /** The account being connected, which is not always what the tool is called. */
-const CONNECT_LABELS: Record<SetupToolId, string> = {
+const CONNECT_LABELS: Partial<Record<SetupToolId, string>> = {
   claude: "Connect Claude",
   codex: "Connect Codex",
-  gh: "Connect GitHub",
 };
 
 /** How a sign-in that did not connect is explained, without a failure behind it. */
@@ -238,11 +240,8 @@ export function ToolsPanel({
 
   // Same wire-tolerance as the poll above: render nothing over a body that
   // lacks the list rather than crash the page that contains the panel.
-  const tools = data.tools ?? [];
-  // A tool that serves model providers is an agent harness; gh is not one.
-  const anyAgentConnected = tools.some(
-    (tool) => TOOL_PROVIDERS[tool.id] !== undefined && tool.authenticated,
-  );
+  const tools = (data.tools ?? []).filter((tool) => TOOL_PROVIDERS[tool.id] !== undefined);
+  const anyAgentConnected = tools.some((tool) => tool.authenticated);
 
   return (
     <div className={cn("space-y-4", className)}>
@@ -270,7 +269,7 @@ export function ToolsPanel({
       */}
       <p className="text-xs text-muted-foreground">
         {anyAgentConnected
-          ? "Connected. One agent harness is enough — connecting the other adds its models, it is not required."
+          ? "One agent harness is enough — connecting the other adds its models, it is not required."
           : "Connect Claude Code or Codex to run sessions. Either one on its own is enough."}
       </p>
 
@@ -387,21 +386,14 @@ function ToolCard({
       </div>
 
       <div className="mt-4 flex items-center gap-3">
-        {tool.managed ? (
-          <Button
-            size="sm"
-            variant={tool.installed ? "outline" : "default"}
-            disabled={busy || (tool.installed && !tool.updateAvailable)}
-            onClick={() => onRun(tool.installed ? "update" : "install")}
-          >
-            {tool.installed ? "Update" : "Install"}
-          </Button>
-        ) : (
-          <p className="text-xs text-muted-foreground">
-            Installed by the Hive installer from a checksum-pinned release. Re-run the
-            installer on the server to change it.
-          </p>
-        )}
+        <Button
+          size="sm"
+          variant={tool.installed ? "outline" : "default"}
+          disabled={busy || (tool.installed && !tool.updateAvailable)}
+          onClick={() => onRun(tool.installed ? "update" : "install")}
+        >
+          {tool.installed ? "Update" : "Install"}
+        </Button>
 
         {tool.installed && !prompt && (
           <>
@@ -516,7 +508,7 @@ function StatusBadge({ tool }: { tool: ToolStatus }) {
 
   // Installed, but the registry could not be reached to compare — say so
   // rather than claiming it is current on evidence we do not have.
-  if (tool.managed && tool.latestVersion == null) {
+  if (tool.latestVersion == null) {
     return <span className={NEUTRAL_PILL}>Installed</span>;
   }
 
@@ -525,7 +517,7 @@ function StatusBadge({ tool }: { tool: ToolStatus }) {
       className={cn(PILL, "border-success-border bg-success-muted text-success-foreground")}
     >
       <CheckCircle2 className="h-3 w-3" />
-      {tool.managed ? "Up to date" : "Installed"}
+      Up to date
     </span>
   );
 }

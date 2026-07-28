@@ -618,10 +618,11 @@ describe("Installer", () => {
       ),
     );
 
-    // It is the panel, with its sign-ins, not a reduced copy of it.
+    // It is the panel, with its sign-ins, not a reduced copy of it. The gh the
+    // server also reports is not a harness and is not offered here.
     expect(await screen.findByRole("button", { name: "Connect Claude" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Connect Codex" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Connect GitHub" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Connect GitHub" })).not.toBeInTheDocument();
   });
 
   it("shows the generated token once, with a copy control and no gate", async () => {
@@ -685,7 +686,7 @@ describe("Installer", () => {
 
     expect(
       await screen.findByText(
-        "Connected. One agent harness is enough — connecting the other adds its models, it is not required.",
+        "One agent harness is enough — connecting the other adds its models, it is not required.",
       ),
     ).toBeInTheDocument();
     // Codex is still offered, and still not asked for.
@@ -702,7 +703,7 @@ describe("Installer", () => {
     await screen.findByRole("button", { name: "Connect Claude" });
 
     // Nothing is signed in, and nothing about that stands in the way.
-    expect(screen.getAllByText("Not signed in")).toHaveLength(3);
+    expect(screen.getAllByText("Not signed in")).toHaveLength(2);
     const open = screen.getByRole("button", { name: "Open Hive" });
     expect(open).toBeEnabled();
     // The install is over, so there is no back — but no skip or required

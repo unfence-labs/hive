@@ -278,17 +278,20 @@ describe("ToolsPanel", () => {
     expect(screen.getByRole("button", { name: "Install" })).toBeEnabled();
   });
 
-  it("reports a tool it does not manage instead of offering a broken action", async () => {
+  it("renders only agent harnesses, not the gh the server also reports", async () => {
     respond({
-      tools: [tool({ id: "gh", label: "GitHub CLI", installed: true, version: "2.62.0", managed: false })],
+      tools: [
+        tool({ id: "claude", label: "Claude Code", installed: true, version: "1.0.0" }),
+        tool({ id: "gh", label: "GitHub CLI", installed: true, version: "2.62.0", managed: false }),
+      ],
     });
 
     renderPanel();
 
-    expect(await screen.findByText(/checksum-pinned release/i)).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /install|update/i })).not.toBeInTheDocument();
-    // Signing in is not the same thing as installing, and is still offered.
-    expect(screen.getByRole("button", { name: "Connect GitHub" })).toBeEnabled();
+    // GitHub is not a harness; its account lives in Settings → Account.
+    expect(await screen.findByRole("heading", { name: "Claude Code" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "GitHub CLI" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Connect GitHub" })).not.toBeInTheDocument();
   });
 
   it("surfaces a status failure instead of rendering an empty panel", async () => {
@@ -521,39 +524,6 @@ describe("ToolsPanel sign-in", () => {
     renderPanel();
 
     expect(await screen.findByText(/Either one on its own is enough/i)).toBeInTheDocument();
-  });
-
-  it("drives GitHub through the same sign-in sessions as the agent CLIs", async () => {
-    respond({
-      tools: [tool({ id: "gh", label: "GitHub CLI", installed: true, managed: false })],
-    });
-    mocks.startAuth.mockResolvedValue(session({ tool: "gh", state: "starting" }));
-    const user = userEvent.setup();
-
-    renderPanel();
-    await user.click(await screen.findByRole("button", { name: "Connect GitHub" }));
-
-    expect(mocks.startAuth).toHaveBeenCalledWith("gh", { force: undefined });
-  });
-
-  it("shows the GitHub device code the server is polling for", async () => {
-    respond({
-      tools: [tool({ id: "gh", label: "GitHub CLI", installed: true, managed: false })],
-      authSessions: [
-        session({
-          tool: "gh",
-          state: "awaiting_authorization",
-          verificationUri: "https://github.com/login/device",
-          userCode: "ABCD-1234",
-        }),
-      ],
-    });
-
-    renderPanel();
-
-    expect(await screen.findByText("ABCD-1234")).toBeInTheDocument();
-    // GitHub confirms in the browser; there is nothing to paste back.
-    expect(screen.getByText("Waiting for authorization…")).toBeInTheDocument();
   });
 
   it("cancels a running sign-in", async () => {
