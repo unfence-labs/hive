@@ -99,7 +99,6 @@ export function claudeAuthFlow(deps: ClaudeAuthDeps): AuthFlow {
           active.write("\r");
           return;
         }
-
       }
 
       if (awaitingCode) return;
