@@ -16,9 +16,9 @@ import { modelRoutes } from "./api/models.js";
 import { sessionRoutes } from "./api/agents.js";
 import { streamRoutes } from "./ws/stream.js";
 import {
-  allowedBrowserOrigins,
   allowedHostNames,
   createAuthHook,
+  createBrowserOriginPolicy,
   createHostGuardHook,
   createWebSocketOriginGuardHook,
 } from "./utils/auth.js";
@@ -282,16 +282,16 @@ export async function buildApp(opts: BuildAppOptions = {}) {
     skipPermissions: parseBoolean(process.env.HIVE_CLAUDE_SKIP_PERMISSIONS, true),
   };
   const app = Fastify({ logger: true });
-  const browserOrigins = allowedBrowserOrigins();
+  const allowsBrowserOrigin = createBrowserOriginPolicy();
   await app.register(cors, {
     origin: (origin, callback) => {
-      callback(null, origin === undefined || browserOrigins.has(origin));
+      callback(null, origin === undefined || allowsBrowserOrigin(origin));
     },
     methods: ["GET", "HEAD", "PUT", "PATCH", "POST", "DELETE"],
   });
   await app.register(websocket, { options: { maxPayload: 10 * 1024 * 1024 } });
   // CORS does not cover WebSockets, so browser upgrades get their own check.
-  app.addHook("onRequest", createWebSocketOriginGuardHook(browserOrigins));
+  app.addHook("onRequest", createWebSocketOriginGuardHook(allowsBrowserOrigin));
 
   app.addHook("onSend", async (req, reply, payload) => {
     if (req.method !== "GET" || reply.statusCode !== 200) return payload;

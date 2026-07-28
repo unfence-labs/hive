@@ -47,6 +47,9 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  // Vitest runs with NODE_ENV=test; tests that pin the production posture set
+  // it themselves and this puts it back.
+  process.env.NODE_ENV = "test";
   delete process.env.HIVE_AUTH_TOKEN;
   delete process.env.HIVE_AUTH_TOKEN_SHA256;
   delete process.env.HIVE_ALLOWED_HOSTS;
@@ -420,7 +423,8 @@ describe("buildApp", () => {
     expect(Object.keys(res.json())).toEqual(["status", "env", "system"]);
   });
 
-  it("does not grant CORS to arbitrary web origins", async () => {
+  it("does not grant CORS to arbitrary web origins in production", async () => {
+    process.env.NODE_ENV = "production";
     app = await buildApp();
     const request = await app.inject({
       method: "GET",
@@ -440,7 +444,20 @@ describe("buildApp", () => {
     expect(preflight.headers).not.toHaveProperty("access-control-allow-origin");
   });
 
+  it("grants CORS to any origin outside production", async () => {
+    // The dev server runs with --host and may be reached from any address —
+    // a tailnet IP included — so dev keeps the pre-allowlist behavior.
+    app = await buildApp();
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/projects",
+      headers: { origin: "http://100.64.0.10:5173" },
+    });
+    expect(res.headers["access-control-allow-origin"]).toBe("http://100.64.0.10:5173");
+  });
+
   it("allows an exact origin configured through HIVE_ALLOWED_ORIGINS", async () => {
+    process.env.NODE_ENV = "production";
     process.env.HIVE_ALLOWED_ORIGINS = "https://hive.example.com";
     app = await buildApp();
     const res = await app.inject({
@@ -452,6 +469,7 @@ describe("buildApp", () => {
   });
 
   it("rejects a WebSocket upgrade from an untrusted browser origin", async () => {
+    process.env.NODE_ENV = "production";
     app = await buildApp();
     await app.ready();
     await expect(

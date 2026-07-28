@@ -9,21 +9,23 @@ const DEFAULT_BROWSER_ORIGINS = [
   "https://tauri.localhost",
 ] as const;
 
-/** Browser origins allowed for CORS and for WebSocket upgrades. */
-export function allowedBrowserOrigins(
+/**
+ * Whether a browser origin may talk to this server, for CORS and for
+ * WebSocket upgrades. Outside production every origin is allowed: the Vite
+ * dev server is served with `--host` and may be reached from any address, so
+ * the allowlist is a production posture, not a dev one.
+ */
+export function createBrowserOriginPolicy(
   nodeEnv = process.env.NODE_ENV,
   configured = process.env.HIVE_ALLOWED_ORIGINS,
-): Set<string> {
+): (origin: string) => boolean {
+  if (nodeEnv !== "production") return () => true;
   const origins = new Set<string>(DEFAULT_BROWSER_ORIGINS);
-  if (nodeEnv !== "production") {
-    origins.add("http://localhost:5173");
-    origins.add("http://127.0.0.1:5173");
-  }
   for (const origin of (configured ?? "").split(",")) {
     const trimmed = origin.trim();
     if (trimmed) origins.add(trimmed);
   }
-  return origins;
+  return (origin) => origins.has(origin);
 }
 
 /** Extra hostnames accepted by the Host guard, from HIVE_ALLOWED_HOSTS. */
@@ -171,14 +173,14 @@ export function createHostGuardHook(extraAllowed: readonly string[] = []) {
  * clients (iOS, the Tauri Rust side) send no Origin header and stay allowed;
  * CORS does not apply to WebSockets, so this is the only origin check they get.
  */
-export function createWebSocketOriginGuardHook(allowedOrigins: ReadonlySet<string>) {
+export function createWebSocketOriginGuardHook(isAllowedOrigin: (origin: string) => boolean) {
   return async (req: FastifyRequest, reply: FastifyReply): Promise<void> => {
     if (isPublicRoute(req.url)) return;
     const upgrade = headerString(req.headers.upgrade)?.toLowerCase();
     if (upgrade !== "websocket") return;
 
     const origin = headerString(req.headers.origin);
-    if (!origin || allowedOrigins.has(origin)) return;
+    if (!origin || isAllowedOrigin(origin)) return;
     reply.status(403).send({ error: "Forbidden origin" });
   };
 }

@@ -24,7 +24,7 @@ vi.mock("node:crypto", async (importOriginal) => {
 });
 
 import {
-  allowedBrowserOrigins,
+  createBrowserOriginPolicy,
   allowedHostNames,
   createAuthHook,
   createHostGuardHook,
@@ -395,7 +395,7 @@ describe("createHostGuardHook", () => {
 describe("createWebSocketOriginGuardHook", () => {
   async function run(headers: Record<string, string>, url = "/ws/hub") {
     const { state, reply } = replyRecorder();
-    await createWebSocketOriginGuardHook(new Set(["tauri://localhost"]))(
+    await createWebSocketOriginGuardHook((origin) => origin === "tauri://localhost")(
       { url, headers } as never,
       reply as never,
     );
@@ -425,22 +425,22 @@ describe("createWebSocketOriginGuardHook", () => {
     ).toBeUndefined();
   });
 
-  async function buildWsApp(origins: ReadonlySet<string>) {
+  async function buildWsApp(allows: (origin: string) => boolean) {
     const app = Fastify();
     await app.register(cors, {
       origin: (origin, callback) => {
-        callback(null, origin === undefined || origins.has(origin));
+        callback(null, origin === undefined || allows(origin));
       },
     });
     await app.register(websocket);
-    app.addHook("onRequest", createWebSocketOriginGuardHook(origins));
+    app.addHook("onRequest", createWebSocketOriginGuardHook(allows));
     app.get("/ws", { websocket: true }, () => {});
     await app.ready();
     return app;
   }
 
   it("rejects an attacker origin before the WebSocket upgrade", async () => {
-    const app = await buildWsApp(allowedBrowserOrigins("production", ""));
+    const app = await buildWsApp(createBrowserOriginPolicy("production", ""));
     try {
       await expect(
         app.injectWS("/ws", { headers: { origin: "https://attacker.example" } }),
@@ -451,7 +451,7 @@ describe("createWebSocketOriginGuardHook", () => {
   });
 
   it("accepts origin-less native clients and trusted Tauri origins", async () => {
-    const app = await buildWsApp(allowedBrowserOrigins("production", ""));
+    const app = await buildWsApp(createBrowserOriginPolicy("production", ""));
     try {
       const native = await app.injectWS("/ws");
       native.close();
@@ -463,7 +463,7 @@ describe("createWebSocketOriginGuardHook", () => {
   });
 
   it("accepts an exact configured origin but no lookalike", async () => {
-    const app = await buildWsApp(allowedBrowserOrigins("production", "https://hive.example.com"));
+    const app = await buildWsApp(createBrowserOriginPolicy("production", "https://hive.example.com"));
     try {
       const configured = await app.injectWS("/ws", {
         headers: { origin: "https://hive.example.com" },
@@ -478,22 +478,29 @@ describe("createWebSocketOriginGuardHook", () => {
   });
 });
 
-describe("allowedBrowserOrigins", () => {
-  it("always trusts the Tauri webview origins", () => {
-    const origins = allowedBrowserOrigins("production", "");
-    expect(origins.has("tauri://localhost")).toBe(true);
-    expect(origins.has("http://tauri.localhost")).toBe(true);
-    expect(origins.has("https://tauri.localhost")).toBe(true);
+describe("createBrowserOriginPolicy", () => {
+  it("always trusts the Tauri webview origins in production", () => {
+    const allows = createBrowserOriginPolicy("production", "");
+    expect(allows("tauri://localhost")).toBe(true);
+    expect(allows("http://tauri.localhost")).toBe(true);
+    expect(allows("https://tauri.localhost")).toBe(true);
   });
 
-  it("adds dev-server origins only outside production", () => {
-    expect(allowedBrowserOrigins("development", "").has("http://localhost:5173")).toBe(true);
-    expect(allowedBrowserOrigins("production", "").has("http://localhost:5173")).toBe(false);
+  it("allows every origin outside production", () => {
+    // The Vite dev server runs with --host, so in dev the frontend may be
+    // loaded from any address — a tailnet IP included.
+    const allows = createBrowserOriginPolicy("development", "");
+    expect(allows("http://localhost:5173")).toBe(true);
+    expect(allows("http://100.64.0.10:5173")).toBe(true);
+  });
+
+  it("rejects the dev-server origin in production", () => {
+    expect(createBrowserOriginPolicy("production", "")("http://localhost:5173")).toBe(false);
   });
 
   it("trims comma-separated configured origins", () => {
-    const origins = allowedBrowserOrigins("production", " https://one.test,https://two.test ");
-    expect(origins.has("https://one.test")).toBe(true);
-    expect(origins.has("https://two.test")).toBe(true);
+    const allows = createBrowserOriginPolicy("production", " https://one.test,https://two.test ");
+    expect(allows("https://one.test")).toBe(true);
+    expect(allows("https://two.test")).toBe(true);
   });
 });
