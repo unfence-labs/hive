@@ -74,6 +74,13 @@ interface ClaudeUsageWindow {
   resets_at?: unknown;
 }
 
+interface ClaudeUsageLimit {
+  kind?: unknown;
+  percent?: unknown;
+  resets_at?: unknown;
+  scope?: unknown;
+}
+
 interface UsageFetchRequest {
   url: string;
   headers: Record<string, string>;
@@ -218,8 +225,8 @@ async function getClaudeUsage(label: string, installed: boolean, version: string
   }
 
   try {
-    const token = await readClaudeAccessToken();
-    if (!token) {
+    const credentials = await readClaudeCredentials();
+    if (!credentials) {
       return {
         id: "claude",
         label,
@@ -230,7 +237,19 @@ async function getClaudeUsage(label: string, installed: boolean, version: string
       };
     }
 
-    const buckets = parseClaudeUsageBuckets(await fetchClaudeUsage(token, version));
+    // The CLI refreshes the access token on startup; polling an expired one only earns a 401.
+    if (credentials.expiresAt !== null && credentials.expiresAt <= now) {
+      return {
+        id: "claude",
+        label,
+        status: "unknown",
+        buckets: [],
+        lastUpdatedAt: null,
+        message: "Claude sign-in expired. Run `claude` to refresh the token.",
+      };
+    }
+
+    const buckets = parseClaudeUsageBuckets(await fetchClaudeUsage(credentials.token, version));
     if (buckets.length === 0) {
       return {
         id: "claude",
@@ -363,7 +382,7 @@ function getCodexClient(): CodexUsageClient {
   return codexClient;
 }
 
-async function readClaudeAccessToken(): Promise<string | null> {
+async function readClaudeCredentials(): Promise<{ token: string; expiresAt: number | null } | null> {
   const credentialsPath = join(process.env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude"), ".credentials.json");
   let parsed: ClaudeCredentials;
   try {
@@ -373,7 +392,8 @@ async function readClaudeAccessToken(): Promise<string | null> {
   }
 
   const oauth = asRecord(parsed.claudeAiOauth) ?? parsed;
-  return asString(oauth.accessToken);
+  const token = asString(oauth.accessToken);
+  return token ? { token, expiresAt: asNumber(oauth.expiresAt) } : null;
 }
 
 async function fetchClaudeUsage(token: string, version: string | null): Promise<unknown> {
@@ -456,13 +476,47 @@ async function fetchUsageJson(request: UsageFetchRequest): Promise<unknown> {
   }
 }
 
+// The usage API reports every window in `limits`, including the per-model weekly limits that the
+// legacy top-level `seven_day_*` keys now return as null. Those keys remain the fallback for
+// accounts whose response predates `limits`.
 function parseClaudeUsageBuckets(result: unknown): ProviderUsageBucket[] {
   const record = asRecord(result);
   if (!record) return [];
 
+  const limits = Array.isArray(record.limits) ? record.limits : [];
+  const fromLimits = limits
+    .map((limit) => parseClaudeUsageLimit(asRecord(limit) as ClaudeUsageLimit | null))
+    .filter((bucket): bucket is ProviderUsageBucket => bucket !== null);
+  if (fromLimits.length > 0) return fromLimits;
+
   return Object.entries(CLAUDE_USAGE_BUCKETS)
     .map(([id, config]) => parseClaudeUsageBucket(id, config, asRecord(record[id]) as ClaudeUsageWindow | null))
     .filter((bucket): bucket is ProviderUsageBucket => bucket !== null);
+}
+
+const CLAUDE_LIMIT_KINDS: Record<string, { label: string; windowDurationMins: number }> = {
+  session: { label: "5h", windowDurationMins: 300 },
+  weekly_all: { label: "7d", windowDurationMins: 10_080 },
+  weekly_scoped: { label: "7d", windowDurationMins: 10_080 },
+};
+
+function parseClaudeUsageLimit(limit: ClaudeUsageLimit | null): ProviderUsageBucket | null {
+  const kind = limit ? asString(limit.kind) : null;
+  const config = kind ? CLAUDE_LIMIT_KINDS[kind] : null;
+  if (!limit || !kind || !config) return null;
+
+  const usedPercent = normalizeClaudePercent(limit.percent);
+  if (usedPercent === null) return null;
+
+  // A scoped limit applies to one model, so its name disambiguates it from the account-wide window.
+  const model = asString(asRecord(asRecord(limit.scope)?.model)?.display_name);
+  return {
+    id: model ? `${kind}:${model.toLowerCase()}` : kind,
+    label: model ? `${config.label} ${model}` : config.label,
+    usedPercent,
+    windowDurationMins: config.windowDurationMins,
+    resetsAt: parseResetTimestamp(limit.resets_at),
+  };
 }
 
 const CLAUDE_USAGE_BUCKETS: Record<string, { label: string; windowDurationMins: number | null }> = {

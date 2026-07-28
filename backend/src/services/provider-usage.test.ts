@@ -521,6 +521,87 @@ describe("provider usage", () => {
     expect(mocks.spawn).toHaveBeenCalledTimes(1);
   });
 
+  // Field names, nesting, and null-vs-populated keys mirror the live /api/oauth/usage response
+  // captured on 2026-07-28 (claude-code 2.1.217). Percentages are synthetic.
+  it("parses the per-model Claude limits that the legacy top-level keys no longer carry", () => {
+    expect(__providerUsageTestHooks.parseClaudeUsageBuckets({
+      five_hour: { utilization: 2, resets_at: "2026-07-29T02:50:00Z" },
+      seven_day: { utilization: 34, resets_at: "2026-08-04T05:00:00Z" },
+      seven_day_opus: null,
+      seven_day_sonnet: null,
+      limits: [
+        {
+          kind: "session",
+          percent: 2,
+          resets_at: "2026-07-29T02:50:00Z",
+          scope: null,
+        },
+        {
+          kind: "weekly_all",
+          percent: 34,
+          resets_at: "2026-08-04T05:00:00Z",
+          scope: null,
+        },
+        {
+          kind: "weekly_scoped",
+          percent: 60,
+          resets_at: "2026-08-04T05:00:00Z",
+          scope: { model: { id: null, display_name: "Fable" }, surface: null },
+        },
+      ],
+    })).toEqual([
+      {
+        id: "session",
+        label: "5h",
+        usedPercent: 2,
+        windowDurationMins: 300,
+        resetsAt: 1785293400,
+      },
+      {
+        id: "weekly_all",
+        label: "7d",
+        usedPercent: 34,
+        windowDurationMins: 10_080,
+        resetsAt: 1785819600,
+      },
+      {
+        id: "weekly_scoped:fable",
+        label: "7d Fable",
+        usedPercent: 60,
+        windowDurationMins: 10_080,
+        resetsAt: 1785819600,
+      },
+    ]);
+  });
+
+  it("falls back to the legacy Claude usage keys when the response carries no limits", () => {
+    expect(__providerUsageTestHooks.parseClaudeUsageBuckets({
+      five_hour: { utilization: 42, resets_at: "2026-06-10T17:00:00Z" },
+      limits: [],
+    })).toMatchObject([
+      { id: "five_hour", label: "5h", usedPercent: 42 },
+    ]);
+  });
+
+  it("reports an expired Claude sign-in without calling the usage endpoint", async () => {
+    mocks.readFile.mockResolvedValue(JSON.stringify({
+      claudeAiOauth: {
+        accessToken: "expired-token",
+        expiresAt: Date.now() - 1_000,
+      },
+    }));
+
+    const result = await getProviderUsageSnapshot();
+
+    expect(result.providers[0]).toMatchObject({
+      id: "claude",
+      status: "unknown",
+      buckets: [],
+      message: "Claude sign-in expired. Run `claude` to refresh the token.",
+    });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
   it("parses Claude OAuth usage windows", () => {
     expect(__providerUsageTestHooks.parseClaudeUsageBuckets({
       five_hour: { utilization: 42, resets_at: "2026-06-10T17:00:00Z" },
