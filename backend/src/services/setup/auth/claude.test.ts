@@ -95,9 +95,10 @@ describe("claude sign-in", () => {
     expect(prompts[0].needsCode).toBe(true);
 
     handle.submitCode("abc123#xyz");
-    // The code reaches the CLI over its stdin, followed by the return that
-    // submits it — never as a command-line argument.
-    expect(cli.written).toEqual(["abc123#xyz\r"]);
+    // The code reaches the CLI over its stdin — never as a command-line
+    // argument — and the return follows as its own chunk: sent inside the
+    // same write, the CLI's terminal UI swallows it as part of a paste.
+    await vi.waitFor(() => expect(cli.written).toEqual(["abc123#xyz", "\r"]));
     expect(states).toContain("verifying");
 
     cli.emit(`\n  ${TOKEN}\n`);
@@ -172,7 +173,7 @@ describe("claude sign-in", () => {
       notice: "Invalid code. Please make sure the full code was copied",
     });
     // The return the CLI asked for, so its prompt comes back.
-    expect(cli.written).toEqual(["wrong-code\r", "\r"]);
+    await vi.waitFor(() => expect(cli.written).toEqual(["wrong-code", "\r", "\r"]));
     expect(cli.wasKilled()).toBe(false);
 
     handle.submitCode("right-code");

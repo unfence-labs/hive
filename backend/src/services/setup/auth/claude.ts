@@ -178,7 +178,18 @@ export function claudeAuthFlow(deps: ClaudeAuthDeps): AuthFlow {
           throw new Error("That does not look like an authorization code.");
         }
         codePending = true;
-        child.write(`${code}\r`);
+        // The return is a separate write on purpose. The CLI's terminal UI
+        // treats a chunk with the return inside it as one paste and swallows
+        // the keystroke — the code then sits in the input field forever.
+        // Delivered as its own chunk a beat later, it registers as Enter.
+        // Reproduced against claude 2.1.220 with real-length (87+ char) codes;
+        // short codes happened to survive the single write, which is why this
+        // took a forensic trace to find.
+        const active = child;
+        active.write(code);
+        setTimeout(() => {
+          if (!cancelled && !settled) active.write("\r");
+        }, 50);
         ctx.setState("verifying");
       },
       cancel: () => {
