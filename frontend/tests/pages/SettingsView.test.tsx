@@ -53,7 +53,7 @@ describe("ConnectionSettings", () => {
     expect(screen.getByText("Not configured")).toBeInTheDocument();
   });
 
-  it("prefills host, port, token and SSH user from the stored record", () => {
+  it("prefills host, port and SSH user from the stored record, but never the token", () => {
     replaceConnection({
       host: "100.64.0.10",
       port: 3001,
@@ -67,7 +67,10 @@ describe("ConnectionSettings", () => {
 
     expect(screen.getByPlaceholderText("203.0.113.10")).toHaveValue("100.64.0.10");
     expect(screen.getByPlaceholderText("9420")).toHaveValue("3001");
-    expect(screen.getByPlaceholderText("Paste the access token")).toHaveValue("stored-token");
+    // The stored token is write-only: the field stays empty and a notice says
+    // one is stored, rather than the value ever being shown back.
+    expect(screen.getByPlaceholderText("Paste the access token")).toHaveValue("");
+    expect(screen.getByText(/an access token is stored/i)).toBeInTheDocument();
     expect(screen.getByPlaceholderText("hive")).toHaveValue("hive");
     expect(screen.getByText("root")).toBeInTheDocument();
     expect(screen.getByText("Connected")).toBeInTheDocument();
@@ -140,6 +143,24 @@ describe("ConnectionSettings", () => {
 
     expect(await screen.findByRole("alert")).toHaveTextContent("The server rejected the access token.");
     expect(getConnection()).toBeNull();
+  });
+
+  it("keeps the stored token when reconnecting with the field left blank", async () => {
+    replaceConnection({ host: "100.64.0.10", port: 3000, authToken: "good" });
+    const fetchMock = mockProbe(new Response("[]", { status: 200 }));
+    const user = userEvent.setup();
+    render(<ConnectionSettings />);
+
+    await user.click(screen.getByRole("button", { name: "Connect" }));
+
+    await waitFor(() =>
+      expect(getConnection()).toMatchObject({ host: "100.64.0.10", authToken: "good" }),
+    );
+    // The probe authenticated with the stored token, not with an empty one.
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ headers: { Authorization: "Bearer good" } }),
+    );
   });
 
   it("keeps the working connection when a new attempt is rejected", async () => {
@@ -220,7 +241,9 @@ describe("ConnectionSettings", () => {
     );
     expect(host).toHaveValue("installed.example.com");
     expect(screen.getByPlaceholderText("9420")).toHaveValue("4000");
-    expect(screen.getByPlaceholderText("Paste the access token")).toHaveValue("issued");
+    // The token written underneath is stored, never displayed.
+    expect(screen.getByPlaceholderText("Paste the access token")).toHaveValue("");
+    expect(screen.getByText(/an access token is stored/i)).toBeInTheDocument();
   });
 
   it("hides the connection check until a server is configured", () => {

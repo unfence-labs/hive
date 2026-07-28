@@ -180,6 +180,7 @@ export default function Installer({
               baseUrl: serverUrlFor({ host: parseAddress(inputs.address).host, port: inputs.port }),
               authToken: installed.accessToken,
             }}
+            accessToken={installed.accessToken}
             onFinish={finish}
           />
         );

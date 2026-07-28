@@ -34,7 +34,7 @@ const STATUS_CONFIG: Record<ConnectionStatus, StatusConfig> = {
     dot: "bg-destructive",
     label: "Token rejected",
     badge: "border-destructive/30 bg-destructive/10 text-destructive",
-    hint: "The server is reachable but rejected this access token. Copy the current token from the server and connect again.",
+    hint: "The server is reachable but rejected this access token. Enter the current one, or reinstall Hive to generate a new token.",
   },
   forbidden: {
     dot: "bg-destructive",
@@ -69,7 +69,9 @@ export default function ConnectionSettings({
   const { status, check } = useConnectionStatus();
   const [hostDraft, setHostDraft] = useState(connection?.host ?? "");
   const [portDraft, setPortDraft] = useState(String(connection?.port ?? DEFAULT_BACKEND_PORT));
-  const [tokenDraft, setTokenDraft] = useState(connection?.authToken ?? "");
+  // Write-only: the stored token is never shown back, here or anywhere else.
+  // The field only carries a replacement; blank means keep what is stored.
+  const [tokenDraft, setTokenDraft] = useState("");
   const [sshUserDraft, setSshUserDraft] = useState(connection?.sshUser ?? "");
   const [connecting, setConnecting] = useState(false);
   const [checking, setChecking] = useState(false);
@@ -84,7 +86,7 @@ export default function ConnectionSettings({
     setSyncedFrom(connection);
     setHostDraft(connection?.host ?? "");
     setPortDraft(String(connection?.port ?? DEFAULT_BACKEND_PORT));
-    setTokenDraft(connection?.authToken ?? "");
+    setTokenDraft("");
     setSshUserDraft(connection?.sshUser ?? "");
   }
 
@@ -100,7 +102,9 @@ export default function ConnectionSettings({
           host: hostDraft.trim(),
           port,
           ...(connection?.protocol ? { protocol: connection.protocol } : {}),
-          authToken: tokenDraft.trim() || undefined,
+          // Blank keeps the stored token — clearing it on every reconnect
+          // would silently disconnect a client whose token was never shown.
+          authToken: tokenDraft.trim() || connection?.authToken,
           sshUser: sshUserDraft.trim() || undefined,
           // Install-owned; the operator never edits it here, but replacing the
           // record must not silently drop it.
@@ -210,7 +214,9 @@ export default function ConnectionSettings({
                   className="font-mono text-xs"
                 />
                 <p className="mt-1 text-[11px] text-muted-foreground/60">
-                  Sent with every request. Leave blank only for a server that has no token.
+                  {connection?.authToken
+                    ? "An access token is stored for this server. It is never shown again — enter a new one only to replace it."
+                    : "Sent with every request. Leave blank only for a server that has no token."}
                 </p>
               </div>
 

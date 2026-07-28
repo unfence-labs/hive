@@ -624,6 +624,21 @@ describe("Installer", () => {
     expect(screen.getByRole("button", { name: "Connect GitHub" })).toBeInTheDocument();
   });
 
+  it("shows the generated token once, with a copy control and no gate", async () => {
+    stubTools();
+    seedRunningInstall();
+
+    await installTo(createMockProvisionClient(), vi.fn());
+
+    // The server keeps only the digest, so this screen is the one chance to
+    // copy the plaintext for connecting other clients.
+    expect(screen.getByText(ACCESS_TOKEN)).toBeInTheDocument();
+    expect(screen.getByText(/it will not be shown again/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Copy the access token" })).toBeInTheDocument();
+    // Informative only: not copying it blocks nothing.
+    expect(screen.getByRole("button", { name: "Open Hive" })).toBeEnabled();
+  });
+
   it("says one agent provider is enough rather than asking for all three", async () => {
     stubTools();
     seedRunningInstall();
