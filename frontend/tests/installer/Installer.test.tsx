@@ -432,9 +432,9 @@ describe("Installer", () => {
     expect(screen.queryAllByRole("radio")).toHaveLength(0);
     await user.click(screen.getByRole("button", { name: "Continue" }));
 
-    expect(
-      await screen.findByText("Port 9420 opened automatically when required"),
-    ).toBeInTheDocument();
+    // The review manifest restates the firewall promise with the real port.
+    expect(await screen.findByText("ufw allow 9420/tcp")).toBeInTheDocument();
+    expect(screen.getByText(/never enables or reconfigures a firewall/)).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Start the install" }));
 
     await waitFor(() => expect(client.installs).toHaveLength(1));
