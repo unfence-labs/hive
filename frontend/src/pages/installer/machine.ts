@@ -21,9 +21,7 @@ import type { PrivilegeMode } from "@/lib/provision-client";
 
 export const INSTALLER_STATES = [
   "welcome",
-  "network",
-  "ssh_key",
-  "connect",
+  "server",
   "review",
   "install",
   "accounts",
@@ -143,8 +141,8 @@ export function parseAddress(value: string): { host: string; user?: string } {
 
 /**
  * Shape check only — the same shape the sidecar enforces before it can build an
- * ssh command line. Whether the address actually answers is the connect step's
- * job, not this one's.
+ * ssh command line. Whether the address actually answers is the server step's
+ * verification to run, not this one's.
  */
 export function isUsableAddress(value: string): boolean {
   const { host, user } = parseAddress(value);
@@ -161,18 +159,17 @@ export function isUsableDirectory(value: string): boolean {
 /**
  * Where a relaunch lands.
  *
- * Before the connect step nothing has touched the server, so there is nothing
- * worth resuming — only stale half-typed drafts. Those runs start over.
- * `connect` is where durable state begins: an approved fingerprint, a
- * preflight verdict, a privilege mode.
+ * A run still on the server step has touched nothing durable — only
+ * half-typed drafts — so it starts over. Reaching `review` is what proves the
+ * server: address, key, approved fingerprint, preflight verdict.
  *
- * Everything past the connect step may depend on an escalation password, and
+ * Everything past the server step may depend on an escalation password, and
  * that is deliberately not in this record. A run that needs one cannot resume
- * unattended, so it goes back to connect — read-only, and it establishes the
- * privilege mode and asks for the password again. A run that reaches root
- * without one resumes exactly where it stopped, including into an install that
- * was still going: the script is marker-based, so continuing it costs only the
- * steps that are not already done.
+ * unattended, so it goes back to the server step — with its inputs kept, so
+ * one click re-checks the server and asks for the password again. A run that
+ * reaches root without one resumes exactly where it stopped, including into an
+ * install that was still going: the script is marker-based, so continuing it
+ * costs only the steps that are not already done.
  *
  * `accounts` is not resumed. The install is over, the connection is stored, and
  * the screen's only content is the tool panel pointed at the server it just
@@ -180,11 +177,11 @@ export function isUsableDirectory(value: string): boolean {
  * which is where a relaunched app should find it.
  */
 export function resumeState(state: InstallerState, inputs: InstallerInputs): InstallerState {
-  if (state === "network" || state === "ssh_key" || state === "accounts") return "welcome";
+  if (state === "server" || state === "accounts") return "welcome";
   if (state !== "review" && state !== "install") return state;
   return inputs.privilegeMode === "root" || inputs.privilegeMode === "sudoNoPassword"
     ? state
-    : "connect";
+    : "server";
 }
 
 /**

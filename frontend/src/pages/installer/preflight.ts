@@ -1,7 +1,7 @@
 import type { PreflightReport } from "@/lib/provision-client";
 
 /**
- * Reading the preflight report the way the connect screen presents it.
+ * Reading the preflight report the way the server screen presents it.
  *
  * The whole point of running preflight before the install is that anything the
  * operator can still correct is reported while the form is still editable. So
@@ -24,16 +24,16 @@ export const CHECK_TITLES: Record<string, string> = {
 };
 
 /**
- * Which field on which screen corrects a failing check. A check absent from
- * this map cannot be fixed from the installer — the operator has to change
- * something on the server itself.
+ * Which field corrects a failing check. A check absent from this map cannot be
+ * fixed from the installer — the operator has to change something on the
+ * server itself.
  */
 export const CHECK_FIELDS: Record<string, string> = {
-  port: "the port on the Network step",
-  install_dir: "the install directory on the Network step",
-  data_dir: "the data directory on the Network step",
-  existing_install: "the install directory on the Network step",
-  ssh_key: "the SSH key on the SSH key step",
+  port: "the Hive port under Advanced",
+  install_dir: "the install directory under Advanced",
+  data_dir: "the data directory under Advanced",
+  existing_install: "the install directory under Advanced",
+  ssh_key: "the SSH key",
 };
 
 export function checkTitle(check: string): string {

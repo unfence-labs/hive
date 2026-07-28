@@ -33,7 +33,7 @@ ssh -o StrictHostKeyChecking=accept-new root@<VM_IP> uname -a
 ```
 
 (You can also connect as a non-root sudo user; the wizard asks for the sudo
-password on the connect screen if one is needed.)
+password on the server screen if one is needed.)
 
 ## 2. Build a dev release tarball
 
@@ -70,19 +70,18 @@ npm install
 npm run tauri dev
 ```
 
-The screens, in order: **welcome → network → SSH key → connect → install →
-accounts → ready**.
+The screens, in order: **welcome → server → review → install → accounts**.
 
-1. **Network** — type the VM's IP. Hive takes no position on how the server is
-   reached; a local VM IP is as good as any.
-2. **SSH key** — pick the key whose public half you authorized on root.
-3. **Connect** — approve the host fingerprint; the preflight report renders
-   what the server looks like.
-4. **Install** — the checklist streams `provision.sh`'s progress. The upload of
+1. **Server** — type the VM's IP (the key whose public half you authorized on
+   root is auto-selected), then **Connect**: approve the host fingerprint, and
+   the preflight report renders what the server looks like. Hive takes no
+   position on how the server is reached; a local VM IP is as good as any.
+2. **Review** — the settled plan, restated; **Start the install**.
+3. **Install** — the checklist streams `provision.sh`'s progress. The upload of
    the local tarball shows up as a log line before the release step. The run
    ends with a fresh access token; the backend listens on port **9420**.
-5. **Accounts** — connect GitHub, Claude and Codex on the server.
-6. **Ready** — the app lands in a working Hive at `http://<VM_IP>:9420`.
+4. **Accounts** — connect Claude and Codex on the server; finishing lands the
+   app in a working Hive at `http://<VM_IP>:9420`.
 
 A prerelease (`0.0.0-dev`) install writes `HIVE_ALLOWED_ORIGINS` with the Vite
 dev origins into `/etc/hive/hive.env`, so the dev app — whose webview origin is

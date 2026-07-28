@@ -18,6 +18,7 @@ import type { ProvisionRecord } from "@/lib/provision-client";
 import {
   ACCESS_TOKEN,
   UNTRUSTED_HOST,
+  USABLE_KEY,
   activeFirewallReport,
   blockedReport,
   createMockProvisionClient,
@@ -106,6 +107,22 @@ function seed(state: InstallerState, inputs: Partial<InstallerInputs> = {}) {
 /** Everything a running install needs, without walking the earlier screens. */
 function seedRunningInstall(inputs: Partial<InstallerInputs> = {}) {
   seed("install", { privilegeMode: "root", ...inputs });
+}
+
+/**
+ * Walk from the welcome choice onto the server screen and start the check.
+ * The server step never resumes, so every test reaches it the way an operator
+ * does.
+ */
+async function connectToServer(
+  user: ReturnType<typeof userEvent.setup>,
+  address = "root@203.0.113.10",
+) {
+  await user.click(screen.getByRole("button", { name: "Install on a server" }));
+  // The local key scan auto-selects the first usable key.
+  await screen.findByText("id_ed25519");
+  await user.type(screen.getByLabelText("Address"), address);
+  await user.click(screen.getByRole("button", { name: "Connect" }));
 }
 
 /** What the whole of browser storage holds right now, as one string. */
@@ -210,15 +227,15 @@ describe("Installer", () => {
     expect(screen.getByRole("button", { name: "Cancel" })).toBeInTheDocument();
   });
 
-  it("collects the address, the port and the advanced directories, and asks nothing about the network", async () => {
+  it("collects the address and key up front, keeps the rest under Advanced, and asks nothing about the network", async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     const client = createMockProvisionClient();
     render(<Installer client={client} />);
 
     await user.click(screen.getByRole("button", { name: "Install on a server" }));
 
-    // The install connects over SSH, so up front there is only the address;
-    // Hive's own serving port is an Advanced detail.
+    // The install connects over SSH, so up front there are only the address
+    // and the key; Hive's own serving port is an Advanced detail.
     expect(screen.queryByLabelText("Hive port")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Install directory")).not.toBeInTheDocument();
     // The technical reading moved off the welcome screen to here.
@@ -235,25 +252,26 @@ describe("Installer", () => {
     expect(screen.getByLabelText("Data directory")).toHaveValue("/home/hive/.hive");
     expect(screen.queryAllByRole("radio")).toHaveLength(0);
 
-    const address = screen.getByLabelText("Address");
-    expect(screen.getByRole("button", { name: "Continue" })).toBeDisabled();
-    await user.type(address, "root@203.0.113.10");
-    await user.click(screen.getByRole("button", { name: "Continue" }));
-
+    // The scan auto-selects the first usable key; the address is what unlocks
+    // the connection attempt.
     expect(await screen.findByText("id_ed25519")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Connect" })).toBeDisabled();
+    await user.type(screen.getByLabelText("Address"), "root@203.0.113.10");
+    expect(screen.getByRole("button", { name: "Connect" })).toBeEnabled();
+    // Nothing has been contacted yet: connecting is an explicit act.
+    expect(client.testConnection).not.toHaveBeenCalled();
   });
 
   it("marks unusable keys as such and offers a re-scan", async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     const client = createMockProvisionClient();
-    // The ssh_key state never resumes, so walk there through the flow.
     render(<Installer client={client} />);
     await user.click(screen.getByRole("button", { name: "Install on a server" }));
-    await user.type(screen.getByLabelText("Address"), "root@203.0.113.10");
-    await user.click(screen.getByRole("button", { name: "Continue" }));
 
-    expect(await screen.findByRole("radio", { name: "id_ed25519" })).toBeEnabled();
-    expect(screen.getByRole("radio", { name: "id_rsa" })).toBeDisabled();
+    expect(await screen.findByText("id_ed25519")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "SSH key" }));
+
+    expect(screen.getByRole("button", { name: /id_rsa/ })).toBeDisabled();
     expect(screen.getByText(/it has a passphrase and no agent holds it/)).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Scan again" }));
@@ -263,13 +281,13 @@ describe("Installer", () => {
   it("asks for the server's fingerprint before it runs preflight over it", async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     const client = createMockProvisionClient();
-    seed("connect");
     render(<Installer client={client} />);
+    await connectToServer(user);
 
     expect(await screen.findByText(UNTRUSTED_HOST.fingerprint, { exact: false })).toBeInTheDocument();
     expect(client.preflight).not.toHaveBeenCalled();
 
-    await user.click(screen.getByRole("button", { name: "Approve and check the server" }));
+    await user.click(screen.getByRole("button", { name: "Approve fingerprint" }));
 
     await waitFor(() =>
       expect(client.trustHost).toHaveBeenCalledWith("203.0.113.10", UNTRUSTED_HOST.hostKey),
@@ -277,17 +295,23 @@ describe("Installer", () => {
     await waitFor(() => expect(client.preflight).toHaveBeenCalledTimes(1));
     expect(client.preflight).toHaveBeenCalledWith(
       { host: "203.0.113.10", user: "root", keyPath: "/home/lenny/.ssh/id_ed25519" },
-      { port: 9420, installDir: "/opt/hive", dataDir: "/home/hive/.hive" },
+      {
+        port: 9420,
+        installDir: "/opt/hive",
+        dataDir: "/home/hive/.hive",
+        sshPublicKey: USABLE_KEY.publicKey,
+      },
     );
   });
 
   it("never shows a password field when the account reaches root on its own", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     const client = createMockProvisionClient({
       identity: { ...UNTRUSTED_HOST, trusted: true },
       preflight: report({ privilege: { mode: "root" } }),
     });
-    seed("connect");
     render(<Installer client={client} />);
+    await connectToServer(user);
 
     expect(await screen.findByText("port 9420 is free")).toBeInTheDocument();
     expect(screen.queryByLabelText(/^Password for/)).not.toBeInTheDocument();
@@ -302,8 +326,8 @@ describe("Installer", () => {
         privilege: { mode: "sudoPassword" },
       }),
     });
-    seed("connect", { address: "ops@203.0.113.10" });
     render(<Installer client={client} />);
+    await connectToServer(user, "ops@203.0.113.10");
 
     const password = await screen.findByLabelText("Password for ops");
     // The install cannot start without it.
@@ -319,38 +343,45 @@ describe("Installer", () => {
     expect(localStorage.getItem(INSTALLER_STORAGE_KEY)).not.toContain("hunter2");
   });
 
-  it("stops on a blocking finding and names the field that corrects it", async () => {
+  it("stops on a blocking finding, names the field that corrects it, and editing it resets the check", async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     const client = createMockProvisionClient({
       identity: { ...UNTRUSTED_HOST, trusted: true },
       preflight: blockedReport(),
     });
-    seed("connect");
     render(<Installer client={client} />);
+    await connectToServer(user);
 
     expect(
       await screen.findByText("port 9420 is already in use by another service"),
     ).toBeInTheDocument();
     expect(
-      screen.getByText("Go back and correct the port on the Network step, then test again."),
+      screen.getByText("Correct the Hive port under Advanced, then connect again."),
     ).toBeInTheDocument();
     expect(screen.getByRole("alert")).toHaveTextContent(
       "The install cannot start until the findings above are cleared.",
     );
     expect(screen.getByRole("button", { name: "Continue" })).toBeDisabled();
 
-    // Back navigation is free: the server has not been touched.
-    await user.click(screen.getByRole("button", { name: "Back" }));
-    expect(await screen.findByRole("radio", { name: "id_ed25519" })).toBeInTheDocument();
+    // The named field is on this same screen. Correcting it discards the
+    // stale report and re-arms the connection check — no back navigation.
+    await user.click(screen.getByRole("button", { name: "Advanced" }));
+    await user.clear(screen.getByLabelText("Hive port"));
+    await user.type(screen.getByLabelText("Hive port"), "9421");
+    expect(
+      screen.queryByText("port 9420 is already in use by another service"),
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Connect" })).toBeEnabled();
   });
 
   it("blocks when an active firewall cannot be configured automatically", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     const client = createMockProvisionClient({
       identity: { ...UNTRUSTED_HOST, trusted: true },
       preflight: foreignFirewallReport(),
     });
-    seed("connect");
     render(<Installer client={client} />);
+    await connectToServer(user);
 
     expect(
       await screen.findByText("nftables is active, and Hive cannot configure it automatically"),
@@ -359,11 +390,12 @@ describe("Installer", () => {
   });
 
   it("never asks about the firewall when no firewall is active", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     const client = createMockProvisionClient({
       identity: { ...UNTRUSTED_HOST, trusted: true },
     });
-    seed("connect");
     render(<Installer client={client} />);
+    await connectToServer(user);
 
     // The report says plainly what will happen and on which port, and there is
     // nothing to decide: no rule is written, so no question is put.
@@ -380,8 +412,8 @@ describe("Installer", () => {
       identity: { ...UNTRUSTED_HOST, trusted: true },
       preflight: activeFirewallReport(),
     });
-    seed("connect");
     render(<Installer client={client} />);
+    await connectToServer(user);
 
     expect(
       await screen.findByText(
@@ -400,31 +432,31 @@ describe("Installer", () => {
     expect(client.installs[0].request.options.port).toBe(9420);
   });
 
-  it("surfaces an unreachable server with its hint and a retry", async () => {
+  it("surfaces an unreachable server with its hint, and Connect re-arms as the retry", async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     const client = createMockProvisionClient();
     client.testConnection.mockRejectedValue({
       code: "SSH_UNREACHABLE",
       detail: "ssh: connect to host 203.0.113.10 port 22: No route to host",
     });
-    seed("connect");
     render(<Installer client={client} />);
+    await connectToServer(user);
 
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent("SSH_UNREACHABLE");
     expect(alert).toHaveTextContent("The server did not answer on SSH.");
     expect(alert).toHaveTextContent("No route to host");
 
-    await user.click(screen.getByRole("button", { name: "Try again" }));
+    await user.click(screen.getByRole("button", { name: "Connect" }));
     await waitFor(() => expect(client.testConnection).toHaveBeenCalledTimes(2));
   });
 
   it("starts over instead of resuming a run that never touched the server", async () => {
-    seed("network", { address: "root@198.51.100.7", port: 8080 });
+    seed("server", { address: "root@198.51.100.7", port: 8080 });
     render(<Installer client={createMockProvisionClient()} />);
 
-    // Nothing durable exists before the connect step, so nothing resumes —
-    // not the screen, and not the half-typed draft either.
+    // Nothing durable exists before the server step completes, so nothing
+    // resumes — not the screen, and not the half-typed draft either.
     expect(
       await screen.findByRole("button", { name: "Install on a server" }),
     ).toBeInTheDocument();
@@ -541,8 +573,11 @@ describe("Installer", () => {
     seed("install", { privilegeMode: "sudoPassword", address: "ops@203.0.113.10" });
 
     // The password is deliberately never persisted, so an install that needs
-    // one resumes onto connect — read-only — instead of failing on the wire.
-    expect(loadMachine().state).toBe("connect");
+    // one resumes onto the server step — with its inputs kept, one click away
+    // from re-checking — instead of failing on the wire.
+    const resumed = loadMachine();
+    expect(resumed.state).toBe("server");
+    expect(resumed.inputs.address).toBe("ops@203.0.113.10");
   });
 
   it("offers retry and back on failure, and retry resumes rather than restarts", async () => {

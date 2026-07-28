@@ -53,27 +53,28 @@ With no server configured, the installer opens by itself. With one configured, o
 
 The screens, in order:
 
-1. **Set up Hive.** Either start the install, or point the app at a server that already exists by
-   entering its address, port and access token. The second is the skip.
-2. **Where the server is.** The address that reaches it (`host`, or `user@host` to log in as
-   something other than root) and the port Hive should listen on. *Advanced* exposes the install
-   directory and the data directory. You are not asked how the server is reachable.
-3. **Choose the SSH key.** Keys under `~/.ssh` are listed. A passphrase-protected key is marked
-   unusable unless an agent holds it; run `ssh-add <path>` and rescan. The key you pick is also the
-   key authorized on the service account, so editor and terminal sessions connect as `hive`.
-4. **Check the server.** Hive reaches the server, shows its host key fingerprint for approval, then
-   runs the installer's own read-only preflight over that connection and lists every finding.
-   Blocking findings name the field that fixes them. An active `ufw` is configured automatically
-   during installation; an active firewall Hive cannot configure blocks here instead of producing
-   an unreachable install. If the account needs a `sudo` password, this is where it is asked for.
-   Nothing on the server is changed by this step.
-5. **Ready to install.** The settled plan, restated. This is the last screen where going back is
+1. **Welcome to Hive.** Either start the install, or point the app at a server that already exists
+   by entering its address, port and access token. The second is the skip.
+2. **Connect to your server.** The SSH address that reaches it (`host`, or `user@host` to log in as
+   something other than root) and the key — keys under `~/.ssh` are scanned and the first usable
+   one auto-selected; a passphrase-protected key is marked unusable unless an agent holds it (run
+   `ssh-add <path>` and rescan). The key you pick is also the key authorized on the service
+   account, so editor and terminal sessions connect as `hive`. *Advanced* exposes the Hive port and
+   the install and data directories. You are not asked how the server is reachable. **Connect**
+   then proves the form: Hive reaches the server, shows its host key fingerprint for approval on
+   first contact, runs the installer's own read-only preflight over that connection and lists every
+   finding. Blocking findings name the field on this same screen that fixes them, and editing any
+   field discards the check. An active `ufw` is configured automatically during installation; an
+   active firewall Hive cannot configure blocks here instead of producing an unreachable install.
+   If the account needs a `sudo` password, this is where it is asked for. Nothing on the server is
+   changed by this step.
+3. **Ready to install.** The settled plan, restated. This is the last screen where going back is
    free.
-6. **Installing Hive.** A live checklist and the raw output. It cannot be cancelled: the script runs
+4. **Installing Hive.** A live checklist and the raw output. It cannot be cancelled: the script runs
    on the server, so stopping this end would not stop it. It is resumable instead — each completed
    step is recorded on the server, so closing the app or pressing Retry continues from where it
    stopped rather than starting over.
-7. **Connect your accounts.** The server is up. Sign in to Claude or Codex from here.
+5. **Connect your accounts.** The server is up. Sign in to Claude or Codex from here.
    Everything is optional and everything is also in **Settings → Harness**; GitHub connects
    later from **Settings → Account**.
 

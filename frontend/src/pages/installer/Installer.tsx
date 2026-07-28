@@ -13,9 +13,7 @@ import { switchServer } from "@/lib/server-connection";
 import { isDesktopShell } from "@/lib/is-desktop";
 import { serverUrlFor } from "@/hooks/useConnection";
 import { WelcomeScreen } from "./screens/WelcomeScreen";
-import { NetworkScreen } from "./screens/NetworkScreen";
-import { SshKeyScreen } from "./screens/SshKeyScreen";
-import { ConnectScreen } from "./screens/ConnectScreen";
+import { ServerScreen } from "./screens/ServerScreen";
 import { ReadyScreen } from "./screens/ReadyScreen";
 import { AccountsScreen } from "./screens/AccountsScreen";
 import { InstallScreen, type InstallResult } from "./screens/InstallScreen";
@@ -137,20 +135,12 @@ export default function Installer({
         />
       );
       break;
-    case "network":
-      screen = <NetworkScreen inputs={inputs} onContinue={advance} onBack={back} />;
-      break;
     // The install-path states need the sidecar client. They are unreachable
     // without it — only the desktop shell offers the install path — so the
     // null branches below are types, not flows.
-    case "ssh_key":
+    case "server":
       screen = client === null ? null : (
-        <SshKeyScreen client={client} inputs={inputs} onContinue={advance} onBack={back} />
-      );
-      break;
-    case "connect":
-      screen = client === null ? null : (
-        <ConnectScreen
+        <ServerScreen
           client={client}
           inputs={inputs}
           onContinue={(values, password) => {

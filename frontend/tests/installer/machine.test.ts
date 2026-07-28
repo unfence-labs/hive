@@ -35,14 +35,14 @@ describe("installer machine", () => {
   });
 
   it("walks the sequence forward and back, and back is available everywhere but welcome", () => {
-    expect(nextState("welcome")).toBe("network");
-    expect(nextState("network")).toBe("ssh_key");
-    expect(nextState("ssh_key")).toBe("connect");
-    expect(previousState("connect")).toBe("ssh_key");
+    expect(nextState("welcome")).toBe("server");
+    expect(nextState("server")).toBe("review");
+    expect(nextState("review")).toBe("install");
+    expect(previousState("review")).toBe("server");
     expect(previousState("welcome")).toBe("welcome");
 
     expect(canGoBack("welcome")).toBe(false);
-    for (const state of ["network", "ssh_key", "connect", "install"] as const) {
+    for (const state of ["server", "review", "install"] as const) {
       expect(canGoBack(state)).toBe(true);
     }
   });
@@ -52,28 +52,37 @@ describe("installer machine", () => {
     machine = reduce(machine, { type: "advance", inputs: { address: "root@203.0.113.10" } });
     machine = reduce(machine, { type: "back" });
 
-    expect(machine.state).toBe("network");
+    expect(machine.state).toBe("server");
     expect(machine.inputs.address).toBe("root@203.0.113.10");
   });
 
   it("starts over from a save that never touched the server", () => {
-    let machine = reduce(initialMachine(), { type: "advance" });
-    machine = reduce(machine, { type: "advance", inputs: { address: "203.0.113.10", port: 9999 } });
+    const machine = reduce(initialMachine(), {
+      type: "advance",
+      inputs: { address: "203.0.113.10", port: 9999 },
+    });
     saveMachine(machine);
 
-    // ssh_key holds nothing durable, so neither the screen nor the draft resumes.
+    // The server step holds nothing durable, so neither the screen nor the
+    // draft resumes.
+    expect(machine.state).toBe("server");
     expect(loadMachine()).toEqual(initialMachine());
   });
 
-  it("resumes where it stopped once the server has been touched", () => {
+  it("resumes where it stopped once the server has been proven", () => {
     saveMachine({
       schema: INSTALLER_SCHEMA,
-      state: "connect",
-      inputs: { ...initialMachine().inputs, address: "203.0.113.10", port: 9999 },
+      state: "review",
+      inputs: {
+        ...initialMachine().inputs,
+        address: "203.0.113.10",
+        port: 9999,
+        privilegeMode: "root",
+      },
     });
 
     const resumed = loadMachine();
-    expect(resumed.state).toBe("connect");
+    expect(resumed.state).toBe("review");
     expect(resumed.inputs.address).toBe("203.0.113.10");
     expect(resumed.inputs.port).toBe(9999);
   });
@@ -95,14 +104,17 @@ describe("installer machine", () => {
     expect(loadMachine().state).toBe("welcome");
   });
 
-  it("resumes onto connect rather than past it, since the password was not kept", () => {
+  it("resumes onto the server step rather than past it, since the password was not kept", () => {
     saveMachine({
       schema: INSTALLER_SCHEMA,
       state: "install",
       inputs: { ...initialMachine().inputs, address: "ops@203.0.113.10" },
     });
 
-    expect(loadMachine().state).toBe("connect");
+    const resumed = loadMachine();
+    expect(resumed.state).toBe("server");
+    // The inputs survive: re-checking the server is one click, not a re-type.
+    expect(resumed.inputs.address).toBe("ops@203.0.113.10");
   });
 
   it("resumes straight back into an install that reaches root without a password", () => {
@@ -119,7 +131,7 @@ describe("installer machine", () => {
     }
   });
 
-  it("sends an install that needs the escalation password back to connect", () => {
+  it("sends an install that needs the escalation password back to the server step", () => {
     for (const state of ["review", "install"] as const) {
       saveMachine({
         schema: INSTALLER_SCHEMA,
@@ -131,7 +143,7 @@ describe("installer machine", () => {
         },
       });
 
-      expect(loadMachine().state).toBe("connect");
+      expect(loadMachine().state).toBe("server");
     }
   });
 
