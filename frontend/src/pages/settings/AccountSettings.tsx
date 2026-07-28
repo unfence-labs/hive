@@ -59,13 +59,13 @@ export default function AccountSettings() {
     queryKey: SETUP_STATUS_KEY,
     queryFn: ({ signal }) => setupApi.getStatus(signal),
     refetchInterval: (query) =>
-      query.state.data?.authSessions.some(
+      query.state.data?.authSessions?.some(
         (session) => session.tool === "gh" && !isToolAuthTerminal(session.state),
       )
         ? POLL_INTERVAL_MS
         : false,
   });
-  const ghSession = authQuery.data?.authSessions.find((session) => session.tool === "gh");
+  const ghSession = authQuery.data?.authSessions?.find((session) => session.tool === "gh");
 
   const connect = useMutation({
     mutationFn: () => setupApi.startAuth("gh"),

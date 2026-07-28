@@ -117,11 +117,12 @@ export function ToolsPanel({
     queryKey: statusKey,
     queryFn: ({ signal }) => api.getStatus(signal),
     refetchInterval: (query) => {
+      // Optional-chained throughout: this body comes off the wire, and a
+      // server that answers with something else must not crash the panel.
       const state = query.state.data;
-      if (!state) return false;
       const busy =
-        state.operations.some((op) => op.status === "running") ||
-        state.authSessions.some((session) => !isToolAuthTerminal(session.state));
+        state?.operations?.some((op) => op.status === "running") ||
+        state?.authSessions?.some((session) => !isToolAuthTerminal(session.state));
       return busy ? POLL_INTERVAL_MS : false;
     },
   });
@@ -235,14 +236,17 @@ export function ToolsPanel({
     );
   }
 
+  // Same wire-tolerance as the poll above: render nothing over a body that
+  // lacks the list rather than crash the page that contains the panel.
+  const tools = data.tools ?? [];
   // A tool that serves model providers is an agent harness; gh is not one.
-  const anyAgentConnected = data.tools.some(
+  const anyAgentConnected = tools.some(
     (tool) => TOOL_PROVIDERS[tool.id] !== undefined && tool.authenticated,
   );
 
   return (
     <div className={cn("space-y-4", className)}>
-      {data.tools.map((tool) => (
+      {tools.map((tool) => (
         <ToolCard
           key={tool.id}
           tool={tool}
