@@ -160,8 +160,8 @@ describe("provider usage", () => {
       },
     })).toEqual([
       {
-        id: "codex",
-        label: null,
+        id: "codex:primary",
+        label: "5h",
         usedPercent: 0.4,
         windowDurationMins: 300,
         resetsAt: 1781110800,
@@ -184,8 +184,8 @@ describe("provider usage", () => {
       },
     })).toMatchObject([
       {
-        id: "weekly",
-        label: "Weekly",
+        id: "weekly:primary",
+        label: "Weekly primary",
         usedPercent: 87,
         resetsAt: 1781542800,
       },
@@ -198,7 +198,7 @@ describe("provider usage", () => {
       },
     })).toMatchObject([
       {
-        id: "codex",
+        id: "codex:primary",
         usedPercent: 1,
       },
     ]);
@@ -209,7 +209,7 @@ describe("provider usage", () => {
       },
     })).toMatchObject([
       {
-        id: "codex",
+        id: "codex:primary",
         usedPercent: 1,
       },
     ]);
@@ -220,10 +220,105 @@ describe("provider usage", () => {
       },
     })).toMatchObject([
       {
-        id: "codex",
+        id: "codex:primary",
         usedPercent: 42,
       },
     ]);
+  });
+
+  // Field names and nesting mirror the RateLimitSnapshot bindings emitted by
+  // `codex app-server generate-ts` (codex-cli 0.145.0).
+  it("surfaces both the primary and secondary window of every Codex limit", () => {
+    expect(__providerUsageTestHooks.parseCodexRateLimitBuckets({
+      rateLimits: {
+        limitId: "codex",
+        limitName: "Codex",
+        primary: { usedPercent: 0, windowDurationMins: 10080, resetsAt: 1781542800 },
+        secondary: { usedPercent: 64, windowDurationMins: 300, resetsAt: 1781110800 },
+      },
+      rateLimitsByLimitId: {
+        codex: {
+          limitId: "codex",
+          limitName: "Codex",
+          primary: { usedPercent: 0, windowDurationMins: 10080, resetsAt: 1781542800 },
+          secondary: { usedPercent: 64, windowDurationMins: 300, resetsAt: 1781110800 },
+        },
+        "gpt-5.3-codex": {
+          limitId: "gpt-5.3-codex",
+          limitName: "GPT-5.3-Codex",
+          primary: { usedPercent: 0, windowDurationMins: 10080, resetsAt: 1781542800 },
+          secondary: null,
+        },
+      },
+    })).toEqual([
+      {
+        id: "codex:primary",
+        label: "7d",
+        usedPercent: 0,
+        windowDurationMins: 10080,
+        resetsAt: 1781542800,
+        planType: null,
+        credits: undefined,
+        rateLimitReachedType: null,
+      },
+      {
+        id: "codex:secondary",
+        label: "5h",
+        usedPercent: 64,
+        windowDurationMins: 300,
+        resetsAt: 1781110800,
+        planType: null,
+        credits: undefined,
+        rateLimitReachedType: null,
+      },
+      {
+        id: "gpt-5.3-codex:primary",
+        label: "GPT-5.3-Codex 7d",
+        usedPercent: 0,
+        windowDurationMins: 10080,
+        resetsAt: 1781542800,
+        planType: null,
+        credits: undefined,
+        rateLimitReachedType: null,
+      },
+    ]);
+  });
+
+  it("reports an expired Codex sign-in instead of the raw upstream error", async () => {
+    const proc = createMockProcess();
+    mocks.spawn.mockReturnValue(proc);
+    mocks.getAllProviderInfo.mockReturnValue([
+      {
+        id: "codex",
+        label: "Codex",
+        npmPackage: "@openai/codex",
+        installed: true,
+        version: "1.0.0",
+      },
+    ]);
+
+    const resultPromise = getProviderUsageSnapshot();
+    const init = findMethod(proc, "initialize");
+    proc._stdout.push(appServerResponse(init.id, {}));
+    await flushPromises();
+    const read = findMethod(proc, "account/rateLimits/read");
+    proc._stdout.push(JSON.stringify({
+      id: read.id,
+      error: {
+        code: -32603,
+        message: "failed to fetch codex rate limits: GET https://chatgpt.com/backend-api/wham/usage"
+          + ' failed: 401 Unauthorized; content-type=text/plain; body={"error":{"code":"token_invalidated"}}',
+      },
+    }) + "\n");
+
+    const result = await resultPromise;
+
+    expect(result.providers[0]).toMatchObject({
+      id: "codex",
+      status: "unknown",
+      buckets: [],
+      message: "Codex sign-in expired. Run `codex login`.",
+    });
   });
 
   it("reads Codex usage through the App Server JSON-RPC endpoint", async () => {
@@ -266,8 +361,8 @@ describe("provider usage", () => {
       status: "available",
       buckets: [
         {
-          id: "primary",
-          label: "Primary",
+          id: "primary:primary",
+          label: "Primary 5h",
           usedPercent: 25,
           resetsAt: 1781110800,
         },
@@ -353,7 +448,7 @@ describe("provider usage", () => {
     expect(secondResult.providers[0]).toMatchObject({
       id: "codex",
       status: "available",
-      buckets: [{ id: "codex", usedPercent: 12 }],
+      buckets: [{ id: "codex:primary", usedPercent: 12 }],
     });
   });
 
@@ -414,7 +509,7 @@ describe("provider usage", () => {
     const secondResult = await getProviderUsageSnapshot();
     expect(secondResult.providers[0]).toMatchObject({
       id: "codex",
-      buckets: [{ id: "codex", usedPercent: 12 }],
+      buckets: [{ id: "codex:primary", usedPercent: 12 }],
     });
     expect(parseWrites(proc).filter((entry) => entry.method === "account/rateLimits/read")).toHaveLength(1);
 
