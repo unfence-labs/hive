@@ -50,7 +50,12 @@ export default function Installer({
   onClose,
   cancellable,
 }: InstallerProps) {
-  const client = useMemo(() => injectedClient ?? createProvisionClient(), [injectedClient]);
+  // The web build has no SSH sidecar to build a client on — and never reaches
+  // the screens that need one, since it cannot start the install path.
+  const client = useMemo(
+    () => injectedClient ?? (isDesktopShell() ? createProvisionClient() : null),
+    [injectedClient],
+  );
   const [machine, dispatch] = useReducer(reduce, undefined, loadMachine);
   // Held for the length of one install and deliberately never persisted.
   const [escalationPassword, setEscalationPassword] = useState<string | undefined>(undefined);
@@ -135,13 +140,16 @@ export default function Installer({
     case "network":
       screen = <NetworkScreen inputs={inputs} onContinue={advance} onBack={back} />;
       break;
+    // The install-path states need the sidecar client. They are unreachable
+    // without it — only the desktop shell offers the install path — so the
+    // null branches below are types, not flows.
     case "ssh_key":
-      screen = (
+      screen = client === null ? null : (
         <SshKeyScreen client={client} inputs={inputs} onContinue={advance} onBack={back} />
       );
       break;
     case "connect":
-      screen = (
+      screen = client === null ? null : (
         <ConnectScreen
           client={client}
           inputs={inputs}
@@ -164,7 +172,7 @@ export default function Installer({
       );
       break;
     case "install":
-      screen = (
+      screen = client === null ? null : (
         <InstallScreen
           client={client}
           inputs={inputs}
