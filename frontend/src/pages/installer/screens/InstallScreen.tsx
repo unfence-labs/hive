@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { Check, ChevronRight, Circle, Minus, X } from "lucide-react";
 import { InstallerScreen } from "./InstallerScreen";
 import { Button } from "@/components/ui/button";
@@ -109,8 +109,22 @@ export function InstallScreen({
   const logRef = useRef<HTMLPreElement | null>(null);
   const completedRef = useRef(false);
 
-  useEffect(() => {
-    if (progress.status !== "succeeded" || completedRef.current) return;
+  useLayoutEffect(() => {
+    const element = logRef.current;
+    if (element) element.scrollTop = element.scrollHeight;
+  }, [progress.logs]);
+
+  const failed = progress.status === "failed";
+  const succeeded = progress.status === "succeeded";
+  const showSteps = pinnedSteps ?? failed;
+
+  /**
+   * Leaving is the operator's call, never the run's: a finished install is the
+   * one moment worth reading the output on, so nothing moves until Continue.
+   * Guarded because leaving stores the connection, which must happen once.
+   */
+  const leave = () => {
+    if (completedRef.current) return;
     completedRef.current = true;
     // A run only reaches "succeeded" with both of these reported; a run that
     // reported neither is a failure, not something to fill in from a default.
@@ -118,18 +132,7 @@ export function InstallScreen({
       accessToken: progress.accessToken as string,
       serviceUser: progress.serviceUser as string,
     });
-    // onComplete is an inline closure on the parent; the run's outcome is what
-    // decides when it fires.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [progress.status, progress.accessToken, progress.serviceUser]);
-
-  useLayoutEffect(() => {
-    const element = logRef.current;
-    if (element) element.scrollTop = element.scrollHeight;
-  }, [progress.logs]);
-
-  const failed = progress.status === "failed";
-  const showSteps = pinnedSteps ?? failed;
+  };
 
   const total = progress.steps.length;
   const settled = progress.steps.filter(
@@ -144,9 +147,12 @@ export function InstallScreen({
       description={
         failed
           ? "The install stopped. Retry continues from the last completed step; Back returns to the plan so you can correct it."
-          : "This runs on the server and takes a few minutes. It cannot be cancelled — closing the app pauses it, and reopening the installer picks it up where it stopped."
+          : succeeded
+            ? `Hive is installed and answering on port ${inputs.port}. Read the output if you want to; continuing signs you in to your agents on it.`
+            : "This runs on the server and takes a few minutes. It cannot be cancelled — closing the app pauses it, and reopening the installer picks it up where it stopped."
       }
       onBack={failed ? onBack : undefined}
+      {...(succeeded ? { onContinue: leave, continueLabel: "Continue" } : {})}
       footer={
         failed ? (
           <Button variant="outline" size="sm" onClick={retry}>
@@ -162,15 +168,25 @@ export function InstallScreen({
       )}
 
       <div className="flex items-center gap-2 text-sm">
-        {!failed && <Spinner className="h-3.5 w-3.5 shrink-0" />}
         {failed ? (
-          <span className="min-w-0 flex-1 truncate text-destructive">
-            {failedStep ? `Stopped on ${failedStep.title}` : "The install stopped"}
-          </span>
+          <>
+            <X className="h-3.5 w-3.5 shrink-0 text-destructive" />
+            <span className="min-w-0 flex-1 truncate text-destructive">
+              {failedStep ? `Stopped on ${failedStep.title}` : "The install stopped"}
+            </span>
+          </>
+        ) : succeeded ? (
+          <>
+            <Check className="h-3.5 w-3.5 shrink-0 text-success" />
+            <span className="min-w-0 flex-1 truncate text-foreground">Hive is installed</span>
+          </>
         ) : (
-          <span className="min-w-0 flex-1 truncate text-foreground">
-            {current?.title ?? "Starting the install…"}
-          </span>
+          <>
+            <Spinner className="h-3.5 w-3.5 shrink-0" />
+            <span className="min-w-0 flex-1 truncate text-foreground">
+              {current?.title ?? "Starting the install…"}
+            </span>
+          </>
         )}
         {total > 0 && (
           <span className="shrink-0 font-mono text-xs text-muted-foreground">
@@ -190,7 +206,7 @@ export function InstallScreen({
         <div
           className={cn(
             "h-full rounded-full transition-[width] duration-300",
-            failed ? "bg-destructive" : "bg-primary",
+            failed ? "bg-destructive" : succeeded ? "bg-success" : "bg-primary",
           )}
           style={{ width: total === 0 ? "0%" : `${(settled / total) * 100}%` }}
         />

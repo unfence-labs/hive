@@ -75,15 +75,20 @@ function emit(install: MockInstall, ...records: ProvisionRecord[]) {
   });
 }
 
-/** Run an install to completion, landing on the final screen. */
+/**
+ * Run an install to completion, landing on the final screen. A finished run
+ * waits on the operator, so the walk includes the click that leaves it.
+ */
 async function installTo(
   client: ReturnType<typeof createMockProvisionClient>,
   onClose: () => void,
   records = successRecords(),
 ) {
+  const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
   renderInstaller(<Installer client={client} onClose={onClose} />);
   await waitFor(() => expect(client.installs).toHaveLength(1));
   emit(client.installs[0], ...records);
+  await user.click(await screen.findByRole("button", { name: "Continue" }));
   return screen.findByRole("heading", { name: "Connect your accounts" });
 }
 
@@ -522,6 +527,28 @@ describe("Installer", () => {
     for (const label of [/back/i, /cancel/i, /skip/i, /later/i, /start over/i, /retry/i]) {
       expect(screen.queryByRole("button", { name: label })).not.toBeInTheDocument();
     }
+  });
+
+  it("waits on the operator when the run finishes rather than moving on by itself", async () => {
+    stubTools();
+    const client = createMockProvisionClient();
+    seedRunningInstall();
+    renderInstaller(<Installer client={client} />);
+
+    await waitFor(() => expect(client.installs).toHaveLength(1));
+    emit(client.installs[0], ...successRecords());
+
+    // The output of a finished run is the one thing worth reading, so nothing
+    // advances until Continue is pressed — and nothing is stored before it.
+    expect(await screen.findByText("Hive is installed")).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Connect your accounts" })).not.toBeInTheDocument();
+    expect(getConnection()).toBeNull();
+
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+
+    expect(await screen.findByRole("heading", { name: "Connect your accounts" })).toBeInTheDocument();
+    expect(getConnection()).toMatchObject({ authToken: ACCESS_TOKEN, sshUser: "hive" });
   });
 
   it("shows the streamed output as the screen, and never writes it to storage", async () => {
