@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { Check, ChevronDown, ChevronRight, Circle, Minus, X } from "lucide-react";
+import { Check, ChevronRight, Circle, Minus, X } from "lucide-react";
 import { InstallerScreen } from "./InstallerScreen";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
@@ -88,6 +88,12 @@ function buildRequest(inputs: InstallerInputs, password?: string): InstallReques
  * or pressing Retry continues from there instead of starting again.
  *
  * A failed run is not a run in progress, so failure offers both Retry and Back.
+ *
+ * While it runs, only two things are worth reading: which step is going, and
+ * what the server is saying. So the plan folds down to one line with a bar, and
+ * the output is the screen. The full checklist unfolds on failure — the same
+ * "fold when it is fine, unfold when there is something to inspect" rule the
+ * preflight report follows — because that is when what got skipped matters.
  */
 export function InstallScreen({
   client,
@@ -98,7 +104,8 @@ export function InstallScreen({
 }: InstallScreenProps) {
   const [request] = useState(() => buildRequest(inputs, password));
   const { progress, retry } = useInstallRun(client, request);
-  const [showLog, setShowLog] = useState(true);
+  /** null follows the run's outcome; a click pins it either way. */
+  const [pinnedSteps, setPinnedSteps] = useState<boolean | null>(null);
   const logRef = useRef<HTMLPreElement | null>(null);
   const completedRef = useRef(false);
 
@@ -119,9 +126,17 @@ export function InstallScreen({
   useLayoutEffect(() => {
     const element = logRef.current;
     if (element) element.scrollTop = element.scrollHeight;
-  }, [progress.logs, showLog]);
+  }, [progress.logs]);
 
   const failed = progress.status === "failed";
+  const showSteps = pinnedSteps ?? failed;
+
+  const total = progress.steps.length;
+  const settled = progress.steps.filter(
+    (step) => step.status === "done" || step.status === "skipped",
+  ).length;
+  const current = progress.steps.find((step) => step.status === "running");
+  const failedStep = progress.steps.find((step) => step.status === "failed");
 
   return (
     <InstallerScreen
@@ -146,16 +161,61 @@ export function InstallScreen({
         </p>
       )}
 
-      <ul aria-label="Install steps" className="rounded-lg border border-border/50 bg-card/50 p-3">
-        {progress.steps.length === 0 ? (
-          <li className="flex items-center gap-2 py-1 text-sm text-muted-foreground">
-            <Spinner className="h-3.5 w-3.5" />
-            Starting the install…
-          </li>
+      <div className="flex items-center gap-2 text-sm">
+        {!failed && <Spinner className="h-3.5 w-3.5 shrink-0" />}
+        {failed ? (
+          <span className="min-w-0 flex-1 truncate text-destructive">
+            {failedStep ? `Stopped on ${failedStep.title}` : "The install stopped"}
+          </span>
         ) : (
-          progress.steps.map((step) => <StepRow key={step.id} step={step} />)
+          <span className="min-w-0 flex-1 truncate text-foreground">
+            {current?.title ?? "Starting the install…"}
+          </span>
         )}
-      </ul>
+        {total > 0 && (
+          <span className="shrink-0 font-mono text-xs text-muted-foreground">
+            {settled}/{total}
+          </span>
+        )}
+      </div>
+
+      <div
+        role="progressbar"
+        aria-label="Install progress"
+        aria-valuenow={settled}
+        aria-valuemin={0}
+        aria-valuemax={total}
+        className="mt-2 h-1 w-full overflow-hidden rounded-full bg-muted"
+      >
+        <div
+          className={cn(
+            "h-full rounded-full transition-[width] duration-300",
+            failed ? "bg-destructive" : "bg-primary",
+          )}
+          style={{ width: total === 0 ? "0%" : `${(settled / total) * 100}%` }}
+        />
+      </div>
+
+      <div className="mt-3">
+        <button
+          type="button"
+          aria-expanded={showSteps}
+          onClick={() => setPinnedSteps(!showSteps)}
+          className="inline-flex cursor-pointer items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+        >
+          <ChevronRight
+            className={cn("h-3.5 w-3.5 transition-transform", showSteps && "rotate-90")}
+          />
+          All steps
+        </button>
+        {showSteps && total > 0 && (
+          <ul aria-label="Install steps" className="mt-1 pl-0.5">
+            {progress.steps.map((step) => (
+              <StepRow key={step.id} step={step} />
+            ))}
+          </ul>
+        )}
+      </div>
 
       {failed && progress.failure && (
         <div
@@ -172,30 +232,15 @@ export function InstallScreen({
         </div>
       )}
 
-      <div className="mt-4">
-        <button
-          type="button"
-          aria-expanded={showLog}
-          onClick={() => setShowLog((value) => !value)}
-          className="inline-flex cursor-pointer items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
-        >
-          {showLog ? (
-            <ChevronDown className="h-3.5 w-3.5" />
-          ) : (
-            <ChevronRight className="h-3.5 w-3.5" />
-          )}
-          Output
-        </button>
-        {showLog && (
-          <pre
-            ref={logRef}
-            aria-label="Install output"
-            className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap break-words rounded bg-muted/50 p-2 font-mono text-[11px] leading-relaxed text-muted-foreground"
-          >
-            {progress.logs.length === 0 ? "Waiting for output…" : progress.logs.join("\n")}
-          </pre>
-        )}
-      </div>
+      {/* A bounded box that scrolls itself: the stream is unbounded, and a log
+          that grew the page would push the footer out of reach. */}
+      <pre
+        ref={logRef}
+        aria-label="Install output"
+        className="mt-4 h-[45vh] min-h-48 overflow-auto whitespace-pre-wrap break-words rounded-lg border border-border/50 bg-muted/50 p-3 font-mono text-[11px] leading-relaxed text-muted-foreground"
+      >
+        {progress.logs.length === 0 ? "Waiting for output…" : progress.logs.join("\n")}
+      </pre>
     </InstallerScreen>
   );
 }

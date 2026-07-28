@@ -507,10 +507,16 @@ describe("Installer", () => {
     // may offer to leave a run that the server carries on regardless.
     render(<Installer client={client} onClose={vi.fn()} />);
 
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     await waitFor(() => expect(client.installs).toHaveLength(1));
     emit(client.installs[0], ...successRecords().slice(0, 4));
 
-    const steps = await screen.findByRole("list", { name: "Install steps" });
+    // A healthy run reads as one line and a bar; the checklist is folded away
+    // until it is asked for.
+    expect(await screen.findByRole("progressbar", { name: "Install progress" })).toBeInTheDocument();
+    expect(screen.queryByRole("list", { name: "Install steps" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "All steps" }));
+    const steps = screen.getByRole("list", { name: "Install steps" });
     expect(within(steps).getByText("Check the server")).toBeInTheDocument();
 
     for (const label of [/back/i, /cancel/i, /skip/i, /later/i, /start over/i, /retry/i]) {
@@ -518,8 +524,7 @@ describe("Installer", () => {
     }
   });
 
-  it("shows the streamed output, folds it away, and never writes it to storage", async () => {
-    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+  it("shows the streamed output as the screen, and never writes it to storage", async () => {
     const client = createMockProvisionClient();
     seedRunningInstall();
     render(<Installer client={client} />);
@@ -527,15 +532,14 @@ describe("Installer", () => {
     await waitFor(() => expect(client.installs).toHaveLength(1));
     emit(client.installs[0], ...successRecords().slice(0, 4));
 
+    // The output is always on: it is what the screen is for while a run goes.
     const log = await screen.findByLabelText("Install output");
     expect(log).toHaveTextContent("ubuntu 24.04 x86_64");
     expect(storageContents()).not.toContain("ubuntu 24.04 x86_64");
-
-    await user.click(screen.getByRole("button", { name: "Output" }));
-    expect(screen.queryByLabelText("Install output")).not.toBeInTheDocument();
   });
 
   it("attaches to the run in progress rather than starting a second one", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     const client = createMockProvisionClient();
     seedRunningInstall();
     const first = render(<Installer client={client} />);
@@ -547,7 +551,8 @@ describe("Installer", () => {
     // Re-entering the install — a remount, a route change, a re-render — must
     // not spawn a second ssh process against the same server.
     render(<Installer client={client} />);
-    const steps = await screen.findByRole("list", { name: "Install steps" });
+    await user.click(await screen.findByRole("button", { name: "All steps" }));
+    const steps = screen.getByRole("list", { name: "Install steps" });
 
     expect(client.install).toHaveBeenCalledTimes(1);
     // It attached to what was already running: the earlier progress is there.
@@ -555,6 +560,7 @@ describe("Installer", () => {
   });
 
   it("returns to the running install after a relaunch and continues it", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     const client = createMockProvisionClient();
     seedRunningInstall();
     const first = render(<Installer client={client} />);
@@ -574,6 +580,7 @@ describe("Installer", () => {
     emit(client.installs[1], ...successRecords(true).slice(0, 6));
 
     expect(screen.getByText(/Continuing an earlier run/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "All steps" }));
     const steps = screen.getByRole("list", { name: "Install steps" });
     expect(within(steps).getByText("Create user").closest("li")).toHaveTextContent("already done");
   });
@@ -603,6 +610,11 @@ describe("Installer", () => {
     expect(alert).toHaveTextContent("Hive cannot write to the install or data directory");
     expect(alert).toHaveTextContent("/home/hive/.hive is not writable");
     expect(screen.getByRole("button", { name: "Back" })).toBeInTheDocument();
+
+    // A failure unfolds the checklist on its own: which step stopped, and what
+    // ran before it, is exactly what has to be read now.
+    const steps = screen.getByRole("list", { name: "Install steps" });
+    expect(within(steps).getByText("Check the server")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Retry" }));
 
