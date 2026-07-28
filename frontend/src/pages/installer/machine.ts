@@ -1,4 +1,9 @@
-import { DEFAULT_BACKEND_PORT, isValidHost, isValidUserName } from "@/lib/server-connection";
+import {
+  DEFAULT_BACKEND_PORT,
+  isValidHost,
+  isValidUserName,
+  normalizeHost,
+} from "@/lib/server-connection";
 import type { PrivilegeMode } from "@/lib/provision-client";
 
 /**
@@ -41,13 +46,6 @@ export interface InstallerInputs {
   port: number;
   installDir: string;
   dataDir: string;
-  /**
-   * Restrict the one firewall rule to this interface instead of opening the
-   * port. Only ever set from the interfaces preflight found on the server, and
-   * only when a firewall the installer can edit is already active — so it is
-   * absent on most installs, and that absence is what opens the port.
-   */
-  firewallInterface?: string;
   sshKeyPath?: string;
   /** Public half of the selected key, authorized on the service account. */
   sshPublicKey?: string;
@@ -69,7 +67,7 @@ export interface InstallerMachine {
 }
 
 /** Bump when a shape change would make a stored record misleading. */
-export const INSTALLER_SCHEMA = 2;
+export const INSTALLER_SCHEMA = 3;
 
 export const INSTALLER_STORAGE_KEY = "hive-installer-state";
 
@@ -137,9 +135,9 @@ export function reduce(current: InstallerMachine, action: InstallerAction): Inst
 export function parseAddress(value: string): { host: string; user?: string } {
   const trimmed = value.trim();
   const at = trimmed.lastIndexOf("@");
-  if (at === -1) return { host: trimmed };
+  if (at === -1) return { host: normalizeHost(trimmed) };
   const user = trimmed.slice(0, at);
-  const host = trimmed.slice(at + 1);
+  const host = normalizeHost(trimmed.slice(at + 1));
   return user ? { host, user } : { host };
 }
 

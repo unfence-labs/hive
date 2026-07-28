@@ -20,7 +20,6 @@ export const CHECK_TITLES: Record<string, string> = {
   install_dir: "Install directory",
   data_dir: "Data directory",
   firewall: "Firewall",
-  interfaces: "Network interfaces",
   ssh_key: "Service account key",
 };
 
@@ -58,47 +57,4 @@ export function needsEscalationPassword(report: PreflightReport): boolean {
 /** A report only clears the way when the script itself says it does. */
 export function canProceed(report: PreflightReport): boolean {
   return report.ok && report.blockers.length === 0;
-}
-
-/** One of the server's network interfaces, as preflight enumerated them. */
-export interface ServerInterface {
-  name: string;
-  addresses: string[];
-}
-
-function findCheck(report: PreflightReport, check: string) {
-  return report.checks.find((entry) => entry.check === check);
-}
-
-/** The interfaces the server reported having. Empty when it reported none. */
-export function serverInterfaces(report: PreflightReport): ServerInterface[] {
-  const raw = findCheck(report, "interfaces")?.data?.interfaces;
-  if (!Array.isArray(raw)) return [];
-  return raw.flatMap((entry) => {
-    if (!entry || typeof entry !== "object") return [];
-    const { name, addresses } = entry as Partial<ServerInterface>;
-    if (typeof name !== "string" || name === "") return [];
-    return [
-      {
-        name,
-        addresses: Array.isArray(addresses)
-          ? addresses.filter((value): value is string => typeof value === "string")
-          : [],
-      },
-    ];
-  });
-}
-
-/**
- * Whether this install will write a firewall rule at all — and so whether the
- * shape of that rule is a question worth putting to the operator.
- *
- * True only for an active `ufw`. An inactive firewall means no rule is written,
- * so asking about its shape would be a question with no consequence. A
- * firewalld or nftables ruleset is active but is never edited by the installer,
- * so there is nothing to choose there either.
- */
-export function firewallRuleWillBeWritten(report: PreflightReport): boolean {
-  const data = findCheck(report, "firewall")?.data;
-  return data?.active === true && data.backend === "ufw";
 }

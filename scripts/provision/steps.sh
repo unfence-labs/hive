@@ -5,7 +5,7 @@
 # a step that must re-run on every invocation.
 #
 # Options come from parse_args in main.sh:
-#   OPT_PORT OPT_INSTALL_DIR OPT_DATA_DIR OPT_FIREWALL_IFACE OPT_SSH_KEY,
+#   OPT_PORT OPT_INSTALL_DIR OPT_DATA_DIR OPT_ALLOWED_HOST OPT_SSH_KEY,
 #   plus HIVE_VERSION and ARCH_TAG. Paths derived from them are computed by
 #   resolve_paths().
 
@@ -185,50 +185,44 @@ dir_writable() {
   fi
 }
 
-# Which firewall manager the server runs, and whether it is enforcing.
-# Only ufw is ever modified; the others are detected so preflight can report
-# honestly what is and is not open.
+ufw_is_active() {
+  command -v ufw >/dev/null 2>&1 &&
+    ufw status 2>/dev/null | head -1 | grep -q 'Status: active'
+}
+
+firewalld_is_active() {
+  command -v firewall-cmd >/dev/null 2>&1 &&
+    firewall-cmd --state 2>/dev/null | grep -q running
+}
+
+nftables_is_active() {
+  command -v nft >/dev/null 2>&1 &&
+    [ -n "$(nft list ruleset 2>/dev/null || true)" ]
+}
+
+# Which firewall manager governs the server. Active managers win over merely
+# installed ones, so an inactive ufw package cannot hide an enforcing
+# firewalld or raw nftables ruleset.
 firewall_backend() {
-  if command -v ufw >/dev/null 2>&1; then printf ufw
+  if firewalld_is_active; then printf firewalld
+  elif ufw_is_active; then printf ufw
+  # ufw and firewalld commonly use nftables underneath, so only treat the
+  # ruleset as raw nftables after both managers have been ruled out.
+  elif nftables_is_active; then printf nftables
+  elif command -v ufw >/dev/null 2>&1; then printf ufw
   elif command -v firewall-cmd >/dev/null 2>&1; then printf firewalld
-  elif command -v nft >/dev/null 2>&1 && [ -n "$(nft list ruleset 2>/dev/null || true)" ]; then printf nftables
+  elif command -v nft >/dev/null 2>&1; then printf nftables
   else printf none
   fi
 }
 
 firewall_active() {
   case "$(firewall_backend)" in
-    ufw) ufw status 2>/dev/null | head -1 | grep -q 'Status: active' ;;
-    firewalld) firewall-cmd --state 2>/dev/null | grep -q running ;;
-    nftables) [ -n "$(nft list ruleset 2>/dev/null || true)" ] ;;
+    ufw) ufw_is_active ;;
+    firewalld) firewalld_is_active ;;
+    nftables) nftables_is_active ;;
     *) return 1 ;;
   esac
-}
-
-# The kernel's own view, not iproute2's: preflight runs before apt_baseline
-# installs anything, and a server bare enough to lack `ip` still has to be able
-# to answer which interfaces it has.
-iface_exists() { [ -e "/sys/class/net/$1" ]; }
-
-# The server's own network interfaces, reported by preflight so a client can
-# offer the operator the interfaces this server really has instead of asking
-# them to type a name. Loopback is excluded: a rule scoped to it would leave
-# Hive reachable from nowhere at all.
-list_ifaces() {
-  local path name
-  for path in /sys/class/net/*; do
-    [ -e "$path" ] || continue                   # unmatched glob, not a device
-    name="${path##*/}"
-    [ "$name" = lo ] || printf '%s\n' "$name"
-  done
-}
-
-# Addresses a client could actually reach Hive on, so link-local and host scope
-# are left out. Needs iproute2, which is not guaranteed at preflight time — an
-# interface with no addresses listed is a missing tool, never a missing address.
-iface_addresses() {
-  command -v ip >/dev/null 2>&1 || return 0
-  ip -o addr show dev "$1" scope global 2>/dev/null | awk '{print $4}' | cut -d/ -f1
 }
 
 # No `grep -q`: its early exit can SIGPIPE ss, turning a found port into a
@@ -698,6 +692,7 @@ HIVE_AUTOMATION_TIMEOUT_SEC=1800
 HOME=$HIVE_HOME
 PATH=$HIVE_SERVICE_PATH
 EOF
+  [ -z "${OPT_ALLOWED_HOST:-}" ] || echo "HIVE_ALLOWED_HOSTS=$OPT_ALLOWED_HOST"
   # A prerelease install is a developer's test server. The webview of a debug
   # desktop app is served by Vite, so its Origin is the dev server, which the
   # production CORS/WebSocket allowlists reject. Stable installs never get this.
@@ -779,40 +774,25 @@ step_write_units() {
 
 title_firewall_rule() { echo "Check the firewall"; }
 
-# The firewall is the operator's, not Hive's.
-#
 # This step never enables a firewall, never changes a default policy, and never
 # adds a rule for anything but Hive's own port. The reference implementation set
 # `default deny incoming`, allowed port 22, and force-enabled ufw; on a server
 # where ufw was installed but inactive that severs every service without an
 # explicit rule, and on a server whose SSH listens anywhere but 22 it severs the
-# session running the install, with no way back in. A survey of nine widely used
-# installers (Tailscale, Docker, k3s, Netdata, Coolify, Dokploy, rustup, Nix,
-# Homebrew) found none that touches the firewall at all; the convention is to
-# document the ports and leave the policy to the operator. The access token is
-# the security boundary here — this is defence in depth, not the mechanism.
+# session running the install, with no way back in. Hive only opens its own port
+# when ufw is already enforcing one.
 #
-# Only ufw is modified. firewalld and a raw nftables ruleset are detected and
-# reported, never edited: their rules carry runtime/permanent and zone
-# semantics that cannot be guessed at safely from an installer.
+# Only ufw is modified. An active firewalld or raw nftables ruleset blocks the
+# install because their runtime/permanent and zone semantics cannot be guessed
+# safely, and succeeding with a closed port would leave Hive unusable.
 # Every rule this install added, one per line, appended and never rewritten.
-# A run that changes the shape of the rule adds a second one rather than
-# replacing the first, and the uninstaller has to remove both — a record that
-# only remembered the latest would leave the earlier one behind for good.
+# A run that changes the port adds a second rule rather than replacing the
+# first. The uninstaller must remember both so it never leaves one behind.
 record_firewall_rule() {
   local spec="$1"
   [ -f "$HIVE_FIREWALL_RULE_FILE" ] || : >"$HIVE_FIREWALL_RULE_FILE"
   grep -qxF "$spec" "$HIVE_FIREWALL_RULE_FILE" || \
     printf '%s\n' "$spec" >>"$HIVE_FIREWALL_RULE_FILE"
-}
-
-# No interface means open the port; an interface means restrict the rule to it.
-ufw_rule_spec() {
-  if [ -n "$OPT_FIREWALL_IFACE" ]; then
-    printf 'allow in on %s' "$OPT_FIREWALL_IFACE"
-  else
-    printf 'allow %s/tcp' "$OPT_PORT"
-  fi
 }
 
 # Always re-runs: the rule is cheap to re-assert, ufw itself is idempotent, and
@@ -837,23 +817,11 @@ step_firewall_rule() {
   fi
 
   if [ "$backend" != ufw ]; then
-    emit_log firewall_rule \
-      "$backend is active and is not modified by this installer; allow port $OPT_PORT yourself if Hive must be reachable."
-    STEP_DATA="$(printf '{"backend":"%s","active":true,"ruleApplied":false,"reason":"unsupported-firewall-backend","port":%s}' \
-      "$backend" "$OPT_PORT")"
-    return 0
-  fi
-
-  # The only place a named interface still has to exist: a rule scoped to an
-  # interface that is not there matches nothing, and the install would come up
-  # healthy but unreachable. Checked here rather than up front, because it is
-  # only a question at all when a rule is really about to be written.
-  if [ -n "$OPT_FIREWALL_IFACE" ] && ! iface_exists "$OPT_FIREWALL_IFACE"; then
     die FIREWALL_RULE_FAILED \
-      "the rule was to be restricted to $OPT_FIREWALL_IFACE, which does not exist on this server"
+      "$backend is active, and Hive cannot configure it automatically"
   fi
 
-  spec="$(ufw_rule_spec)"
+  spec="allow $OPT_PORT/tcp"
   STEP_ERR_CODE=FIREWALL_RULE_FAILED
   # Exactly one rule. No `ufw enable`, no `ufw default`, no blanket SSH rule.
   # shellcheck disable=SC2086  # the spec is built above from validated values
@@ -1228,65 +1196,19 @@ preflight_firewall() {
   fi
   if firewall_active; then active=true; else active=false; fi
   if [ "$active" = true ] && [ "$backend" = ufw ]; then
-    # The shape of the rule is reported only when this run was actually given
-    # an interface. Preflight is an inspection, and the shape is not one of the
-    # things it inspects: it comes from an option. A client that runs preflight
-    # first and asks about the interface afterwards — the desktop installer
-    # renders this finding directly above that field — would otherwise print a
-    # rule and then ask the operator to contradict it one field lower.
-    # Under `curl | bash` the option is supplied up front, so these options do
-    # settle the shape, and the finding says so rather than saying less.
-    if [ -n "$OPT_FIREWALL_IFACE" ]; then
-      emit_check firewall ok \
-        "ufw is active; with the interface $OPT_FIREWALL_IFACE this run was given, the installer will add the single rule 'ufw $(ufw_rule_spec)' and change nothing else" \
-        "$(printf '{"backend":"ufw","active":true,"ruleToApply":"ufw %s"}' "$(json_escape "$(ufw_rule_spec)")")"
-    else
-      emit_check firewall ok \
-        "ufw is active; the installer will add exactly one rule so Hive can be reached on port $OPT_PORT, and change nothing else" \
-        '{"backend":"ufw","active":true,"ruleToApply":null}'
-    fi
+    emit_check firewall ok \
+      "ufw is active; the installer will open TCP port $OPT_PORT automatically and change nothing else" \
+      "$(printf '{"backend":"ufw","active":true,"ruleToApply":"ufw allow %s/tcp"}' "$OPT_PORT")"
   elif [ "$active" = true ]; then
-    emit_check firewall warn \
-      "$backend is active and is not modified by this installer; allow port $OPT_PORT yourself if Hive must be reachable" \
-      "$(printf '{"backend":"%s","active":true,"ruleToApply":null}' "$backend")"
+    emit_check firewall fail \
+      "$backend is active, and Hive cannot configure it automatically" \
+      "$(printf '{"backend":"%s","active":true,"ruleToApply":null}' "$backend")" \
+      FIREWALL_RULE_FAILED
   else
     emit_check firewall ok \
       "no active firewall; the installer will not enable one, and port $OPT_PORT will be reachable from anywhere that can route to this server" \
       "$(printf '{"backend":"%s","active":false,"ruleToApply":null}' "$backend")"
   fi
-}
-
-# What this server's network interfaces are, so a client asking whether to
-# scope the firewall rule can offer the ones that exist rather than a free-text
-# field. Never a blocker: an interface list is information, and an operator who
-# names none is opening the port, which needs no interface at all.
-preflight_interfaces() {
-  local name addr entries="" addrs names="" addressed=0
-  # When the addresses can be read, an interface carrying none is dropped: a
-  # container host's dozen veth devices have only link-local addresses, cannot
-  # be routed to, and are noise in front of the two interfaces that can. When
-  # they cannot be read, every interface is listed rather than none.
-  command -v ip >/dev/null 2>&1 && addressed=1
-  while IFS= read -r name; do
-    [ -n "$name" ] || continue
-    addrs=""
-    while IFS= read -r addr; do
-      [ -n "$addr" ] || continue
-      addrs+="$(printf '"%s",' "$(json_escape "$addr")")"
-    done < <(iface_addresses "$name")
-    [ "$addressed" = 0 ] || [ -n "$addrs" ] || continue
-    entries+="$(printf '{"name":"%s","addresses":[%s]},' "$(json_escape "$name")" "${addrs%,}")"
-    names+="$name "
-  done < <(list_ifaces)
-  if [ -z "$names" ]; then
-    emit_check interfaces warn \
-      "this server has no addressable network interface other than loopback" \
-      '{"interfaces":[]}'
-    return 0
-  fi
-  emit_check interfaces ok \
-    "network interfaces on this server: ${names% }" \
-    "$(printf '{"interfaces":[%s]}' "${entries%,}")"
 }
 
 preflight_ssh_key() {
@@ -1311,7 +1233,6 @@ run_preflight() {
   preflight_dir install_dir "the install directory" "$HIVE_OPT" "$HIVE_INSTALL_MIN_MB"
   preflight_dir data_dir "the data directory" "$HIVE_DATA_DIR" "$HIVE_DATA_MIN_MB"
   preflight_firewall
-  preflight_interfaces
   preflight_ssh_key
   emit_preflight_summary
 }

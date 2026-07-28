@@ -19,12 +19,7 @@ export function ReadyScreen({ inputs, escalates, onContinue, onBack }: ReadyScre
   const rows: Array<[string, string]> = [
     ["Server", `${user ?? "root"}@${host}`],
     ["Backend port", String(inputs.port)],
-    [
-      "Firewall rule",
-      inputs.firewallInterface
-        ? `Only on ${inputs.firewallInterface}, if a firewall is active`
-        : `Port ${inputs.port} opened, if a firewall is active`,
-    ],
+    ["Firewall", `Port ${inputs.port} opened automatically when required`],
     ["Install directory", inputs.installDir],
     ["Data directory", inputs.dataDir],
     ["SSH key", inputs.sshKeyPath ?? "—"],

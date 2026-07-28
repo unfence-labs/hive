@@ -7,8 +7,8 @@
 OPT_PORT="${OPT_ENV_PORT:-9420}"
 OPT_INSTALL_DIR="$OPT_ENV_INSTALL_DIR"
 OPT_DATA_DIR="$OPT_ENV_DATA_DIR"
-OPT_FIREWALL_IFACE="$OPT_ENV_FIREWALL_IFACE"
 OPT_SSH_KEY="$OPT_ENV_SSH_KEY"
+OPT_ALLOWED_HOST=""
 # Flag-only on purpose: the debug sidecar passes it in argv, which survives
 # `sudo bash -s` where an environment variable would not.
 OPT_RELEASE_FILE=""
@@ -25,7 +25,7 @@ Hive server installer.
   curl -fsSL <url>/provision.sh | bash -s -- --port 9420
   curl -fsSL <url>/provision.sh | bash -s -- --preflight
 
-Options (each has an environment-variable equivalent that the flag overrides):
+Options:
 
   --preflight               Report what this server looks like and change
                             nothing at all. Always exits 0.
@@ -35,10 +35,8 @@ Options (each has an environment-variable equivalent that the flag overrides):
                             directory that grows
                             (default /home/hive/.hive, $HIVE_DATA_DIR)
   --port <n>                Port for the backend (default 9420, $HIVE_PORT)
-  --firewall-interface <if> Scope the firewall rule to one network interface
-                            instead of opening the port to everyone
-                            ($HIVE_FIREWALL_INTERFACE). Only ever consulted
-                            when a firewall is already active.
+  --allowed-host <host>     Hostname or IP the client will use. The desktop
+                            installer supplies this automatically
   --ssh-public-key <key>    Authorize this OpenSSH public key on the hive
                             service account, so an editor or terminal session
                             connects as hive and not as root
@@ -49,10 +47,9 @@ Options (each has an environment-variable equivalent that the flag overrides):
   --reset                   Discard recorded step state and run every step again
   -h, --help                Show this help
 
-The firewall is never enabled and its default policy is never changed. If a
-firewall is already active, exactly one rule is added: Hive's own port, or
-inbound on --firewall-interface when one is given. If none is active, nothing
-is done and that is reported.
+The firewall is never enabled and its default policy is never changed. If ufw
+is already active, Hive's TCP port is opened automatically. If another firewall
+is active, preflight refuses the install rather than leaving Hive unreachable.
 
 An uninstall script is written to <install-dir>/hive-uninstall.sh, carrying the
 paths this run used. It keeps your data unless you pass --purge.
@@ -70,7 +67,7 @@ parse_args() {
       --port) [ $# -ge 2 ] || missing "$1"; OPT_PORT="$2"; shift ;;
       --install-dir) [ $# -ge 2 ] || missing "$1"; OPT_INSTALL_DIR="$2"; shift ;;
       --data-dir) [ $# -ge 2 ] || missing "$1"; OPT_DATA_DIR="$2"; shift ;;
-      --firewall-interface) [ $# -ge 2 ] || missing "$1"; OPT_FIREWALL_IFACE="$2"; shift ;;
+      --allowed-host) [ $# -ge 2 ] || missing "$1"; OPT_ALLOWED_HOST="$2"; shift ;;
       --ssh-public-key) [ $# -ge 2 ] || missing "$1"; OPT_SSH_KEY="$2"; shift ;;
       --release-file) [ $# -ge 2 ] || missing "$1"; OPT_RELEASE_FILE="$2"; shift ;;
       --preflight) OPT_PREFLIGHT=1 ;;
@@ -91,12 +88,9 @@ parse_args() {
     echo "invalid port: $OPT_PORT" >&2
     exit 2
   fi
-  # The interface name reaches `ufw allow in on <if>` unquoted, so a leading
-  # dash would be read there as an option. Empty is the normal case: no
-  # interface means the rule opens the port.
-  if [ -n "$OPT_FIREWALL_IFACE" ] &&
-     { [[ ! "$OPT_FIREWALL_IFACE" =~ ^[A-Za-z0-9._-]+$ ]] || [[ "$OPT_FIREWALL_IFACE" = -* ]]; }; then
-    echo "invalid network interface name: $OPT_FIREWALL_IFACE" >&2
+  if [ -n "$OPT_ALLOWED_HOST" ] &&
+     { [[ ! "$OPT_ALLOWED_HOST" =~ ^[A-Za-z0-9.:-]+$ ]] || [[ "$OPT_ALLOWED_HOST" = -* ]]; }; then
+    echo "invalid allowed host: $OPT_ALLOWED_HOST" >&2
     exit 2
   fi
   # Both directories become systemd unit values, tar destinations and rm -rf

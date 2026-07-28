@@ -103,7 +103,7 @@ export function WelcomeScreen({ onInstall, onConnected, onCancel }: WelcomeScree
                       id="existing-host"
                       value={host}
                       onChange={(event) => setHost(event.target.value)}
-                      placeholder="100.64.0.10"
+                      placeholder="203.0.113.10"
                       autoComplete="off"
                       spellCheck={false}
                       className="font-mono text-xs"

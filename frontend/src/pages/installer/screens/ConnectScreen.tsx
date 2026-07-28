@@ -4,7 +4,6 @@ import { InstallerScreen } from "./InstallerScreen";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import {
   provisionErrorHint,
   toProvisionError,
@@ -19,9 +18,7 @@ import {
   canProceed,
   checkTitle,
   correctableField,
-  firewallRuleWillBeWritten,
   needsEscalationPassword,
-  serverInterfaces,
 } from "@/pages/installer/preflight";
 
 interface ConnectScreenProps {
@@ -76,18 +73,10 @@ export function ConnectScreen({ client, inputs, onContinue, onBack }: ConnectScr
   const [error, setError] = useState<ProvisionError | null>(null);
   const [password, setPassword] = useState("");
   const [attempt, setAttempt] = useState(0);
-  // The empty string is "open the port to everyone"; anything else names the
-  // interface the one rule is scoped to. It is only ever one of the interfaces
-  // the report below enumerated, which is why a missing interface can no longer
-  // be asked for.
-  const [firewallInterface, setFirewallInterface] = useState("");
 
   const runPreflight = useCallback(async () => {
     setPhase("preflighting");
     setError(null);
-    // A fresh report may describe a different firewall and a different set of
-    // interfaces, so a choice made against the previous one is discarded.
-    setFirewallInterface("");
     try {
       const result = await client.preflight(
         { host, ...(user ? { user } : {}), keyPath: inputs.sshKeyPath ?? "" },
@@ -157,17 +146,6 @@ export function ConnectScreen({ client, inputs, onContinue, onBack }: ConnectScr
   const ready =
     phase === "report" && report !== null && canProceed(report) && (!passwordRequired || password !== "");
 
-  // The one firewall question, and the only place it is asked. It exists only
-  // when this server runs a firewall the installer will actually write a rule
-  // to, and it offers only interfaces this server actually has.
-  const interfaces = report ? serverInterfaces(report) : [];
-  const asksAboutFirewall =
-    phase === "report" &&
-    report !== null &&
-    canProceed(report) &&
-    firewallRuleWillBeWritten(report) &&
-    interfaces.length > 0;
-
   const primary =
     phase === "approve"
       ? { label: "Approve and check the server", action: () => void approve(), disabled: false }
@@ -182,11 +160,6 @@ export function ConnectScreen({ client, inputs, onContinue, onBack }: ConnectScr
                   // Carried forward so a relaunch knows whether the install can
                   // resume on its own or has to ask for the password again.
                   privilegeMode: report?.privilege.mode,
-                  // Always written, never merged: a server whose firewall is
-                  // not the one an earlier attempt saw must not inherit that
-                  // attempt's answer.
-                  firewallInterface:
-                    asksAboutFirewall && firewallInterface !== "" ? firewallInterface : undefined,
                 },
                 passwordRequired ? password : undefined,
               ),
@@ -269,59 +242,6 @@ export function ConnectScreen({ client, inputs, onContinue, onBack }: ConnectScr
             <p role="alert" className="mt-4 text-sm text-destructive">
               The install cannot start until the findings above are cleared.
             </p>
-          )}
-
-          {asksAboutFirewall && (
-            <fieldset className="mt-4">
-              <legend className="mb-1 text-xs font-medium text-muted-foreground">
-                This server runs an active firewall
-              </legend>
-              <p className="mb-2 text-xs text-muted-foreground">
-                Hive will add one rule to it and change nothing else — not the default policy, not
-                any rule you wrote.
-              </p>
-              <RadioGroup
-                value={firewallInterface}
-                onValueChange={setFirewallInterface}
-                className="max-h-56 overflow-auto"
-              >
-                <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-border/50 p-3 text-sm">
-                  <RadioGroupItem
-                    value=""
-                    aria-label={`Open port ${inputs.port} to anything that can reach this server`}
-                    className="mt-0.5"
-                  />
-                  <span className="min-w-0 flex-1">
-                    <span className="font-medium text-foreground">
-                      Open port {inputs.port} to anything that can reach this server
-                    </span>
-                    <span className="mt-1 block text-xs text-muted-foreground">
-                      The access token stays the protection either way.
-                    </span>
-                  </span>
-                </label>
-                {interfaces.map((entry) => (
-                  <label
-                    key={entry.name}
-                    className="flex cursor-pointer items-start gap-3 rounded-lg border border-border/50 p-3 text-sm"
-                  >
-                    <RadioGroupItem
-                      value={entry.name}
-                      aria-label={`Allow it only on ${entry.name}`}
-                      className="mt-0.5"
-                    />
-                    <span className="min-w-0 flex-1">
-                      <span className="font-medium text-foreground">
-                        Allow it only on {entry.name}
-                      </span>
-                      <span className="mt-1 block break-all font-mono text-xs text-muted-foreground">
-                        {entry.addresses.join(", ") || "no address"}
-                      </span>
-                    </span>
-                  </label>
-                ))}
-              </RadioGroup>
-            </fieldset>
           )}
 
           {passwordRequired && (

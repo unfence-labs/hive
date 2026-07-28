@@ -33,7 +33,7 @@ Run Hive as a **local web app**, a **Tauri desktop app** (pointed at a local or 
 - 🌳 **Isolated by design** — every workspace is its own worktree and branch; up to 6 concurrent sessions per workspace.
 - 📡 **Live streaming** — assistant text, thinking, tool calls, file changes, diffs, tasks, plans, and images stream over a single multiplexed WebSocket hub.
 - 🤖 **Automation** — reusable Team agents plus cron-scheduled runs with full run history and notifications.
-- 📱 **Everywhere** — desktop, web, and iOS from one backend, with push notifications and Tailscale-friendly remote access.
+- 📱 **Everywhere** — desktop, web, and iOS from one backend, with push notifications and remote access.
 
 ## Features
 
@@ -74,7 +74,7 @@ Run Hive as a **local web app**, a **Tauri desktop app** (pointed at a local or 
 </tr>
 </table>
 
-**Apps & integrations** — React 19 + Vite web UI with Tauri v2 desktop packaging · native SwiftUI iOS client (first-run onboarding, Brain, conversations, session switching, model selection, composer `#file`/`/command`/`@agent` autocomplete, read-only automations browser with run logs, PR status, scripts, push notifications, task tracker, connection status banner with tap-to-reconnect) · GitHub OAuth device flow via `gh`, PR status enrichment, `.env` management, global instructions, skills, subagents, Telegram/APNs notifications, Tailscale-friendly remote settings, external terminal & VS Code remote-SSH opening.
+**Apps & integrations** — React 19 + Vite web UI with Tauri v2 desktop packaging · native SwiftUI iOS client (first-run onboarding, Brain, conversations, session switching, model selection, composer `#file`/`/command`/`@agent` autocomplete, read-only automations browser with run logs, PR status, scripts, push notifications, task tracker, connection status banner with tap-to-reconnect) · GitHub OAuth device flow via `gh`, PR status enrichment, `.env` management, global instructions, skills, subagents, Telegram/APNs notifications, remote connection settings, external terminal & VS Code remote-SSH opening.
 
 ## Screenshots
 
@@ -146,9 +146,9 @@ server**.
 
 It walks through giving the address and port, picking an SSH key from `~/.ssh`, approving the
 server's host key fingerprint, running the installer's own read-only preflight over that same
-connection and listing every finding while the form is still editable — and, only on a server that
-already runs an active `ufw`, asking there how that one firewall rule should be written — restating
-the settled plan, and then running the install as a live checklist. The private key never leaves the
+connection and listing every finding while the form is still editable, restating the settled plan,
+and then running the install as a live checklist. The host firewall needs no choice: an active `ufw`
+is configured automatically for Hive's port. The private key never leaves the
 machine — only its path is stored, and only its public half is sent, to be authorized on the service
 account. An account that needs a `sudo` password is asked for one, which is used for that install
 only and never written to disk.
@@ -195,16 +195,15 @@ curl -fsSL <url>/provision.sh | bash -s -- --preflight
 
 Preflight reports the operating system and architecture, whether the port is free, whether the
 chosen directories are writable with room to spare, whether Hive is already installed, which host
-firewall is present and whether it is active, what network interfaces the server has, and whether
-privilege escalation needs a password. It writes nothing and always exits 0: findings are data, not
-a verdict.
+firewall is present and whether Hive can configure it automatically, and whether privilege
+escalation needs a password. It writes nothing and always exits 0: findings are data, not a verdict.
 
 | Option | Environment variable | Default | What it sets |
 |---|---|---|---|
 | `--install-dir` | `HIVE_INSTALL_DIR` | `/opt/hive` | Hive, its private Node runtime and the uninstaller |
 | `--data-dir` | `HIVE_DATA_DIR` | `/home/hive/.hive` | Projects, worktrees and sessions — the directory that grows |
 | `--port` | `HIVE_PORT` | `9420` | Backend port |
-| `--firewall-interface` | `HIVE_FIREWALL_INTERFACE` | — | Scope the one firewall rule to this interface instead of opening the port. Only consulted when a firewall is already active |
+| `--allowed-host` | — | — | Hostname or IP the client will use. The desktop installer supplies it automatically |
 | `--ssh-public-key` | `HIVE_SSH_PUBLIC_KEY` | — | Authorize this key on the `hive` account |
 | `--preflight` | — | — | Report and change nothing |
 
@@ -221,12 +220,10 @@ runs themselves (Tailscale, WireGuard, ZeroTier, a cloud provider's private netw
 are all the same to it. Hive neither installs nor configures any of them. The backend binds every
 interface and the access token is the security boundary either way.
 
-**The firewall stays the operator's.** The installer never enables it and never changes its default
-policy. If a firewall is already active it adds exactly one rule — the configured port, or inbound
-on `--firewall-interface` when one is given — and nothing else. If none is active it does nothing
-and reports that, so you know what is and is not open. Every outcome lands on the progress stream.
-Only `ufw` is modified; `firewalld` and a raw `nftables` ruleset are detected and reported, never
-edited.
+**The host firewall is automatic.** The installer never enables a firewall or changes its default
+policy. If `ufw` is active, it opens only the configured TCP port. If no firewall is active, no rule
+is needed. An active `firewalld` or raw `nftables` ruleset blocks preflight because Hive cannot
+configure its policy safely; the installer never reports success with a port it knows may be closed.
 
 Because the service account owns every repository and worktree, pass `--ssh-public-key` so an
 editor or terminal session connects as `hive` rather than root. The key is appended to
@@ -287,7 +284,7 @@ point at it rather than repeating it.
 | `DATA_DIR` | `~/.hive` | Root storage for projects, workspaces, sessions, prompts, Brain, config, and automations |
 | `HIVE_AUTH_TOKEN` | unset | Access token in plaintext. Requires bearer/token auth for API and WS when set; `/health` stays public |
 | `HIVE_AUTH_TOKEN_SHA256` | unset | The same token as a lowercase hex SHA-256 digest, so the plaintext never lands on the server. What `provision.sh` writes. A request authorizes if it matches either form |
-| `HIVE_ALLOWED_HOSTS` | unset | Extra hostnames accepted by the `Host` guard, comma-separated. IP literals, `localhost` and `*.ts.net` are always accepted; anything else gets `403` until listed |
+| `HIVE_ALLOWED_HOSTS` | unset | Extra hostnames accepted by the `Host` guard, comma-separated. IP literals and `localhost` are always accepted; anything else gets `403` until listed. The guided installer adds its selected address automatically |
 | `HIVE_ALLOWED_ORIGINS` | unset | Extra browser origins accepted for CORS and WebSocket upgrades, comma-separated. The desktop webview's origins are always accepted, plus `localhost:5173` outside production |
 | `HIVE_RATE_LIMIT_MAX` | `120` | Max requests per IP per window |
 | `HIVE_RATE_LIMIT_WINDOW_MS` | `60000` | Rate-limit window (ms) |

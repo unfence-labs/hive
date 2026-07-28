@@ -34,24 +34,24 @@ describe("switchServer", () => {
   it("reports a rejected token distinctly from an unreachable server", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("", { status: 401 }));
     await expect(
-      switchServer({ host: "a.ts.net", port: 3000, authToken: "bad" }, { verify: true }),
+      switchServer({ host: "server.example.com", port: 3000, authToken: "bad" }, { verify: true }),
     ).rejects.toMatchObject<Partial<ServerConnectionError>>({ reason: "unauthorized" });
 
     vi.spyOn(globalThis, "fetch").mockRejectedValue(new TypeError("Failed to fetch"));
     await expect(
-      switchServer({ host: "a.ts.net", port: 3000 }, { verify: true }),
+      switchServer({ host: "server.example.com", port: 3000 }, { verify: true }),
     ).rejects.toMatchObject<Partial<ServerConnectionError>>({ reason: "unreachable" });
   });
 
   it("keeps the current connection when the proposed one is rejected", async () => {
-    await switchServer({ host: "old.ts.net", port: 3000, authToken: "good" });
+    await switchServer({ host: "old.example.com", port: 3000, authToken: "good" });
     vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("", { status: 401 }));
 
     await expect(
-      switchServer({ host: "new.ts.net", port: 3000, authToken: "bad" }, { verify: true }),
+      switchServer({ host: "new.example.com", port: 3000, authToken: "bad" }, { verify: true }),
     ).rejects.toBeInstanceOf(ServerConnectionError);
 
-    expect(getConnection()).toMatchObject({ host: "old.ts.net", authToken: "good" });
+    expect(getConnection()).toMatchObject({ host: "old.example.com", authToken: "good" });
   });
 
   it("rejects hosts and users that could be read as command-line options", async () => {
@@ -61,10 +61,10 @@ describe("switchServer", () => {
       switchServer({ host: "-oProxyCommand=bad", port: 3000 }, { verify: true }),
     ).rejects.toMatchObject<Partial<ServerConnectionError>>({ reason: "invalid" });
     await expect(
-      switchServer({ host: "a.ts.net", port: 70_000 }, { verify: true }),
+      switchServer({ host: "server.example.com", port: 70_000 }, { verify: true }),
     ).rejects.toMatchObject<Partial<ServerConnectionError>>({ reason: "invalid" });
     await expect(
-      switchServer({ host: "a.ts.net", port: 3000, adminUser: "-oProxyCommand=bad" }),
+      switchServer({ host: "server.example.com", port: 3000, adminUser: "-oProxyCommand=bad" }),
     ).rejects.toMatchObject<Partial<ServerConnectionError>>({ reason: "invalid" });
 
     expect(fetchMock).not.toHaveBeenCalled();
@@ -72,7 +72,7 @@ describe("switchServer", () => {
   });
 
   it("clears the connection and tears down live transports", async () => {
-    await switchServer({ host: "old.ts.net", port: 3000 });
+    await switchServer({ host: "old.example.com", port: 3000 });
     const disconnect = vi.spyOn(wsTransport, "disconnectAll");
 
     await switchServer(null);

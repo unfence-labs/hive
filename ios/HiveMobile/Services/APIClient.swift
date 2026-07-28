@@ -46,7 +46,7 @@ final class APIClient {
 
     private var baseURL: String {
         let host = UserDefaults.standard.string(forKey: "serverHost") ?? "localhost"
-        let port = UserDefaults.standard.string(forKey: "serverPort") ?? "3000"
+        let port = UserDefaults.standard.string(forKey: "serverPort") ?? ServerEndpoint.defaultPort
         return "http://\(host):\(port)"
     }
 

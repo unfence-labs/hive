@@ -2,7 +2,7 @@ import SwiftUI
 
 struct SettingsView: View {
     @AppStorage("serverHost") private var host = "localhost"
-    @AppStorage("serverPort") private var port = "3000"
+    @AppStorage("serverPort") private var port = ServerEndpoint.defaultPort
     @AppStorage("authToken") private var token = ""
     @AppStorage("hiveAccent") private var accentId = AccentOption.defaultId
     @AppStorage("hiveThemeMode") private var themeModeId = HiveThemeMode.system.rawValue

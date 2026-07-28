@@ -63,10 +63,10 @@ The screens, in order:
    key authorized on the service account, so editor and terminal sessions connect as `hive`.
 4. **Check the server.** Hive reaches the server, shows its host key fingerprint for approval, then
    runs the installer's own read-only preflight over that connection and lists every finding.
-   Blocking findings name the field that fixes them. If that server runs an active `ufw`, this is
-   also where you choose how the one firewall rule is written: open the port, or allow it only on
-   one of the interfaces the server reported. If the account needs a `sudo` password, this is where
-   it is asked for. Nothing on the server is changed by this step.
+   Blocking findings name the field that fixes them. An active `ufw` is configured automatically
+   during installation; an active firewall Hive cannot configure blocks here instead of producing
+   an unreachable install. If the account needs a `sudo` password, this is where it is asked for.
+   Nothing on the server is changed by this step.
 5. **Ready to install.** The settled plan, restated. This is the last screen where going back is
    free.
 6. **Installing Hive.** A live checklist and the raw output. It cannot be cancelled: the script runs
@@ -94,8 +94,8 @@ Look before you commit — this changes nothing and always exits 0:
 curl -fsSL https://github.com/unfence-labs/hive/releases/latest/download/provision.sh | bash -s -- --preflight
 ```
 
-Options are passed through `bash -s --`, and each has an environment-variable equivalent that the
-flag overrides. The full table is in the README's
+Options are passed through `bash -s --`. The common path, port, and SSH-key flags also have
+environment-variable equivalents. The full table is in the README's
 **[Install on a server](README.md#install-on-a-server)** section.
 
 ```bash
@@ -203,8 +203,8 @@ curl -s -o /dev/null -w '%{http_code}\n' -H "Authorization: Bearer <token>" \
 
 Two guards sit in front of everything but `/health`, and both are on by default:
 
-- **Host header.** IP literals, `localhost` and `*.ts.net` names are accepted. Reaching the server
-  through any other DNS name returns `403 Forbidden host` until that name is listed in
+- **Host header.** IP literals and `localhost` are accepted. Reaching the server through a DNS name
+  returns `403 Forbidden host` until that name is listed in
   `HIVE_ALLOWED_HOSTS` (comma-separated).
 - **Browser origin.** CORS and WebSocket upgrades accept the desktop webview's own origins, plus
   `http://localhost:5173` and `http://127.0.0.1:5173` outside production. A web build served from
@@ -212,8 +212,8 @@ Two guards sit in front of everything but `/health`, and both are on by default:
   `HIVE_ALLOWED_ORIGINS` (comma-separated). Native clients send no `Origin` header and are
   unaffected.
 
-The guided installer sets neither, because a provisioned server is reached by IP or by a MagicDNS
-name from the desktop app, and those already pass.
+The guided installer adds the selected address to `HIVE_ALLOWED_HOSTS` automatically. A manual
+`provision.sh` install can do the same with `--allowed-host`.
 
 ### Update
 
@@ -294,14 +294,13 @@ the current one from the run that installed the server, or reinstall to get a ne
 **`403 Forbidden host` / `403 Forbidden origin`.** See
 [the two guards](#if-the-client-is-a-browser-or-a-custom-hostname).
 
-**Reachable by ping but not by HTTP.** Check the firewall. The installer never enables one and never
-changes its default policy, so a server behind an active firewall it did not add a rule to stays
-closed on purpose:
+**Reachable by ping but not by HTTP.** Check external routing first. The installer automatically
+opens Hive's port when `ufw` is active, but it cannot change a cloud security group, router, NAT, or
+VPN policy:
 
 ```bash
 sudo ufw status
-sudo ufw allow 9420/tcp            # open the port
-sudo ufw allow in on <interface>   # or allow it only on one interface
+sudo ufw status numbered
 ```
 
 **Service state on a provisioned server.**

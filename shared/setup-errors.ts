@@ -60,7 +60,7 @@ export const SETUP_ERROR_HINTS: Record<SetupErrorCode, string> = {
   SSH_KEY_INVALID:
     "The public key supplied for the hive service account is not a valid OpenSSH public key. Check the key you pasted, then Retry.",
   FIREWALL_RULE_FAILED:
-    "The server's firewall is active but the rule opening Hive's port could not be added. If you restricted the rule to a network interface, check that interface still exists on the server. Otherwise add the rule by hand, or Retry.",
+    "The server's active firewall could not be configured automatically. Read the detail below, fix the firewall, then Retry.",
   APT_FAILURE:
     "A system package failed to install. Press Retry. If it fails again, the diagnostic below names the failing package.",
   NODE_INSTALL_FAILED:

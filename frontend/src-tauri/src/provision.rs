@@ -272,21 +272,6 @@ fn validate_directory(label: &str, path: &str) -> Result<(), ProvisionError> {
     }
 }
 
-fn validate_interface(interface: &str) -> Result<(), ProvisionError> {
-    let shaped = !interface.is_empty()
-        && !interface.starts_with('-')
-        && interface
-            .bytes()
-            .all(|c| c.is_ascii_alphanumeric() || matches!(c, b'.' | b'_' | b'-'));
-    if shaped {
-        Ok(())
-    } else {
-        Err(ProvisionError::invalid(format!(
-            "invalid network interface: {interface:?}"
-        )))
-    }
-}
-
 const PUBLIC_KEY_ALGORITHMS: &[&str] = &[
     "ssh-ed25519",
     "ssh-rsa",
@@ -357,9 +342,6 @@ pub struct ProvisionOptions {
     port: Option<u16>,
     install_dir: Option<String>,
     data_dir: Option<String>,
-    /// Restrict the one firewall rule to this interface instead of opening the
-    /// port. Absent is the normal case, and the only one the script needs.
-    firewall_interface: Option<String>,
     /// Authorized on the hive service account, so an editor or terminal session
     /// connects as hive rather than as the install account.
     ssh_public_key: Option<String>,
@@ -376,21 +358,25 @@ impl ProvisionOptions {
         if let Some(dir) = &self.data_dir {
             validate_directory("data directory", dir)?;
         }
-        if let Some(interface) = &self.firewall_interface {
-            validate_interface(interface)?;
-        }
         if let Some(key) = &self.ssh_public_key {
             normalize_public_key(key)?;
         }
         Ok(())
     }
 
-    fn script_args(&self, preflight: bool) -> Result<Vec<String>, ProvisionError> {
+    fn script_args(
+        &self,
+        preflight: bool,
+        allowed_host: &str,
+    ) -> Result<Vec<String>, ProvisionError> {
         self.validate()?;
+        validate_host(allowed_host)?;
         let mut args = Vec::new();
         if preflight {
             args.push("--preflight".to_string());
         }
+        args.push("--allowed-host".into());
+        args.push(allowed_host.to_string());
         if let Some(port) = self.port {
             args.push("--port".into());
             args.push(port.to_string());
@@ -402,10 +388,6 @@ impl ProvisionOptions {
         if let Some(dir) = &self.data_dir {
             args.push("--data-dir".into());
             args.push(dir.clone());
-        }
-        if let Some(interface) = &self.firewall_interface {
-            args.push("--firewall-interface".into());
-            args.push(interface.clone());
         }
         if let Some(key) = &self.ssh_public_key {
             args.push("--ssh-public-key".into());
@@ -1102,7 +1084,7 @@ fn execute_preflight(
     options: &ProvisionOptions,
 ) -> Result<PreflightReport, ProvisionError> {
     connection.validate()?;
-    let args = options.script_args(true)?;
+    let args = options.script_args(true, &connection.host)?;
     // No escalation prefix. Preflight is read-only and does not require root —
     // discovering that this account cannot escalate is one of its findings, and
     // escalating to ask would defeat the question.
@@ -1263,10 +1245,7 @@ fn upload_release(
         .map_err(|error| failed(format!("could not start scp: {error}")))?;
     if !scp.status.success() {
         let stderr = String::from_utf8_lossy(&scp.stderr);
-        return Err(failed(format!(
-            "scp failed: {}",
-            tail(stderr.trim(), 300)
-        )));
+        return Err(failed(format!("scp failed: {}", tail(stderr.trim(), 300))));
     }
 
     let stage = format!("mkdir -p /var/lib/hive/uploads && mv -- ./{upload_name} {remote_path}");
@@ -1347,7 +1326,9 @@ fn run_install(
         _ => None,
     };
 
-    let mut args = options.script_args(false).map_err(surface)?;
+    let mut args = options
+        .script_args(false, &connection.host)
+        .map_err(surface)?;
     // Debug builds with a locally built tarball upload it first and point the
     // script at the uploaded copy instead of the GitHub release.
     if let Some(tarball) = local_release_tarball(connection).map_err(surface)? {
@@ -1573,9 +1554,8 @@ mod tests {
         privilege_finding, provision_script, public_key_identity, redact, release_asset_name,
         release_file_args, remote_command, replace_known_host, same_host_key, scp_host,
         select_host_key, shell_quote, ssh_error_code, stdin_payload, tail, terminal_error,
-        validate_directory, validate_host, validate_interface, validate_key_path,
-        validate_password, validate_user, PreflightCheck, PrivilegeMode, ProvisionOptions,
-        RemoteOutcome, Secret, SSH_ERROR_CODES,
+        validate_directory, validate_host, validate_key_path, validate_password, validate_user,
+        PreflightCheck, PrivilegeMode, ProvisionOptions, RemoteOutcome, Secret, SSH_ERROR_CODES,
     };
 
     const SHARED_SETUP_ERRORS: &str = include_str!(concat!(
@@ -1593,7 +1573,9 @@ mod tests {
     }
 
     fn args(options: &ProvisionOptions, preflight: bool) -> Vec<String> {
-        options.script_args(preflight).expect("script args")
+        options
+            .script_args(preflight, "server.example.com")
+            .expect("script args")
     }
 
     /// A real ed25519 blob is 68 base64 characters; nothing shorter is a key.
@@ -1636,12 +1618,6 @@ mod tests {
                 "{path}"
             );
         }
-
-        assert!(validate_interface("eth0").is_ok());
-        assert!(validate_interface("wg-home.1").is_ok());
-        for interface in ["", "-oProxyCommand=bad", "eth 0", "eth0;rm", "eth/0"] {
-            assert!(validate_interface(interface).is_err(), "{interface}");
-        }
     }
 
     #[test]
@@ -1677,25 +1653,16 @@ mod tests {
             port: Some(9420),
             install_dir: Some("/opt/hive".into()),
             data_dir: Some("/srv/hive".into()),
-            firewall_interface: Some("wg0".into()),
             ssh_public_key: Some(format!("ssh-ed25519 {ED25519_BLOB} lenny@box")),
         };
         let command = remote_command(PrivilegeMode::Root, &args(&options, false));
         assert!(command.contains(&format!("'--ssh-public-key' 'ssh-ed25519 {ED25519_BLOB}'")));
         assert!(command.contains("'--port' '9420'"));
-        assert!(command.contains("'--firewall-interface' 'wg0'"));
+        assert!(command.contains("'--allowed-host' 'server.example.com'"));
         assert!(!command.contains("lenny@box"));
 
         let preflight = args(&options, true);
         assert_eq!(preflight.first().map(String::as_str), Some("--preflight"));
-
-        // No interface is the ordinary case, and it is the absence of the flag
-        // that tells the script to open the port rather than scope the rule.
-        let open = ProvisionOptions {
-            port: Some(9420),
-            ..Default::default()
-        };
-        assert!(!args(&open, false).contains(&"--firewall-interface".to_string()));
     }
 
     // ── dev release upload ───────────────────────────────────────────────────
@@ -1718,9 +1685,7 @@ mod tests {
     #[test]
     fn an_uploaded_release_reaches_the_script_as_a_flag() {
         let mut args = vec!["--port".to_string(), "9420".to_string()];
-        args.extend(
-            release_file_args(Some("/var/lib/hive/uploads/x.tar.gz"), true).expect("args"),
-        );
+        args.extend(release_file_args(Some("/var/lib/hive/uploads/x.tar.gz"), true).expect("args"));
         let command = remote_command(PrivilegeMode::Root, &args);
         assert!(command.ends_with("'--release-file' '/var/lib/hive/uploads/x.tar.gz'"));
 
@@ -1731,8 +1696,7 @@ mod tests {
 
     #[test]
     fn release_uploads_are_debug_only() {
-        let error =
-            release_file_args(Some("/var/lib/hive/uploads/x.tar.gz"), false).unwrap_err();
+        let error = release_file_args(Some("/var/lib/hive/uploads/x.tar.gz"), false).unwrap_err();
         assert_eq!(error.code, "RELEASE_DOWNLOAD_FAILED");
         assert!(error.detail.contains("debug-only"));
     }

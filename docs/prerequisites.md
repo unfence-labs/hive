@@ -47,12 +47,6 @@ screen. How you make it reachable is yours to arrange — a public address, or a
 run yourself: Tailscale, WireGuard, ZeroTier, a cloud provider's private network. Hive neither
 installs nor configures any of them and does not ask which one you chose.
 
-> If you want a private network and have none, Tailscale is one of the easier ones to bring up. You
-> would install it beforehand on **both** the server and the machine that runs Hive, following its
-> own [quickstart](https://tailscale.com/docs/how-to/quickstart) and
-> [install on Linux](https://tailscale.com/docs/install/linux) instructions. WireGuard, ZeroTier or a
-> second NIC on a private network work exactly the same way as far as Hive is concerned.
-
 The backend binds every interface (`0.0.0.0` on port `9420` by default) and is protected by the
 access token the install generates. Every install run generates a new token and reports it exactly
 once, on its progress stream; it is never written to a log file, and only its SHA-256 digest is
@@ -61,18 +55,12 @@ stored on the server.
 The address you type is the address the app keeps using afterwards. The installer never hands over
 to a second one.
 
-### The firewall question
+### Firewall handling
 
-There is one question about your network, and it is only asked when it has a consequence: when the
-server already runs an **active `ufw`**. It comes on the "Check the server" screen, after the
-installer has inspected the server, and it decides the shape of the single rule it will add:
-
-- **open the port** to anything that can reach the server, or
-- **allow it only on one interface**, chosen from the interfaces that server actually reported.
-
-If no firewall is active you are never asked. Nothing is changed, and the install reports that,
-along with the port the backend listens on. An active `firewalld` or raw `nftables` ruleset is
-reported but never edited, so opening the port there is yours to do.
+There is no firewall question. If `ufw` is active, the installer opens only Hive's configured TCP
+port automatically. If no firewall is active, no rule is needed. An active `firewalld` or raw
+`nftables` ruleset blocks the install because Hive cannot configure its policy safely and must not
+claim success while its port may be closed.
 
 ## What the installer changes
 
@@ -90,8 +78,7 @@ reported but never edited, so opening the port there is yours to do.
 - Creates the data directory (`/home/hive/.hive` by default) for projects, worktrees and sessions.
 - If you supply one, appends your public key to `/home/hive/.ssh/authorized_keys` — appended only,
   never rewritten, and never duplicated on a re-run.
-- Adds **one** firewall rule, and only if a firewall is already active. See
-  [the firewall question](#the-firewall-question).
+- Opens Hive's configured TCP port automatically when `ufw` is active.
 
 ## What the installer does not change
 
@@ -101,10 +88,9 @@ reported but never edited, so opening the port there is yours to do.
   on nodejs.org and the GitHub CLI from its official release tarball, each verified against a
   checksum pinned in the script before anything is unpacked.
 - **Your firewall policy.** The installer never enables a firewall and never changes its default
-  policy. If `ufw` is already active it adds exactly one rule — the configured port, or inbound on
-  the interface you picked — and nothing else. If no firewall is active it does nothing and says so,
-  so you know what is and is not open. `firewalld` and a raw `nftables` ruleset are detected and
-  reported, never edited.
+  policy. If `ufw` is already active it opens only the configured TCP port. If no firewall is active
+  it does nothing and says so. An active `firewalld` or raw `nftables` ruleset blocks the install
+  rather than being modified or silently ignored.
 - **Your SSH configuration.** `sshd` is not reconfigured. The only SSH file written on the server is
   `authorized_keys` on the service account the installer created. On your own machine, approving a
   server's fingerprint writes to Hive's own `known_hosts` inside the app's configuration directory,
@@ -138,5 +124,5 @@ curl -fsSL https://github.com/unfence-labs/hive/releases/latest/download/provisi
 
 It writes nothing, always exits 0, and reports the operating system and architecture, whether the
 port is free, whether the chosen directories are writable with room to spare, whether Hive is
-already installed, which host firewall is present and whether it is active, the server's network
-interfaces and their addresses, and whether privilege escalation needs a password.
+already installed, which host firewall is present and whether Hive can configure it automatically,
+and whether privilege escalation needs a password.

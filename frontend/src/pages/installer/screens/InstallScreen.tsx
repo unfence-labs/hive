@@ -70,7 +70,6 @@ function buildRequest(inputs: InstallerInputs, password?: string): InstallReques
       port: inputs.port,
       installDir: inputs.installDir,
       dataDir: inputs.dataDir,
-      ...(inputs.firewallInterface ? { firewallInterface: inputs.firewallInterface } : {}),
       ...(inputs.sshPublicKey ? { sshPublicKey: inputs.sshPublicKey } : {}),
     },
     ...(password === undefined ? {} : { password }),

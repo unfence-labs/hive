@@ -31,8 +31,14 @@ export class ServerConnectionError extends Error {
  * Accept values that are usable as a URL host, and that an SSH command line
  * could not read as an option rather than a host.
  */
+export function normalizeHost(host: string): string {
+  const trimmed = host.trim();
+  return trimmed.startsWith("[") && trimmed.endsWith("]") ? trimmed.slice(1, -1) : trimmed;
+}
+
 export function isValidHost(host: string): boolean {
-  return /^[A-Za-z0-9.:[\]-]+$/.test(host) && !host.startsWith("-");
+  const normalized = normalizeHost(host);
+  return /^[A-Za-z0-9.:-]+$/.test(normalized) && !normalized.startsWith("-");
 }
 
 export function isValidPort(port: number): boolean {

@@ -54,12 +54,6 @@ function checkWithData(
   return { check: name, status, detail, data };
 }
 
-/** The interfaces `preflight_interfaces` enumerates on a small server. */
-export const SERVER_INTERFACES = [
-  { name: "eth0", addresses: ["203.0.113.10"] },
-  { name: "wg0", addresses: ["10.8.0.2"] },
-];
-
 export const OK_CHECKS: PreflightCheck[] = [
   check("os", "ok", "ubuntu 24.04 is supported"),
   check("port", "ok", "port 9420 is free"),
@@ -68,21 +62,9 @@ export const OK_CHECKS: PreflightCheck[] = [
     active: false,
     ruleToApply: null,
   }),
-  checkWithData("interfaces", "ok", "network interfaces on this server: eth0 wg0", {
-    interfaces: SERVER_INTERFACES,
-  }),
 ];
 
-/**
- * A server whose ufw is already on. This is the only shape in which the
- * installer writes a rule, and so the only one that puts the question to the
- * operator.
- *
- * The installer runs preflight without an interface — the operator picks one
- * from this very report — so the script reports that a rule is coming without
- * naming its shape, and `ruleToApply` is null. Anything else here would be a
- * fixture claiming something the finding above the question never says.
- */
+/** A server whose ufw is already on and will be configured automatically. */
 export function activeFirewallReport(): PreflightReport {
   return report({
     checks: [
@@ -90,22 +72,24 @@ export function activeFirewallReport(): PreflightReport {
       checkWithData(
         "firewall",
         "ok",
-        "ufw is active; the installer will add exactly one rule so Hive can be reached on port 9420, and change nothing else",
-        { backend: "ufw", active: true, ruleToApply: null },
+        "ufw is active; the installer will open TCP port 9420 automatically and change nothing else",
+        { backend: "ufw", active: true, ruleToApply: "ufw allow 9420/tcp" },
       ),
     ],
   });
 }
 
-/** An active firewall the installer refuses to edit: nothing to choose. */
+/** An active firewall Hive cannot configure without guessing its policy. */
 export function foreignFirewallReport(): PreflightReport {
   return report({
+    ok: false,
+    blockers: ["firewall"],
     checks: [
       ...OK_CHECKS.filter((entry) => entry.check !== "firewall"),
       checkWithData(
         "firewall",
-        "warn",
-        "nftables is active and is not modified by this installer",
+        "fail",
+        "nftables is active, and Hive cannot configure it automatically",
         { backend: "nftables", active: true, ruleToApply: null },
       ),
     ],

@@ -79,15 +79,8 @@ fi
 refute "no vendor runtime repository is added to the operator's system" \
   grep -niE 'nodesource|apt_install nodejs|apt-get install.*nodejs' "$CODE"
 
-# The mechanism is generic: an interface is an interface. WireGuard, ZeroTier,
-# Nebula and a plain second NIC are all the same thing to a firewall rule, and
-# none of them is a "tailnet". No vendor of one may be named in an option, an
-# error code, a variable or a message — naming one turns a parameter into a
-# recommendation the product cannot enforce, and the script has never installed,
-# authenticated or brought up any of them either.
-# Comments are exempt, and only they: a design note may cite the installers this
-# one was measured against, but no option, error code, variable, message or line
-# of help text may name one of them.
+# Network reachability belongs outside the provisioner. No private-network vendor
+# may appear in its option, error, variable, or message surface.
 vendors="$(grep -niE 'tailscale|tailnet|zerotier|wireguard|nebula|headscale' "$SPEECH" || true)"
 if [ -z "$vendors" ]; then
   pass "no private-network vendor is named in an option, a code, a variable or a message"
@@ -122,11 +115,9 @@ refute "iptables and nftables rules are never written" \
 refute "no firewall other than ufw is ever modified" \
   grep -nE 'firewall-cmd[^|]*--(add|remove|set|reload|permanent)' "$CODE"
 
-# The one rule that may be added, and the only two shapes it may take.
-expect "a named interface restricts the rule to that interface" \
-  grep -q "printf 'allow in on %s' \"\$OPT_FIREWALL_IFACE\"" "$PROV/steps.sh"
-expect "no named interface opens only the configured port" \
-  grep -q "printf 'allow %s/tcp' \"\$OPT_PORT\"" "$PROV/steps.sh"
+# The one rule that may be added opens only Hive's configured TCP port.
+expect "the automatic firewall rule opens only the configured port" \
+  grep -q 'spec="allow \$OPT_PORT/tcp"' "$PROV/steps.sh"
 
 # `ufw <spec>` must be the only ufw invocation that is not a read of its state.
 # String literals are stripped first: the step reports what it did in prose,
@@ -308,14 +299,13 @@ paths_out="$(bash -c '
   OPT_INSTALL_DIR=/srv/hive-app
   OPT_DATA_DIR=/mnt/big/hive-data
   OPT_PORT=9999
-  OPT_FIREWALL_IFACE=wg0
+  OPT_ALLOWED_HOST=server.example.com
   HIVE_AUTH_TOKEN_SHA256=deadbeef
   resolve_paths
   printf "opt=%s data=%s runtime=%s node=%s uninstall=%s\n" \
     "$HIVE_OPT" "$HIVE_DATA_DIR" "$HIVE_RUNTIME_DIR" "$HIVE_NODE_BIN" "$HIVE_UNINSTALL_SCRIPT"
   echo "--unit--"; hive_unit
   echo "--env--"; hive_env_base
-  echo "--rule--"; ufw_rule_spec; echo
   echo "--uninstall--"; hive_uninstall_script
 ' _ "$PROV/lib.sh" "$PROV/steps.sh")"
 
@@ -345,53 +335,45 @@ expect "the systemd unit can write the configured data directory" \
 expect "the backend is told to use the configured data directory" \
   grep -q '^DATA_DIR=/mnt/big/hive-data' <<<"$paths_out"
 expect "the backend is told to use the configured port" grep -q '^PORT=9999' <<<"$paths_out"
-expect "a configured interface restricts the rule to that interface" \
-  grep -qx 'allow in on wg0' <<<"$paths_out"
+expect "the backend allows the address selected by the client" \
+  grep -q '^HIVE_ALLOWED_HOSTS=server.example.com' <<<"$paths_out"
 
-open_rule="$(bash -c '
+fw_open="$(HIVE_LOG_FILE="$WORK/preflight.log.ndjson" bash -c '
   # shellcheck disable=SC1090
   source "$1"; source "$2"
-  OPT_PORT=9999 OPT_FIREWALL_IFACE=""
-  ufw_rule_spec
+  firewall_backend() { printf ufw; }
+  firewall_active() { return 0; }
+  sudo_nopasswd() { return 0; }
+  OPT_PORT=9999
+  preflight_firewall
 ' _ "$PROV/lib.sh" "$PROV/steps.sh")"
-expect "no interface opens only the configured port" [ "$open_rule" = "allow 9999/tcp" ]
 
-# Preflight is an inspection, and the shape of the rule is not something it can
-# inspect: it comes from an option. A client that runs preflight and only then
-# asks which interface to scope the rule to renders that finding right above the
-# question, so a finding that named a rule would be contradicted one field
-# lower. Driven through the real function on a stubbed active ufw, because the
-# point is what it emits, not which words are in the file.
-firewall_finding() {
-  HIVE_LOG_FILE="$WORK/preflight.log.ndjson" bash -c '
-    # shellcheck disable=SC1090
-    source "$1"; source "$2"
-    firewall_backend() { printf ufw; }
-    firewall_active() { return 0; }
-    sudo_nopasswd() { return 0; }
-    OPT_PORT=9999
-    OPT_FIREWALL_IFACE="$3"
-    preflight_firewall
-  ' _ "$PROV/lib.sh" "$PROV/steps.sh" "$1"
-}
+expect "an active ufw reports the automatic port rule" \
+  grep -q '"check":"firewall","status":"ok".*"ruleToApply":"ufw allow 9999/tcp"' <<<"$fw_open"
 
-fw_open="$(firewall_finding "")"
-fw_scoped="$(firewall_finding wg0)"
+raw_nft="$(bash -c '
+  # shellcheck disable=SC1090
+  source "$1"; source "$2"
+  firewalld_is_active() { return 1; }
+  ufw_is_active() { return 1; }
+  nftables_is_active() { return 0; }
+  firewall_backend
+' _ "$PROV/lib.sh" "$PROV/steps.sh")"
+expect "an inactive ufw installation cannot hide active raw nftables rules" \
+  [ "$raw_nft" = nftables ]
 
-expect "an active ufw is reported as found even when no rule shape is known" \
-  grep -q '"check":"firewall","status":"ok".*"backend":"ufw","active":true' <<<"$fw_open"
-expect "and it names the port a rule is needed for" grep -q 'port 9999' <<<"$fw_open"
-refute "preflight states no rule shape when none has been chosen yet" \
-  grep -nE 'allow [0-9]+/tcp|allow in on' <<<"$fw_open"
-expect "the rule to apply is reported as undecided, not guessed" \
-  grep -q '"ruleToApply":null' <<<"$fw_open"
-
-# The `curl | bash` path supplies the interface up front, so there the options
-# really do settle the shape, and preflight says so rather than saying less.
-expect "an interface given up front is reported as the rule it settles" \
-  grep -q "the single rule 'ufw allow in on wg0'" <<<"$fw_scoped"
-expect "and that rule is carried in the finding's data" \
-  grep -q '"ruleToApply":"ufw allow in on wg0"' <<<"$fw_scoped"
+fw_unsupported="$(HIVE_LOG_FILE="$WORK/preflight.log.ndjson" bash -c '
+  # shellcheck disable=SC1090
+  source "$1"; source "$2"
+  firewall_backend() { printf nftables; }
+  firewall_active() { return 0; }
+  sudo_nopasswd() { return 0; }
+  OPT_PORT=9999
+  preflight_firewall
+' _ "$PROV/lib.sh" "$PROV/steps.sh")"
+expect "an active unsupported firewall blocks preflight" \
+  grep -q '"check":"firewall","status":"fail".*"errorCode":"FIREWALL_RULE_FAILED"' \
+    <<<"$fw_unsupported"
 
 # ---------------------------------------------------------------------------
 # 7. The generated uninstall script
@@ -451,34 +433,16 @@ if bash "$bundle" --preflight --port 9420 >"$pre_out" 2>"$WORK/preflight.err"; t
 else
   fail "preflight exited non-zero: $(cat "$WORK/preflight.err")"
 fi
-for check in os systemd arch privilege existing_install port install_dir data_dir firewall interfaces; do
+for check in os systemd arch privilege existing_install port install_dir data_dir firewall; do
   expect "preflight reports the '$check' check" \
     grep -q "\"check\":\"$check\"" "$pre_out"
 done
 expect "preflight ends with a summary and a clean terminal event" \
   bash -c 'grep -q "\"event\":\"preflight\",\"ok\":" "$1" && grep -q "\"event\":\"run_end\",\"status\":\"ok\"" "$1"' _ "$pre_out"
 
-# Preflight enumerates the server's interfaces so a client can offer a real
-# list. The list is what makes it impossible to ask for an interface that is not
-# there — which is why there is no interface blocker any more.
-expect "preflight enumerates the server's network interfaces by name" \
-  grep -qE '"check":"interfaces","status":"(ok|warn)".*"interfaces":\[' "$pre_out"
-
-# An interface that does not exist is now a rule that is never written, not a
-# refusal to install. Preflight still reports and never blocks.
-iface_out="$WORK/preflight-interface.ndjson"
-if bash "$bundle" --preflight --firewall-interface hive-absent0 >"$iface_out" 2>&1; then
-  pass "preflight exits 0 for an interface this server does not have"
-else
-  fail "preflight exited non-zero for an absent interface"
-fi
-expect "an absent interface is not a preflight blocker" \
-  bash -c 'grep -q "\"event\":\"preflight\",\"ok\":" "$1" &&
-           ! grep -q "hive-absent0" "$1"' _ "$iface_out"
-
 # Every errorCode preflight can name must be one the taxonomy declares, or a
 # client would render a blocker it has no hint for.
-pre_codes="$(grep -ohE '"errorCode":"[A-Z_]+"' "$pre_out" "$iface_out" | cut -d'"' -f4 | sort -u)"
+pre_codes="$(grep -ohE '"errorCode":"[A-Z_]+"' "$pre_out" | cut -d'"' -f4 | sort -u)"
 undeclared_pre="$(comm -23 <(printf '%s\n' "$pre_codes") <(printf '%s\n' "$ts_codes") | grep -v '^$' || true)"
 if [ -z "$undeclared_pre" ]; then
   pass "preflight findings name only declared error codes"
@@ -533,10 +497,8 @@ refute "a truncated bundle fails to parse and executes nothing" bash "$truncated
 expect "the bundle prints help without root" bash "$bundle" --help
 refute "the bundle rejects an out-of-range port" bash "$bundle" --port 99999
 refute "the bundle rejects an unknown option" bash "$bundle" --nope
-refute "the network mode is gone from the option surface" \
-  bash "$bundle" --network-mode public
-refute "the bundle rejects an interface name that could be read as an option" \
-  bash "$bundle" --firewall-interface '-oProxyCommand=bad'
+refute "the bundle rejects an allowed host that could be read as an option" \
+  bash "$bundle" --allowed-host '-oProxyCommand=bad'
 
 # --release-file is a dev/test affordance: a prerelease bundle parses it, a
 # stable bundle refuses it — a stable install must never sideload a release.

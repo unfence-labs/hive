@@ -1,4 +1,5 @@
 import { createHash, timingSafeEqual } from "node:crypto";
+import { isIP } from "node:net";
 import type { FastifyReply, FastifyRequest } from "fastify";
 
 /** Origins the desktop webview loads Hive from; always trusted. */
@@ -110,32 +111,50 @@ export function isAuthorized(
   return false;
 }
 
+function hostNameFromHeader(rawHost: string): string | undefined {
+  const value = rawHost.trim().toLowerCase();
+  if (!value) return undefined;
+
+  const bracketed = value.match(/^\[([^\]]+)\](?::(\d+))?$/);
+  if (bracketed) {
+    const [, address, port] = bracketed;
+    if (!address || isIP(address) !== 6) return undefined;
+    if (port && (Number(port) < 1 || Number(port) > 65_535)) return undefined;
+    return address;
+  }
+
+  if (isIP(value)) return value;
+  const colon = value.lastIndexOf(":");
+  const host = colon === -1 ? value : value.slice(0, colon);
+  const port = colon === -1 ? undefined : value.slice(colon + 1);
+  if (
+    port !== undefined &&
+    (!/^\d+$/.test(port) || Number(port) < 1 || Number(port) > 65_535)
+  ) {
+    return undefined;
+  }
+  if (isIP(host)) return host;
+  if (host.includes(":") || /^[\d.]+$/.test(host)) return undefined;
+  if (!/^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/.test(host) || host.includes("..")) {
+    return undefined;
+  }
+  return host;
+}
+
 /**
  * Host-header allowlist (anti DNS-rebinding). A malicious website resolving its
  * own domain to the backend's IP would carry that domain in the Host header, so
- * only IP literals, localhost, Tailscale MagicDNS names, and explicitly allowed
- * hosts (HIVE_ALLOWED_HOSTS, comma-separated) are accepted.
+ * only IP literals, localhost, and explicitly allowed hosts are accepted.
  */
 export function isAllowedHostHeader(
   rawHost: string | undefined,
   extraAllowed: readonly string[] = [],
 ): boolean {
   if (!rawHost) return false;
-  let host = rawHost.trim().toLowerCase();
-  if (host.startsWith("[")) {
-    const end = host.indexOf("]");
-    if (end === -1) return false;
-    host = host.slice(1, end);
-  } else {
-    const colon = host.lastIndexOf(":");
-    if (colon !== -1 && !host.slice(0, colon).includes(":")) {
-      host = host.slice(0, colon);
-    }
-  }
+  const host = hostNameFromHeader(rawHost);
+  if (!host) return false;
   if (host === "localhost" || host === "127.0.0.1" || host === "::1") return true;
-  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(host)) return true;
-  if (host.includes(":") && /^[0-9a-f:]+$/.test(host)) return true;
-  if (host.endsWith(".ts.net")) return true;
+  if (isIP(host)) return true;
   return extraAllowed.some((allowed) => allowed.trim().toLowerCase() === host);
 }
 

@@ -15,7 +15,7 @@ enum ChatImageResolver {
     static func apiURL(for source: String) -> URL? {
         guard source.hasPrefix("/api/") else { return nil }
         let host = UserDefaults.standard.string(forKey: "serverHost") ?? "localhost"
-        let port = UserDefaults.standard.string(forKey: "serverPort") ?? "3000"
+        let port = UserDefaults.standard.string(forKey: "serverPort") ?? ServerEndpoint.defaultPort
         let token = UserDefaults.standard.string(forKey: "authToken") ?? ""
         guard var components = URLComponents(string: "http://\(host):\(port)\(source)") else {
             return nil

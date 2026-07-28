@@ -32,9 +32,6 @@ describe("installer machine", () => {
     expect(DEFAULT_BACKEND_PORT).toBe(9420);
     expect(machine.inputs.installDir).toBe(DEFAULT_INSTALL_DIR);
     expect(machine.inputs.dataDir).toBe(DEFAULT_DATA_DIR);
-    // No network question is answered before the server has been looked at, so
-    // there is nothing here to answer it with.
-    expect(machine.inputs.firewallInterface).toBeUndefined();
   });
 
   it("walks the sequence forward and back, and back is available everywhere but welcome", () => {
@@ -144,13 +141,13 @@ describe("installer machine", () => {
   it("splits an optional user off the address", () => {
     expect(parseAddress(" root@203.0.113.10 ")).toEqual({ host: "203.0.113.10", user: "root" });
     expect(parseAddress("hive.example.com")).toEqual({ host: "hive.example.com" });
+    expect(parseAddress("root@[2001:db8::1]")).toEqual({ host: "2001:db8::1", user: "root" });
     expect(parseAddress("@host")).toEqual({ host: "host" });
   });
 
   it("refuses addresses and directories the sidecar would refuse", () => {
     expect(isUsableAddress("203.0.113.10")).toBe(true);
     expect(isUsableAddress("ops_2@server.example.com")).toBe(true);
-    // The one host rule lives in server-connection, brackets included.
     expect(isUsableAddress("root@[2001:db8::1]")).toBe(true);
     expect(isUsableAddress("")).toBe(false);
     expect(isUsableAddress("-oProxyCommand=bad")).toBe(false);

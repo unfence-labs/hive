@@ -39,7 +39,7 @@ export interface HostIdentity {
 export type PreflightStatus = "ok" | "warn" | "fail";
 
 export interface PreflightCheck {
-  /** Check id, e.g. "port", "install_dir", "firewall", "interfaces". */
+  /** Check id, e.g. "port", "install_dir", or "firewall". */
   check: string;
   status: PreflightStatus;
   detail: string;
@@ -72,11 +72,6 @@ export interface ProvisionOptions {
   port?: number;
   installDir?: string;
   dataDir?: string;
-  /**
-   * Restrict the one firewall rule to this interface instead of opening the
-   * port. Absent — the ordinary case — opens it.
-   */
-  firewallInterface?: string;
   /** Authorized on the hive service account by the install. */
   sshPublicKey?: string;
 }

@@ -1,10 +1,12 @@
 import Foundation
 
 enum ServerEndpoint {
+    static let defaultPort = "9420"
+
     static func webSocketURL(path: String, queryItems: [URLQueryItem] = []) -> URL? {
         webSocketURL(
             host: UserDefaults.standard.string(forKey: "serverHost") ?? "localhost",
-            port: UserDefaults.standard.string(forKey: "serverPort") ?? "3000",
+            port: UserDefaults.standard.string(forKey: "serverPort") ?? defaultPort,
             token: UserDefaults.standard.string(forKey: "authToken") ?? "",
             path: path,
             queryItems: queryItems

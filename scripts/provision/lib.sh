@@ -22,8 +22,6 @@ OPT_ENV_DATA_DIR="${HIVE_DATA_DIR:-}"
 # shellcheck disable=SC2034
 OPT_ENV_PORT="${HIVE_PORT:-}"
 # shellcheck disable=SC2034
-OPT_ENV_FIREWALL_IFACE="${HIVE_FIREWALL_INTERFACE:-}"
-# shellcheck disable=SC2034
 OPT_ENV_SSH_KEY="${HIVE_SSH_PUBLIC_KEY:-}"
 
 # Runtime dirs (overridable for tests).

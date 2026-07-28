@@ -355,7 +355,7 @@ describe("buildApp", () => {
     socket.close();
   });
 
-  it("rejects a Host header that is not an IP, localhost or a MagicDNS name", async () => {
+  it("rejects a Host header that is not an IP, localhost or explicitly allowed", async () => {
     app = await buildApp();
     const res = await app.inject({
       method: "GET",
@@ -388,9 +388,9 @@ describe("buildApp", () => {
     expect(res.statusCode).toBe(200);
   });
 
-  it("accepts tailnet and IP Host headers", async () => {
+  it("accepts IP Host headers", async () => {
     app = await buildApp();
-    for (const host of ["100.74.156.118:3000", "hive.tailnet-abc.ts.net"]) {
+    for (const host of ["100.74.156.118:3000", "[2001:db8::1]:3000"]) {
       const res = await app.inject({ method: "GET", url: "/api/projects", headers: { host } });
       expect(res.statusCode).toBe(200);
     }

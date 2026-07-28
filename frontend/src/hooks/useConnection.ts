@@ -1,5 +1,5 @@
 import { useCallback, useSyncExternalStore } from "react";
-import { isValidPort } from "@/lib/server-connection";
+import { isValidPort, normalizeHost } from "@/lib/server-connection";
 
 /**
  * The one server this client talks to. Stored as a single record so address,
@@ -49,7 +49,7 @@ function trimmedString(value: unknown): string {
 function normalizeConnection(value: unknown): ServerConnection | null {
   if (!value || typeof value !== "object") return null;
   const candidate = value as Partial<ServerConnection>;
-  const host = trimmedString(candidate.host);
+  const host = normalizeHost(trimmedString(candidate.host));
   const { port } = candidate;
   if (!host) return null;
   if (typeof port !== "number" || !isValidPort(port)) return null;

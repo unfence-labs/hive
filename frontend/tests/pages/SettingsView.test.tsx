@@ -47,7 +47,7 @@ describe("ConnectionSettings", () => {
     render(<ConnectionSettings />);
 
     expect(screen.getByRole("heading", { name: "Connection" }).closest("div")).toHaveAttribute("data-tauri-drag-region");
-    expect(screen.getByPlaceholderText("100.x.x.x")).toHaveValue("");
+    expect(screen.getByPlaceholderText("203.0.113.10")).toHaveValue("");
     expect(screen.getByPlaceholderText("9420")).toHaveValue("9420");
     expect(screen.getByPlaceholderText("Paste the access token")).toHaveValue("");
     expect(screen.getByText("Not configured")).toBeInTheDocument();
@@ -65,7 +65,7 @@ describe("ConnectionSettings", () => {
 
     render(<ConnectionSettings />);
 
-    expect(screen.getByPlaceholderText("100.x.x.x")).toHaveValue("100.64.0.10");
+    expect(screen.getByPlaceholderText("203.0.113.10")).toHaveValue("100.64.0.10");
     expect(screen.getByPlaceholderText("9420")).toHaveValue("3001");
     expect(screen.getByPlaceholderText("Paste the access token")).toHaveValue("stored-token");
     expect(screen.getByPlaceholderText("hive")).toHaveValue("hive");
@@ -99,7 +99,7 @@ describe("ConnectionSettings", () => {
     const onRefreshConnection = vi.fn();
     render(<ConnectionSettings onRefreshConnection={onRefreshConnection} />);
 
-    await user.type(screen.getByPlaceholderText("100.x.x.x"), " 100.64.0.10 ");
+    await user.type(screen.getByPlaceholderText("203.0.113.10"), " 100.64.0.10 ");
     await user.type(screen.getByPlaceholderText("Paste the access token"), "tok");
     await user.type(screen.getByPlaceholderText("hive"), "hive");
     await user.click(screen.getByRole("button", { name: "Connect" }));
@@ -122,7 +122,7 @@ describe("ConnectionSettings", () => {
     const user = userEvent.setup();
     render(<ConnectionSettings />);
 
-    await user.type(screen.getByPlaceholderText("100.x.x.x"), "100.64.0.10");
+    await user.type(screen.getByPlaceholderText("203.0.113.10"), "100.64.0.10");
     await user.click(screen.getByRole("button", { name: "Connect" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("The server could not be reached.");
@@ -134,7 +134,7 @@ describe("ConnectionSettings", () => {
     const user = userEvent.setup();
     render(<ConnectionSettings />);
 
-    await user.type(screen.getByPlaceholderText("100.x.x.x"), "100.64.0.10");
+    await user.type(screen.getByPlaceholderText("203.0.113.10"), "100.64.0.10");
     await user.type(screen.getByPlaceholderText("Paste the access token"), "wrong");
     await user.click(screen.getByRole("button", { name: "Connect" }));
 
@@ -143,18 +143,18 @@ describe("ConnectionSettings", () => {
   });
 
   it("keeps the working connection when a new attempt is rejected", async () => {
-    replaceConnection({ host: "old.ts.net", port: 3000, authToken: "good" });
+    replaceConnection({ host: "old.example.com", port: 3000, authToken: "good" });
     mockProbe(new Response("", { status: 401 }));
     const user = userEvent.setup();
     render(<ConnectionSettings />);
 
-    const host = screen.getByPlaceholderText("100.x.x.x");
+    const host = screen.getByPlaceholderText("203.0.113.10");
     await user.clear(host);
-    await user.type(host, "new.ts.net");
+    await user.type(host, "new.example.com");
     await user.click(screen.getByRole("button", { name: "Connect" }));
 
     await screen.findByRole("alert");
-    expect(getConnection()).toMatchObject({ host: "old.ts.net", authToken: "good" });
+    expect(getConnection()).toMatchObject({ host: "old.example.com", authToken: "good" });
   });
 
   it("preserves the install-owned admin login across a manual reconnect", async () => {
@@ -176,7 +176,7 @@ describe("ConnectionSettings", () => {
     const connect = screen.getByRole("button", { name: "Connect" });
     expect(connect).toBeDisabled();
 
-    await user.type(screen.getByPlaceholderText("100.x.x.x"), "100.64.0.10");
+    await user.type(screen.getByPlaceholderText("203.0.113.10"), "100.64.0.10");
     expect(connect).toBeEnabled();
 
     const port = screen.getByPlaceholderText("9420");
@@ -208,15 +208,17 @@ describe("ConnectionSettings", () => {
     const user = userEvent.setup();
     render(<ConnectionSettings />);
 
-    const host = screen.getByPlaceholderText("100.x.x.x");
+    const host = screen.getByPlaceholderText("203.0.113.10");
     await user.type(host, " 100.64.0.10 ");
     await user.click(screen.getByRole("button", { name: "Connect" }));
 
     // The stored host is trimmed; the form must show what was actually stored.
     await waitFor(() => expect(host).toHaveValue("100.64.0.10"));
 
-    act(() => replaceConnection({ host: "installed.ts.net", port: 4000, authToken: "issued" }));
-    expect(host).toHaveValue("installed.ts.net");
+    act(() =>
+      replaceConnection({ host: "installed.example.com", port: 4000, authToken: "issued" }),
+    );
+    expect(host).toHaveValue("installed.example.com");
     expect(screen.getByPlaceholderText("9420")).toHaveValue("4000");
     expect(screen.getByPlaceholderText("Paste the access token")).toHaveValue("issued");
   });

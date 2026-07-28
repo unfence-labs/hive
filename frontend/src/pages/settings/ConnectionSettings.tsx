@@ -174,7 +174,7 @@ export default function ConnectionSettings({
                     id="server-host"
                     value={hostDraft}
                     onChange={(e) => setHostDraft(e.target.value)}
-                    placeholder="100.x.x.x"
+                    placeholder="203.0.113.10"
                     autoComplete="off"
                     spellCheck={false}
                     className="font-mono text-xs"
