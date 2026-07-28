@@ -404,15 +404,24 @@ function ToolCard({
         )}
 
         {tool.installed && !prompt && (
-          <Button
-            size="sm"
-            variant={tool.authenticated ? "ghost" : "default"}
-            disabled={busy || signingIn}
-            onClick={onConnect}
-          >
-            {signingIn && <Loader2 className="mr-1.5 h-3 w-3 animate-spin" />}
-            {tool.authenticated ? "Sign in again" : CONNECT_LABELS[tool.id]}
-          </Button>
+          <>
+            <Button
+              size="sm"
+              variant={tool.authenticated ? "ghost" : "default"}
+              disabled={busy || signingIn}
+              onClick={onConnect}
+            >
+              {signingIn && <Loader2 className="mr-1.5 h-3 w-3 animate-spin" />}
+              {tool.authenticated ? "Sign in again" : CONNECT_LABELS[tool.id]}
+            </Button>
+            {/* A sign-in has no deadline of Hive's making, so a stalled one
+                needs a way out that is not restarting the backend. */}
+            {signingIn && (
+              <Button size="sm" variant="ghost" onClick={onCancelAuth}>
+                Cancel
+              </Button>
+            )}
+          </>
         )}
 
         {running && operation && (

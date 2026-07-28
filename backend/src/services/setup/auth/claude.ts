@@ -99,6 +99,7 @@ export function claudeAuthFlow(deps: ClaudeAuthDeps): AuthFlow {
           active.write("\r");
           return;
         }
+
       }
 
       if (awaitingCode) return;
@@ -182,6 +183,14 @@ export function claudeAuthFlow(deps: ClaudeAuthDeps): AuthFlow {
       },
       cancel: () => {
         cancelled = true;
+        // A sign-in the operator gave up on, after handing a code over, hung
+        // without printing anything the watcher recognises. The redacted tail
+        // is the only forensic window into what the CLI was showing instead.
+        if (codePending) {
+          console.warn(
+            `[claude-auth] cancelled while verifying; CLI tail:\n${outputTail(buffer)}`,
+          );
+        }
         child?.kill();
       },
     };
