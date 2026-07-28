@@ -551,22 +551,11 @@ describe("ToolsPanel sign-in", () => {
 
     renderPanel();
 
-    expect(await screen.findByText(/One agent harness is enough/i)).toBeInTheDocument();
     // Connecting the second is offered, never demanded.
-    expect(screen.getByRole("button", { name: "Connect Codex" })).toBeEnabled();
-  });
-
-  it("says one harness is enough when neither is connected yet", async () => {
-    respond({
-      tools: [
-        tool({ id: "claude", label: "Claude Code", installed: true }),
-        tool({ id: "codex", label: "Codex", installed: true }),
-      ],
-    });
-
-    renderPanel();
-
-    expect(await screen.findByText(/Either one on its own is enough/i)).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Connect Codex" })).toBeEnabled();
+    // The panel renders cards; stating the requirement is the host page's job,
+    // so it is not repeated here. See tests/pages/AgentSettings.test.tsx.
+    expect(screen.queryByText(/harness needed to run Hive/i)).not.toBeInTheDocument();
   });
 
   it("cancels a running sign-in", async () => {

@@ -2,7 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactElement } from "react";
-import type { ToolsResponse } from "@hive/shared/setup-types";
+import type { ToolStatus, ToolsResponse } from "@hive/shared/setup-types";
+import type { AccountStatus } from "@/lib/setup-api";
 import Installer from "@/pages/installer/Installer";
 import {
   INSTALLER_SCHEMA,
@@ -30,23 +31,39 @@ import {
 } from "./mock-provision-client";
 import { createWrapper } from "../test-utils";
 
+const mocks = vi.hoisted(() => ({ copyToClipboard: vi.fn() }));
+
+vi.mock("@/lib/clipboard", () => ({ copyToClipboard: mocks.copyToClipboard }));
+
 /** The final screen renders the tools panel, and the panel is a query. */
 function renderInstaller(ui: ReactElement) {
   const { wrapper } = createWrapper();
   return render(ui, { wrapper });
 }
 
+/** A GitHub account already signed in on the server. */
+const GITHUB_CONNECTED: AccountStatus = {
+  ghInstalled: true,
+  authenticated: true,
+  user: { login: "lenny", name: "Lenny", email: "lenny@example.com", avatarUrl: "" },
+};
+
+/** The tools a freshly installed server reports, all present and up to date. */
+function toolList(claudeSignedIn = false): ToolStatus[] {
+  return [
+    { id: "claude", label: "Claude Code", installed: true, version: "1.0.0", latestVersion: "1.0.0", updateAvailable: false, authenticated: claudeSignedIn, managed: true },
+    { id: "codex", label: "Codex", installed: true, version: "0.5.0", latestVersion: "0.5.0", updateAvailable: false, authenticated: false, managed: true },
+    { id: "gh", label: "GitHub CLI", installed: true, version: "2.0.0", latestVersion: "2.0.0", updateAvailable: false, authenticated: false, managed: true },
+  ];
+}
+
 /**
- * Answer the tools panel's one read. Every tool is installed and signed out,
- * which is exactly the state a freshly installed server is in.
+ * Answer the final screen's reads. By default nothing is signed in, which is
+ * exactly the state a freshly installed server is in.
  */
-function stubTools(overrides: Partial<ToolsResponse> = {}) {
+function stubTools(overrides: Partial<ToolsResponse> = {}, account: Partial<AccountStatus> = {}) {
   const body: ToolsResponse = {
-    tools: [
-      { id: "claude", label: "Claude Code", installed: true, version: "1.0.0", latestVersion: "1.0.0", updateAvailable: false, authenticated: false, managed: true },
-      { id: "codex", label: "Codex", installed: true, version: "0.5.0", latestVersion: "0.5.0", updateAvailable: false, authenticated: false, managed: true },
-      { id: "gh", label: "GitHub CLI", installed: true, version: "2.0.0", latestVersion: "2.0.0", updateAvailable: false, authenticated: false, managed: true },
-    ],
+    tools: toolList(),
     operations: [],
     authSessions: [],
     ...overrides,
@@ -54,14 +71,20 @@ function stubTools(overrides: Partial<ToolsResponse> = {}) {
   // The status poll reads operations and auth sessions off its own endpoint,
   // so it gets an idle body rather than an empty object it would trip over.
   const idle = JSON.stringify({ operations: body.operations, authSessions: body.authSessions });
-  return vi.spyOn(globalThis, "fetch").mockImplementation((input) =>
-    Promise.resolve(
-      new Response(String(input).includes("/api/setup/tools") ? JSON.stringify(body) : idle, {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      }),
-    ),
-  );
+  // The GitHub card reads the account endpoint, which is a different server
+  // fact from the gh tool the panel filters out.
+  const status = JSON.stringify({ ghInstalled: true, authenticated: false, ...account });
+  return vi.spyOn(globalThis, "fetch").mockImplementation((input) => {
+    const url = String(input);
+    const answer = url.includes("/api/setup/tools")
+      ? JSON.stringify(body)
+      : url.includes("/api/account/status")
+        ? status
+        : idle;
+    return Promise.resolve(
+      new Response(answer, { status: 200, headers: { "Content-Type": "application/json" } }),
+    );
+  });
 }
 
 /**
@@ -140,6 +163,7 @@ function storageContents(): string {
 describe("Installer", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    mocks.copyToClipboard.mockReset().mockResolvedValue(undefined);
     // The install path only exists inside the desktop shell; these tests
     // exercise it, so they run as the shell. The web variant has its own test.
     Object.defineProperty(window, "__TAURI_INTERNALS__", { value: {}, configurable: true });
@@ -716,115 +740,198 @@ describe("Installer", () => {
 
   // ── connecting accounts ────────────────────────────────────────────────────
 
-  it("ends on the same tool panel Settings uses, pointed at the new server", async () => {
+  it("ends on the same cards Settings uses, pointed at the new server", async () => {
     const fetchMock = stubTools();
     seedRunningInstall();
 
     await installTo(createMockProvisionClient(), vi.fn());
 
-    // The panel addresses the server that was just installed, with the token
+    // Every card addresses the server that was just installed, with the token
     // that server issued — never whatever the client happened to be using.
+    const fromNewServer = expect.objectContaining({
+      headers: { Authorization: `Bearer ${ACCESS_TOKEN}` },
+    });
     await waitFor(() =>
       expect(fetchMock).toHaveBeenCalledWith(
         "http://203.0.113.10:9420/api/setup/tools",
-        expect.objectContaining({ headers: { Authorization: `Bearer ${ACCESS_TOKEN}` } }),
+        fromNewServer,
+      ),
+    );
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        "http://203.0.113.10:9420/api/account/status",
+        fromNewServer,
       ),
     );
 
     // It is the panel, with its sign-ins, not a reduced copy of it. The gh the
-    // server also reports is not a harness and is not offered here.
+    // server also reports is not a harness: its account has its own card, and
+    // the panel never renders a tool card for it.
     expect(await screen.findByRole("button", { name: "Connect Claude" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Connect Codex" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Connect GitHub" })).not.toBeInTheDocument();
+    expect(screen.queryByText("GitHub CLI")).not.toBeInTheDocument();
   });
 
-  it("shows the generated token once, with a copy control and no gate", async () => {
+  it("shows the generated token truncated, reveals it on demand, and copies it whole", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     stubTools();
     seedRunningInstall();
 
     await installTo(createMockProvisionClient(), vi.fn());
 
-    // The server keeps only the digest, so this screen is the one chance to
-    // copy the plaintext for connecting other clients.
+    // On screen it is short enough to recognise and useless to a passer-by.
+    const truncated = `${ACCESS_TOKEN.slice(0, 8)}…${ACCESS_TOKEN.slice(-4)}`;
+    expect(screen.getByText(truncated)).toBeInTheDocument();
+    expect(screen.queryByText(ACCESS_TOKEN)).not.toBeInTheDocument();
+    // The server keeps only the digest, so this screen is the one chance at it.
+    expect(
+      screen.getByText(
+        "This client already has it. Copy it to connect your phone, browser or another machine — it is shown only here and cannot be recovered.",
+      ),
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Reveal the access token" }));
     expect(screen.getByText(ACCESS_TOKEN)).toBeInTheDocument();
-    expect(screen.getByText(/it will not be shown again/i)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Copy the access token" })).toBeInTheDocument();
-    // Informative only: not copying it blocks nothing.
+    await user.click(screen.getByRole("button", { name: "Hide the access token" }));
+    expect(screen.queryByText(ACCESS_TOKEN)).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Copy" }));
+
+    // What lands on the clipboard is the whole token, never the truncation.
+    expect(mocks.copyToClipboard).toHaveBeenCalledWith(ACCESS_TOKEN);
+    expect(screen.getByText("Copied")).toBeInTheDocument();
+  });
+
+  it("reveals the token and still opens the gate when the clipboard refuses", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    // The other two conditions are already answered by the server, so the only
+    // thing between the operator and Open Hive is this copy.
+    stubTools({ tools: toolList(true) }, GITHUB_CONNECTED);
+    mocks.copyToClipboard.mockRejectedValue(new Error("Write permission denied."));
+    seedRunningInstall();
+
+    await installTo(createMockProvisionClient(), vi.fn());
+    await screen.findByRole("button", { name: "Connect Codex" });
+
+    await user.click(screen.getByRole("button", { name: "Copy" }));
+
+    // Nothing landed on the clipboard, so the card puts the whole token on
+    // screen and says who has to move it.
+    expect(screen.getByText(ACCESS_TOKEN)).toBeInTheDocument();
+    expect(
+      screen.getByText("The clipboard could not be reached. Copy the token above by hand."),
+    ).toBeInTheDocument();
+    // The failure is not dressed up as a success…
+    expect(screen.queryByText("Copied")).not.toBeInTheDocument();
+    // …and Copy stays live, so a retry is one click away.
+    expect(screen.getByRole("button", { name: "Copy" })).toBeEnabled();
+
+    // The gate asks that the token was surfaced and taken, not that the
+    // browser allowed the write: a refused permission must not strand the
+    // operator on a screen with no Back and no skip.
+    await waitFor(() => expect(screen.queryByText(/Still to do/)).not.toBeInTheDocument());
     expect(screen.getByRole("button", { name: "Open Hive" })).toBeEnabled();
   });
 
-  it("says one agent provider is enough rather than asking for all three", async () => {
+  it("names the accounts to sign in without repeating the harness rule", async () => {
     stubTools();
     seedRunningInstall();
 
     await installTo(createMockProvisionClient(), vi.fn());
+    await screen.findByRole("button", { name: "Connect Claude" });
 
-    expect(screen.getByText(/connecting either Claude or Codex is enough/i)).toBeInTheDocument();
-    // …and the panel says the same against live state, so the two cannot drift.
     expect(
-      await screen.findByText(
-        "Connect Claude Code or Codex to run sessions. Either one on its own is enough.",
+      screen.getByText(
+        "Sign in on the server: GitHub for repository access, and Claude Code or Codex to run sessions. Everything here can be changed later in Settings.",
       ),
     ).toBeInTheDocument();
+    // The gate hint below already says either harness will do, so Settings'
+    // standing note stays out of the installer rather than saying it twice.
+    expect(screen.queryByText(/harness needed to run Hive/i)).not.toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Still to do: copy the access token, connect GitHub, sign in to Claude or Codex.",
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("names everything still missing, and nothing that is done", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    stubTools();
+    seedRunningInstall();
+
+    await installTo(createMockProvisionClient(), vi.fn());
+    await screen.findByRole("button", { name: "Connect Claude" });
+
+    expect(
+      screen.getByText(
+        "Still to do: copy the access token, connect GitHub, sign in to Claude or Codex.",
+      ),
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Copy" }));
+
+    // The item that is done drops out; the rest keep their order.
+    expect(
+      screen.getByText("Still to do: connect GitHub, sign in to Claude or Codex."),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Open Hive" })).toBeDisabled();
+  });
+
+  it("asks for a harness by the requirement, never by one of the two cards", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    stubTools({}, GITHUB_CONNECTED);
+    seedRunningInstall();
+
+    await installTo(createMockProvisionClient(), vi.fn());
+    await user.click(await screen.findByRole("button", { name: "Copy" }));
+
+    // Neither card is required on its own, so neither is named: signing in to
+    // either one clears this line.
+    expect(
+      await screen.findByText("Still to do: sign in to Claude or Codex."),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Open Hive" })).toBeDisabled();
   });
 
   it("treats one connected harness as the whole requirement", async () => {
-    stubTools({
-      tools: [
-        {
-          id: "claude",
-          label: "Claude Code",
-          installed: true,
-          version: "1.0.0",
-          latestVersion: "1.0.0",
-          updateAvailable: false,
-          authenticated: true,
-          managed: true,
-        },
-        {
-          id: "codex",
-          label: "Codex",
-          installed: true,
-          version: "0.5.0",
-          latestVersion: "0.5.0",
-          updateAvailable: false,
-          authenticated: false,
-          managed: true,
-        },
-      ],
-    });
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    stubTools({ tools: toolList(true) }, GITHUB_CONNECTED);
     seedRunningInstall();
 
     await installTo(createMockProvisionClient(), vi.fn());
+    await user.click(await screen.findByRole("button", { name: "Copy" }));
 
-    expect(
-      await screen.findByText(
-        "One agent harness is enough — connecting the other adds its models, it is not required.",
-      ),
-    ).toBeInTheDocument();
-    // Codex is still offered, and still not asked for.
-    expect(screen.getByRole("button", { name: "Connect Codex" })).toBeEnabled();
+    // Codex is still offered, and still not asked for: with Claude signed in
+    // the gate is satisfied and nothing is left to do.
+    expect(await screen.findByRole("button", { name: "Connect Codex" })).toBeEnabled();
+    await waitFor(() => expect(screen.queryByText(/Still to do/)).not.toBeInTheDocument());
+    expect(screen.getByRole("button", { name: "Open Hive" })).toBeEnabled();
   });
 
-  it("never gates: continuing works with nothing connected", async () => {
+  it("opens Hive only once the token is copied, GitHub is connected and a harness is signed in", async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
-    stubTools();
+    stubTools({ tools: toolList(true) }, GITHUB_CONNECTED);
     const onClose = vi.fn();
     seedRunningInstall();
 
     await installTo(createMockProvisionClient(), onClose);
-    await screen.findByRole("button", { name: "Connect Claude" });
+    await screen.findByRole("button", { name: "Connect Codex" });
 
-    // Nothing is signed in, and nothing about that stands in the way.
-    expect(screen.getAllByText("Not signed in")).toHaveLength(2);
+    // The server answers two of the three; the copy is the operator's own.
     const open = screen.getByRole("button", { name: "Open Hive" });
-    expect(open).toBeEnabled();
-    // The install is over, so there is no back — but no skip or required
-    // sign-in either. Continuing is the only control, and it always works.
+    expect(await screen.findByText("Still to do: copy the access token.")).toBeInTheDocument();
+    expect(open).toBeDisabled();
+    // The install is over, so there is no back — and no skip or later either.
+    // The only way out is through the three things the gate asks for.
     for (const label of [/back/i, /skip/i, /later/i, /retry/i]) {
       expect(screen.queryByRole("button", { name: label })).not.toBeInTheDocument();
     }
 
+    await user.click(screen.getByRole("button", { name: "Copy" }));
+
+    expect(screen.queryByText(/Still to do/)).not.toBeInTheDocument();
+    expect(open).toBeEnabled();
     await user.click(open);
 
     // Finishing closes the installer and hands over to the ordinary app…

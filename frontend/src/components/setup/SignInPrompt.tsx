@@ -4,9 +4,14 @@ import { useClipboardCopy } from "@/hooks/useClipboardCopy";
 import { openExternal } from "@/lib/open-external";
 
 /**
- * A device-code sign-in: copy the code, open the page, wait. GitHub's flow in
- * Settings → Account is the one consumer; the agent harnesses render their own
- * inline prompt in ToolsPanel.
+ * A device-code sign-in with room to breathe: a large code, the page to open,
+ * the way out, and what is being waited for.
+ *
+ * Settings → Account is its one consumer, where the sign-in is the whole point
+ * of the page and gets a panel of its own. Do not fold `DeviceCodeRow` into
+ * this: that one is a row inside a setup card, which supplies the waiting line
+ * and the Cancel from its own slots, so a card rendering this would announce
+ * and offer both twice.
  */
 export function SignInPrompt({
   verificationUri,

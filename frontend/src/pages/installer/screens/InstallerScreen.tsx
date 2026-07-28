@@ -13,6 +13,8 @@ interface InstallerScreenProps {
   onBack?: () => void;
   /** Extra action rendered to the left of the primary button. */
   footer?: ReactNode;
+  /** A line under the actions, next to the button it explains. */
+  hint?: ReactNode;
 }
 
 /**
@@ -33,6 +35,7 @@ export function InstallerScreen({
   continueDisabled,
   onBack,
   footer,
+  hint,
 }: InstallerScreenProps) {
   const hasFooter = Boolean(onBack || onContinue || footer);
   return (
@@ -54,16 +57,19 @@ export function InstallerScreen({
             aria-hidden
             className="pointer-events-none absolute -top-6 left-0 right-0 h-6 bg-gradient-to-t from-background to-transparent"
           />
-          <div className="flex items-center justify-between pb-8 pt-1">
-            <div>{onBack && <BackButton onClick={onBack} />}</div>
-            <div className="flex items-center gap-3">
-              {footer}
-              {onContinue && (
-                <Button onClick={onContinue} disabled={continueDisabled}>
-                  {continueLabel}
-                </Button>
-              )}
+          <div className="pb-8 pt-1">
+            <div className="flex items-center justify-between">
+              <div>{onBack && <BackButton onClick={onBack} />}</div>
+              <div className="flex items-center gap-3">
+                {footer}
+                {onContinue && (
+                  <Button onClick={onContinue} disabled={continueDisabled}>
+                    {continueLabel}
+                  </Button>
+                )}
+              </div>
             </div>
+            {hint && <p className="mt-2 text-right text-xs text-muted-foreground">{hint}</p>}
           </div>
         </div>
       )}

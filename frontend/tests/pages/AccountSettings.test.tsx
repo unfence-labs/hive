@@ -16,13 +16,6 @@ const mocks = vi.hoisted(() => ({
   cancelAuth: vi.fn(),
 }));
 
-vi.mock("@/hooks/useApi", () => ({
-  api: {
-    get: mocks.get,
-    post: mocks.post,
-  },
-}));
-
 vi.mock("@/lib/open-external", () => ({
   openExternal: mocks.openExternal,
 }));
@@ -31,11 +24,15 @@ vi.mock("@/lib/clipboard", () => ({
   copyToClipboard: mocks.copyToClipboard,
 }));
 
+// The account endpoints go through the setup client too: they need the same
+// target plumbing. `get` / `post` are the account status read and the sign-out.
 vi.mock("@/lib/setup-api", () => ({
   createSetupApi: () => ({
     getStatus: mocks.getStatus,
     startAuth: mocks.startAuth,
     cancelAuth: mocks.cancelAuth,
+    getAccountStatus: mocks.get,
+    disconnectAccount: mocks.post,
   }),
 }));
 

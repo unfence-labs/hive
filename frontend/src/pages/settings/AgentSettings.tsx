@@ -17,10 +17,13 @@ export default function AgentSettings() {
       <CenterCard scroll>
         <div className="max-w-2xl space-y-4 px-4 py-5">
           <ToolsPanel />
-          <p className="text-xs text-muted-foreground">
-            Command-line tools Hive runs on this server. Installs go into the service
-            account's own directory, never system-wide.
-          </p>
+          {/*
+            The note lives here, not in ToolsPanel: the installer reuses that
+            panel and already states the requirement in its own copy. And it is
+            a statement of what works, never a gate — nothing in the panel is
+            disabled for want of the second harness.
+          */}
+          <p className="text-xs text-muted-foreground">At least one harness needed to run Hive</p>
         </div>
       </CenterCard>
     </div>

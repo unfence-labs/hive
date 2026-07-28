@@ -22,6 +22,19 @@ export interface SetupApiTarget {
   authToken?: string;
 }
 
+export interface GitHubUser {
+  login: string;
+  name: string;
+  email: string;
+  avatarUrl: string;
+}
+
+export interface AccountStatus {
+  ghInstalled: boolean;
+  authenticated: boolean;
+  user?: GitHubUser | null;
+}
+
 export interface SetupApi {
   getTools: (signal?: AbortSignal) => Promise<ToolsResponse>;
   /** Cheap in-memory progress read, safe to poll while work is live. */
@@ -38,6 +51,15 @@ export interface SetupApi {
   startAuth: (tool: SetupToolId) => Promise<ToolAuthSession>;
   submitAuthCode: (tool: SetupToolId, code: string) => Promise<ToolAuthSession>;
   cancelAuth: (tool: SetupToolId) => Promise<ToolAuthSession>;
+  /**
+   * Who the `gh` sign-in ended up connecting, and signing that account out.
+   *
+   * Not setup routes, but they belong here because they need exactly the same
+   * target/token plumbing: the installer's final screen reads the account of
+   * the server it just installed, which the stored connection does not address.
+   */
+  getAccountStatus: (signal?: AbortSignal) => Promise<AccountStatus>;
+  disconnectAccount: () => Promise<void>;
 }
 
 /** Detection spawns several probes server-side; give it room. */
@@ -70,5 +92,7 @@ export function createSetupApi(target: SetupApiTarget = {}): SetupApi {
     submitAuthCode: (tool, code) =>
       post<ToolAuthSession>(`/api/setup/auth/${tool}/code`, { code }),
     cancelAuth: (tool) => post<ToolAuthSession>(`/api/setup/auth/${tool}/cancel`),
+    getAccountStatus: (signal) => get<AccountStatus>("/api/account/status", signal),
+    disconnectAccount: () => post<void>("/api/account/disconnect"),
   };
 }

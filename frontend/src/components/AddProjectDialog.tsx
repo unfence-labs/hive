@@ -13,6 +13,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { accountStatusKey } from "@/components/setup/useGithubAccount";
 import { cn } from "@/lib/utils";
 import { api } from "@/hooks/useApi";
 import { useBrain } from "@/hooks/useBrain";
@@ -73,8 +74,10 @@ export default function AddProjectDialog({
   }, [open]);
 
   // ── GitHub status (only fetched when Create mode is active) ──────
+  // The key Settings → Account writes, so disconnecting there is reflected here
+  // at once instead of leaving this dialog on its own stale copy.
   const { data: account } = useQuery({
-    queryKey: ["account", "status"],
+    queryKey: accountStatusKey(),
     queryFn: () => api.get<AccountStatus>("/api/account/status"),
     staleTime: 5 * 60_000,
     enabled: open && (mode === "create" || mode === "brain"),

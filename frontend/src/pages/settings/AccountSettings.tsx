@@ -1,177 +1,14 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Github, Loader2, LogOut, ExternalLink, AlertCircle, CheckCircle2, Terminal, XCircle } from "lucide-react";
-import {
-  isToolAuthTerminal,
-  TOOL_AUTH_FAILURE_HINTS,
-} from "@hive/shared/setup-types";
 import { SettingsHeader } from "@/components/AppLayout";
 import { CenterCard } from "@/components/CenterCard";
 import { cn } from "@/lib/utils";
-import { api } from "@/hooks/useApi";
 import { openExternal } from "@/lib/open-external";
 import { SignInPrompt } from "@/components/setup/SignInPrompt";
-import { createSetupApi } from "@/lib/setup-api";
-
-interface GitHubUser {
-  login: string;
-  name: string;
-  email: string;
-  avatarUrl: string;
-}
-
-interface AccountStatus {
-  ghInstalled: boolean;
-  authenticated: boolean;
-  user?: GitHubUser | null;
-}
-
-type PageState =
-  | { kind: "loading" }
-  | { kind: "no-gh" }
-  | { kind: "disconnected" }
-  | { kind: "connecting"; userCode: string; verificationUri: string }
-  | { kind: "connected"; user: GitHubUser }
-  | { kind: "error"; message: string; retryable: boolean };
-
-/** How often the server-side sign-in is re-read while it is live. */
-const POLL_INTERVAL_MS = 2_000;
-
-// Shared with the tools panel on purpose: both watch the same server state.
-const SETUP_STATUS_KEY = ["setup", "status", "default"] as const;
+import { useGithubAccount } from "@/components/setup/useGithubAccount";
 
 export default function AccountSettings() {
-  const queryClient = useQueryClient();
-  const [state, setState] = useState<PageState>({ kind: "loading" });
-  const [disconnecting, setDisconnecting] = useState(false);
-  const setupApi = useMemo(() => createSetupApi(), []);
-
-  const statusQuery = useQuery({
-    queryKey: ["account", "status"],
-    queryFn: () => api.get<AccountStatus>("/api/account/status"),
-    retry: 0,
-  });
-
-  // The sign-in itself runs on the server as a ToolAuthSession; this page only
-  // watches it through the same cheap status poll the tools panel uses, which
-  // is what lets a reload land back on the code instead of losing it.
-  const authQuery = useQuery({
-    queryKey: SETUP_STATUS_KEY,
-    queryFn: ({ signal }) => setupApi.getStatus(signal),
-    refetchInterval: (query) =>
-      query.state.data?.authSessions?.some(
-        (session) => session.tool === "gh" && !isToolAuthTerminal(session.state),
-      )
-        ? POLL_INTERVAL_MS
-        : false,
-  });
-  const ghSession = authQuery.data?.authSessions?.find((session) => session.tool === "gh");
-
-  const connect = useMutation({
-    mutationFn: () => setupApi.startAuth("gh"),
-    onError: (err) =>
-      setState({
-        kind: "error",
-        message: err instanceof Error ? err.message : "Could not start sign-in.",
-        retryable: true,
-      }),
-    onSettled: () => void queryClient.invalidateQueries({ queryKey: SETUP_STATUS_KEY }),
-  });
-
-  const cancelAuth = useMutation({
-    mutationFn: () => setupApi.cancelAuth("gh"),
-    onSettled: () => void queryClient.invalidateQueries({ queryKey: SETUP_STATUS_KEY }),
-  });
-
-  // Map query result to page state (only when in "loading" state)
-  useEffect(() => {
-    if (state.kind !== "loading") return;
-    if (statusQuery.isFetching) return;
-
-    if (statusQuery.error) {
-      setState({ kind: "error", message: "Could not reach backend", retryable: true });
-    } else if (statusQuery.data) {
-      const status = statusQuery.data;
-      if (!status.ghInstalled) {
-        setState({ kind: "no-gh" });
-      } else if (status.authenticated && status.user) {
-        setState({ kind: "connected", user: status.user });
-      } else {
-        setState({ kind: "disconnected" });
-      }
-    }
-  }, [state.kind, statusQuery.isFetching, statusQuery.data, statusQuery.error]);
-
-  // Mirror the server-side session into the page's own state. Finished
-  // sessions linger on the server for a while, so only an ending this page
-  // watched happen counts — a sign-in that completed an hour ago is already
-  // reflected in the account status.
-  const liveSince = useRef<string | null>(null);
-  useEffect(() => {
-    if (!ghSession) return;
-    if (!isToolAuthTerminal(ghSession.state)) {
-      liveSince.current = ghSession.startedAt;
-      if (ghSession.verificationUri && ghSession.userCode) {
-        setState({
-          kind: "connecting",
-          userCode: ghSession.userCode,
-          verificationUri: ghSession.verificationUri,
-        });
-      }
-      return;
-    }
-    if (liveSince.current !== ghSession.startedAt) return;
-    liveSince.current = null;
-    if (ghSession.state === "connected") {
-      setState({ kind: "loading" });
-      void queryClient.resetQueries({ queryKey: ["account", "status"] });
-    } else if (ghSession.state === "cancelled") {
-      setState({ kind: "disconnected" });
-    } else if (ghSession.state === "expired") {
-      setState({
-        kind: "error",
-        message: "The sign-in code expired before it was confirmed. Start again.",
-        retryable: true,
-      });
-    } else {
-      const failure = ghSession.failure;
-      setState({
-        kind: "error",
-        message: failure
-          ? `${failure.message} ${TOOL_AUTH_FAILURE_HINTS[failure.reason]}`
-          : "GitHub sign-in failed.",
-        retryable: true,
-      });
-    }
-  }, [ghSession, queryClient]);
-
-  const handleConnect = () => connect.mutate();
-
-  const handleDisconnect = async () => {
-    setDisconnecting(true);
-    try {
-      await api.post("/api/account/disconnect");
-      setState({ kind: "disconnected" });
-      queryClient.setQueryData<AccountStatus>(["account", "status"], {
-        ghInstalled: true,
-        authenticated: false,
-      });
-    } catch {
-      // stay on connected, will retry
-    } finally {
-      setDisconnecting(false);
-    }
-  };
-
-  const handleRetry = () => {
-    setState({ kind: "loading" });
-    void queryClient.resetQueries({ queryKey: ["account", "status"] });
-  };
-
-  const handleCancelConnect = () => {
-    cancelAuth.mutate();
-    setState({ kind: "disconnected" });
-  };
+  // No target: this page always talks to the connected server.
+  const { state, connect, cancelConnect, disconnect, retry, disconnecting } = useGithubAccount();
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden">
@@ -220,7 +57,7 @@ export default function AccountSettings() {
                 </p>
                 <button
                   type="button"
-                  onClick={handleConnect}
+                  onClick={connect}
                   className="mt-4 inline-flex cursor-pointer items-center gap-2 rounded-md bg-[#24292f] px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-[#24292f]/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
                 >
                   <Github className="h-3.5 w-3.5" />
@@ -239,7 +76,7 @@ export default function AccountSettings() {
               <SignInPrompt
                 verificationUri={state.verificationUri}
                 userCode={state.userCode}
-                onCancel={handleCancelConnect}
+                onCancel={cancelConnect}
               />
             </section>
           )}
@@ -274,7 +111,7 @@ export default function AccountSettings() {
               <div className="mt-4 border-t border-border/50 pt-4">
                 <button
                   type="button"
-                  onClick={() => void handleDisconnect()}
+                  onClick={disconnect}
                   disabled={disconnecting}
                   className={cn(
                     "inline-flex cursor-pointer items-center gap-2 rounded-md border border-border/50 px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
@@ -300,7 +137,7 @@ export default function AccountSettings() {
                   {state.retryable && (
                     <button
                       type="button"
-                      onClick={handleRetry}
+                      onClick={retry}
                       className="mt-3 inline-flex cursor-pointer items-center gap-1.5 text-xs text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background rounded-sm"
                     >
                       Try again

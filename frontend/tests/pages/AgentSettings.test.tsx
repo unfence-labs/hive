@@ -105,10 +105,8 @@ describe("AgentSettings", () => {
     expect(mocks.createSetupApi).toHaveBeenCalledWith(undefined);
   });
 
-  it("states where installs land, since it is not the system prefix", async () => {
+  it("states the harness requirement the panel itself leaves unsaid", async () => {
     renderPage();
-    expect(
-      await screen.findByText(/service account's own directory, never system-wide/),
-    ).toBeInTheDocument();
+    expect(await screen.findByText("At least one harness needed to run Hive")).toBeInTheDocument();
   });
 });
