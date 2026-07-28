@@ -562,6 +562,44 @@ function ErrorCard({ error }: { error: ProvisionError }) {
   );
 }
 
+/**
+ * The check list, folded to one line when nothing blocks: a clean bill needs
+ * no reading. A failure unfolds it on arrival, with the failing detail and
+ * the field that corrects it.
+ */
+function Findings({ report }: { report: PreflightReport }) {
+  const clear = canProceed(report);
+  const failed = report.checks.filter((check) => check.status === "fail").length;
+  const [open, setOpen] = useState(!clear);
+  return (
+    <div className="mt-1">
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => setOpen((value) => !value)}
+        className={cn(
+          "inline-flex cursor-pointer items-center gap-1 text-xs hover:text-foreground",
+          clear ? "text-muted-foreground" : "text-destructive",
+        )}
+      >
+        <ChevronRight
+          className={cn("h-3.5 w-3.5 transition-transform", open && "rotate-90")}
+        />
+        {clear
+          ? `All ${report.checks.length} checks passed`
+          : `${failed} of ${report.checks.length} checks failed`}
+      </button>
+      {open && (
+        <ul className="mt-1">
+          {report.checks.map((finding) => (
+            <Finding key={finding.check} check={finding} />
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 function Finding({ check }: { check: PreflightCheck }) {
   const field = check.status === "fail" ? correctableField(check.check) : undefined;
   const marker =
@@ -659,11 +697,7 @@ function Pipeline({
         {phase === "failed" && failedStep === "check" && error && <ErrorCard error={error} />}
         {phase === "report" && report && (
           <>
-            <ul className="mt-1">
-              {report.checks.map((finding) => (
-                <Finding key={finding.check} check={finding} />
-              ))}
-            </ul>
+            <Findings report={report} />
             {!canProceed(report) && (
               <p role="alert" className="mt-2 text-xs text-destructive">
                 The install cannot start until the findings above are cleared.

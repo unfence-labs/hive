@@ -313,7 +313,12 @@ describe("Installer", () => {
     render(<Installer client={client} />);
     await connectToServer(user);
 
-    expect(await screen.findByText("port 9420 is free")).toBeInTheDocument();
+    // A clean bill folds to one line; the details are a click away.
+    expect(await screen.findByRole("button", { name: "All 3 checks passed" })).toBeInTheDocument();
+    expect(screen.queryByText("port 9420 is free")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "All 3 checks passed" }));
+    expect(screen.getByText("port 9420 is free")).toBeInTheDocument();
+
     expect(screen.queryByLabelText(/^Password for/)).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Continue" })).toBeEnabled();
   });
@@ -352,9 +357,11 @@ describe("Installer", () => {
     render(<Installer client={client} />);
     await connectToServer(user);
 
+    // A failure arrives unfolded: the detail and its correction read directly.
     expect(
       await screen.findByText("port 9420 is already in use by another service"),
     ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "1 of 3 checks failed" })).toBeInTheDocument();
     expect(
       screen.getByText("Correct the Hive port under Advanced, then connect again."),
     ).toBeInTheDocument();
@@ -399,8 +406,9 @@ describe("Installer", () => {
 
     // The report says plainly what will happen and on which port, and there is
     // nothing to decide: no rule is written, so no question is put.
+    await user.click(await screen.findByRole("button", { name: "All 3 checks passed" }));
     expect(
-      await screen.findByText("no active firewall; the installer will not enable one"),
+      screen.getByText("no active firewall; the installer will not enable one"),
     ).toBeInTheDocument();
     expect(screen.queryByText(/This server runs an active firewall/)).not.toBeInTheDocument();
     expect(screen.queryAllByRole("radio")).toHaveLength(0);
@@ -415,8 +423,9 @@ describe("Installer", () => {
     render(<Installer client={client} />);
     await connectToServer(user);
 
+    await user.click(await screen.findByRole("button", { name: "All 3 checks passed" }));
     expect(
-      await screen.findByText(
+      screen.getByText(
         "ufw is active; the installer will open TCP port 9420 automatically and change nothing else",
       ),
     ).toBeInTheDocument();
