@@ -368,8 +368,7 @@ export function ServerScreen({ client, inputs, onContinue, onBack }: ServerScree
                 </div>
               )}
               <p className="mt-1 text-[11px] text-muted-foreground/60">
-                The private key never leaves this machine; its public half is authorized on
-                Hive's service account.
+                The key linked to the account above.
               </p>
             </div>
             <Button
