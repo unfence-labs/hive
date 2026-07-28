@@ -114,8 +114,8 @@ describe("codex sign-in", () => {
       verificationUri: "https://auth.openai.com/codex/device",
       userCode: "U927-TJEHB",
     });
-    // Bounded, and bounded by the CLI's own 15-minute claim.
-    expect(prompts[0].expiresAt).toBeInstanceOf(Date);
+    // Nothing Hive invented: only what the CLI actually printed.
+    expect(prompts[0].expiresAt).toBeUndefined();
 
     cli.finish(0);
     await expect(handle.done).resolves.toBe("connected");
@@ -124,25 +124,27 @@ describe("codex sign-in", () => {
     await expect(stat(backupPath)).rejects.toThrow();
   });
 
-  it("puts the credential back when the code expires", async () => {
+  it("puts the credential back when the CLI reports the code expired", async () => {
     await writeFile(authPath, CREDENTIAL);
     const cli = fakeCodex();
-    const { ctx } = context();
+    const { ctx, prompts } = context();
 
     const handle = codexAuthFlow({
       detect: async () => detection(),
       run: modernHelp,
       spawn: cli.spawn,
       home,
-      timeoutMs: 10,
     })(ctx);
 
     await cli.spawned;
     cli.emit(CODEX_DEVICE_AUTH_STDOUT);
+    await vi.waitFor(() => expect(prompts).toHaveLength(1));
+    // Giving up is the CLI's call, not a deadline Hive invented: it polled the
+    // provider until the code stopped being accepted and quit.
+    cli.finish(1);
 
     // Expiry is an outcome, not a failure: nothing malfunctioned.
     await expect(handle.done).resolves.toBe("expired");
-    expect(cli.wasKilled()).toBe(true);
     // The operator is not signed out of the Codex that was working.
     expect(await readFile(authPath, "utf-8")).toBe(CREDENTIAL);
     await expect(stat(backupPath)).rejects.toThrow();

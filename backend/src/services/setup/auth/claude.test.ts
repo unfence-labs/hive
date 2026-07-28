@@ -1,6 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ToolDetection } from "../detect.js";
-import { CLAUDE_SETUP_TOKEN_PTY } from "./__fixtures__/cli-output.js";
+import {
+  CLAUDE_OAUTH_ERROR_PTY,
+  CLAUDE_SETUP_TOKEN_PTY,
+} from "./__fixtures__/cli-output.js";
 import { claudeAuthFlow } from "./claude.js";
 import { ToolAuthError, type AuthFlowContext, type AuthorizationPrompt } from "./flow.js";
 import type { AuthProcess } from "./process.js";
@@ -142,28 +145,45 @@ describe("claude sign-in", () => {
     await handle.done;
   });
 
-  it("reports an unanswered link as expired rather than hanging", async () => {
+  it("takes another code when the provider refuses the first, without exiting", async () => {
     const cli = fakeClaude();
-    const { ctx, prompts } = context();
+    const writeToken = vi.fn<(token: string) => Promise<void>>().mockResolvedValue();
+    const { ctx, prompts, states } = context();
 
     const handle = claudeAuthFlow({
       detect: async () => detection(),
-      writeToken: async () => {},
+      writeToken,
       spawn: (command, args) => cli.spawn(command, args),
-      timeoutMs: 10,
     })(ctx);
 
     await cli.spawned;
     cli.emit(CLAUDE_SETUP_TOKEN_PTY);
     await vi.waitFor(() => expect(prompts).toHaveLength(1));
 
-    // The operator never came back. Nothing malfunctioned, so this is not a
-    // failure — but it is also not still running.
-    await expect(handle.done).resolves.toBe("expired");
-    expect(cli.wasKilled()).toBe(true);
+    handle.submitCode("wrong-code");
+    cli.emit(CLAUDE_OAUTH_ERROR_PTY);
+
+    // The CLI is still alive and offering a retry on the same link, so the
+    // operator is put back in front of it with what went wrong.
+    await vi.waitFor(() => expect(prompts).toHaveLength(2));
+    expect(prompts[1]).toMatchObject({
+      needsCode: true,
+      verificationUri: prompts[0].verificationUri,
+      notice: "Invalid code. Please make sure the full code was copied",
+    });
+    // The return the CLI asked for, so its prompt comes back.
+    expect(cli.written).toEqual(["wrong-code\r", "\r"]);
+    expect(cli.wasKilled()).toBe(false);
+
+    handle.submitCode("right-code");
+    expect(states.filter((state) => state === "verifying")).toHaveLength(2);
+    cli.emit(`\n  ${TOKEN}\n`);
+
+    await expect(handle.done).resolves.toBe("connected");
+    expect(writeToken).toHaveBeenCalledWith(TOKEN);
   });
 
-  it("reports a stall after the code was submitted as a timeout failure", async () => {
+  it("does not replay an old rejection at the next code that is submitted", async () => {
     const cli = fakeClaude();
     const { ctx, prompts } = context();
 
@@ -171,7 +191,36 @@ describe("claude sign-in", () => {
       detect: async () => detection(),
       writeToken: async () => {},
       spawn: (command, args) => cli.spawn(command, args),
-      timeoutMs: 40,
+    })(ctx);
+
+    await cli.spawned;
+    cli.emit(CLAUDE_SETUP_TOKEN_PTY);
+    await vi.waitFor(() => expect(prompts).toHaveLength(1));
+
+    handle.submitCode("wrong-code");
+    cli.emit(CLAUDE_OAUTH_ERROR_PTY);
+    await vi.waitFor(() => expect(prompts).toHaveLength(2));
+
+    // The complaint is still on the screen the CLI drew; the code echoed back
+    // after it must not be read as having been refused too.
+    handle.submitCode("right-code");
+    cli.emit("right-code\n");
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    expect(prompts).toHaveLength(2);
+
+    handle.cancel();
+    await handle.done;
+  });
+
+  it("settles as soon as the token is printed, without waiting for the exit", async () => {
+    const cli = fakeClaude();
+    const writeToken = vi.fn<(token: string) => Promise<void>>().mockResolvedValue();
+    const { ctx, prompts } = context();
+
+    const handle = claudeAuthFlow({
+      detect: async () => detection(),
+      writeToken,
+      spawn: (command, args) => cli.spawn(command, args),
     })(ctx);
 
     await cli.spawned;
@@ -179,7 +228,12 @@ describe("claude sign-in", () => {
     await vi.waitFor(() => expect(prompts).toHaveLength(1));
     handle.submitCode("abc123");
 
-    await expect(handle.done).rejects.toMatchObject({ reason: "timeout" });
+    // No cli.finish(): the CLI lingers after printing the credential.
+    cli.emit(`\n  ${TOKEN}\n`);
+
+    await expect(handle.done).resolves.toBe("connected");
+    expect(writeToken).toHaveBeenCalledWith(TOKEN);
+    expect(cli.wasKilled()).toBe(true);
   });
 
   it("does not store a token that fails validation", async () => {

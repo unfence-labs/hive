@@ -5,12 +5,7 @@ import type { RunCommand } from "../command.js";
 import type { ToolDetection } from "../detect.js";
 import { ToolAuthError, type AuthFlow, type ToolAuthOutcome } from "./flow.js";
 import { outputTail, parseDeviceCode, parseVerificationUri, stripAnsi } from "./output.js";
-import {
-  raceExit,
-  spawnPipedAuthProcess,
-  type AuthProcess,
-  type SpawnAuthProcess,
-} from "./process.js";
+import { spawnPipedAuthProcess, type AuthProcess, type SpawnAuthProcess } from "./process.js";
 
 /**
  * Codex sign-in.
@@ -18,7 +13,7 @@ import {
  * `codex login --device-auth` is a device-code flow that needs no terminal at
  * all: it prints the verification link and a one-time code to stdout, then
  * polls the provider itself. So it runs as an ordinary piped child process,
- * and Hive's only jobs are to read the code out and to bound the wait.
+ * and Hive's only job is to read the code out and wait for it to finish.
  *
  * The flow has one destructive property that shapes everything below: starting
  * it deletes the existing credential immediately, before it has earned a
@@ -28,9 +23,6 @@ import {
  * than connected — including a crash, which `recoverCodexCredential` repairs
  * at the next boot.
  */
-
-/** The code the CLI prints is good for 15 minutes; waiting longer is waiting for nothing. */
-const DEFAULT_TIMEOUT_MS = 15 * 60_000;
 
 const AUTH_FILE = "auth.json";
 const BACKUP_FILE = "auth.json.hive-backup";
@@ -119,13 +111,11 @@ export interface CodexAuthDeps {
   detect: () => Promise<ToolDetection>;
   run: RunCommand;
   spawn?: SpawnAuthProcess;
-  timeoutMs?: number;
   home?: string;
 }
 
 export function codexAuthFlow(deps: CodexAuthDeps): AuthFlow {
   const spawn = deps.spawn ?? spawnPipedAuthProcess;
-  const timeoutMs = deps.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
   return (ctx) => {
     let child: AuthProcess | null = null;
@@ -163,25 +153,16 @@ export function codexAuthFlow(deps: CodexAuthDeps): AuthFlow {
           const userCode = parseDeviceCode(buffer);
           if (!verificationUri || !userCode) return;
           promptShown = true;
-          ctx.prompt({
-            verificationUri,
-            userCode,
-            expiresAt: new Date(Date.now() + timeoutMs),
-          });
+          ctx.prompt({ verificationUri, userCode });
         });
 
-        const result = await raceExit(active, timeoutMs);
+        const code = await active.exit;
         if (cancelled) {
           active.kill();
           return "cancelled";
         }
 
-        if (result.kind === "timeout") {
-          active.kill();
-          return "expired";
-        }
-
-        if (result.code === 0) {
+        if (code === 0) {
           ctx.setState("verifying");
           const after = await deps.detect();
           if (after.authenticated) {
@@ -200,7 +181,7 @@ export function codexAuthFlow(deps: CodexAuthDeps): AuthFlow {
         if (promptShown || /expire/i.test(stripAnsi(buffer))) return "expired";
         throw new ToolAuthError(
           "command_failed",
-          `Codex sign-in exited with code ${result.code}.`,
+          `Codex sign-in exited with code ${code}.`,
           { outputExcerpt: outputTail(buffer) },
         );
       } finally {

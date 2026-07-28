@@ -5,13 +5,13 @@ import {
   type AuthFlow,
   type ToolAuthOutcome,
 } from "./flow.js";
-import { outputTail, parseClaudeToken, parseVerificationUri } from "./output.js";
 import {
-  raceExit,
-  spawnPtyAuthProcess,
-  type AuthProcess,
-  type SpawnAuthProcess,
-} from "./process.js";
+  outputTail,
+  parseClaudeToken,
+  parseOAuthError,
+  parseVerificationUri,
+} from "./output.js";
+import { spawnPtyAuthProcess, type AuthProcess, type SpawnAuthProcess } from "./process.js";
 import { isValidClaudeToken, type ClaudeTokenWriter } from "./secrets.js";
 
 /**
@@ -26,75 +26,95 @@ import { isValidClaudeToken, type ClaudeTokenWriter } from "./secrets.js";
  * `secrets.ts`, and never reaches a command line — the code travels over the
  * terminal's stdin, and the token is only ever read out of output that is
  * redacted before anything else can see it.
+ *
+ * Output, not exit, decides the outcome. The CLI prints the token and then
+ * lingers, and it answers a rejected code by printing why and waiting for
+ * another one rather than by exiting — so a driver that only read the buffer
+ * after the process was gone would sit silent through both.
  */
-
-/** How long the link stays worth opening before the attempt is abandoned. */
-const DEFAULT_TIMEOUT_MS = 15 * 60_000;
 
 export interface ClaudeAuthDeps {
   detect: () => Promise<ToolDetection>;
   writeToken: ClaudeTokenWriter;
   spawn?: SpawnAuthProcess;
-  timeoutMs?: number;
 }
 
 export function claudeAuthFlow(deps: ClaudeAuthDeps): AuthFlow {
   const spawn = deps.spawn ?? spawnPtyAuthProcess;
-  const timeoutMs = deps.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
   return (ctx) => {
     let child: AuthProcess | null = null;
     let buffer = "";
     let cancelled = false;
+    let settled = false;
     let awaitingCode = false;
-    let codeSubmitted = false;
+    let codePending = false;
+    let verificationUri: string | undefined;
 
-    const done = (async (): Promise<ToolAuthOutcome> => {
-      const before = await deps.detect();
-      if (!before.installed) {
-        throw new ToolAuthError(
-          "not_installed",
-          "Claude Code is not installed on this server.",
+    // Settled by the watcher below when the output alone decides the outcome.
+    // Raced against the exit so whichever happens first is what is reported.
+    let resolveFromOutput!: (outcome: ToolAuthOutcome) => void;
+    let rejectFromOutput!: (error: unknown) => void;
+    const fromOutput = new Promise<ToolAuthOutcome>((resolve, reject) => {
+      resolveFromOutput = resolve;
+      rejectFromOutput = reject;
+    });
+
+    function watch(active: AuthProcess): void {
+      if (settled || cancelled) return;
+
+      // The token is the credential. Once it is on screen the flow has
+      // succeeded, whether or not the CLI has got round to exiting.
+      const token = parseClaudeToken(buffer);
+      if (isValidClaudeToken(token)) {
+        settled = true;
+        void deps.writeToken(token).then(
+          () => {
+            active.kill();
+            resolveFromOutput("connected");
+          },
+          (error: unknown) => {
+            active.kill();
+            rejectFromOutput(error);
+          },
         );
+        return;
       }
+
+      // A code the provider refused. The CLI stays alive and offers a retry on
+      // the same link, so the operator gets another go without repeating the
+      // browser step — pressing return for them is what re-opens the prompt.
+      if (codePending) {
+        const oauthError = parseOAuthError(buffer);
+        if (oauthError) {
+          codePending = false;
+          // The refused attempt's output is history, and leaving it in the
+          // buffer would make the next submission match this same complaint.
+          buffer = "";
+          ctx.prompt({
+            verificationUri: verificationUri ?? "",
+            needsCode: true,
+            notice: oauthError,
+          });
+          active.write("\r");
+          return;
+        }
+      }
+
+      if (awaitingCode) return;
+      // The link appearing is the flow becoming actionable. The CLI's own
+      // "paste code here" prompt is not used as the trigger: it is drawn with
+      // cursor-positioning escapes rather than spaces, so matching it would
+      // mean matching a rendering rather than a fact.
+      const uri = parseVerificationUri(buffer);
+      if (!uri) return;
+      awaitingCode = true;
+      verificationUri = uri;
+      ctx.prompt({ verificationUri: uri, needsCode: true });
+    }
+
+    async function afterExit(code: number, before: ToolDetection): Promise<ToolAuthOutcome> {
       if (cancelled) return "cancelled";
-
-      child = spawn("claude", ["setup-token"]);
-      const active = child;
-      active.onData((chunk) => {
-        buffer += chunk;
-        if (awaitingCode) return;
-        // The link appearing is the flow becoming actionable. The CLI's own
-        // "paste code here" prompt is not used as the trigger: it is drawn with
-        // cursor-positioning escapes rather than spaces, so matching it would
-        // mean matching a rendering rather than a fact.
-        const verificationUri = parseVerificationUri(buffer);
-        if (!verificationUri) return;
-        awaitingCode = true;
-        ctx.prompt({
-          verificationUri,
-          needsCode: true,
-          expiresAt: new Date(Date.now() + timeoutMs),
-        });
-      });
-
-      const result = await raceExit(active, timeoutMs);
-      if (cancelled) {
-        active.kill();
-        return "cancelled";
-      }
-
-      if (result.kind === "timeout") {
-        active.kill();
-        // Nobody came back with a code: the link went stale, which is not a
-        // malfunction. Having submitted one and still be waiting is.
-        if (!codeSubmitted) return "expired";
-        throw new ToolAuthError(
-          "timeout",
-          "Claude did not finish signing in after the code was submitted.",
-          { outputExcerpt: outputTail(buffer) },
-        );
-      }
 
       const token = parseClaudeToken(buffer);
       if (isValidClaudeToken(token)) {
@@ -110,10 +130,10 @@ export function claudeAuthFlow(deps: ClaudeAuthDeps): AuthFlow {
         if (after.authenticated) return "connected";
       }
 
-      if (result.code !== 0) {
+      if (code !== 0) {
         throw new ToolAuthError(
           "command_failed",
-          `Claude sign-in exited with code ${result.code}.`,
+          `Claude sign-in exited with code ${code}.`,
           { outputExcerpt: outputTail(buffer) },
         );
       }
@@ -122,6 +142,29 @@ export function claudeAuthFlow(deps: ClaudeAuthDeps): AuthFlow {
         "Claude sign-in finished without producing a token.",
         { outputExcerpt: outputTail(buffer) },
       );
+    }
+
+    const done = (async (): Promise<ToolAuthOutcome> => {
+      const before = await deps.detect();
+      if (!before.installed) {
+        throw new ToolAuthError(
+          "not_installed",
+          "Claude Code is not installed on this server.",
+        );
+      }
+      if (cancelled) return "cancelled";
+
+      child = spawn("claude", ["setup-token"]);
+      const active = child;
+      active.onData((chunk) => {
+        buffer += chunk;
+        watch(active);
+      });
+
+      return await Promise.race([
+        fromOutput,
+        active.exit.then((code) => (settled ? fromOutput : afterExit(code, before))),
+      ]);
     })();
 
     return {
@@ -133,7 +176,7 @@ export function claudeAuthFlow(deps: ClaudeAuthDeps): AuthFlow {
         if (!isValidAuthorizationCode(code)) {
           throw new Error("That does not look like an authorization code.");
         }
-        codeSubmitted = true;
+        codePending = true;
         child.write(`${code}\r`);
         ctx.setState("verifying");
       },

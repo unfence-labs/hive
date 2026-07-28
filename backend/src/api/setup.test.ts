@@ -14,6 +14,7 @@ import type { ToolDetection } from "../services/setup/detect.js";
 import {
   ToolAuthError,
   type AuthFlow,
+  type AuthFlowContext,
   type AuthorizationPrompt,
   type ToolAuthOutcome,
 } from "../services/setup/auth/flow.js";
@@ -95,9 +96,12 @@ function scriptedFlow(prompt?: AuthorizationPrompt): {
   flow: AuthFlow;
   finish: (outcome: ToolAuthOutcome) => void;
   fail: (error: unknown) => void;
+  /** Prompt again, as a flow does when the CLI refuses the code it was given. */
+  reprompt: (info: AuthorizationPrompt) => void;
   codes: string[];
 } {
   const codes: string[] = [];
+  let ctxRef: AuthFlowContext | null = null;
   let settle!: (outcome: ToolAuthOutcome) => void;
   let reject!: (error: unknown) => void;
   const done = new Promise<ToolAuthOutcome>((resolve, rejectFn) => {
@@ -109,7 +113,9 @@ function scriptedFlow(prompt?: AuthorizationPrompt): {
     codes,
     finish: (outcome) => settle(outcome),
     fail: (error) => reject(error),
+    reprompt: (info) => ctxRef?.prompt(info),
     flow: (ctx) => {
+      ctxRef = ctx;
       if (prompt) ctx.prompt(prompt);
       return {
         done,
@@ -513,6 +519,50 @@ describe("POST /api/setup/auth/:tool/code", () => {
 
     expect(res.statusCode).toBe(200);
     expect(claude.codes).toEqual(["abc123"]);
+
+    claude.finish("connected");
+  });
+
+  it("keeps a refused code's message on the live session and drops it at the next try", async () => {
+    const claude = scriptedFlow({ verificationUri: "https://claude.com/x", needsCode: true });
+    await build(
+      {},
+      createToolAuthStore({ flows: { claude: { flow: claude.flow } }, detect: async () => detection() }),
+    );
+    await app.inject({ method: "POST", url: "/api/setup/auth/claude/start" });
+    await app.inject({
+      method: "POST",
+      url: "/api/setup/auth/claude/code",
+      payload: { code: "wrong" },
+    });
+
+    claude.reprompt({
+      verificationUri: "https://claude.com/x",
+      needsCode: true,
+      notice: "Invalid code. Please make sure the full code was copied",
+    });
+
+    const refused = (
+      await app.inject({ method: "GET", url: "/api/setup/status" })
+    ).json<SetupStatusResponse>().authSessions[0];
+    // Still live: the operator gets another go at the same link.
+    expect(refused).toMatchObject({
+      state: "awaiting_code",
+      needsCode: true,
+      notice: "Invalid code. Please make sure the full code was copied",
+    });
+
+    const retried = (
+      await app.inject({
+        method: "POST",
+        url: "/api/setup/auth/claude/code",
+        payload: { code: "right" },
+      })
+    ).json<ToolAuthSession>();
+
+    // The complaint belongs to the attempt that earned it, not to this one.
+    expect(retried.notice).toBeUndefined();
+    expect(claude.codes).toEqual(["wrong", "right"]);
 
     claude.finish("connected");
   });

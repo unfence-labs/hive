@@ -21,20 +21,6 @@ export interface AuthProcess {
 
 export type SpawnAuthProcess = (command: string, args: string[]) => AuthProcess;
 
-export type RaceResult = { kind: "exit"; code: number } | { kind: "timeout" };
-
-/** The process's exit or the deadline, whichever comes first. */
-export function raceExit(process: AuthProcess, timeoutMs: number): Promise<RaceResult> {
-  return new Promise<RaceResult>((resolve) => {
-    const timer = setTimeout(() => resolve({ kind: "timeout" }), timeoutMs);
-    timer.unref?.();
-    void process.exit.then((code) => {
-      clearTimeout(timer);
-      resolve({ kind: "exit", code });
-    });
-  });
-}
-
 /**
  * Wide enough that nothing the CLIs print wraps.
  *

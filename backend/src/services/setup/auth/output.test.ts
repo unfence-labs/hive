@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  CLAUDE_OAUTH_ERROR_PTY,
   CLAUDE_SETUP_TOKEN_PTY,
   CODEX_DEVICE_AUTH_STDOUT,
 } from "./__fixtures__/cli-output.js";
@@ -8,6 +9,7 @@ import {
   outputTail,
   parseClaudeToken,
   parseDeviceCode,
+  parseOAuthError,
   parseVerificationUri,
   redactSecrets,
   stripAnsi,
@@ -79,6 +81,31 @@ describe("claude setup-token output", () => {
 
   it("returns nothing when no token was printed", () => {
     expect(parseClaudeToken(CLAUDE_SETUP_TOKEN_PTY)).toBeUndefined();
+  });
+});
+
+describe("rejected codes", () => {
+  it("reads the provider's complaint out of the drawn screen", () => {
+    expect(parseOAuthError(CLAUDE_OAUTH_ERROR_PTY)).toBe(
+      "Invalid code. Please make sure the full code was copied",
+    );
+  });
+
+  it("leaves the CLI's retry instruction out of the operator's message", () => {
+    expect(parseOAuthError("OAuth error: Invalid code. Press Enter to retry.")).toBe(
+      "Invalid code.",
+    );
+  });
+
+  it("reports the most recent complaint, not the one before it", () => {
+    const buffer = "OAuth error: Invalid code\n...\nOAuth error: Code expired\n";
+    expect(parseOAuthError(buffer)).toBe("Code expired");
+  });
+
+  it("reads nothing from output the CLI has not complained in", () => {
+    expect(parseOAuthError(CLAUDE_SETUP_TOKEN_PTY)).toBeUndefined();
+    // A label with nothing after it says nothing an operator could act on.
+    expect(parseOAuthError("OAuth error:   \n")).toBeUndefined();
   });
 });
 

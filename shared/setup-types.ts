@@ -184,7 +184,6 @@ export function isToolAuthTerminal(state: ToolAuthState): boolean {
 export type ToolAuthFailureReason =
   | "not_installed"
   | "unsupported_cli"
-  | "timeout"
   | "command_failed"
   | "no_credential";
 
@@ -193,8 +192,6 @@ export const TOOL_AUTH_FAILURE_HINTS: Record<ToolAuthFailureReason, string> = {
     "The tool is not installed on this server. Install it above, then sign in.",
   unsupported_cli:
     "The installed CLI is too old for this sign-in flow. Update it above, then try again.",
-  timeout:
-    "The sign-in was still waiting after the time limit and was stopped. Start it again.",
   command_failed: "The sign-in command ran and failed. The output below says why.",
   no_credential:
     "The sign-in finished but left no usable credential. Start it again, or paste a token directly.",
@@ -216,6 +213,11 @@ export interface ToolAuthSession {
   userCode?: string;
   /** True while the flow cannot progress until a code is submitted back. */
   needsCode: boolean;
+  /**
+   * A non-terminal message about the last attempt (e.g. a code the provider
+   * rejected); the flow is still live and can still end connected.
+   */
+  notice?: string;
   startedAt: string;
   /** When the surfaced code stops being accepted, if the provider bounds it. */
   expiresAt?: string;

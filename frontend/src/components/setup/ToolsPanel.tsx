@@ -428,7 +428,7 @@ function ToolCard({
           codeLabel={`Paste the code ${tool.label} asked for`}
           submitting={codePending}
           onCancel={onCancelAuth}
-          error={authError}
+          error={authError ?? authSession?.notice}
         />
       )}
 

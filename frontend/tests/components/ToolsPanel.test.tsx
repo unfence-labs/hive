@@ -393,6 +393,29 @@ describe("ToolsPanel sign-in", () => {
     expect(mocks.submitAuthCode).toHaveBeenCalledWith("claude", "auth-code-123");
   });
 
+  it("keeps the operator at the prompt when the provider refused their code", async () => {
+    respond({
+      tools: [tool({ id: "claude", label: "Claude Code", installed: true })],
+      authSessions: [
+        session({
+          tool: "claude",
+          state: "awaiting_code",
+          needsCode: true,
+          verificationUri: "https://claude.com/cai/oauth/authorize?state=abc",
+          notice: "Invalid code. Please make sure the full code was copied",
+        }),
+      ],
+    });
+
+    renderPanel();
+
+    expect(
+      await screen.findByText("Invalid code. Please make sure the full code was copied"),
+    ).toBeInTheDocument();
+    // Still a live prompt, not a dead session: there is a code box to try again in.
+    expect(screen.getByLabelText(/paste the code/i)).toBeInTheDocument();
+  });
+
   it("asks before signing the server out of a Codex that works", async () => {
     respond({
       tools: [tool({ id: "codex", label: "Codex", installed: true, authenticated: true })],

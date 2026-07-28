@@ -127,6 +127,9 @@ export function createToolAuthStore(options: ToolAuthStoreOptions): ToolAuthStor
           if (info.userCode) session.userCode = info.userCode;
           if (info.expiresAt) session.expiresAt = info.expiresAt.toISOString();
           session.needsCode = info.needsCode === true;
+          // Assigned unconditionally: a fresh prompt must not keep the last
+          // attempt's complaint on screen.
+          session.notice = info.notice;
           session.state = info.needsCode ? "awaiting_code" : "awaiting_authorization";
         },
         setState: (state) => {
@@ -173,6 +176,7 @@ export function createToolAuthStore(options: ToolAuthStoreOptions): ToolAuthStor
       if (!session || !handle || isToolAuthTerminal(session.state)) {
         throw new Error(`No ${tool} sign-in is waiting for a code.`);
       }
+      session.notice = undefined;
       handle.submitCode(code);
       return structuredClone(session);
     },

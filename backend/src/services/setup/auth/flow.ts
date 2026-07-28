@@ -40,6 +40,11 @@ export interface AuthorizationPrompt {
    * return through Hive.
    */
   needsCode?: boolean;
+  /**
+   * Something the operator should know about the attempt just made, while the
+   * flow carries on — a code the CLI rejected and is offering to take again.
+   */
+  notice?: string;
 }
 
 export interface AuthFlowContext {

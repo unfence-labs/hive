@@ -96,6 +96,28 @@ export function parseDeviceCode(input: string): string | undefined {
   return match ? match[1].toUpperCase() : undefined;
 }
 
+/**
+ * The CLI's own complaint about the last thing it was handed, e.g.
+ * `OAuth error: Invalid code. Please make sure the full code was copied`.
+ *
+ * This is not a terminal condition: the Claude CLI prints it and keeps
+ * running, so the message exists to be shown to the operator while the flow is
+ * still live. The last occurrence wins, because a flow that has been retried
+ * has older ones still sitting in the buffer.
+ */
+const OAUTH_ERROR_RE = /OAuth error:[ \t]*([^\n]*)/gi;
+
+export function parseOAuthError(input: string): string | undefined {
+  const matches = [...stripAnsi(input).matchAll(OAUTH_ERROR_RE)];
+  const message = matches
+    .at(-1)?.[1]
+    // The retry instruction is Hive's job to act on, not the operator's to read.
+    .replace(/press enter.*$/i, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  return message || undefined;
+}
+
 /** Long-lived Claude tokens. Also the shape validated before anything is stored. */
 export const CLAUDE_TOKEN_RE = /sk-ant-oat01-[A-Za-z0-9_-]{16,}/;
 
