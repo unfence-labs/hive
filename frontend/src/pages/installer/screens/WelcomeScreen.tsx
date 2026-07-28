@@ -1,12 +1,9 @@
 import { useState } from "react";
+import { Bot, ChevronLeft, FolderGit2, MonitorSmartphone } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { HiveLogo } from "@/components/HiveLogo";
 import { DEFAULT_BACKEND_PORT, isValidPort, switchServer } from "@/lib/server-connection";
-import { openExternal } from "@/lib/open-external";
-
-/** The prerequisites page an operator reads before starting. */
-export const PREREQUISITES_URL =
-  "https://github.com/unfence-labs/hive/blob/main/docs/prerequisites.md";
 
 interface WelcomeScreenProps {
   /**
@@ -20,13 +17,23 @@ interface WelcomeScreenProps {
   onCancel?: () => void;
 }
 
+const FEATURES = [
+  { icon: FolderGit2, text: "Work every repository in parallel workspaces" },
+  { icon: Bot, text: "Run Claude Code, Codex and more, side by side" },
+  { icon: MonitorSmartphone, text: "Start on your desktop, follow from your phone" },
+] as const;
+
 /**
  * The first screen and the only exit. Either the installer puts Hive on a
  * server, or the operator points the app at a server that already exists —
  * that second path is the skip, so there is no separate skip control.
+ *
+ * This screen sells; it never explains. Anything technical about the install
+ * belongs to the steps that follow.
  */
 export function WelcomeScreen({ onInstall, onConnected, onCancel }: WelcomeScreenProps) {
-  const [showForm, setShowForm] = useState(false);
+  // With no install path there is nothing to choose — go straight to the form.
+  const [showForm, setShowForm] = useState(!onInstall);
   const [host, setHost] = useState("");
   const [port, setPort] = useState(String(DEFAULT_BACKEND_PORT));
   const [token, setToken] = useState("");
@@ -57,120 +64,139 @@ export function WelcomeScreen({ onInstall, onConnected, onCancel }: WelcomeScree
   };
 
   return (
-    <div className="mx-auto flex min-h-full w-full max-w-xl flex-col px-6 py-10">
-      <div className="flex-1">
-        <h1 className="text-lg font-semibold text-foreground">Set up Hive</h1>
-        <p className="mt-2 text-sm text-muted-foreground">
-          Hive runs on a server you own. Install it on a fresh server, or point this app at one
-          that is already running.
-        </p>
+    <div className="relative mx-auto flex min-h-full w-full max-w-xl flex-col px-6 py-10">
+      {/* Soft brand glow behind the mark — a touch of depth, never motion. */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute left-1/2 top-[38%] size-72 -translate-x-1/2 -translate-y-1/2 rounded-full opacity-70 blur-3xl"
+        style={{ background: "var(--hive-accent-glow)" }}
+      />
 
-        <div className="mt-6 space-y-3">
-          {onInstall && (
-            <section className="rounded-lg border border-border/50 p-4">
-              <h2 className="text-sm font-medium text-foreground">Install Hive on a server</h2>
-              <p className="mt-1 text-sm text-muted-foreground">
-                Connects over SSH and installs Hive on an Ubuntu 22.04/24.04 or Debian 12/13 server.
-                Read the{" "}
-                <button
-                  type="button"
-                  className="cursor-pointer underline underline-offset-2 hover:text-foreground"
-                  onClick={() => void openExternal(PREREQUISITES_URL)}
-                >
-                  prerequisites
-                </button>{" "}
-                first — you arrange the private network yourself, if you want one.
+      <div className="relative flex flex-1 flex-col items-center justify-center">
+        <div className="flex w-full max-w-sm flex-col items-center gap-8 text-center">
+          <div className="flex flex-col items-center gap-5">
+            <HiveLogo className="h-[68px] w-auto" />
+            <div className="flex flex-col gap-1.5">
+              <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+                Welcome to Hive
+              </h1>
+              <p className="text-sm leading-relaxed text-muted-foreground">
+                Your fleet of coding agents, on a server you own.
               </p>
-              <Button className="mt-3" onClick={onInstall}>
-                Install on a server
-              </Button>
-            </section>
-          )}
+            </div>
+          </div>
 
-          <section className="rounded-lg border border-border/50 p-4">
-            <h2 className="text-sm font-medium text-foreground">
-              Connect to a server that already exists
-            </h2>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Enter its address and access token. Nothing is installed.
-            </p>
-            {showForm ? (
-              <div className="mt-4 space-y-3">
-                <div className="grid grid-cols-[1fr_120px] gap-3">
-                  <div>
-                    <label
-                      htmlFor="existing-host"
-                      className="mb-1.5 block text-xs font-medium text-muted-foreground"
-                    >
-                      Address
-                    </label>
-                    <Input
-                      id="existing-host"
-                      value={host}
-                      onChange={(event) => setHost(event.target.value)}
-                      placeholder="203.0.113.10"
-                      autoComplete="off"
-                      spellCheck={false}
-                      className="font-mono text-xs"
-                    />
-                  </div>
-                  <div>
-                    <label
-                      htmlFor="existing-port"
-                      className="mb-1.5 block text-xs font-medium text-muted-foreground"
-                    >
-                      Port
-                    </label>
-                    <Input
-                      id="existing-port"
-                      value={port}
-                      onChange={(event) => setPort(event.target.value)}
-                      inputMode="numeric"
-                      className="font-mono text-xs"
-                    />
-                  </div>
-                </div>
+          {showForm ? (
+            <div className="w-full text-left">
+              <div className="grid grid-cols-[1fr_120px] gap-3">
                 <div>
                   <label
-                    htmlFor="existing-token"
+                    htmlFor="existing-host"
                     className="mb-1.5 block text-xs font-medium text-muted-foreground"
                   >
-                    Access token
+                    Address
                   </label>
                   <Input
-                    id="existing-token"
-                    type="password"
-                    value={token}
-                    onChange={(event) => setToken(event.target.value)}
-                    placeholder="Paste the access token"
+                    id="existing-host"
+                    value={host}
+                    onChange={(event) => setHost(event.target.value)}
+                    placeholder="203.0.113.10"
                     autoComplete="off"
                     spellCheck={false}
                     className="font-mono text-xs"
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter" && canConnect) void connect();
-                    }}
                   />
                 </div>
-                {error && (
-                  <p role="alert" className="text-xs text-destructive">
-                    {error}
-                  </p>
+                <div>
+                  <label
+                    htmlFor="existing-port"
+                    className="mb-1.5 block text-xs font-medium text-muted-foreground"
+                  >
+                    Port
+                  </label>
+                  <Input
+                    id="existing-port"
+                    value={port}
+                    onChange={(event) => setPort(event.target.value)}
+                    inputMode="numeric"
+                    className="font-mono text-xs"
+                  />
+                </div>
+              </div>
+              <div className="mt-3">
+                <label
+                  htmlFor="existing-token"
+                  className="mb-1.5 block text-xs font-medium text-muted-foreground"
+                >
+                  Access token
+                </label>
+                <Input
+                  id="existing-token"
+                  type="password"
+                  value={token}
+                  onChange={(event) => setToken(event.target.value)}
+                  placeholder="Paste the access token"
+                  autoComplete="off"
+                  spellCheck={false}
+                  className="font-mono text-xs"
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" && canConnect) void connect();
+                  }}
+                />
+              </div>
+              {error && (
+                <p role="alert" className="mt-3 text-xs text-destructive">
+                  {error}
+                </p>
+              )}
+              <div className="mt-4 flex items-center justify-between">
+                {onInstall ? (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setShowForm(false)}
+                    className="text-muted-foreground"
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                    Back
+                  </Button>
+                ) : (
+                  <span />
                 )}
                 <Button onClick={() => void connect()} disabled={!canConnect}>
                   {connecting ? "Connecting…" : "Connect"}
                 </Button>
               </div>
-            ) : (
-              <Button variant="outline" className="mt-3" onClick={() => setShowForm(true)}>
-                I already have a server
-              </Button>
-            )}
-          </section>
+            </div>
+          ) : (
+            <>
+              <ul className="flex flex-col gap-2.5 text-sm text-muted-foreground">
+                {FEATURES.map(({ icon: Icon, text }) => (
+                  <li key={text} className="flex items-center gap-2.5">
+                    <Icon aria-hidden className="h-4 w-4 shrink-0 text-foreground/70" />
+                    <span>{text}</span>
+                  </li>
+                ))}
+              </ul>
+
+              <div className="flex flex-wrap items-center justify-center gap-2.5">
+                <Button onClick={onInstall} className="cursor-pointer">
+                  Install on a server
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => setShowForm(true)}
+                  className="cursor-pointer"
+                >
+                  I already have a server
+                </Button>
+              </div>
+            </>
+          )}
         </div>
       </div>
 
       {onCancel && (
-        <div className="mt-8 flex justify-end">
+        <div className="relative mt-8 flex justify-end">
           <Button variant="ghost" size="sm" onClick={onCancel} className="text-muted-foreground">
             Cancel
           </Button>

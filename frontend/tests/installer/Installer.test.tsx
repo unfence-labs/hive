@@ -144,16 +144,19 @@ describe("Installer", () => {
     // no server configured there is no way to abandon the installer either.
     expect(screen.queryByRole("button", { name: /skip/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Cancel" })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "prerequisites" })).toBeInTheDocument();
+    // The welcome screen sells; the prerequisites live on the install steps.
+    expect(screen.queryByRole("button", { name: "prerequisites" })).not.toBeInTheDocument();
   });
 
   it("offers only the existing-server path in the web build", () => {
     Reflect.deleteProperty(window, "__TAURI_INTERNALS__");
     render(<Installer client={createMockProvisionClient()} />);
 
-    // No SSH sidecar, no install path — connecting is the whole offer.
+    // No SSH sidecar, no install path — connecting is the whole offer, so the
+    // form shows without a choice to make first.
     expect(screen.queryByRole("button", { name: "Install on a server" })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "I already have a server" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Address")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Connect" })).toBeInTheDocument();
   });
 
   it("configures the app from the existing-server form and dismisses itself", async () => {
@@ -217,6 +220,8 @@ describe("Installer", () => {
     // The port is pre-filled with the production port.
     expect(screen.getByLabelText("Port")).toHaveValue("9420");
     expect(screen.queryByLabelText("Install directory")).not.toBeInTheDocument();
+    // The technical reading moved off the welcome screen to here.
+    expect(screen.getByRole("button", { name: "prerequisites" })).toBeInTheDocument();
 
     // How the server is reachable is the operator's business, so there is no
     // exposure question here at all — and nothing to answer it with.

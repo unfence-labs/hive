@@ -4,11 +4,16 @@ import { InstallerScreen } from "./InstallerScreen";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { isValidPort } from "@/lib/server-connection";
+import { openExternal } from "@/lib/open-external";
 import {
   isUsableAddress,
   isUsableDirectory,
   type InstallerInputs,
 } from "@/pages/installer/machine";
+
+/** The prerequisites page an operator reads before starting. */
+export const PREREQUISITES_URL =
+  "https://github.com/unfence-labs/hive/blob/main/docs/prerequisites.md";
 
 interface NetworkScreenProps {
   inputs: InstallerInputs;
@@ -41,7 +46,20 @@ export function NetworkScreen({ inputs, onContinue, onBack }: NetworkScreenProps
   return (
     <InstallerScreen
       title="Where the server is"
-      description="The address that reaches your server, and the port Hive should listen on. How you make it reachable is your business — Hive does not ask and does not arrange it."
+      description={
+        <>
+          The address that reaches your server, and the port Hive should listen on. How you make
+          it reachable is your business — Hive does not ask and does not arrange it. Read the{" "}
+          <button
+            type="button"
+            className="cursor-pointer underline underline-offset-2 hover:text-foreground"
+            onClick={() => void openExternal(PREREQUISITES_URL)}
+          >
+            prerequisites
+          </button>{" "}
+          before you start.
+        </>
+      }
       onContinue={() =>
         onContinue({
           address: address.trim(),
