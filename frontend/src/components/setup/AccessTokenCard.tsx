@@ -83,7 +83,7 @@ export function AccessTokenCard({
       }
     >
       <p className="mt-2 text-xs text-muted-foreground">
-        This client already has it. Copy it to connect your phone, browser or another machine
+        You'll need it to connect your phone, browser or another machine
         — it is shown only here and cannot be recovered.
       </p>
 

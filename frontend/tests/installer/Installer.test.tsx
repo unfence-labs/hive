@@ -48,6 +48,13 @@ const GITHUB_CONNECTED: AccountStatus = {
   user: { login: "lenny", name: "Lenny", email: "lenny@example.com", avatarUrl: "" },
 };
 
+/**
+ * Any form of the accounts gate hint. The hint always ends with one of the
+ * requirement items followed by a period, which no other copy on the screen
+ * does — the buttons and descriptions never carry that trailing period.
+ */
+const GATE_HINT = /(copy the access token|sign in to Claude or Codex)\./i;
+
 /** The tools a freshly installed server reports, all present and up to date. */
 function toolList(claudeSignedIn = false): ToolStatus[] {
   return [
@@ -786,7 +793,7 @@ describe("Installer", () => {
     // The server keeps only the digest, so this screen is the one chance at it.
     expect(
       screen.getByText(
-        "This client already has it. Copy it to connect your phone, browser or another machine — it is shown only here and cannot be recovered.",
+        "You'll need it to connect your phone, browser or another machine — it is shown only here and cannot be recovered.",
       ),
     ).toBeInTheDocument();
 
@@ -829,7 +836,7 @@ describe("Installer", () => {
     // The gate asks that the token was surfaced and taken, not that the
     // browser allowed the write: a refused permission must not strand the
     // operator on a screen with no Back and no skip.
-    await waitFor(() => expect(screen.queryByText(/Still to do/)).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByText(GATE_HINT)).not.toBeInTheDocument());
     expect(screen.getByRole("button", { name: "Open Hive" })).toBeEnabled();
   });
 
@@ -850,7 +857,7 @@ describe("Installer", () => {
     expect(screen.queryByText(/harness needed to run Hive/i)).not.toBeInTheDocument();
     expect(
       screen.getByText(
-        "Still to do: copy the access token, connect GitHub, sign in to Claude or Codex.",
+        "Copy the access token, connect GitHub, sign in to Claude or Codex.",
       ),
     ).toBeInTheDocument();
   });
@@ -865,7 +872,7 @@ describe("Installer", () => {
 
     expect(
       screen.getByText(
-        "Still to do: copy the access token, connect GitHub, sign in to Claude or Codex.",
+        "Copy the access token, connect GitHub, sign in to Claude or Codex.",
       ),
     ).toBeInTheDocument();
 
@@ -873,7 +880,7 @@ describe("Installer", () => {
 
     // The item that is done drops out; the rest keep their order.
     expect(
-      screen.getByText("Still to do: connect GitHub, sign in to Claude or Codex."),
+      screen.getByText("Connect GitHub, sign in to Claude or Codex."),
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Open Hive" })).toBeDisabled();
   });
@@ -889,7 +896,7 @@ describe("Installer", () => {
     // Neither card is required on its own, so neither is named: signing in to
     // either one clears this line.
     expect(
-      await screen.findByText("Still to do: sign in to Claude or Codex."),
+      await screen.findByText("Sign in to Claude or Codex."),
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Open Hive" })).toBeDisabled();
   });
@@ -905,7 +912,7 @@ describe("Installer", () => {
     // Codex is still offered, and still not asked for: with Claude signed in
     // the gate is satisfied and nothing is left to do.
     expect(await screen.findByRole("button", { name: "Connect Codex" })).toBeEnabled();
-    await waitFor(() => expect(screen.queryByText(/Still to do/)).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByText(GATE_HINT)).not.toBeInTheDocument());
     expect(screen.getByRole("button", { name: "Open Hive" })).toBeEnabled();
   });
 
@@ -920,7 +927,7 @@ describe("Installer", () => {
 
     // The server answers two of the three; the copy is the operator's own.
     const open = screen.getByRole("button", { name: "Open Hive" });
-    expect(await screen.findByText("Still to do: copy the access token.")).toBeInTheDocument();
+    expect(await screen.findByText("Copy the access token.")).toBeInTheDocument();
     expect(open).toBeDisabled();
     // The install is over, so there is no back — and no skip or later either.
     // The only way out is through the three things the gate asks for.
@@ -930,7 +937,7 @@ describe("Installer", () => {
 
     await user.click(screen.getByRole("button", { name: "Copy" }));
 
-    expect(screen.queryByText(/Still to do/)).not.toBeInTheDocument();
+    expect(screen.queryByText(GATE_HINT)).not.toBeInTheDocument();
     expect(open).toBeEnabled();
     await user.click(open);
 

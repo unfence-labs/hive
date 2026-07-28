@@ -50,6 +50,10 @@ export function AccountsScreen({ target, accessToken, onFinish }: AccountsScreen
     connected ? undefined : "connect GitHub",
     anyHarnessAuthenticated ? undefined : "sign in to Claude or Codex",
   ].filter((item): item is string => item !== undefined);
+  const hint =
+    missing.length > 0
+      ? `${missing.join(", ").replace(/^./, (c) => c.toUpperCase())}.`
+      : undefined;
 
   return (
     <InstallerScreen
@@ -58,7 +62,7 @@ export function AccountsScreen({ target, accessToken, onFinish }: AccountsScreen
       onContinue={onFinish}
       continueLabel="Open Hive"
       continueDisabled={missing.length > 0}
-      hint={missing.length > 0 ? `Still to do: ${missing.join(", ")}.` : undefined}
+      hint={hint}
     >
       <div className="space-y-4">
         <AccessTokenCard token={accessToken} onCopied={() => setTokenCopied(true)} />
