@@ -124,7 +124,7 @@ export function ReadyScreen({ inputs, escalates, onContinue, onBack }: ReadyScre
   return (
     <InstallerScreen
       title="Ready to install"
-      description="The server answered, its identity is approved, and nothing blocks the install. Below is exactly what it will do — and nothing else. It runs to the end; there is no cancel, but every step is recorded on the server, so a retry resumes instead of repeating."
+      description="Preflight passed: the server answered, its identity is approved, and nothing blocks the install. Everything the script will touch is listed below."
       onContinue={onContinue}
       continueLabel="Start the install"
       onBack={onBack}
