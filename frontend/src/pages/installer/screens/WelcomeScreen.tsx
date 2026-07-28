@@ -9,8 +9,11 @@ export const PREREQUISITES_URL =
   "https://github.com/unfence-labs/hive/blob/main/docs/prerequisites.md";
 
 interface WelcomeScreenProps {
-  /** Start the guided install. */
-  onInstall: () => void;
+  /**
+   * Start the guided install. Absent in the web build, which has no SSH
+   * sidecar to run it — connecting to an existing server is the only path.
+   */
+  onInstall?: () => void;
   /** A server was configured from the inline form; dismiss the installer. */
   onConnected: () => void;
   /** Abandon the installer. Only offered when a server is already configured. */
@@ -63,24 +66,26 @@ export function WelcomeScreen({ onInstall, onConnected, onCancel }: WelcomeScree
         </p>
 
         <div className="mt-6 space-y-3">
-          <section className="rounded-lg border border-border/50 p-4">
-            <h2 className="text-sm font-medium text-foreground">Install Hive on a server</h2>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Connects over SSH and installs Hive on an Ubuntu 22.04/24.04 or Debian 12/13 server.
-              Read the{" "}
-              <button
-                type="button"
-                className="cursor-pointer underline underline-offset-2 hover:text-foreground"
-                onClick={() => void openExternal(PREREQUISITES_URL)}
-              >
-                prerequisites
-              </button>{" "}
-              first — you arrange the private network yourself, if you want one.
-            </p>
-            <Button className="mt-3" onClick={onInstall}>
-              Install on a server
-            </Button>
-          </section>
+          {onInstall && (
+            <section className="rounded-lg border border-border/50 p-4">
+              <h2 className="text-sm font-medium text-foreground">Install Hive on a server</h2>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Connects over SSH and installs Hive on an Ubuntu 22.04/24.04 or Debian 12/13 server.
+                Read the{" "}
+                <button
+                  type="button"
+                  className="cursor-pointer underline underline-offset-2 hover:text-foreground"
+                  onClick={() => void openExternal(PREREQUISITES_URL)}
+                >
+                  prerequisites
+                </button>{" "}
+                first — you arrange the private network yourself, if you want one.
+              </p>
+              <Button className="mt-3" onClick={onInstall}>
+                Install on a server
+              </Button>
+            </section>
+          )}
 
           <section className="rounded-lg border border-border/50 p-4">
             <h2 className="text-sm font-medium text-foreground">

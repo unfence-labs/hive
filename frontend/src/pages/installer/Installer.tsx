@@ -10,6 +10,7 @@ import {
 import { clearInstallRuns } from "@/pages/installer/install-run";
 import { createProvisionClient, type ProvisionClient } from "@/lib/provision-client";
 import { switchServer } from "@/lib/server-connection";
+import { isDesktopShell } from "@/lib/is-desktop";
 import { serverUrlFor } from "@/hooks/useConnection";
 import { WelcomeScreen } from "./screens/WelcomeScreen";
 import { NetworkScreen } from "./screens/NetworkScreen";
@@ -38,9 +39,11 @@ interface InstallerProps {
 }
 
 /**
- * The installer, a layer in front of the app and the only "not configured"
- * state there is. It never replaces the app with a reduced variant: once it is
- * done it simply stops being rendered.
+ * The installer, and the only "not configured" state there is. At boot with no
+ * server it is the whole screen — the app mounts once it finishes — and
+ * reopened from Settings it is a layer over the configured app. It never
+ * replaces the app with a reduced variant: once it is done it simply stops
+ * being rendered.
  */
 export default function Installer({
   client: injectedClient,
@@ -121,7 +124,9 @@ export default function Installer({
     case "welcome":
       screen = (
         <WelcomeScreen
-          onInstall={() => advance()}
+          // The install path runs over the desktop shell's SSH sidecar; the
+          // web build only connects to servers that already exist.
+          {...(isDesktopShell() ? { onInstall: () => advance() } : {})}
           onConnected={finish}
           {...(cancellable && onClose ? { onCancel: onClose } : {})}
         />

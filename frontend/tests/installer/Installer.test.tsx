@@ -118,6 +118,9 @@ function storageContents(): string {
 describe("Installer", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    // The install path only exists inside the desktop shell; these tests
+    // exercise it, so they run as the shell. The web variant has its own test.
+    Object.defineProperty(window, "__TAURI_INTERNALS__", { value: {}, configurable: true });
     // Streamed install records reach the screen once per flush window, so the
     // tests drive that clock rather than waiting it out.
     vi.useFakeTimers({ shouldAdvanceTime: true });
@@ -128,6 +131,7 @@ describe("Installer", () => {
   });
 
   afterEach(() => {
+    Reflect.deleteProperty(window, "__TAURI_INTERNALS__");
     vi.useRealTimers();
   });
 
@@ -141,6 +145,15 @@ describe("Installer", () => {
     expect(screen.queryByRole("button", { name: /skip/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Cancel" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "prerequisites" })).toBeInTheDocument();
+  });
+
+  it("offers only the existing-server path in the web build", () => {
+    Reflect.deleteProperty(window, "__TAURI_INTERNALS__");
+    render(<Installer client={createMockProvisionClient()} />);
+
+    // No SSH sidecar, no install path — connecting is the whole offer.
+    expect(screen.queryByRole("button", { name: "Install on a server" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "I already have a server" })).toBeInTheDocument();
   });
 
   it("configures the app from the existing-server form and dismisses itself", async () => {

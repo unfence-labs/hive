@@ -210,6 +210,9 @@ describe("App", () => {
     vi.clearAllMocks();
     localStorage.clear();
     delete (window as DesktopWindow).__TAURI_INTERNALS__;
+    // Most tests exercise the configured app; the boot gate has its own tests,
+    // which clear this again.
+    replaceConnection({ host: "100.64.0.10", port: 9420, authToken: "tok" });
     mocks.projects = makeProjects();
     mocks.loading = false;
     window.history.pushState({}, "", "/projects");
@@ -360,39 +363,50 @@ describe("App", () => {
     expect(window.location.pathname).toBe("/home");
   });
 
-  it("opens the installer in the desktop shell when no server is configured", async () => {
+  it("boots on the installer alone when no server is configured", async () => {
+    replaceConnection(null);
     runInDesktopShell();
 
     renderApp();
 
     expect(await screen.findByTestId("installer")).toBeInTheDocument();
-    // A layer in front of the app, not a variant of it: the app is still there.
-    expect(screen.getByTestId("app-layout")).toBeInTheDocument();
+    // The gate: nothing else mounts, so nothing calls a server that is not
+    // there. No layout, no routes, no dialogs.
+    expect(screen.queryByTestId("app-layout")).not.toBeInTheDocument();
+    expect(mocks.syncWorkspaces).not.toHaveBeenCalled();
     // With no server there is no way out but the welcome screen's own paths.
     expect(screen.queryByRole("button", { name: "cancel installer" })).not.toBeInTheDocument();
   });
 
-  it("keeps the installer up once the install stores its connection", async () => {
+  it("keeps the gate up once the install stores its connection", async () => {
     const user = userEvent.setup();
+    replaceConnection(null);
     runInDesktopShell();
     renderApp();
 
     await user.click(await screen.findByRole("button", { name: "store connection" }));
 
     // The install stores the connection partway through: the final screen —
-    // connect your accounts — still has to run on the server it just built.
+    // connect your accounts — still has to run on the server it just built,
+    // and the app must not start bootstrapping underneath it.
     expect(screen.getByTestId("installer")).toBeInTheDocument();
-    // And now that there is something to go back to, abandoning is offered.
-    expect(screen.getByRole("button", { name: "cancel installer" })).toBeInTheDocument();
+    expect(screen.queryByTestId("app-layout")).not.toBeInTheDocument();
+    // A gate is not an overlay: there is still nothing to abandon it for.
+    expect(screen.queryByRole("button", { name: "cancel installer" })).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "close installer" }));
     expect(screen.queryByTestId("installer")).not.toBeInTheDocument();
+    // The configured app mounts for the first time now.
+    expect(await screen.findByTestId("app-layout")).toBeInTheDocument();
   });
 
-  it("leaves the web build alone when no server is configured", () => {
+  it("gates the web build too, offering the connect path", async () => {
+    replaceConnection(null);
+
     renderApp();
 
-    expect(screen.queryByTestId("installer")).not.toBeInTheDocument();
+    expect(await screen.findByTestId("installer")).toBeInTheDocument();
+    expect(screen.queryByTestId("app-layout")).not.toBeInTheDocument();
   });
 
   it("does not open the installer once a server is configured", () => {
@@ -413,6 +427,10 @@ describe("App", () => {
 
     await user.click(await screen.findByRole("button", { name: "open installer" }));
     expect(await screen.findByTestId("installer")).toBeInTheDocument();
+    // Reopened over a configured app it is an overlay, not the gate: the app
+    // stays mounted and abandoning is offered.
+    expect(screen.getByTestId("app-layout")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "cancel installer" })).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "close installer" }));
 

@@ -237,7 +237,6 @@ export default function AccountSettings() {
                 Copy the code below and enter it at the GitHub verification page.
               </p>
               <SignInPrompt
-                inputId="github-sign-in-code"
                 verificationUri={state.verificationUri}
                 userCode={state.userCode}
                 onCancel={handleCancelConnect}

@@ -1,5 +1,5 @@
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
-import { lazy, Suspense, useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import AppLayout from "@/components/AppLayout";
 import AddProjectDialog from "@/components/AddProjectDialog";
 import WorkspaceLauncher from "@/components/WorkspaceLauncher";
@@ -40,24 +40,64 @@ function NotificationToastsBridge({ projects }: { projects: Project[] }) {
   return null;
 }
 
+/** What the screen shows while the installer chunk loads: the theme background
+ * and nothing else. When Hive grows a real splash screen, it lives here. */
+function BootScreen() {
+  return <div className="fixed inset-0 bg-background" />;
+}
+
+/**
+ * The gate. An unconfigured app has exactly one thing to show — the installer —
+ * and mounting anything else would only fire requests at a server that does not
+ * exist yet. The configured app mounts for the first time when the installer
+ * says it is done, and bootstraps against the server it just set up.
+ *
+ * The mode is captured when the installer opens, not derived live: the install
+ * stores its connection partway through (the final screen connects accounts on
+ * the new server), and that must not flip a booting gate into an overlay with
+ * an app suddenly running underneath it. Reopened from Settings over a
+ * configured app, the installer is an overlay instead, and abandoning it
+ * changes nothing.
+ */
 export default function App() {
+  const { isConfigured } = useConnection();
+  const [installer, setInstaller] = useState<"gate" | "overlay" | null>(() =>
+    isConfigured ? null : "gate",
+  );
+  useEffect(() => {
+    if (!isConfigured) setInstaller((current) => current ?? "gate");
+  }, [isConfigured]);
+  const closeInstaller = useCallback(() => setInstaller(null), []);
+
+  if (installer === "gate") {
+    return (
+      <Suspense fallback={<BootScreen />}>
+        <Installer onClose={closeInstaller} />
+      </Suspense>
+    );
+  }
+
+  return (
+    <ConfiguredApp
+      installerOpen={installer === "overlay"}
+      onOpenInstaller={() => setInstaller("overlay")}
+      onCloseInstaller={closeInstaller}
+    />
+  );
+}
+
+function ConfiguredApp({
+  installerOpen,
+  onOpenInstaller,
+  onCloseInstaller,
+}: {
+  installerOpen: boolean;
+  onOpenInstaller: () => void;
+  onCloseInstaller: () => void;
+}) {
   const { projects, loading, fetchProjects, createProjectWithWorkspace, createNewProjectWithWorkspace } = useProjects();
   const [showAddProject, setShowAddProject] = useState(false);
   const [showAddAutomation, setShowAddAutomation] = useState(false);
-  // The installer is a layer in front of the app, not a variant of it: with no
-  // server configured the desktop shell has nothing else to show, and an
-  // already-configured app can open it again from Settings.
-  //
-  // Once open it comes down only when the installer says so. It stores the
-  // connection partway through — its final screen connects accounts on the
-  // server it just installed — so closing on `isConfigured` would cut the flow
-  // short at exactly the point the newcomer still needs it.
-  const { isConfigured } = useConnection();
-  const needsInstaller = isDesktopShell() && !isConfigured;
-  const [showInstaller, setShowInstaller] = useState(needsInstaller);
-  useEffect(() => {
-    if (needsInstaller) setShowInstaller(true);
-  }, [needsInstaller]);
   // "New workspace from…" picker — owned here so both the global shortcuts
   // (WorkspaceLauncher) and the sidebar "+" context menu can open it.
   const [workspaceFrom, setWorkspaceFrom] = useState<{ open: boolean; projectId?: string }>({ open: false });
@@ -107,9 +147,7 @@ export default function App() {
           onCreate={createNewProjectWithWorkspace}
         />
         <Suspense fallback={null}>
-          {showInstaller && (
-            <Installer onClose={() => setShowInstaller(false)} cancellable={isConfigured} />
-          )}
+          {installerOpen && <Installer onClose={onCloseInstaller} cancellable />}
         </Suspense>
         <Suspense fallback={null}>
           {showAddAutomation && (
@@ -155,7 +193,7 @@ export default function App() {
               {isDesktopShell() && (
                 <Route
                   path="settings/server"
-                  element={<ServerSettings onOpenInstaller={() => setShowInstaller(true)} />}
+                  element={<ServerSettings onOpenInstaller={onOpenInstaller} />}
                 />
               )}
               <Route path="settings/notifications" element={<NotificationSettings />} />
