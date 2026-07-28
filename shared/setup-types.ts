@@ -224,14 +224,3 @@ export interface ToolAuthSession {
   finishedAt?: string;
   failure?: ToolAuthFailure;
 }
-
-/**
- * Returned by a start request that Hive refused to run because running it
- * would destroy something. Codex deletes its stored credential the moment the
- * device flow begins, so an operator who is already signed in has to say yes
- * to being signed out first.
- */
-export interface ToolAuthConfirmationRequired {
-  code: "confirm_required";
-  message: string;
-}

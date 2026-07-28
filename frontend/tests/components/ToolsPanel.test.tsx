@@ -7,7 +7,6 @@ import type {
   ToolsResponse,
   ToolStatus,
 } from "@hive/shared/setup-types";
-import { ApiError } from "@/hooks/useApi";
 import { ToolsPanel } from "@/components/setup/ToolsPanel";
 import { createWrapper } from "../test-utils";
 
@@ -113,12 +112,10 @@ describe("ToolsPanel", () => {
 
     expect(await screen.findByRole("heading", { name: "Claude Code" })).toBeInTheDocument();
     expect(screen.getByText("v1.0.0")).toBeInTheDocument();
-    expect(screen.getByText("Up to date")).toBeInTheDocument();
     expect(screen.getByText("Signed in")).toBeInTheDocument();
 
     expect(screen.getByRole("heading", { name: "Codex" })).toBeInTheDocument();
     expect(screen.getByText("not installed")).toBeInTheDocument();
-    expect(screen.getByText("Not installed")).toBeInTheDocument();
   });
 
   it("offers to sign in a tool that is installed but not signed in", async () => {
@@ -137,7 +134,7 @@ describe("ToolsPanel", () => {
 
     renderPanel();
 
-    expect(await screen.findByText("Not installed")).toBeInTheDocument();
+    expect(await screen.findByText("not installed")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Connect Codex" })).not.toBeInTheDocument();
   });
 
@@ -205,13 +202,15 @@ describe("ToolsPanel", () => {
 
     renderPanel();
 
-    const buttons = await screen.findAllByRole("button", { name: "Update" });
-    expect(buttons).toHaveLength(2);
-    expect(buttons[0]).toBeEnabled();
-    expect(buttons[1]).toBeDisabled();
-    expect(screen.getByText("v1.0.0 → v1.2.0")).toBeInTheDocument();
+    // One Update button, on the tool that has an update; a current tool
+    // offers nothing rather than a dead control.
+    const button = await screen.findByRole("button", { name: "Update" });
+    expect(button).toBeEnabled();
+    // The target version rides on the update pill, next to the current one.
+    expect(screen.getByText("v1.0.0")).toBeInTheDocument();
+    expect(screen.getByText("v1.2.0")).toBeInTheDocument();
 
-    await user.click(buttons[0]);
+    await user.click(button);
     await waitFor(() => {
       expect(mocks.startOperation).toHaveBeenCalledWith("claude", "update");
     });
@@ -294,6 +293,63 @@ describe("ToolsPanel", () => {
     expect(screen.queryByRole("button", { name: "Connect GitHub" })).not.toBeInTheDocument();
   });
 
+  it("shows an update request that never started in the same error panel", async () => {
+    respond({
+      tools: [
+        tool({
+          id: "claude",
+          label: "Claude Code",
+          installed: true,
+          version: "1.0.0",
+          latestVersion: "1.2.0",
+          updateAvailable: true,
+        }),
+      ],
+    });
+    mocks.startOperation.mockRejectedValue(new Error("Internal Server Error"));
+    const user = userEvent.setup();
+
+    renderPanel();
+    await user.click(await screen.findByRole("button", { name: "Update" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Internal Server Error");
+    // The failed request is over: retrying must not wait on anything.
+    expect(screen.getByRole("button", { name: "Update" })).toBeEnabled();
+  });
+
+  it("hides a stale failure the moment another action starts", async () => {
+    respond({
+      tools: [
+        tool({
+          id: "claude",
+          label: "Claude Code",
+          installed: true,
+          version: "1.0.0",
+          latestVersion: "1.2.0",
+          updateAvailable: true,
+        }),
+      ],
+      operations: [
+        operation({
+          tool: "claude",
+          kind: "update",
+          status: "failed",
+          phase: "done",
+          failure: { reason: "network", message: "Claude Code update failed (exit 1)." },
+        }),
+      ],
+    });
+    const user = userEvent.setup();
+
+    renderPanel();
+    expect(await screen.findByText("Claude Code update failed")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Update" }));
+
+    // The retry is the acknowledgement: the old failure has been acted on.
+    expect(screen.queryByText("Claude Code update failed")).not.toBeInTheDocument();
+  });
+
   it("surfaces a status failure instead of rendering an empty panel", async () => {
     mocks.getTools.mockRejectedValue(new Error("401 Unauthorized"));
 
@@ -349,7 +405,7 @@ describe("ToolsPanel sign-in", () => {
     renderPanel();
     await user.click(await screen.findByRole("button", { name: "Connect Codex" }));
 
-    expect(mocks.startAuth).toHaveBeenCalledWith("codex", { force: undefined });
+    expect(mocks.startAuth).toHaveBeenCalledWith("codex");
   });
 
   it("shows the code and link the server recovered from the CLI", async () => {
@@ -419,45 +475,32 @@ describe("ToolsPanel sign-in", () => {
     expect(screen.getByLabelText(/paste the code/i)).toBeInTheDocument();
   });
 
-  it("asks before signing the server out of a Codex that works", async () => {
+  it("re-signs a connected tool without asking first", async () => {
     respond({
       tools: [tool({ id: "codex", label: "Codex", installed: true, authenticated: true })],
     });
-    mocks.startAuth
-      .mockRejectedValueOnce(new ApiError(409, "This signs you out first."))
-      .mockResolvedValueOnce(session({ tool: "codex", state: "starting" }));
+    mocks.startAuth.mockResolvedValue(session({ tool: "codex", state: "starting" }));
     const user = userEvent.setup();
 
     renderPanel();
     await user.click(await screen.findByRole("button", { name: "Sign in again" }));
 
-    // The warning is shown before anything is destroyed, not after.
-    expect(await screen.findByText("This signs you out first.")).toBeInTheDocument();
-    expect(mocks.startAuth).toHaveBeenCalledTimes(1);
-
-    await user.click(screen.getByRole("button", { name: "Continue" }));
-
-    await waitFor(() => expect(mocks.startAuth).toHaveBeenCalledTimes(2));
-    expect(mocks.startAuth).toHaveBeenLastCalledWith("codex", { force: true });
+    // No confirmation step: the flows back a working credential up and restore
+    // it when the new sign-in ends any way but connected.
+    expect(mocks.startAuth).toHaveBeenCalledWith("codex");
   });
 
-  it("does not start the flow when the operator declines to be signed out", async () => {
+  it("says nothing about a sign-in the operator cancelled", async () => {
     respond({
-      tools: [tool({ id: "codex", label: "Codex", installed: true, authenticated: true })],
+      tools: [tool({ id: "codex", label: "Codex", installed: true })],
+      authSessions: [session({ tool: "codex", state: "cancelled" })],
     });
-    mocks.startAuth.mockRejectedValue(new ApiError(409, "This signs you out first."));
-    const user = userEvent.setup();
 
     renderPanel();
-    await user.click(await screen.findByRole("button", { name: "Sign in again" }));
-    await screen.findByText("This signs you out first.");
-    await user.click(screen.getByRole("button", { name: "Cancel" }));
 
-    await waitFor(() =>
-      expect(screen.queryByText("This signs you out first.")).not.toBeInTheDocument(),
-    );
-    expect(mocks.startAuth).toHaveBeenCalledTimes(1);
-    expect(mocks.startAuth).toHaveBeenCalledWith("codex", { force: undefined });
+    // The operator did the cancelling; there is nothing to explain.
+    expect(await screen.findByRole("button", { name: "Connect Codex" })).toBeEnabled();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
   it("reports an expired code as expired rather than as a failure", async () => {

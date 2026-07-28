@@ -116,32 +116,12 @@ export async function setupRoutes(
 
   // ── Sign-in ────────────────────────────────────────────────────────
 
-  app.post<{ Params: { tool: SetupToolId }; Body?: { force?: boolean } }>(
+  app.post<{ Params: { tool: SetupToolId } }>(
     "/api/setup/auth/:tool/start",
-    {
-      schema: {
-        params: AUTH_TOOL_PARAMS,
-        body: {
-          type: ["object", "null"],
-          additionalProperties: false,
-          properties: { force: { type: "boolean" } },
-        },
-      },
-    },
+    { schema: { params: AUTH_TOOL_PARAMS } },
     async (req, reply): Promise<ToolAuthSession | undefined> => {
       try {
-        const result = await authStore.start(req.params.tool, {
-          force: req.body?.force === true,
-        });
-        // 409 rather than a success carrying a question: the flow did not
-        // start, and a client that ignored the body would otherwise show a
-        // sign-in that is not happening.
-        if (result.kind === "confirm_required") {
-          return reply
-            .status(409)
-            .send({ code: "confirm_required", message: result.message });
-        }
-        return result.session;
+        return await authStore.start(req.params.tool);
       } catch (error) {
         if (error instanceof ToolAuthError) {
           return reply.status(400).send({ error: error.message });

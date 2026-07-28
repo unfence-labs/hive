@@ -1,12 +1,13 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
   ArrowUpCircle,
-  CheckCircle2,
-  CircleSlash,
+  Check,
+  Copy,
+  ExternalLink,
   Loader2,
-  LogIn,
+  RefreshCw,
 } from "lucide-react";
 import {
   isToolAuthTerminal,
@@ -18,25 +19,11 @@ import {
   type ToolOperationKind,
   type ToolStatus,
 } from "@hive/shared/setup-types";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { ProviderIcon, type KnownProvider } from "@/components/chat/ProviderIcon";
-import { SignInPrompt } from "@/components/setup/SignInPrompt";
-import { ApiError } from "@/hooks/useApi";
-import {
-  createSetupApi,
-  CONFIRM_REQUIRED_STATUS,
-  type SetupApiTarget,
-} from "@/lib/setup-api";
+import { useClipboardCopy } from "@/hooks/useClipboardCopy";
+import { openExternal } from "@/lib/open-external";
+import { createSetupApi, type SetupApiTarget } from "@/lib/setup-api";
 import { refreshModelCatalog } from "@/hooks/useModels";
 import { cn } from "@/lib/utils";
 
@@ -56,11 +43,6 @@ const TOOL_PROVIDERS: Partial<Record<SetupToolId, { id: KnownProvider; label: st
   codex: [{ id: "codex", label: "Codex" }],
 };
 
-const TOOL_BLURBS: Partial<Record<SetupToolId, string>> = {
-  claude: "Runs Claude and Kimi sessions on this server.",
-  codex: "Runs Codex sessions on this server.",
-};
-
 const PHASE_LABELS: Record<ToolOperation["phase"], string> = {
   detecting: "Checking current version…",
   running: "Downloading and installing…",
@@ -74,11 +56,6 @@ const CONNECT_LABELS: Partial<Record<SetupToolId, string>> = {
   codex: "Connect Codex",
 };
 
-/** How a sign-in that did not connect is explained, without a failure behind it. */
-const AUTH_OUTCOME_MESSAGES: Partial<Record<ToolAuthSession["state"], string>> = {
-  expired: "The sign-in code expired before it was confirmed. Start again.",
-  cancelled: "Sign-in cancelled.",
-};
 
 /**
  * Tool state with install and update actions.
@@ -140,37 +117,34 @@ export function ToolsPanel({
     [status, data],
   );
 
-  const start = useMutation({
-    mutationFn: ({ tool, kind }: { tool: SetupToolId; kind: ToolOperationKind }) =>
-      api.startOperation(tool, kind),
-    onSettled: () => queryClient.invalidateQueries({ queryKey: statusKey }),
-  });
-
   const invalidate = (): void => {
     void queryClient.invalidateQueries({ queryKey: statusKey });
   };
 
-  const [authError, setAuthError] = useState<Partial<Record<SetupToolId, string>>>({});
+  // One client-side error slot per tool, whatever the action that failed —
+  // requests that never became server-side state have nowhere else to show.
+  const [actionError, setActionError] = useState<Partial<Record<SetupToolId, string>>>({});
   const setError = (tool: SetupToolId, message: string | undefined): void =>
-    setAuthError((current) => ({ ...current, [tool]: message }));
+    setActionError((current) => ({ ...current, [tool]: message }));
 
-  // A refusal to sign the server out of a working tool is a question, not an
-  // error: hold it until the operator answers, then retry with the answer.
-  const [confirm, setConfirm] = useState<{ tool: SetupToolId; message: string } | null>(
-    null,
-  );
+  const start = useMutation({
+    mutationFn: ({ tool, kind }: { tool: SetupToolId; kind: ToolOperationKind }) =>
+      api.startOperation(tool, kind),
+    // Any action clears what an earlier one left on screen.
+    onMutate: ({ tool }) => setError(tool, undefined),
+    onError: (err, { tool, kind }) =>
+      setError(tool, err instanceof Error ? err.message : `Could not start the ${kind}.`),
+    // Fire-and-forget on purpose: returning the invalidation promise would
+    // hold `isPending` — and the disabled button — through the status
+    // refetch's retry cycle, seconds against a server that is down.
+    onSettled: invalidate,
+  });
 
   const startAuth = useMutation({
-    mutationFn: ({ tool, force }: { tool: SetupToolId; force?: boolean }) =>
-      api.startAuth(tool, { force }),
-    onMutate: ({ tool }) => setError(tool, undefined),
-    onError: (err, { tool }) => {
-      if (err instanceof ApiError && err.status === CONFIRM_REQUIRED_STATUS) {
-        setConfirm({ tool, message: err.message });
-        return;
-      }
-      setError(tool, err instanceof Error ? err.message : "Could not start sign-in.");
-    },
+    mutationFn: (tool: SetupToolId) => api.startAuth(tool),
+    onMutate: (tool) => setError(tool, undefined),
+    onError: (err, tool) =>
+      setError(tool, err instanceof Error ? err.message : "Could not start sign-in."),
     onSettled: invalidate,
   });
 
@@ -253,10 +227,10 @@ export function ToolsPanel({
           pending={start.isPending && start.variables?.tool === tool.id}
           onRun={(kind) => start.mutate({ tool: tool.id, kind })}
           authSession={authSessions.find((session) => session.tool === tool.id)}
-          authError={authError[tool.id]}
-          authPending={startAuth.isPending && startAuth.variables?.tool === tool.id}
+          actionError={actionError[tool.id]}
+          authPending={startAuth.isPending && startAuth.variables === tool.id}
           codePending={submitCode.isPending && submitCode.variables?.tool === tool.id}
-          onConnect={() => startAuth.mutate({ tool: tool.id })}
+          onConnect={() => startAuth.mutate(tool.id)}
           onSubmitCode={(code) => submitCode.mutate({ tool: tool.id, code })}
           onCancelAuth={() => cancelAuth.mutate(tool.id)}
         />
@@ -273,25 +247,6 @@ export function ToolsPanel({
           : "Connect Claude Code or Codex to run sessions. Either one on its own is enough."}
       </p>
 
-      <AlertDialog open={confirm !== null} onOpenChange={(open) => !open && setConfirm(null)}>
-        <AlertDialogContent className="bg-popover">
-          <AlertDialogHeader>
-            <AlertDialogTitle>Sign in again?</AlertDialogTitle>
-            <AlertDialogDescription>{confirm?.message}</AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() => {
-                if (confirm) startAuth.mutate({ tool: confirm.tool, force: true });
-                setConfirm(null);
-              }}
-            >
-              Continue
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </div>
   );
 }
@@ -302,7 +257,7 @@ function ToolCard({
   pending,
   onRun,
   authSession,
-  authError,
+  actionError,
   authPending,
   codePending,
   onConnect,
@@ -314,7 +269,7 @@ function ToolCard({
   pending: boolean;
   onRun: (kind: ToolOperationKind) => void;
   authSession?: ToolAuthSession;
-  authError?: string;
+  actionError?: string;
   authPending: boolean;
   codePending: boolean;
   onConnect: () => void;
@@ -341,197 +296,285 @@ function ToolCard({
     (authSession !== undefined &&
       (authSession.state === "starting" || authSession.state === "verifying"));
 
-  const problem =
-    authError ??
-    (authSession?.state === "failed" && authSession.failure
-      ? `${authSession.failure.message} ${TOOL_AUTH_FAILURE_HINTS[authSession.failure.reason]}`
-      : undefined) ??
-    (authSession && AUTH_OUTCOME_MESSAGES[authSession.state]);
+  // Failures already acted on. Server-side failure records linger until their
+  // session or operation is replaced; starting anything hides them at once.
+  const [dismissed, setDismissed] = useState<string[]>([]);
+  const act = (action: () => void) => () => {
+    setDismissed((current) => [
+      ...current,
+      ...(operation?.status === "failed" ? [operation.id] : []),
+      ...(authSession ? [authSession.startedAt] : []),
+    ]);
+    action();
+  };
+
+  // What went wrong with the sign-in, whatever the shape it arrived in. A
+  // cancelled sign-in says nothing: the operator did the cancelling.
+  const sessionProblem = ((): { title: string; detail?: string; output?: string } | undefined => {
+    if (!authSession || dismissed.includes(authSession.startedAt)) return undefined;
+    if (authSession.state === "failed" && authSession.failure) {
+      return {
+        title: `${tool.label} sign-in failed`,
+        detail: `${authSession.failure.message} ${TOOL_AUTH_FAILURE_HINTS[authSession.failure.reason]}`,
+        output: authSession.failure.outputExcerpt,
+      };
+    }
+    if (authSession.state === "expired") {
+      return {
+        title: `${tool.label} sign-in expired`,
+        detail: "The sign-in code expired before it was confirmed. Start again.",
+      };
+    }
+    if (authSession.notice) return { title: authSession.notice };
+    return undefined;
+  })();
+  const problem = actionError !== undefined ? { title: actionError } : sessionProblem;
+
+  const failedOperation =
+    operation?.status === "failed" && operation.failure && !dismissed.includes(operation.id)
+      ? operation
+      : undefined;
 
   return (
     <section
       className={cn(
-        "rounded-lg border border-border/50 bg-card/50 p-5",
+        "rounded-lg border border-border/50 bg-card/50 px-4 py-3",
         !tool.installed && !busy && "opacity-70",
       )}
     >
-      <div className="flex items-start justify-between gap-4">
+      <div className="flex items-center justify-between gap-4">
         <div className="min-w-0">
-          <h3 className="text-sm font-medium text-foreground">{tool.label}</h3>
-          <p className="mt-0.5 text-xs text-muted-foreground">{TOOL_BLURBS[tool.id]}</p>
-          <p className="mt-1 font-mono text-xs text-muted-foreground">
-            {tool.installed ? `v${tool.version ?? "unknown"}` : "not installed"}
-            {tool.updateAvailable && tool.latestVersion ? ` → v${tool.latestVersion}` : ""}
+          <div className="flex items-center gap-2">
+            <h3 className="text-sm font-medium text-foreground">{tool.label}</h3>
+            {providers && (
+              <span className="inline-flex items-center gap-1">
+                {providers.map((provider) => (
+                  <span key={provider.id} title={`Runs ${provider.label} sessions`}>
+                    <ProviderIcon provider={provider.id} colored className="size-3" />
+                  </span>
+                ))}
+              </span>
+            )}
+          </div>
+          <p className="mt-0.5 flex items-center gap-2 text-xs text-muted-foreground">
+            <span className="font-mono">
+              {tool.installed ? `v${tool.version ?? "unknown"}` : "not installed"}
+            </span>
+            {tool.installed && (
+              <>
+                <span className="text-border">·</span>
+                {prompt ? (
+                  // The sign-in under way takes the status slot.
+                  <span role="status" aria-live="polite" className="inline-flex items-center gap-1.5">
+                    Waiting for authorization…
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                  </span>
+                ) : (
+                  <>
+                    <AuthLabel authenticated={tool.authenticated} />
+                    {tool.authenticated && (
+                      <Button
+                        size="icon-xs"
+                        variant="ghost"
+                        className="-ml-1 text-muted-foreground"
+                        disabled={busy || signingIn}
+                        onClick={act(onConnect)}
+                        aria-label="Sign in again"
+                        title="Sign in again — switches the connected account"
+                      >
+                        {signingIn ? (
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                        ) : (
+                          <RefreshCw className="h-3 w-3" />
+                        )}
+                      </Button>
+                    )}
+                  </>
+                )}
+              </>
+            )}
           </p>
         </div>
 
-        <div className="flex shrink-0 flex-col items-end gap-2">
-          <StatusBadge tool={tool} />
-          {tool.installed && <AuthBadge authenticated={tool.authenticated} />}
-          {providers && (
-            <div className="flex flex-wrap items-center justify-end gap-1.5">
-              {providers.map((provider) => (
-                <span
-                  key={provider.id}
-                  title={`Runs ${provider.label} sessions`}
-                  className="inline-flex items-center gap-1.5 rounded-full border border-border/50 bg-muted/30 px-2 py-0.5 text-[11px] font-medium text-muted-foreground"
-                >
-                  <ProviderIcon provider={provider.id} colored className="size-3" />
-                  {provider.label}
-                </span>
-              ))}
-            </div>
+        <div className="flex shrink-0 items-center gap-2">
+          {running && operation && (
+            <span className="flex items-center gap-2 text-xs text-muted-foreground">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              {PHASE_LABELS[operation.phase]}
+            </span>
+          )}
+          {/* A sign-in under way owns the action cluster: Cancel alone, the
+              update offer comes back once the sign-in is settled. */}
+          {!prompt && tool.updateAvailable && tool.latestVersion && (
+            <span className="inline-flex items-center gap-1 rounded-full border border-warning-border bg-warning-muted px-2 py-0.5 text-[11px] font-medium text-warning-foreground">
+              <ArrowUpCircle className="h-3 w-3" />v{tool.latestVersion}
+            </span>
+          )}
+          {!prompt && (!tool.installed || tool.updateAvailable) && (
+            <Button
+              size="sm"
+              variant={tool.installed ? "outline" : "default"}
+              disabled={busy}
+              onClick={act(() => onRun(tool.installed ? "update" : "install"))}
+            >
+              {tool.installed ? "Update" : "Install"}
+            </Button>
+          )}
+          {tool.installed && !prompt && !tool.authenticated && (
+            <Button size="sm" disabled={busy || signingIn} onClick={act(onConnect)}>
+              {signingIn && <Loader2 className="mr-1.5 h-3 w-3 animate-spin" />}
+              {CONNECT_LABELS[tool.id]}
+            </Button>
+          )}
+          {/* The one way out of a sign-in under way. A sign-in has no deadline
+              of Hive's making, so a stalled one must not need a backend
+              restart to escape. */}
+          {prompt && (
+            <Button size="sm" variant="ghost" onClick={onCancelAuth}>
+              Cancel
+            </Button>
           )}
         </div>
       </div>
 
-      <div className="mt-4 flex items-center gap-3">
-        <Button
-          size="sm"
-          variant={tool.installed ? "outline" : "default"}
-          disabled={busy || (tool.installed && !tool.updateAvailable)}
-          onClick={() => onRun(tool.installed ? "update" : "install")}
-        >
-          {tool.installed ? "Update" : "Install"}
-        </Button>
-
-        {tool.installed && !prompt && (
-          <>
-            <Button
-              size="sm"
-              variant={tool.authenticated ? "ghost" : "default"}
-              disabled={busy || signingIn}
-              onClick={onConnect}
-            >
-              {signingIn && <Loader2 className="mr-1.5 h-3 w-3 animate-spin" />}
-              {tool.authenticated ? "Sign in again" : CONNECT_LABELS[tool.id]}
-            </Button>
-            {/* A sign-in has no deadline of Hive's making, so a stalled one
-                needs a way out that is not restarting the backend. */}
-            {signingIn && (
-              <Button size="sm" variant="ghost" onClick={onCancelAuth}>
-                Cancel
-              </Button>
-            )}
-          </>
-        )}
-
-        {running && operation && (
-          <span className="flex items-center gap-2 text-xs text-muted-foreground">
-            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            {PHASE_LABELS[operation.phase]}
-          </span>
-        )}
-      </div>
-
       {prompt && (
-        <SignInPrompt
-          inputId={`sign-in-code-${tool.id}`}
-          verificationUri={prompt.verificationUri}
-          userCode={prompt.userCode}
-          onSubmitCode={prompt.needsCode ? onSubmitCode : undefined}
-          codeLabel={`Paste the code ${tool.label} asked for`}
-          submitting={codePending}
-          onCancel={onCancelAuth}
-          error={authError ?? authSession?.notice}
+        <div className="mt-3 space-y-2">
+          {prompt.needsCode ? (
+            <CodeForm
+              key={authSession?.startedAt}
+              inputLabel={`Paste the code ${tool.label} asked for`}
+              submitting={codePending}
+              onSubmit={onSubmitCode}
+              onOpen={() => void openExternal(prompt.verificationUri)}
+            />
+          ) : (
+            <div className="flex flex-wrap items-center gap-2">
+              {prompt.userCode && <CodeChip code={prompt.userCode} />}
+              <Button
+                size="sm"
+                className="ml-auto"
+                onClick={() => void openExternal(prompt.verificationUri)}
+              >
+                Open sign-in page
+                <ExternalLink className="ml-1.5 h-3 w-3" />
+              </Button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {problem && (
+        <ErrorPanel
+          title={problem.title}
+          detail={problem.detail}
+          output={problem.output}
         />
       )}
 
-      {!prompt && problem && (
-        <p className="mt-3 text-xs text-destructive" role="alert">
-          {problem}
-        </p>
-      )}
-
-      {!prompt && authSession?.state === "failed" && authSession.failure?.outputExcerpt && (
-        <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap break-all rounded bg-muted/50 p-2 font-mono text-[11px] text-muted-foreground">
-          {authSession.failure.outputExcerpt}
-        </pre>
-      )}
-
-      {operation?.status === "failed" && operation.failure && (
-        <FailurePanel failure={operation.failure} kind={operation.kind} label={tool.label} />
+      {failedOperation?.failure && (
+        <ErrorPanel
+          title={`${tool.label} ${failedOperation.kind} failed`}
+          detail={TOOL_FAILURE_HINTS[failedOperation.failure.reason]}
+          output={failedOperation.failure.outputExcerpt}
+        />
       )}
     </section>
   );
 }
 
-function FailurePanel({
-  failure,
-  kind,
-  label,
+/** The one shape every problem here is reported in: what failed, why, and the
+ * command output when there is some. */
+function ErrorPanel({
+  title,
+  detail,
+  output,
 }: {
-  failure: NonNullable<ToolOperation["failure"]>;
-  kind: ToolOperationKind;
-  label: string;
+  title: string;
+  detail?: string;
+  output?: string;
 }) {
   return (
-    <div className="mt-3 rounded-md border border-destructive/40 bg-destructive/5 p-3">
+    <div role="alert" className="mt-3 rounded-md border border-destructive/40 bg-destructive/5 p-3">
       <p className="flex items-center gap-2 text-xs font-medium text-destructive">
         <AlertTriangle className="h-3.5 w-3.5" />
-        {label} {kind} failed
+        {title}
       </p>
-      <p className="mt-1 text-xs text-muted-foreground">{TOOL_FAILURE_HINTS[failure.reason]}</p>
-      {failure.outputExcerpt && (
+      {detail && <p className="mt-1 text-xs text-muted-foreground">{detail}</p>}
+      {output && (
         <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap break-all rounded bg-muted/50 p-2 font-mono text-[11px] text-muted-foreground">
-          {failure.outputExcerpt}
+          {output}
         </pre>
       )}
     </div>
   );
 }
 
-const PILL =
-  "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[11px] font-medium";
-const NEUTRAL_PILL = `${PILL} border-border bg-muted/50 text-muted-foreground`;
-
-function StatusBadge({ tool }: { tool: ToolStatus }) {
-  if (!tool.installed) {
-    return (
-      <span className={NEUTRAL_PILL}>
-        <CircleSlash className="h-3 w-3" />
-        Not installed
-      </span>
-    );
-  }
-
-  if (tool.updateAvailable) {
-    return (
-      <span
-        className={cn(PILL, "border-warning-border bg-warning-muted text-warning-foreground")}
-      >
-        <ArrowUpCircle className="h-3 w-3" />
-        Update available
-      </span>
-    );
-  }
-
-  // Installed, but the registry could not be reached to compare — say so
-  // rather than claiming it is current on evidence we do not have.
-  if (tool.latestVersion == null) {
-    return <span className={NEUTRAL_PILL}>Installed</span>;
-  }
-
+/** The device code, copied by clicking it. */
+function CodeChip({ code }: { code: string }) {
+  const { copy, isCopied } = useClipboardCopy();
   return (
-    <span
-      className={cn(PILL, "border-success-border bg-success-muted text-success-foreground")}
+    <button
+      type="button"
+      onClick={() => void copy(code)}
+      aria-label={isCopied(code) ? "Code copied" : "Copy code to clipboard"}
+      className="group inline-flex cursor-pointer items-center gap-2 rounded-md border border-border bg-background px-3 py-1.5 transition-colors hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
     >
-      <CheckCircle2 className="h-3 w-3" />
-      Up to date
-    </span>
+      <code className="font-mono text-sm font-bold tracking-widest">{code}</code>
+      {isCopied(code) ? (
+        <Check className="h-3.5 w-3.5 text-success-foreground" />
+      ) : (
+        <Copy className="h-3.5 w-3.5 text-muted-foreground transition-colors group-hover:text-foreground" />
+      )}
+    </button>
   );
 }
 
-function AuthBadge({ authenticated }: { authenticated: boolean }) {
+/** Own component so each auth session starts with an empty paste box. */
+function CodeForm({
+  inputLabel,
+  submitting,
+  onSubmit,
+  onOpen,
+}: {
+  inputLabel: string;
+  submitting: boolean;
+  onSubmit: (code: string) => void;
+  onOpen: () => void;
+}) {
+  const [pasted, setPasted] = useState("");
+  const submit = (event: FormEvent): void => {
+    event.preventDefault();
+    const trimmed = pasted.trim();
+    if (trimmed) onSubmit(trimmed);
+  };
+  return (
+    <form onSubmit={submit} className="flex flex-wrap items-center gap-2">
+      <input
+        aria-label={inputLabel}
+        value={pasted}
+        onChange={(event) => setPasted(event.target.value)}
+        placeholder={inputLabel}
+        autoComplete="off"
+        spellCheck={false}
+        className="min-w-0 flex-1 rounded-md border border-border bg-background px-2.5 py-1.5 font-mono text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      />
+      <Button size="sm" type="submit" variant="outline" disabled={!pasted.trim() || submitting}>
+        {submitting && <Loader2 className="mr-1.5 h-3 w-3 animate-spin" />}
+        Finish
+      </Button>
+      <Button size="sm" type="button" onClick={onOpen}>
+        Open sign-in page
+        <ExternalLink className="ml-1.5 h-3 w-3" />
+      </Button>
+    </form>
+  );
+}
+
+function AuthLabel({ authenticated }: { authenticated: boolean }) {
+  // The unauthenticated label inherits the line's muted color.
   return authenticated ? (
-    <span className={cn(PILL, "border-transparent text-success-foreground")}>
-      <CheckCircle2 className="h-3 w-3" />
-      Signed in
-    </span>
+    <span className="text-success-foreground">Signed in</span>
   ) : (
-    <span className={cn(PILL, "border-transparent text-muted-foreground")}>
-      <LogIn className="h-3 w-3" />
-      Not signed in
-    </span>
+    <span>Not signed in</span>
   );
 }

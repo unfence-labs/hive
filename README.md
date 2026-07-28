@@ -157,7 +157,7 @@ The install itself cannot be cancelled — the script runs on the server, so sto
 would not stop it — but it resumes: each completed step is recorded on the server, so closing the
 app or pressing Retry continues from there. On success the app stores the connection, including the
 generated access token and `hive` as the SSH user for editor and terminal sessions, and finishes on
-a screen for signing in to Claude, Codex and GitHub.
+a screen for signing in to Claude or Codex.
 
 The desktop shell embeds the same provisioning script described below and streams it over the SSH
 connection, so both paths install exactly the same server. Screen-by-screen detail is in
@@ -312,7 +312,7 @@ writes only its digest, and refuses to finish a run in which an unauthenticated 
 
 Connection host, port, access token, SSH user, Telegram, APNs, theme, accent color, CLI status, prompt settings, instructions, skills, Team agents, and subagents are configured **in the UI**.
 
-Agent and GitHub accounts are connected **in the UI** too, with no terminal: Settings → CLI tools signs in Claude Code, Codex, and GitHub. Each is a browser confirmation — GitHub and Codex use device codes, Claude opens a page and takes an authorization code back. Connecting either Claude or Codex is enough to run sessions; nothing requires both.
+Agent and GitHub accounts are connected **in the UI** too, with no terminal: Settings → Harness signs in Claude Code and Codex, Settings → Account signs in GitHub. Each is a browser confirmation — GitHub and Codex use device codes, Claude opens a page and takes an authorization code back. Connecting either Claude or Codex is enough to run sessions; nothing requires both.
 
 <details>
 <summary><b>Production backend (pm2)</b></summary>

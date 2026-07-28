@@ -19,19 +19,12 @@ const DEFAULT_RETENTION_MS = 10 * 60_000;
 
 export interface ToolAuthFlowSpec {
   flow: AuthFlow;
-  /**
-   * Set when starting the flow destroys the existing credential before it has
-   * earned a replacement, so an operator who is already signed in has to agree
-   * to being signed out first.
-   */
-  confirmWhenConnected?: string;
 }
 
 export type ToolAuthFlows = Partial<Record<SetupToolId, ToolAuthFlowSpec>>;
 
 export interface ToolAuthStoreOptions {
   flows: ToolAuthFlows;
-  detect: (tool: SetupToolId) => Promise<ToolDetection>;
   /** Called after a sign-in lands, so anything gated on providers re-reads. */
   onConnected?: () => Promise<void>;
   onUnexpectedError?: (tool: SetupToolId, error: unknown) => void;
@@ -39,14 +32,10 @@ export interface ToolAuthStoreOptions {
   retentionMs?: number;
 }
 
-export type StartToolAuthResult =
-  | { kind: "started"; session: ToolAuthSession }
-  | { kind: "joined"; session: ToolAuthSession }
-  | { kind: "confirm_required"; message: string };
-
 export interface ToolAuthStore {
   list: () => ToolAuthSession[];
-  start: (tool: SetupToolId, opts?: { force?: boolean }) => Promise<StartToolAuthResult>;
+  /** Begin a sign-in, or return the one already running for the tool. */
+  start: (tool: SetupToolId) => Promise<ToolAuthSession>;
   /** Hand a pasted code to the flow. Throws when it is not waiting for one. */
   submitCode: (tool: SetupToolId, code: string) => ToolAuthSession;
   cancel: (tool: SetupToolId) => ToolAuthSession | null;
@@ -93,7 +82,7 @@ export function createToolAuthStore(options: ToolAuthStoreOptions): ToolAuthStor
       return structuredClone([...sessions.values()]);
     },
 
-    async start(tool, opts = {}) {
+    async start(tool) {
       prune();
       const spec = options.flows[tool];
       if (!spec) {
@@ -102,14 +91,7 @@ export function createToolAuthStore(options: ToolAuthStoreOptions): ToolAuthStor
 
       const existing = sessions.get(tool);
       if (existing && !isToolAuthTerminal(existing.state)) {
-        return { kind: "joined", session: structuredClone(existing) };
-      }
-
-      if (spec.confirmWhenConnected && !opts.force) {
-        const detection = await options.detect(tool);
-        if (detection.authenticated) {
-          return { kind: "confirm_required", message: spec.confirmWhenConnected };
-        }
+        return structuredClone(existing);
       }
 
       const session: ToolAuthSession = {
@@ -167,7 +149,7 @@ export function createToolAuthStore(options: ToolAuthStoreOptions): ToolAuthStor
         });
       inFlight.add(task);
 
-      return { kind: "started", session: structuredClone(session) };
+      return structuredClone(session);
     },
 
     submitCode(tool, code) {
@@ -199,9 +181,9 @@ export function createToolAuthStore(options: ToolAuthStoreOptions): ToolAuthStor
  * The sign-in flows Hive ships, wired to the real CLIs and, for GitHub, to
  * GitHub's own device-code endpoints.
  *
- * Codex carries a confirmation because its flow deletes the stored credential
- * the moment it starts: an operator re-running it on a working install is
- * signing out first and only maybe back in.
+ * Starting a flow over a working credential needs no confirmation: the Codex
+ * flow backs the credential up first and puts it back when the sign-in ends
+ * any way but connected.
  */
 export function defaultToolAuthStore(
   dataDir: string,
@@ -217,7 +199,6 @@ export function defaultToolAuthStore(
   });
 
   return createToolAuthStore({
-    detect,
     onConnected: detectAvailableProviders,
     onUnexpectedError,
     flows: {
@@ -229,10 +210,6 @@ export function defaultToolAuthStore(
       },
       codex: {
         flow: codexAuthFlow({ detect: () => detect("codex"), run: runCommand }),
-        confirmWhenConnected:
-          "Codex deletes its stored credential the moment a new sign-in starts. " +
-          "If you do not finish this one, this server will be signed out of Codex. " +
-          "Hive keeps a copy and puts it back if the sign-in does not complete.",
       },
       gh: {
         flow: githubAuthFlow({ detect: () => detect("gh") }),

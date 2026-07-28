@@ -73,8 +73,9 @@ The screens, in order:
    on the server, so stopping this end would not stop it. It is resumable instead — each completed
    step is recorded on the server, so closing the app or pressing Retry continues from where it
    stopped rather than starting over.
-7. **Connect your accounts.** The server is up. Sign in to Claude, Codex and GitHub from here.
-   Everything is optional and everything is also in **Settings → CLI tools**.
+7. **Connect your accounts.** The server is up. Sign in to Claude or Codex from here.
+   Everything is optional and everything is also in **Settings → Harness**; GitHub connects
+   later from **Settings → Account**.
 
 When the install succeeds the app stores the connection itself — address, port, the generated access
 token, and `hive` as the SSH user for editor and terminal sessions. There is nothing to copy by
@@ -264,9 +265,9 @@ The bundle (`.dmg` on macOS, `.msi` on Windows) lands in
 
 ## After connecting
 
-- **Settings → CLI tools** — install, update and sign in to Claude Code, Codex and GitHub, with no
-  terminal. GitHub and Codex use device codes; Claude opens a page and takes an authorization code
-  back. Either Claude or Codex is enough to run sessions.
+- **Settings → Harness** — install, update and sign in to Claude Code and Codex, with no
+  terminal. Codex uses a device code; Claude opens a page and takes an authorization code
+  back. Either one is enough to run sessions. GitHub connects from **Settings → Account**.
 - **Settings → Notifications** — Telegram bot token and chat id, with a Test button. Stored in
   `$DATA_DIR/config.json` on the server.
 - **Settings → Projects → Environment** — project-level environment variables. Hive writes a

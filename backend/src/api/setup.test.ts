@@ -10,7 +10,6 @@ import type {
   ToolsResponse,
 } from "@hive/shared/setup-types";
 import type { CommandResult } from "../services/setup/command.js";
-import type { ToolDetection } from "../services/setup/detect.js";
 import {
   ToolAuthError,
   type AuthFlow,
@@ -77,15 +76,11 @@ async function build(
 ): Promise<void> {
   app = Fastify();
   store = await createToolOperationStore({ dataDir });
-  authStore = auth ?? createToolAuthStore({ flows: {}, detect: async () => detection() });
+  authStore = auth ?? createToolAuthStore({ flows: {} });
   await app.register((instance: FastifyInstance) =>
     setupRoutes(instance, { dataDir, deps: makeDeps(probes), store, authStore }),
   );
   await app.ready();
-}
-
-function detection(overrides: Partial<ToolDetection> = {}): ToolDetection {
-  return { installed: true, version: "1.0.0", authenticated: false, ...overrides };
 }
 
 /**
@@ -278,7 +273,7 @@ describe("GET /api/setup/status", () => {
     const claude = scriptedFlow({ verificationUri: "https://claude.com/x", needsCode: true });
     await build(
       {},
-      createToolAuthStore({ flows: { claude: { flow: claude.flow } }, detect: async () => detection() }),
+      createToolAuthStore({ flows: { claude: { flow: claude.flow } } }),
     );
     const started = (await app.inject({ method: "POST", url: "/api/setup/tools/claude/install" }))
       .json<StartToolOperationResponse>();
@@ -356,7 +351,7 @@ describe("POST /api/setup/auth/:tool/start", () => {
     });
     await build(
       {},
-      createToolAuthStore({ flows: { claude: { flow: claude.flow } }, detect: async () => detection() }),
+      createToolAuthStore({ flows: { claude: { flow: claude.flow } } }),
     );
 
     const res = await app.inject({ method: "POST", url: "/api/setup/auth/claude/start" });
@@ -379,7 +374,7 @@ describe("POST /api/setup/auth/:tool/start", () => {
     });
     await build(
       {},
-      createToolAuthStore({ flows: { codex: { flow: codex.flow } }, detect: async () => detection() }),
+      createToolAuthStore({ flows: { codex: { flow: codex.flow } } }),
     );
     await app.inject({ method: "POST", url: "/api/setup/auth/codex/start" });
 
@@ -396,43 +391,13 @@ describe("POST /api/setup/auth/:tool/start", () => {
     codex.finish("cancelled");
   });
 
-  it("refuses to sign out a working Codex without an explicit yes", async () => {
-    const codex = scriptedFlow();
-    await build(
-      {},
-      createToolAuthStore({
-        flows: { codex: { flow: codex.flow, confirmWhenConnected: "This signs you out first." } },
-        detect: async () => detection({ authenticated: true }),
-      }),
-    );
+  it("starts over a working credential without asking first", async () => {
+    // Safe without a confirmation: the Codex flow backs the credential up and
+    // restores it when the sign-in ends any way but connected.
+    const codex = scriptedFlow({ verificationUri: "https://auth.openai.com/codex/device" });
+    await build({}, createToolAuthStore({ flows: { codex: { flow: codex.flow } } }));
 
     const res = await app.inject({ method: "POST", url: "/api/setup/auth/codex/start" });
-
-    expect(res.statusCode).toBe(409);
-    expect(res.json()).toEqual({
-      code: "confirm_required",
-      message: "This signs you out first.",
-    });
-    // Nothing started, so nothing was destroyed.
-    const body = (await app.inject({ method: "GET", url: "/api/setup/tools" })).json<ToolsResponse>();
-    expect(body.authSessions).toEqual([]);
-  });
-
-  it("starts once the operator has said yes", async () => {
-    const codex = scriptedFlow({ verificationUri: "https://auth.openai.com/codex/device" });
-    await build(
-      {},
-      createToolAuthStore({
-        flows: { codex: { flow: codex.flow, confirmWhenConnected: "This signs you out first." } },
-        detect: async () => detection({ authenticated: true }),
-      }),
-    );
-
-    const res = await app.inject({
-      method: "POST",
-      url: "/api/setup/auth/codex/start",
-      payload: { force: true },
-    });
 
     expect(res.statusCode).toBe(200);
     expect(res.json<ToolAuthSession>().state).toBe("awaiting_authorization");
@@ -454,7 +419,6 @@ describe("POST /api/setup/auth/:tool/start", () => {
             },
           },
         },
-        detect: async () => detection(),
       }),
     );
 
@@ -473,7 +437,7 @@ describe("POST /api/setup/auth/:tool/start", () => {
     });
     await build(
       {},
-      createToolAuthStore({ flows: { gh: { flow: github.flow } }, detect: async () => detection() }),
+      createToolAuthStore({ flows: { gh: { flow: github.flow } } }),
     );
 
     const res = await app.inject({ method: "POST", url: "/api/setup/auth/gh/start" });
@@ -507,7 +471,7 @@ describe("POST /api/setup/auth/:tool/code", () => {
     const claude = scriptedFlow({ verificationUri: "https://claude.com/x", needsCode: true });
     await build(
       {},
-      createToolAuthStore({ flows: { claude: { flow: claude.flow } }, detect: async () => detection() }),
+      createToolAuthStore({ flows: { claude: { flow: claude.flow } } }),
     );
     await app.inject({ method: "POST", url: "/api/setup/auth/claude/start" });
 
@@ -527,7 +491,7 @@ describe("POST /api/setup/auth/:tool/code", () => {
     const claude = scriptedFlow({ verificationUri: "https://claude.com/x", needsCode: true });
     await build(
       {},
-      createToolAuthStore({ flows: { claude: { flow: claude.flow } }, detect: async () => detection() }),
+      createToolAuthStore({ flows: { claude: { flow: claude.flow } } }),
     );
     await app.inject({ method: "POST", url: "/api/setup/auth/claude/start" });
     await app.inject({
@@ -570,7 +534,7 @@ describe("POST /api/setup/auth/:tool/code", () => {
   it("rejects a code when nothing is waiting for one", async () => {
     await build(
       {},
-      createToolAuthStore({ flows: { claude: { flow: scriptedFlow().flow } }, detect: async () => detection() }),
+      createToolAuthStore({ flows: { claude: { flow: scriptedFlow().flow } } }),
     );
 
     const res = await app.inject({
@@ -589,7 +553,7 @@ describe("POST /api/setup/auth/:tool/cancel", () => {
     const claude = scriptedFlow({ verificationUri: "https://claude.com/x", needsCode: true });
     await build(
       {},
-      createToolAuthStore({ flows: { claude: { flow: claude.flow } }, detect: async () => detection() }),
+      createToolAuthStore({ flows: { claude: { flow: claude.flow } } }),
     );
     await app.inject({ method: "POST", url: "/api/setup/auth/claude/start" });
 
@@ -611,7 +575,7 @@ describe("a sign-in that fails", () => {
     const codex = scriptedFlow();
     await build(
       {},
-      createToolAuthStore({ flows: { codex: { flow: codex.flow } }, detect: async () => detection() }),
+      createToolAuthStore({ flows: { codex: { flow: codex.flow } } }),
     );
     await app.inject({ method: "POST", url: "/api/setup/auth/codex/start" });
 
@@ -637,7 +601,7 @@ describe("a sign-in that fails", () => {
     const codex = scriptedFlow({ verificationUri: "https://auth.openai.com/codex/device" });
     await build(
       {},
-      createToolAuthStore({ flows: { codex: { flow: codex.flow } }, detect: async () => detection() }),
+      createToolAuthStore({ flows: { codex: { flow: codex.flow } } }),
     );
     await app.inject({ method: "POST", url: "/api/setup/auth/codex/start" });
 

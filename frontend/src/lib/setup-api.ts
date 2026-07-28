@@ -31,17 +31,14 @@ export interface SetupApi {
     kind: ToolOperationKind,
   ) => Promise<StartToolOperationResponse>;
   /**
-   * Begin a sign-in. Rejects with a 409 `ApiError` when starting would sign
-   * the server out of a tool that currently works; the message is what to ask
-   * the operator before retrying with `force`.
+   * Begin a sign-in, replacing whatever sign-in the tool has. Safe over a
+   * working credential: the flows back it up and restore it when the new
+   * sign-in ends any way but connected.
    */
-  startAuth: (tool: SetupToolId, opts?: { force?: boolean }) => Promise<ToolAuthSession>;
+  startAuth: (tool: SetupToolId) => Promise<ToolAuthSession>;
   submitAuthCode: (tool: SetupToolId, code: string) => Promise<ToolAuthSession>;
   cancelAuth: (tool: SetupToolId) => Promise<ToolAuthSession>;
 }
-
-/** The 409 a start request answers with when it needs an explicit yes first. */
-export const CONFIRM_REQUIRED_STATUS = 409;
 
 /** Detection spawns several probes server-side; give it room. */
 const REQUEST_TIMEOUT_MS = 30_000;
@@ -69,8 +66,7 @@ export function createSetupApi(target: SetupApiTarget = {}): SetupApi {
     getStatus: (signal) => get<SetupStatusResponse>("/api/setup/status", signal),
     startOperation: (tool, kind) =>
       post<StartToolOperationResponse>(`/api/setup/tools/${tool}/${kind}`),
-    startAuth: (tool, opts) =>
-      post<ToolAuthSession>(`/api/setup/auth/${tool}/start`, { force: opts?.force === true }),
+    startAuth: (tool) => post<ToolAuthSession>(`/api/setup/auth/${tool}/start`),
     submitAuthCode: (tool, code) =>
       post<ToolAuthSession>(`/api/setup/auth/${tool}/code`, { code }),
     cancelAuth: (tool) => post<ToolAuthSession>(`/api/setup/auth/${tool}/cancel`),
