@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import ConnectionSettings from "@/pages/settings/ConnectionSettings";
+import ServerSettings from "@/pages/settings/ServerSettings";
 import AppearanceSettings from "@/pages/settings/AppearanceSettings";
 import { getConnection, replaceConnection } from "@/hooks/useConnection";
 
@@ -251,33 +252,36 @@ describe("ConnectionSettings", () => {
     expect(screen.queryByRole("button", { name: /test connection/i })).not.toBeInTheDocument();
   });
 
-  it("shows the one configured server, can re-test it and re-launch the installer", async () => {
+  it("states the configured address only in the form", () => {
     replaceConnection({ host: "100.64.0.10", port: 9420, authToken: "issued", sshUser: "hive" });
-    Object.defineProperty(window, "__TAURI_INTERNALS__", { value: {}, configurable: true });
-    const onOpenInstaller = vi.fn();
-    const user = userEvent.setup();
-    try {
-      render(<ConnectionSettings onOpenInstaller={onOpenInstaller} />);
+    render(<ConnectionSettings />);
 
-      // One server, not a list: the address is stated once, above the form.
-      expect(screen.getByText("100.64.0.10:9420")).toBeInTheDocument();
-      expect(screen.getByRole("button", { name: /test connection/i })).toBeInTheDocument();
-
-      await user.click(screen.getByRole("button", { name: "Open the installer" }));
-      expect(onOpenInstaller).toHaveBeenCalledTimes(1);
-    } finally {
-      Reflect.deleteProperty(window, "__TAURI_INTERNALS__");
-    }
+    // The form already shows host and port; the card header does not repeat them.
+    expect(screen.queryByText("100.64.0.10:9420")).not.toBeInTheDocument();
+    expect(screen.queryByText(/enter the address/i)).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /test connection/i })).toBeInTheDocument();
   });
 
   it("offers nothing that puts the app back into an unconfigured state", () => {
     replaceConnection({ host: "100.64.0.10", port: 9420, authToken: "issued" });
-    render(<ConnectionSettings onOpenInstaller={vi.fn()} />);
+    render(<ConnectionSettings />);
 
     for (const label of [/disconnect/i, /forget/i, /remove/i, /sign out/i, /reset/i]) {
       expect(screen.queryByRole("button", { name: label })).not.toBeInTheDocument();
     }
     expect(getConnection()).not.toBeNull();
+  });
+});
+
+describe("ServerSettings", () => {
+  it("relaunches the installer on demand", async () => {
+    const user = userEvent.setup();
+    const onOpenInstaller = vi.fn();
+    render(<ServerSettings onOpenInstaller={onOpenInstaller} />);
+
+    await user.click(screen.getByRole("button", { name: "Open the installer" }));
+
+    expect(onOpenInstaller).toHaveBeenCalledTimes(1);
   });
 });
 

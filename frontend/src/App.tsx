@@ -23,6 +23,7 @@ const BrainView = lazy(() => import("@/pages/BrainView"));
 const AccountSettings = lazy(() => import("@/pages/settings/AccountSettings"));
 const AppearanceSettings = lazy(() => import("@/pages/settings/AppearanceSettings"));
 const ConnectionSettings = lazy(() => import("@/pages/settings/ConnectionSettings"));
+const ServerSettings = lazy(() => import("@/pages/settings/ServerSettings"));
 const AgentSettings = lazy(() => import("@/pages/settings/AgentSettings"));
 const ModelsSettings = lazy(() => import("@/pages/settings/ModelsSettings"));
 const ProjectDetail = lazy(() => import("@/pages/settings/ProjectDetail"));
@@ -148,10 +149,15 @@ export default function App() {
                 element={
                   <ConnectionSettings
                     onRefreshConnection={() => { wsTransport.disconnectAll(); fetchProjects(); }}
-                    onOpenInstaller={() => setShowInstaller(true)}
                   />
                 }
               />
+              {isDesktopShell() && (
+                <Route
+                  path="settings/server"
+                  element={<ServerSettings onOpenInstaller={() => setShowInstaller(true)} />}
+                />
+              )}
               <Route path="settings/notifications" element={<NotificationSettings />} />
               <Route path="settings/cli" element={<AgentSettings />} />
               <Route path="settings/models" element={<ModelsSettings />} />

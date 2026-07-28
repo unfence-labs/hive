@@ -121,21 +121,18 @@ vi.mock("@/pages/settings/AppearanceSettings", () => ({
 }));
 
 vi.mock("@/pages/settings/ConnectionSettings", () => ({
-  default: ({
-    onRefreshConnection,
-    onOpenInstaller,
-  }: {
-    onRefreshConnection?: () => void;
-    onOpenInstaller?: () => void;
-  }) => (
-    <>
-      <button type="button" onClick={onRefreshConnection}>
-        refresh connection
-      </button>
-      <button type="button" onClick={onOpenInstaller}>
-        open installer
-      </button>
-    </>
+  default: ({ onRefreshConnection }: { onRefreshConnection?: () => void }) => (
+    <button type="button" onClick={onRefreshConnection}>
+      refresh connection
+    </button>
+  ),
+}));
+
+vi.mock("@/pages/settings/ServerSettings", () => ({
+  default: ({ onOpenInstaller }: { onOpenInstaller: () => void }) => (
+    <button type="button" onClick={onOpenInstaller}>
+      open installer
+    </button>
   ),
 }));
 
@@ -411,7 +408,7 @@ describe("App", () => {
     const user = userEvent.setup();
     runInDesktopShell();
     replaceConnection({ host: "100.64.0.10", port: 9420, authToken: "tok" });
-    window.history.pushState({}, "", "/settings/connection");
+    window.history.pushState({}, "", "/settings/server");
     renderApp();
 
     await user.click(await screen.findByRole("button", { name: "open installer" }));
@@ -421,6 +418,15 @@ describe("App", () => {
 
     expect(screen.queryByTestId("installer")).not.toBeInTheDocument();
     expect(getConnection()).toMatchObject({ host: "100.64.0.10", port: 9420, authToken: "tok" });
+  });
+
+  it("does not register the server settings route in the web build", () => {
+    replaceConnection({ host: "100.64.0.10", port: 9420 });
+    window.history.pushState({}, "", "/settings/server");
+
+    renderApp();
+
+    expect(screen.queryByRole("button", { name: "open installer" })).not.toBeInTheDocument();
   });
 
   it("redirects /projects to /home", () => {

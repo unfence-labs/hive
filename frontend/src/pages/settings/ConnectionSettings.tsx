@@ -6,7 +6,6 @@ import { useConnection } from "@/hooks/useConnection";
 import type { ConnectionStatus } from "@/hooks/useConnectionStatus";
 import { useConnectionStatus } from "@/hooks/useConnectionStatus";
 import { DEFAULT_BACKEND_PORT, isValidPort, switchServer } from "@/lib/server-connection";
-import { isDesktopShell } from "@/lib/is-desktop";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -57,14 +56,9 @@ const STATUS_CONFIG: Record<ConnectionStatus, StatusConfig> = {
 
 interface ConnectionSettingsProps {
   onRefreshConnection?: () => void;
-  /** Opens the installer over the app. Desktop only; abandoning it changes nothing. */
-  onOpenInstaller?: () => void;
 }
 
-export default function ConnectionSettings({
-  onRefreshConnection,
-  onOpenInstaller,
-}: ConnectionSettingsProps) {
+export default function ConnectionSettings({ onRefreshConnection }: ConnectionSettingsProps) {
   const { connection } = useConnection();
   const { status, check } = useConnectionStatus();
   const [hostDraft, setHostDraft] = useState(connection?.host ?? "");
@@ -145,11 +139,11 @@ export default function ConnectionSettings({
             <div className="flex items-start justify-between">
               <div>
                 <h2 className="text-sm font-medium text-foreground">Server</h2>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  {connection
-                    ? `${connection.host}:${connection.port}`
-                    : "Enter the address and access token of your Hive server."}
-                </p>
+                {!connection && (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Enter the address and access token of your Hive server.
+                  </p>
+                )}
               </div>
               <span
                 className={cn(
@@ -271,18 +265,6 @@ export default function ConnectionSettings({
               </div>
             </div>
           </section>
-
-          {onOpenInstaller && isDesktopShell() && (
-            <section className="rounded-lg border border-border/50 bg-card/50 p-5">
-              <h2 className="text-sm font-medium text-foreground">Install Hive on a server</h2>
-              <p className="mt-1 text-xs text-muted-foreground">
-                Opens the installer over the app. Nothing changes here unless you finish it.
-              </p>
-              <Button size="sm" variant="outline" className="mt-3" onClick={onOpenInstaller}>
-                Open the installer
-              </Button>
-            </section>
-          )}
         </div>
       </CenterCard>
     </div>
