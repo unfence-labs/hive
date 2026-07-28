@@ -127,7 +127,7 @@ export function NetworkScreen({ inputs, onContinue, onBack }: NetworkScreenProps
                 className="w-32 font-mono text-xs"
               />
               <p className="mt-1 text-[11px] text-muted-foreground/60">
-                Where the Hive backend serves once installed — nothing to do with SSH.
+                Where the Hive backend serves.
               </p>
             </div>
             <div>

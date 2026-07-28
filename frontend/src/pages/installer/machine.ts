@@ -161,6 +161,11 @@ export function isUsableDirectory(value: string): boolean {
 /**
  * Where a relaunch lands.
  *
+ * Before the connect step nothing has touched the server, so there is nothing
+ * worth resuming — only stale half-typed drafts. Those runs start over.
+ * `connect` is where durable state begins: an approved fingerprint, a
+ * preflight verdict, a privilege mode.
+ *
  * Everything past the connect step may depend on an escalation password, and
  * that is deliberately not in this record. A run that needs one cannot resume
  * unattended, so it goes back to connect — read-only, and it establishes the
@@ -175,7 +180,7 @@ export function isUsableDirectory(value: string): boolean {
  * which is where a relaunched app should find it.
  */
 export function resumeState(state: InstallerState, inputs: InstallerInputs): InstallerState {
-  if (state === "accounts") return "welcome";
+  if (state === "network" || state === "ssh_key" || state === "accounts") return "welcome";
   if (state !== "review" && state !== "install") return state;
   return inputs.privilegeMode === "root" || inputs.privilegeMode === "sudoNoPassword"
     ? state
@@ -198,11 +203,11 @@ export function loadMachine(): InstallerMachine {
     if (parsed.schema !== INSTALLER_SCHEMA) return initialMachine();
     if (!parsed.state || !INSTALLER_STATES.includes(parsed.state)) return initialMachine();
     const inputs = { ...defaultInputs(), ...(parsed.inputs ?? {}) };
-    return {
-      schema: INSTALLER_SCHEMA,
-      state: resumeState(parsed.state, inputs),
-      inputs,
-    };
+    const state = resumeState(parsed.state, inputs);
+    // A resume that lands on welcome is a fresh start — pristine inputs too,
+    // so no screen ever opens pre-filled with a previous run's draft.
+    if (state === "welcome") return initialMachine();
+    return { schema: INSTALLER_SCHEMA, state, inputs };
   } catch {
     return initialMachine();
   }

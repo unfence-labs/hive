@@ -246,8 +246,11 @@ describe("Installer", () => {
   it("marks unusable keys as such and offers a re-scan", async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     const client = createMockProvisionClient();
-    seed("ssh_key");
+    // The ssh_key state never resumes, so walk there through the flow.
     render(<Installer client={client} />);
+    await user.click(screen.getByRole("button", { name: "Install on a server" }));
+    await user.type(screen.getByLabelText("Address"), "root@203.0.113.10");
+    await user.click(screen.getByRole("button", { name: "Continue" }));
 
     expect(await screen.findByRole("radio", { name: "id_ed25519" })).toBeEnabled();
     expect(screen.getByRole("radio", { name: "id_rsa" })).toBeDisabled();
@@ -416,16 +419,18 @@ describe("Installer", () => {
     await waitFor(() => expect(client.testConnection).toHaveBeenCalledTimes(2));
   });
 
-  it("resumes on the screen it stopped on", async () => {
+  it("starts over instead of resuming a run that never touched the server", async () => {
     seed("network", { address: "root@198.51.100.7", port: 8080 });
     render(<Installer client={createMockProvisionClient()} />);
 
-    expect(await screen.findByLabelText("Address")).toHaveValue("root@198.51.100.7");
-    // The stored port survives too, even though it now lives under Advanced.
-    await userEvent
-      .setup({ advanceTimers: vi.advanceTimersByTime })
-      .click(screen.getByRole("button", { name: "Advanced" }));
-    expect(screen.getByLabelText("Hive port")).toHaveValue("8080");
+    // Nothing durable exists before the connect step, so nothing resumes —
+    // not the screen, and not the half-typed draft either.
+    expect(
+      await screen.findByRole("button", { name: "Install on a server" }),
+    ).toBeInTheDocument();
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    await user.click(screen.getByRole("button", { name: "Install on a server" }));
+    expect(screen.getByLabelText("Address")).toHaveValue("");
   });
 
   // ── the install ────────────────────────────────────────────────────────────

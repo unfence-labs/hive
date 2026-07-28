@@ -56,13 +56,24 @@ describe("installer machine", () => {
     expect(machine.inputs.address).toBe("root@203.0.113.10");
   });
 
-  it("resumes where it stopped", () => {
+  it("starts over from a save that never touched the server", () => {
     let machine = reduce(initialMachine(), { type: "advance" });
     machine = reduce(machine, { type: "advance", inputs: { address: "203.0.113.10", port: 9999 } });
     saveMachine(machine);
 
+    // ssh_key holds nothing durable, so neither the screen nor the draft resumes.
+    expect(loadMachine()).toEqual(initialMachine());
+  });
+
+  it("resumes where it stopped once the server has been touched", () => {
+    saveMachine({
+      schema: INSTALLER_SCHEMA,
+      state: "connect",
+      inputs: { ...initialMachine().inputs, address: "203.0.113.10", port: 9999 },
+    });
+
     const resumed = loadMachine();
-    expect(resumed.state).toBe("ssh_key");
+    expect(resumed.state).toBe("connect");
     expect(resumed.inputs.address).toBe("203.0.113.10");
     expect(resumed.inputs.port).toBe(9999);
   });
