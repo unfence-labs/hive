@@ -1,8 +1,10 @@
 import { useState } from "react";
-import { Bot, ChevronLeft, FolderGit2, MonitorSmartphone } from "lucide-react";
+import { Bot, FolderGit2, MonitorSmartphone } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { HiveLogo } from "@/components/HiveLogo";
+import { BackButton } from "./BackButton";
+import { cn } from "@/lib/utils";
 import { DEFAULT_BACKEND_PORT, isValidPort, switchServer } from "@/lib/server-connection";
 
 interface WelcomeScreenProps {
@@ -64,16 +66,19 @@ export function WelcomeScreen({ onInstall, onConnected, onCancel }: WelcomeScree
   };
 
   return (
-    <div className="relative mx-auto flex min-h-full w-full max-w-xl flex-col px-6 py-10">
-      {/* Soft brand glow behind the mark — a touch of depth, never motion. */}
-      <div
-        aria-hidden
-        className="pointer-events-none absolute left-1/2 top-[38%] size-72 -translate-x-1/2 -translate-y-1/2 rounded-full opacity-70 blur-3xl"
-        style={{ background: "var(--hive-accent-glow)" }}
-      />
+    <div className="mx-auto flex min-h-full w-full max-w-xl flex-col px-6 py-10">
+      {/* Anchored from the top rather than centered: content below the hero
+          changes height (state swap, error lines), and anchoring means that
+          growth extends downward instead of re-centering the whole column. */}
+      <div className="flex flex-1 flex-col items-center pt-[14vh]">
+        <div className="relative flex w-full max-w-sm flex-col items-center gap-8 text-center">
+          {/* Soft brand glow behind the mark — a touch of depth, never motion. */}
+          <div
+            aria-hidden
+            className="pointer-events-none absolute -top-8 left-1/2 -z-10 size-72 -translate-x-1/2 rounded-full opacity-70 blur-3xl"
+            style={{ background: "var(--hive-accent-glow)" }}
+          />
 
-      <div className="relative flex flex-1 flex-col items-center justify-center">
-        <div className="flex w-full max-w-sm flex-col items-center gap-8 text-center">
           <div className="flex flex-col items-center gap-5">
             <HiveLogo className="h-[68px] w-auto" />
             <div className="flex flex-col gap-1.5">
@@ -143,25 +148,18 @@ export function WelcomeScreen({ onInstall, onConnected, onCancel }: WelcomeScree
                   }}
                 />
               </div>
-              {error && (
-                <p role="alert" className="mt-3 text-xs text-destructive">
-                  {error}
-                </p>
-              )}
-              <div className="mt-4 flex items-center justify-between">
-                {onInstall ? (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => setShowForm(false)}
-                    className="text-muted-foreground"
-                  >
-                    <ChevronLeft className="h-4 w-4" />
-                    Back
-                  </Button>
-                ) : (
-                  <span />
+              {/* Always mounted: reserving the line keeps the Connect button
+                  from shifting when a one-line error appears. */}
+              <p role="alert" className="mt-3 min-h-4 text-xs text-destructive">
+                {error}
+              </p>
+              <div
+                className={cn(
+                  "mt-4 flex items-center",
+                  onInstall ? "justify-between" : "justify-end",
                 )}
+              >
+                {onInstall && <BackButton onClick={() => setShowForm(false)} />}
                 <Button onClick={() => void connect()} disabled={!canConnect}>
                   {connecting ? "Connecting…" : "Connect"}
                 </Button>
@@ -196,7 +194,7 @@ export function WelcomeScreen({ onInstall, onConnected, onCancel }: WelcomeScree
       </div>
 
       {onCancel && (
-        <div className="relative mt-8 flex justify-end">
+        <div className="mt-8 flex justify-end">
           <Button variant="ghost" size="sm" onClick={onCancel} className="text-muted-foreground">
             Cancel
           </Button>
