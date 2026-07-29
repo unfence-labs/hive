@@ -38,7 +38,7 @@ Hive is a control plane for AI coding agents. It manages your projects as **bare
 Hive runs on your own server, keeping your projects, workspaces, and agent sessions under your control. Through an encrypted private network, that server is easily accessible from any Hive client: the web app, the Tauri desktop app, or the native SwiftUI iOS app. Every client uses the same REST and WebSocket protocols, so your work is available wherever you need it.
 
 <p align="center">
-  <img src=".github/assets/how-it-works.jpg" alt="Hive clients connect to the backend over an encrypted private network; the backend runs parallel agent workspaces and talks to GitHub" width="90%" />
+  <img src=".github/assets/how-it-works.png" alt="Hive clients connect to the backend over an encrypted private network; the backend runs parallel agent workspaces and talks to GitHub" width="90%" />
 </p>
 
 ## Features
