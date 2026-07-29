@@ -30,9 +30,6 @@ final class ProjectStore {
     /// Set after workspace creation so HiveApp can navigate to it.
     var pendingNavigation: Workspace?
 
-    /// Set alongside `pendingNavigation` when a push tap targets a specific session.
-    var pendingSessionNavigation: PendingSessionNavigation?
-
     let statusMonitor: HubStatusMonitor
 
     private let api: APIClient
@@ -226,23 +223,6 @@ final class ProjectStore {
         isLoading = false
     }
 
-    func resolvePushTarget(workspaceId: String, sessionId: String?) async -> PushNavigationTarget? {
-        if let target = Self.findTarget(workspaceId: workspaceId, sessionId: sessionId, in: projects) {
-            return target
-        }
-        await refresh(force: true)
-        return Self.findTarget(workspaceId: workspaceId, sessionId: sessionId, in: projects)
-    }
-
-    static func findTarget(workspaceId: String, sessionId: String?, in projects: [Project]) -> PushNavigationTarget? {
-        for project in projects {
-            if let workspace = project.workspaces.first(where: { $0.id == workspaceId }) {
-                return PushNavigationTarget(workspace: workspace, sessionId: sessionId)
-            }
-        }
-        return nil
-    }
-
     /// Dismiss the transient pull-to-refresh failure notice.
     func acknowledgeRefreshFailure() {
         refreshFailedWithCachedData = false
@@ -272,14 +252,4 @@ final class ProjectStore {
         if name.hasSuffix(".git") { name = String(name.dropLast(4)) }
         return name.isEmpty ? "repository" : name
     }
-}
-
-struct PushNavigationTarget: Equatable {
-    let workspace: Workspace
-    let sessionId: String?
-}
-
-struct PendingSessionNavigation: Equatable {
-    let workspaceId: String
-    let sessionId: String
 }

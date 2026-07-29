@@ -256,11 +256,6 @@ final class HubStatusMonitor {
         }
     }
 
-    /// Called from HiveApp to merge push-delivered completions on launch.
-    func markCompletedFromPush(_ workspaceId: String) {
-        completedWorkspaces.insert(workspaceId)
-    }
-
     private func persistCompleted() {
         UserDefaults.standard.set(Array(completedWorkspaces), forKey: Self.completedKey)
     }

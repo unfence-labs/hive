@@ -35,7 +35,7 @@ an unauthenticated request to `/api/projects` does not return `401`.
 
 ## Everything else is in the UI
 
-Connection host, port, access token, SSH user, Telegram, APNs, theme, accent color, CLI status,
+Connection host, port, access token, SSH user, Telegram, theme, accent color, CLI status,
 prompt settings, instructions, skills, Team agents, and subagents are configured **in the UI**.
 
 Agent and GitHub accounts are connected **in the UI** too, with no terminal: Settings → Harness

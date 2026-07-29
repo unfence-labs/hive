@@ -17,7 +17,6 @@ let package = Package(
             exclude: [
                 "Assets.xcassets",
                 "HiveApp.swift",
-                "HiveMobile.entitlements",
                 "Stores/ModelCatalog.swift",
                 "Theme",
                 "Views"
