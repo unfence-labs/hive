@@ -3,12 +3,41 @@ import { render, screen } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import AgentSettings from "@/pages/settings/AgentSettings";
 
+/**
+ * The page is a Settings frame around {@link ToolsPanel}; the panel's own
+ * behaviour is covered in tests/components/ToolsPanel.test.tsx. What is worth
+ * pinning here is that the frame exists and that the panel is genuinely
+ * mounted inside it, reading the tools API.
+ */
 const mocks = vi.hoisted(() => ({
-  get: vi.fn(),
+  getTools: vi.fn(),
+  getStatus: vi.fn(),
+  startOperation: vi.fn(),
+  startAuth: vi.fn(),
+  submitAuthCode: vi.fn(),
+  cancelAuth: vi.fn(),
+  apiPost: vi.fn(),
+  createSetupApi: vi.fn(),
 }));
 
-vi.mock("@/hooks/useApi", () => ({
-  api: { get: mocks.get },
+vi.mock("@/hooks/useApi", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/hooks/useApi")>()),
+  api: { post: mocks.apiPost },
+}));
+
+vi.mock("@/lib/setup-api", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/setup-api")>()),
+  createSetupApi: (target?: unknown) => {
+    mocks.createSetupApi(target);
+    return {
+      getTools: mocks.getTools,
+      getStatus: mocks.getStatus,
+      startOperation: mocks.startOperation,
+      startAuth: mocks.startAuth,
+      submitAuthCode: mocks.submitAuthCode,
+      cancelAuth: mocks.cancelAuth,
+    };
+  },
 }));
 
 vi.mock("@/components/AppLayout", () => ({
@@ -19,6 +48,8 @@ vi.mock("@/components/AppLayout", () => ({
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.getTools.mockResolvedValue({ tools: [], operations: [], authSessions: [] });
+  mocks.getStatus.mockResolvedValue({ operations: [], authSessions: [] });
 });
 
 function renderPage() {
@@ -34,123 +65,48 @@ function renderPage() {
 
 describe("AgentSettings", () => {
   it("renders heading with drag region", async () => {
-    mocks.get.mockResolvedValueOnce({ agents: [] });
     renderPage();
     const heading = await screen.findByRole("heading", { name: "Harness" });
     expect(heading.closest("div")).toHaveAttribute("data-tauri-drag-region");
   });
 
-  it("shows loading state", () => {
-    mocks.get.mockReturnValue(new Promise(() => {}));
-    renderPage();
-    expect(screen.getByText(/Checking agent versions/)).toBeInTheDocument();
-  });
-
-  it("requests agent settings from the expected API endpoint", async () => {
-    mocks.get.mockResolvedValueOnce({ agents: [] });
-    renderPage();
-
-    await screen.findByRole("heading", { name: "Harness" });
-    expect(mocks.get).toHaveBeenCalledWith("/api/settings/cli");
-  });
-
-  it("renders installed agent with 'Up to date' badge", async () => {
-    mocks.get.mockResolvedValueOnce({
-      agents: [
-        { id: "claude", label: "Claude Code", installed: true, version: "1.0.35", latestVersion: "1.0.35", updateAvailable: false },
+  it("hosts the tools panel, which reads its own state", async () => {
+    mocks.getTools.mockResolvedValue({
+      tools: [
+        {
+          id: "claude",
+          label: "Claude Code",
+          installed: true,
+          version: "1.0.35",
+          latestVersion: "1.0.35",
+          updateAvailable: false,
+          authenticated: true,
+          managed: true,
+        },
       ],
+      operations: [],
+      authSessions: [],
     });
+
     renderPage();
-    expect(await screen.findByText("Claude Code")).toBeInTheDocument();
+
+    expect(await screen.findByRole("heading", { name: "Claude Code" })).toBeInTheDocument();
     expect(screen.getByText("v1.0.35")).toBeInTheDocument();
-    expect(screen.getByText("Up to date")).toBeInTheDocument();
+    expect(mocks.getTools).toHaveBeenCalled();
   });
 
-  it("renders 'Update available' badge when newer version exists", async () => {
-    mocks.get.mockResolvedValueOnce({
-      agents: [
-        { id: "codex", label: "Codex", installed: true, version: "0.1.2", latestVersion: "0.2.0", updateAvailable: true },
-      ],
-    });
+  it("points the panel at the configured server, unlike the installer's copy", async () => {
     renderPage();
-    expect(await screen.findByText(/Update available/)).toBeInTheDocument();
-    expect(screen.getByText(/0\.2\.0/)).toBeInTheDocument();
+    await screen.findByRole("heading", { name: "Harness" });
+
+    // No explicit target: here the panel reads the stored connection, which is
+    // the server the installer configured. Same component, same result — which
+    // is what makes skipping a sign-in during the install harmless.
+    expect(mocks.createSetupApi).toHaveBeenCalledWith(undefined);
   });
 
-  it("renders 'Not installed' badge for missing agents", async () => {
-    mocks.get.mockResolvedValueOnce({
-      agents: [
-        { id: "codex", label: "Codex", installed: false, version: null, latestVersion: null, updateAvailable: false },
-      ],
-    });
+  it("states the harness requirement the panel itself leaves unsaid", async () => {
     renderPage();
-    expect(await screen.findByRole("heading", { name: "Codex" })).toBeInTheDocument();
-    expect(screen.getByText("Not installed")).toBeInTheDocument();
-  });
-
-  it("renders neutral 'Installed' badge when registry is unreachable", async () => {
-    mocks.get.mockResolvedValueOnce({
-      agents: [
-        { id: "claude", label: "Claude Code", installed: true, version: "1.0.35", latestVersion: null, updateAvailable: false },
-      ],
-    });
-    renderPage();
-    expect(await screen.findByText("Installed")).toBeInTheDocument();
-  });
-
-  it("hides version text for installed agents when version is null", async () => {
-    mocks.get.mockResolvedValueOnce({
-      agents: [
-        { id: "claude", label: "Claude Code", installed: true, version: null, latestVersion: "1.0.35", updateAvailable: false },
-      ],
-    });
-    renderPage();
-
-    await screen.findByText("Claude Code");
-    expect(screen.queryByText(/^v/)).not.toBeInTheDocument();
-  });
-
-  it("shows error state when API call fails", async () => {
-    mocks.get.mockRejectedValueOnce(new Error("offline"));
-    renderPage();
-    expect(await screen.findByText(/Could not load agent information/)).toBeInTheDocument();
-  });
-
-  it("does not show version for non-installed agents", async () => {
-    mocks.get.mockResolvedValueOnce({
-      agents: [
-        { id: "codex", label: "Codex", installed: false, version: null, latestVersion: "0.2.0", updateAvailable: false },
-      ],
-    });
-    renderPage();
-    await screen.findByRole("heading", { name: "Codex" });
-    expect(screen.queryByText(/^v/)).not.toBeInTheDocument();
-  });
-
-  it("shows provider pills for the models each harness runs", async () => {
-    mocks.get.mockResolvedValueOnce({
-      agents: [
-        { id: "claude", label: "Claude Code", installed: true, version: "1.0.35", latestVersion: "1.0.35", updateAvailable: false },
-        { id: "codex", label: "Codex", installed: true, version: "0.1.2", latestVersion: "0.1.2", updateAvailable: false },
-      ],
-    });
-    renderPage();
-
-    await screen.findByText("Claude Code");
-    expect(screen.getByTitle("Runs Claude sessions")).toBeInTheDocument();
-    expect(screen.getByTitle("Runs Kimi sessions")).toBeInTheDocument();
-    expect(screen.getByTitle("Runs Codex sessions")).toBeInTheDocument();
-  });
-
-  it("renders multiple agents", async () => {
-    mocks.get.mockResolvedValueOnce({
-      agents: [
-        { id: "claude", label: "Claude Code", installed: true, version: "1.0.35", latestVersion: "1.0.35", updateAvailable: false },
-        { id: "codex", label: "Codex", installed: true, version: "0.1.2", latestVersion: "0.2.0", updateAvailable: true },
-      ],
-    });
-    renderPage();
-    expect(await screen.findByText("Claude Code")).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Codex" })).toBeInTheDocument();
+    expect(await screen.findByText("At least one harness needed to run Hive")).toBeInTheDocument();
   });
 });

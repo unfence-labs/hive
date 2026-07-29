@@ -7,7 +7,7 @@
     "predev": "npm --prefix ../shared run build",
     "dev": "tsx watch src/index.ts",
     "prebuild": "npm --prefix ../shared run build",
-    "build": "tsc",
+    "build": "tsc -p tsconfig.build.json",
     "pretypecheck": "npm --prefix ../shared run build",
     "typecheck": "tsc --noEmit",
     "lint": "eslint \"src/**/*.{ts,tsx}\"",

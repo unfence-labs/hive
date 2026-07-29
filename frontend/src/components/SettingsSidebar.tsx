@@ -13,6 +13,7 @@ import {
   FolderOpen,
   GitFork,
   Paintbrush,
+  Server,
   Sparkles,
   Users,
   Wifi,
@@ -27,6 +28,7 @@ import {
   type SidebarProjectFolderView,
 } from "@/hooks/useSidebarProjectFolders";
 import { SidebarShell } from "@/components/SidebarShell";
+import { isDesktopShell } from "@/lib/is-desktop";
 import type { Project } from "@/types";
 
 export default function SettingsSidebar() {
@@ -83,6 +85,14 @@ export default function SettingsSidebar() {
               icon={<Wifi className="h-4 w-4" />}
               active={pathname === "/settings/connection"}
             />
+            {isDesktopShell() && (
+              <NavItem
+                to="/settings/server"
+                label="Server"
+                icon={<Server className="h-4 w-4" />}
+                active={pathname === "/settings/server"}
+              />
+            )}
             <NavItem
               to="/settings/notifications"
               label="Notifications"

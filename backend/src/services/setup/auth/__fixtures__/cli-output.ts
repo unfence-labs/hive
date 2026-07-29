@@ -1,0 +1,30 @@
+/**
+ * Verbatim sign-in output from the real CLIs, captured on a headless Linux
+ * host: `codex-cli 0.145.0` piped to a file with no terminal, and Claude Code
+ * 2.1.217 driven through a pseudo-terminal.
+ *
+ * These are recordings, not stubs. Nothing here fakes a CLI or is executed —
+ * they are the bytes the parsers have to survive, kept exactly as they arrived
+ * so a test cannot quietly pass against a tidier fiction than reality.
+ */
+
+/** `codex login --device-auth`, stdout, still polling when it was killed. */
+export const CODEX_DEVICE_AUTH_STDOUT = "\nWelcome to Codex [v\u001b[90m0.145.0\u001b[0m]\n\u001b[90mOpenAI's command-line coding agent\u001b[0m\n\nFollow these steps to sign in with ChatGPT using device code authorization:\n\n1. Open this link in your browser and sign in to your account\n   \u001b[94mhttps://auth.openai.com/codex/device\u001b[0m\n\n2. Enter this one-time code \u001b[90m(expires in 15 minutes)\u001b[0m\n   \u001b[94mU927-TJEHB\u001b[0m\n\n\u001b[90mContinue only if you started this login in Codex. If a website or another person gave you this code, cancel.\u001b[0m\n\n";
+
+/**
+ * `claude setup-token` in a pseudo-terminal, from the link to the code
+ * prompt. The authorisation URL arrives as an OSC 8 hyperlink whose visible
+ * label is wrapped into 80-column fragments, which is why the parser reads
+ * the hyperlink target instead.
+ */
+export const CLAUDE_SETUP_TOKEN_PTY = "\u001b[1C\u001b[1A\u001b[37mBrowser didn't open? Use the url below to sign in (c to copy)\u001b[39m\n\n\n\n\u001b]8;id=zhral8;https://claude.com/cai/oauth/authorize?code=true&client_id=9d1c250a-e61b-44d9-88ed-5944d1962f5e&response_type=code&redirect_uri=https%3A%2F%2Fplatform.claude.com%2Foauth%2Fcode%2Fcallback&scope=user%3Ainference&code_challenge=9qIXjrLWnecG6Tb1Lr7PKYk4bzXEHl02rLTRHEkG_Kg&code_challenge_method=S256&state=zrJOkJu2zcOTR29SsoAATJigJnnZdWfHIkhusMDnQVk\u0007\u001b[37mhttps://claude.com/cai/oauth/authorize?code=true&client_id=9d1c250a-e61b-44d9-88\u001b[39m\u001b]8;;\u0007\n\n\u001b]8;id=zhral8;https://claude.com/cai/oauth/authorize?code=true&client_id=9d1c250a-e61b-44d9-88ed-5944d1962f5e&response_type=code&redirect_uri=https%3A%2F%2Fplatform.claude.com%2Foauth%2Fcode%2Fcallback&scope=user%3Ainference&code_challenge=9qIXjrLWnecG6Tb1Lr7PKYk4bzXEHl02rLTRHEkG_Kg&code_challenge_method=S256&state=zrJOkJu2zcOTR29SsoAATJigJnnZdWfHIkhusMDnQVk\u0007\u001b[37med-5944d1962f5e&response_type=code&redirect_uri=https%3A%2F%2Fplatform.claude.co\u001b[39m\u001b]8;;\u0007\n\n\u001b]8;id=zhral8;https://claude.com/cai/oauth/authorize?code=true&client_id=9d1c250a-e61b-44d9-88ed-5944d1962f5e&response_type=code&redirect_uri=https%3A%2F%2Fplatform.claude.com%2Foauth%2Fcode%2Fcallback&scope=user%3Ainference&code_challenge=9qIXjrLWnecG6Tb1Lr7PKYk4bzXEHl02rLTRHEkG_Kg&code_challenge_method=S256&state=zrJOkJu2zcOTR29SsoAATJigJnnZdWfHIkhusMDnQVk\u0007\u001b[37mm%2Foauth%2Fcode%2Fcallback&scope=user%3Ainference&code_challenge=9qIXjrLWnecG6T\u001b[39m\u001b]8;;\u0007\n\n\u001b]8;id=zhral8;https://claude.com/cai/oauth/authorize?code=true&client_id=9d1c250a-e61b-44d9-88ed-5944d1962f5e&response_type=code&redirect_uri=https%3A%2F%2Fplatform.claude.com%2Foauth%2Fcode%2Fcallback&scope=user%3Ainference&code_challenge=9qIXjrLWnecG6Tb1Lr7PKYk4bzXEHl02rLTRHEkG_Kg&code_challenge_method=S256&state=zrJOkJu2zcOTR29SsoAATJigJnnZdWfHIkhusMDnQVk\u0007\u001b[37mb1Lr7PKYk4bzXEHl02rLTRHEkG_Kg&code_challenge_method=S256&state=zrJOkJu2zcOTR29Ss\u001b[39m\u001b]8;;\u0007\n\n\u001b]8;id=zhral8;https://claude.com/cai/oauth/authorize?code=true&client_id=9d1c250a-e61b-44d9-88ed-5944d1962f5e&response_type=code&redirect_uri=https%3A%2F%2Fplatform.claude.com%2Foauth%2Fcode%2Fcallback&scope=user%3Ainference&code_challenge=9qIXjrLWnecG6Tb1Lr7PKYk4bzXEHl02rLTRHEkG_Kg&code_challenge_method=S256&state=zrJOkJu2zcOTR29SsoAATJigJnnZdWfHIkhusMDnQVk\u0007\u001b[37moAATJigJnnZdWfHIkhusMDnQVk\u001b[39m\u001b]8;;\u0007\n\n\n\n\n\n\u001b[2GPaste\u001b[8Gcode\u001b[13Ghere\u001b[18Gif\u001b[21Gprompted\u001b[30G>";
+
+/**
+ * `claude setup-token` after a code it would not accept. The CLI does not
+ * exit here: it prints the provider's complaint, offers to take another code
+ * on the same link, and waits — which is why the flow reads this out of the
+ * output instead of waiting for a process that is never going to end.
+ */
+export const CLAUDE_OAUTH_ERROR_PTY =
+  "\u001b[2K\u001b[1G\u001b[31mOAuth error: Invalid code. Please make sure the full code was copied\u001b[39m\n" +
+  "\u001b[2GPress\u001b[8GEnter\u001b[14Gto\u001b[17Gretry.\n";

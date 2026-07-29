@@ -23,6 +23,12 @@
 
 ---
 
+> [!WARNING]
+> Hive does not provide HTTPS yet. Never expose port 9420 directly to the
+> public Internet. Connect only through an encrypted private network such as
+> Tailscale, WireGuard, or another VPN. The access token is sent over HTTP and
+> WebSocket and can be intercepted on an untrusted network.
+
 ## What is Hive?
 
 Hive is a control plane for AI coding agents. It manages your projects as **bare git repositories**, spins up **isolated workspaces** as git worktrees and branches, and keeps every agent conversation as a **resumable session** — so multiple agents can work in parallel without stepping on each other.
@@ -33,7 +39,7 @@ Run Hive as a **local web app**, a **Tauri desktop app** (pointed at a local or 
 - 🌳 **Isolated by design** — every workspace is its own worktree and branch; up to 6 concurrent sessions per workspace.
 - 📡 **Live streaming** — assistant text, thinking, tool calls, file changes, diffs, tasks, plans, and images stream over a single multiplexed WebSocket hub.
 - 🤖 **Automation** — reusable Team agents plus cron-scheduled runs with full run history and notifications.
-- 📱 **Everywhere** — desktop, web, and iOS from one backend, with push notifications and Tailscale-friendly remote access.
+- 📱 **Everywhere** — desktop, web, and iOS from one backend, with push notifications and remote access.
 
 ## Features
 
@@ -74,7 +80,7 @@ Run Hive as a **local web app**, a **Tauri desktop app** (pointed at a local or 
 </tr>
 </table>
 
-**Apps & integrations** — React 19 + Vite web UI with Tauri v2 desktop packaging · native SwiftUI iOS client (first-run onboarding, Brain, conversations, session switching, model selection, composer `#file`/`/command`/`@agent` autocomplete, read-only automations browser with run logs, PR status, scripts, push notifications, task tracker, connection status banner with tap-to-reconnect) · GitHub OAuth device flow via `gh`, PR status enrichment, `.env` management, global instructions, skills, subagents, Telegram/APNs notifications, Tailscale-friendly remote settings, external terminal & VS Code remote-SSH opening.
+**Apps & integrations** — React 19 + Vite web UI with Tauri v2 desktop packaging · native SwiftUI iOS client (first-run onboarding, Brain, conversations, session switching, model selection, composer `#file`/`/command`/`@agent` autocomplete, read-only automations browser with run logs, PR status, scripts, push notifications, task tracker, connection status banner with tap-to-reconnect) · GitHub OAuth device flow via `gh`, PR status enrichment, `.env` management, global instructions, skills, subagents, Telegram/APNs notifications, remote connection settings, external terminal & VS Code remote-SSH opening.
 
 ## Screenshots
 
@@ -96,7 +102,8 @@ Run Hive as a **local web app**, a **Tauri desktop app** (pointed at a local or 
 - **GitHub CLI** installed and authenticated for GitHub-backed flows (`gh`)
 - _Optional:_ **Codex CLI** (`codex`) for OpenAI model support
 - _Optional (desktop build):_ **Rust** ≥ 1.77 for Tauri
-- _Optional (remote):_ **Tailscale**
+- _Remote:_ an encrypted private network that reaches the server, such as Tailscale, WireGuard,
+  another VPN, or a cloud provider's private network
 
 > The backend preflight requires `git`, `claude`, and `gh`. `codex` is optional and only affects its provider features.
 
@@ -128,7 +135,125 @@ npm run tauri dev              # develop
 npm run tauri build           # package
 ```
 
-Remote backend + Tauri setup lives in **[GETTING_STARTED.md](GETTING_STARTED.md)**.
+Running Hive on a server, and connecting a client to it, is covered in
+**[GETTING_STARTED.md](GETTING_STARTED.md)**.
+
+### Install on a server
+
+Check **[docs/prerequisites.md](docs/prerequisites.md)** first: supported systems, the access the
+installer needs, and exactly what it does and does not change on a server that already runs other
+software.
+
+#### From the desktop app
+
+The desktop app installs Hive on a server itself, over SSH, with no terminal. With no server
+configured it opens on launch; otherwise it is under **Settings → Server → Install Hive on a
+server**.
+
+It walks through giving the address and port, picking an SSH key from `~/.ssh`, approving the
+server's host key fingerprint, running the installer's own read-only preflight over that same
+connection and listing every finding while the form is still editable, restating the settled plan,
+and then running the install as a live checklist. The host firewall needs no choice: an active `ufw`
+is configured automatically for Hive's port. The private key never leaves the
+machine — only its path is stored, and only its public half is sent, to be authorized on the service
+account. An account that needs a `sudo` password is asked for one, which is used for that install
+only and never written to disk.
+
+Closing the installer or interrupting its SSH connection stops the current local run. Each completed
+server step is recorded, so reopening the installer or pressing Retry can resume an incomplete
+install only when the port, install directory, and data directory match the original run exactly.
+On success the app stores the connection, including the plaintext generated access token and `hive`
+as the SSH user for editor and terminal sessions, in its local connection record. The final Accounts
+screen stays in front of the ordinary app, including after a relaunch, until you copy the token,
+connect GitHub, and authenticate at least one of Claude Code or Codex. The same account controls
+remain available later in Settings. Accounts is the only UI that reveals the token; later Connection
+settings accept a replacement but do not reveal the stored value.
+
+The desktop shell embeds the same provisioning script described below and streams it over the SSH
+connection, so both paths install exactly the same server. Screen-by-screen detail is in
+[GETTING_STARTED.md](GETTING_STARTED.md#1-guided-installer-desktop).
+
+#### From a terminal
+
+Every release publishes `provision.sh` alongside the backend tarballs. Run it as root on
+Ubuntu 22.04/24.04 or Debian 12/13 (x86-64 or arm64) with systemd:
+
+```bash
+curl -fsSL https://github.com/unfence-labs/hive/releases/latest/download/provision.sh | bash
+```
+
+It installs Hive's own pinned Node.js runtime and the agent CLIs **inside `/opt/hive` and the
+`hive` service account** — the system runtime is never read, replaced, or upgraded, and no vendor
+package repository is added to the machine. It downloads the backend release, verifies it against
+its published checksum before extraction, activates it with an atomic symlink swap, and runs it
+under systemd as an unprivileged, sandboxed unit on port 9420.
+
+It also generates the server's access token, writes only its SHA-256 digest to root-owned
+`/etc/hive/hive.env`, and prints the plaintext exactly once on its progress stream — never to a
+log file. Every fresh or resumed incomplete run generates a new token, so keep the value reported
+by the run that completes successfully.
+
+Progress is NDJSON, one record per line, so a client can render a live checklist; failures carry a
+typed code from `shared/setup-errors.ts`. A fresh install writes a non-secret identity manifest
+containing its schema, port, install directory, and data directory. An interrupted install resumes
+only with those exact values. A completed install rejects another provisioning run because V1 does
+not support updates. To change the port or paths, uninstall Hive and perform a fresh install.
+
+The guiding assumption is that **the server is already doing something else**. Check what the
+installer would find, without changing anything, before you commit to it:
+
+```bash
+curl -fsSL <url>/provision.sh | bash -s -- --preflight
+```
+
+Preflight reports the operating system and architecture, whether the port is free, whether the
+chosen directories are writable with room to spare, whether Hive is already installed, which host
+firewall is present and whether Hive can configure it automatically, and whether privilege
+escalation needs a password. It writes nothing and always exits 0: findings are data, not a verdict.
+
+| Option | Environment variable | Default | What it sets |
+|---|---|---|---|
+| `--install-dir` | `HIVE_INSTALL_DIR` | `/opt/hive` | Hive, its private Node runtime and the uninstaller |
+| `--data-dir` | `HIVE_DATA_DIR` | `/home/hive/.hive` | Projects, worktrees and sessions — the directory that grows |
+| `--port` | `HIVE_PORT` | `9420` | Backend port |
+| `--allowed-host` | — | — | Hostname or IP the client will use. The desktop installer supplies it automatically |
+| `--ssh-public-key` | `HIVE_SSH_PUBLIC_KEY` | — | Authorize this key on the `hive` account |
+| `--preflight` | — | — | Report and change nothing |
+
+`/etc/hive` and `/var/lib/hive` stay fixed.
+
+```bash
+# Options are passed through `bash -s --`:
+curl -fsSL <url>/provision.sh | bash -s -- --port 9420 --install-dir /srv/hive --data-dir /mnt/hive
+```
+
+**Networking is an operator prerequisite.** Hive does not configure a network or HTTPS. Establish an
+encrypted private network before setup and connect through the server's private address. The backend
+binds every interface, so firewall and routing policy remain the operator's responsibility. Port
+9420 must never be reachable directly from the public Internet. See
+**[docs/networking.md](docs/networking.md)**.
+
+**The host firewall is automatic.** The installer never enables a firewall or changes its default
+policy. If `ufw` is active, it opens only the configured TCP port. If no firewall is active, no rule
+is needed. An active `firewalld` or raw `nftables` ruleset blocks preflight because Hive cannot
+configure its policy safely; the installer never reports success with a port it knows may be closed.
+
+Because the service account owns every repository and worktree, pass `--ssh-public-key` so an
+editor or terminal session connects as `hive` rather than root. The key is appended to
+`/home/hive/.ssh/authorized_keys` idempotently: an exact incomplete resume neither duplicates it nor
+removes keys you added by hand. Without this, files an editor saves become root-owned and the agent
+can no longer write them.
+
+Each install writes `<install-dir>/hive-uninstall.sh`, carrying the paths that run actually used:
+
+```bash
+sudo /opt/hive/hive-uninstall.sh            # remove Hive, keep your data
+sudo /opt/hive/hive-uninstall.sh --purge    # remove your data as well
+```
+
+It removes the service unit, the install directory and private runtime, the configuration, the
+provisioning state, the service account and the one firewall rule the install added. It never
+removes system packages or package repositories. Data is kept unless you pass `--purge`.
 
 ### Scripts
 
@@ -137,6 +262,22 @@ Remote backend + Tauri setup lives in **[GETTING_STARTED.md](GETTING_STARTED.md)
 npm run lint
 npm run typecheck
 npm run test
+
+# Build the backend release tarball for the host architecture into dist-release/.
+# Requires a Linux host on Node 22 (native modules are compiled during the build).
+npm run release:backend -- 0.0.0-dev
+
+# Bundle scripts/provision/{lib,steps,main}.sh into scripts/provision/dist/provision.sh.
+npm run release:provision -- 0.0.0-dev
+
+# Provisioning checks: contracts run anywhere in a second; the end-to-end lane
+# needs Docker and builds a real release tarball.
+npm run test:provision
+npm run test:provision:e2e            # install | guards | checksum | rollback | chaos
+npm run test:provision:e2e neighbour  # install beside a live service and prove it survives
+npm run test:provision:e2e preflight  # prove preflight changes nothing
+npm run test:provision:e2e paths      # non-default install and data directories
+npm run test:provision:e2e uninstall  # uninstall, and --purge
 ```
 
 Per-package commands (`backend`, `frontend`, `ios`) are documented in **[AGENTS.md](AGENTS.md)**.
@@ -146,16 +287,30 @@ Per-package commands (`backend`, `frontend`, `ios`) are documented in **[AGENTS.
 <details>
 <summary><b>Backend environment variables</b></summary>
 
+This table is the single source of truth for backend environment variables; the other documents
+point at it rather than repeating it.
+
 | Variable | Default | Description |
 |---|---|---|
 | `HOST` | `127.0.0.1` | Backend bind address |
 | `PORT` | `3000` | Backend HTTP port |
 | `DATA_DIR` | `~/.hive` | Root storage for projects, workspaces, sessions, prompts, Brain, config, and automations |
-| `HIVE_AUTH_TOKEN` | unset | Requires bearer/token auth for API and WS when set; `/health` stays public |
+| `HIVE_AUTH_TOKEN` | unset | Access token in plaintext. Requires bearer/token auth for API and WS when set; `/health` stays public |
+| `HIVE_AUTH_TOKEN_SHA256` | unset | The same token as a lowercase hex SHA-256 digest, so the plaintext never lands on the server. What `provision.sh` writes. A request authorizes if it matches either form |
+| `HIVE_ALLOWED_HOSTS` | unset | Extra hostnames accepted by the `Host` guard, comma-separated. IP literals and `localhost` are always accepted; anything else gets `403` until listed. The guided installer adds its selected address automatically |
+| `HIVE_ALLOWED_ORIGINS` | unset | Extra browser origins accepted for CORS and WebSocket upgrades, comma-separated. The desktop webview's origins are always accepted, plus `localhost:5173` outside production |
 | `HIVE_RATE_LIMIT_MAX` | `120` | Max requests per IP per window |
 | `HIVE_RATE_LIMIT_WINDOW_MS` | `60000` | Rate-limit window (ms) |
+| `HIVE_AUTOMATION_TIMEOUT_SEC` | `1800` | Per-run timeout for scheduled automations |
 | `HIVE_CLAUDE_SKIP_PERMISSIONS` | `true` | Controls Claude `--dangerously-skip-permissions` |
+| `HIVE_DEBUG_AGENT_LOGS` | unset | Verbose agent process logging when `1`/`true`/`yes`/`on` |
 | `GITHUB_CLIENT_ID` | built in | Override GitHub OAuth app client id |
+
+**With neither `HIVE_AUTH_TOKEN` nor `HIVE_AUTH_TOKEN_SHA256` set, the backend has no expectation to
+check and accepts every request.** `ecosystem.config.cjs` sets neither, so a manually started
+production server is unauthenticated until you configure one. `provision.sh` generates a token,
+writes only its digest, and refuses to finish a run in which an unauthenticated request to
+`/api/projects` does not return `401`.
 
 </details>
 
@@ -165,11 +320,12 @@ Per-package commands (`backend`, `frontend`, `ios`) are documented in **[AGENTS.
 | Variable | Default | Description |
 |---|---|---|
 | `VITE_WS_URL` | derived from browser location | Override WS base URL |
-| `VITE_HIVE_AUTH_TOKEN` | unset | Bearer token for API and `token` query for WS |
 
 </details>
 
-Connection host/port, Telegram, APNs, theme, accent color, CLI status, prompt settings, instructions, skills, Team agents, and subagents are configured **in the UI**.
+Connection host, port, access token, SSH user, Telegram, APNs, theme, accent color, CLI status, prompt settings, instructions, skills, Team agents, and subagents are configured **in the UI**.
+
+Agent and GitHub accounts are connected **in the UI** too, with no terminal: Settings → Harness signs in Claude Code and Codex, Settings → Account signs in GitHub. Each is a browser confirmation — GitHub and Codex use device codes, Claude opens a page and takes an authorization code back. Connecting either Claude or Codex is enough to run sessions; nothing requires both.
 
 <details>
 <summary><b>Production backend (pm2)</b></summary>
@@ -268,8 +424,10 @@ Public backend surface exposed by route modules under `backend/src/api/`.
 | Automations | `GET/POST /api/automations`, `GET/PUT/DELETE /api/automations/:id`, `POST /api/automations/:id/trigger`, `GET /api/automations/:id/runs`, `GET /api/automations/:id/runs/:runId/messages` |
 | Team agents | `GET/POST /api/agents`, `PATCH/DELETE /api/agents/:id` |
 | Prompts | `GET/POST /api/prompt-templates`, `PUT/DELETE /api/prompt-templates/:id`, `GET/PUT/DELETE /api/prompts/base`, `GET/PUT/DELETE /api/prompts/brain`, `GET/PUT/DELETE /api/prompts/issue-draft` |
-| Settings | `GET/PUT /api/settings/defaults`, `GET/PUT /api/settings/notifications`, `POST /api/settings/notifications/test`, `POST /api/settings/notifications/test-apns`, `POST /api/devices/apns`, `GET /api/settings/cli`, `GET/PUT/DELETE /api/settings/instructions`, `POST /api/settings/instructions/sync`, `GET/POST /api/settings/skills`, `GET/PUT/DELETE /api/settings/skills/:id`, `POST /api/settings/skills/:id/sync`, `POST /api/settings/skills/sync-missing`, `GET/POST /api/settings/subagents`, `GET /api/settings/subagents/:id`, `PUT/DELETE /api/settings/subagents/:id/providers/:provider`, `POST /api/settings/subagents/:id/providers/:provider/counterpart` |
-| Account | `GET /api/account/status`, `POST /api/account/connect`, `POST /api/account/connect/poll`, `POST /api/account/disconnect` |
+| Settings | `GET/PUT /api/settings/defaults`, `GET/PUT /api/settings/notifications`, `POST /api/settings/notifications/test`, `POST /api/settings/notifications/test-apns`, `POST /api/devices/apns`, `GET/PUT/DELETE /api/settings/instructions`, `POST /api/settings/instructions/sync`, `GET/POST /api/settings/skills`, `GET/PUT/DELETE /api/settings/skills/:id`, `POST /api/settings/skills/:id/sync`, `POST /api/settings/skills/sync-missing`, `GET/POST /api/settings/subagents`, `GET /api/settings/subagents/:id`, `PUT/DELETE /api/settings/subagents/:id/providers/:provider`, `POST /api/settings/subagents/:id/providers/:provider/counterpart` |
+| Account | `GET /api/account/status`, `POST /api/account/disconnect` |
+| Tool setup | `GET /api/setup/tools`, `GET /api/setup/status`, `POST /api/setup/tools/:tool/:kind` (`kind` = `install` \| `update`) |
+| Tool sign-in | `POST /api/setup/auth/:tool/start` (`tool` = `claude` \| `codex` \| `gh`), `POST /api/setup/auth/:tool/code`, `POST /api/setup/auth/:tool/cancel`, `POST /api/setup/auth/claude/token` |
 | Scripts & prefs | `GET /api/workspaces/:wsId/scripts`, `POST /api/workspaces/:wsId/scripts/:type/start`, `POST /api/workspaces/:wsId/scripts/:type/stop`, `POST /api/workspaces/:wsId/terminal/start`, `POST /api/workspaces/:wsId/terminal/stop`, `POST /api/workspaces/:wsId/terminal-tabs/:sessionId/start`, `POST /api/workspaces/:wsId/terminal-tabs/:sessionId/stop`, `GET/PUT /api/ui-preferences` |
 
 `wsId=brain` is valid for session and hub routes through the shared session dispatcher.
@@ -297,13 +455,19 @@ Public backend surface exposed by route modules under `backend/src/api/`.
 
 - Backend/frontend tests use **Vitest**; iOS uses **Swift Testing**.
 - Tests live next to source: `backend/src/**/*.test.ts`, `frontend/tests/**`, `ios/Tests/**`.
-- CI runs Node lint, typecheck, build, and tests, plus iOS Swift package tests and an iOS app compile on every push/PR to `main`.
+- CI runs Node lint, typecheck, build, and tests on pushes and pull requests to `main`. The iOS CI
+  job is currently disabled.
+- Provisioning has two lanes. `test/provision/contract.sh` (`npm run test:provision`, in CI) asserts the shell and TypeScript error taxonomies stay in sync, that the deliberate departures from the reference install flow stay departed, that the token never reaches a log file, and that shellcheck is clean. `test/provision/e2e-docker.sh` (`npm run test:provision:e2e`) is the Docker lane: it builds a real backend tarball, provisions a bare Ubuntu 24.04 systemd container from it, and proves the backend comes up healthy, rejects a request with no token, and accepts one with the right token. Its `neighbour` mode installs onto a server already running a web server on port 80 and a service on 5432 and proves an outside peer can still reach them afterwards — first with `ufw` installed but inactive, then with `ufw` active under the operator's own policy, where exactly one rule is added and the default policy is untouched. `preflight` compares a filesystem and service-table snapshot before and after, `paths` drives a non-default install and data directory end to end, and `uninstall` proves the generated script removes the install, keeps the data, and removes that too under `--purge`. All modes run on demand via `.github/workflows/provision-e2e.yml`.
+- Pushing a `v<version>` tag runs `.github/workflows/release.yml`, which builds the backend tarball on native linux-x64 and linux-arm64 runners and attaches `hive-backend-<version>-linux-<arch>.tar.gz` plus its `.sha256`, and the generated `provision.sh`, to the GitHub release. The tag must match the version in `frontend/src-tauri/Cargo.toml`.
 
 Run the narrowest relevant checks during development, then the root checks before considering broad changes done. For iOS changes, also run `cd ios && swift test`.
 
 ## Roadmap
 
 > This is the single approved place for documented remaining work. Do not add TODO / roadmap / "future" notes to `AGENTS.md`, `GETTING_STARTED.md`, or standalone docs.
+
+**Networking**
+- Support HTTPS termination and safe public access.
 
 **Workspace & git UX**
 - Structure merge-conflict API responses instead of returning generic merge errors.

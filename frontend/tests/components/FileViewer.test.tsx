@@ -3,6 +3,7 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { FileViewer, type FileViewerHandle } from "@/components/FileViewer";
+import { replaceConnection } from "@/hooks/useConnection";
 import type { ComponentProps } from "react";
 
 function renderFileViewer(props: ComponentProps<typeof FileViewer>) {
@@ -133,7 +134,7 @@ describe("FileViewer", () => {
   it("renders PDF files in an iframe with the configured server URL", async () => {
     const apiMock = await getApiMock();
     const highlightMock = await getHighlightMock();
-    localStorage.setItem("hive-server-url", "http://127.0.0.1:9420");
+    replaceConnection({ host: "127.0.0.1", port: 9420 });
 
     renderFileViewer({ wsId: "brain", filePath: "crypto/bitcoin/bitcoin-whitepaper.pdf" });
 

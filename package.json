@@ -10,6 +10,11 @@
     "lint": "npm run lint --workspace @hive/backend --workspace @hive/frontend",
     "lint:fix": "npm run lint:fix --workspace @hive/backend --workspace @hive/frontend",
     "knip": "knip",
+    "release:backend": "bash scripts/release/build-backend-tarball.sh",
+    "release:provision": "bash scripts/provision/build.sh",
+    "test:release": "bash test/release/build-backend-tarball.test.sh",
+    "test:provision": "bash test/provision/contract.sh",
+    "test:provision:e2e": "bash test/provision/e2e-docker.sh",
     "typecheck": "npm run typecheck --workspace @hive/backend --workspace @hive/frontend",
     "test": "npm run test --workspace @hive/backend --workspace @hive/frontend"
   },

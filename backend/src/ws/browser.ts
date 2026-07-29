@@ -3,7 +3,7 @@ import { promisify } from "node:util";
 import type { FastifyInstance } from "fastify";
 import WebSocket from "ws";
 import { browserSessionManager } from "../services/browser-session-manager.js";
-import { isAuthorized } from "../utils/auth.js";
+import { isAuthorized, type AuthExpectation } from "../utils/auth.js";
 import { buildWorkspaceEnv } from "../utils/env.js";
 
 const PING_INTERVAL_MS = 30_000;
@@ -27,7 +27,7 @@ export type BrowserViewportSetter = (
 ) => Promise<void>;
 
 export interface BrowserWsRoutesOptions {
-  authToken?: string;
+  auth?: AuthExpectation;
   setViewport?: BrowserViewportSetter;
 }
 
@@ -97,7 +97,7 @@ export async function browserWsRoutes(
   app: FastifyInstance,
   opts: BrowserWsRoutesOptions = {},
 ) {
-  const { authToken } = opts;
+  const { auth } = opts;
   const setViewport = opts.setViewport ?? setAgentBrowserViewport;
 
   app.get<{
@@ -108,7 +108,7 @@ export async function browserWsRoutes(
     { websocket: true },
     async (client, req) => {
       const queryToken = typeof req.query.token === "string" ? req.query.token : undefined;
-      if (!isAuthorized(req.headers, authToken, queryToken)) {
+      if (!isAuthorized(req.headers, auth, queryToken)) {
         client.send(JSON.stringify({ type: "error", message: "Unauthorized" }));
         client.close(1008, "Unauthorized");
         return;

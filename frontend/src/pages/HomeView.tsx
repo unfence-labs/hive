@@ -4,7 +4,7 @@ import { PageHeader } from "@/components/AppLayout";
 import { CenterCard } from "@/components/CenterCard";
 import { HiveLogo } from "@/components/HiveLogo";
 import { Button } from "@/components/ui/button";
-import { useTailscaleConfig } from "@/hooks/useTailscaleConfig";
+import { useConnection } from "@/hooks/useConnection";
 
 interface HomeViewProps {
   onAddProject?: () => void;
@@ -19,7 +19,7 @@ interface HomeViewProps {
  * repository is disabled and "Start config" carries the primary emphasis.
  */
 export default function HomeView({ onAddProject }: HomeViewProps) {
-  const { isConfigured } = useTailscaleConfig();
+  const { isConfigured } = useConnection();
 
   return (
     <div className="flex h-full flex-col">

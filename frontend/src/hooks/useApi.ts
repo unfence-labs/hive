@@ -1,4 +1,4 @@
-import { getServerUrl } from "@/hooks/useServerUrl";
+import { getAuthToken, getServerUrl } from "@/hooks/useConnection";
 
 export class ApiError extends Error {
   constructor(
@@ -39,9 +39,24 @@ function errorMessageFromResponseBody(body: string, fallback: string): string {
   return body;
 }
 
-async function request<T>(url: string, options?: RequestInit): Promise<T> {
+/**
+ * Where a request goes, when not the stored connection. `authToken: ""` sends
+ * no credential at all — an explicit token is never mixed with the stored one,
+ * because a token belongs to exactly one server.
+ */
+export interface RequestTarget {
+  baseUrl?: string;
+  authToken?: string;
+  timeoutMs?: number;
+}
+
+export async function request<T>(
+  url: string,
+  options?: RequestInit,
+  target?: RequestTarget,
+): Promise<T> {
   const headers = headerRecord(options?.headers);
-  const authToken = import.meta.env.VITE_HIVE_AUTH_TOKEN?.trim();
+  const authToken = target?.authToken ?? getAuthToken();
 
   if (options?.body && !hasHeader(headers, "Content-Type")) {
     headers["Content-Type"] = "application/json";
@@ -50,8 +65,14 @@ async function request<T>(url: string, options?: RequestInit): Promise<T> {
     headers.Authorization = `Bearer ${authToken}`;
   }
 
-  const base = getServerUrl();
-  const res = await fetch(`${base}${url}`, { ...options, headers });
+  const init: RequestInit = { ...options, headers };
+  if (target?.timeoutMs) {
+    const timeout = AbortSignal.timeout(target.timeoutMs);
+    init.signal = options?.signal ? AbortSignal.any([options.signal, timeout]) : timeout;
+  }
+
+  const base = target?.baseUrl || getServerUrl();
+  const res = await fetch(`${base}${url}`, init);
   if (!res.ok) {
     const body = await res.text().catch(() => "");
     throw new ApiError(res.status, errorMessageFromResponseBody(body, res.statusText));

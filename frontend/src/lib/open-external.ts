@@ -1,11 +1,18 @@
+import { isDesktopShell } from "@/lib/is-desktop";
+
 /**
  * Open a URL in the system browser.
  * Uses the Tauri opener plugin when running as a desktop app,
  * falls back to window.open for browser mode.
+ *
+ * The desktop path invokes `plugin:opener|open_url` through
+ * `@tauri-apps/api/core`, which the rest of the shell already runs on, rather
+ * than through the plugin's JS wrapper: the wrapper is nothing but that same
+ * invoke call, so depending on it buys a package and no behaviour.
  */
 export async function openExternal(url: string): Promise<void> {
   const isHttp = /^https?:\/\//i.test(url);
-  const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+  const isTauri = isDesktopShell();
 
   if (!isTauri) {
     // Keep fallback synchronous in browser mode so popup blockers do not drop it.
@@ -18,15 +25,10 @@ export async function openExternal(url: string): Promise<void> {
   }
 
   try {
-    const { openUrl } = await import("@tauri-apps/plugin-opener");
-    await openUrl(url);
+    const { invoke } = await import("@tauri-apps/api/core");
+    await invoke("plugin:opener|open_url", { url });
   } catch (error) {
     console.warn("Failed to open external URL via Tauri opener:", error);
-    if (isHttp) {
-      window.open(url, "_blank", "noopener,noreferrer");
-    } else {
-      window.location.assign(url);
-    }
   }
 }
 

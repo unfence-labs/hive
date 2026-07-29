@@ -15,14 +15,15 @@ import {
 
 const execFile = promisify(execFileCb);
 
-const PROVIDER_LABELS: Record<string, string> = {
+/** Display labels per provider id. Also the source for the setup catalog. */
+export const PROVIDER_LABELS: Record<string, string> = {
   claude: "Claude Code",
   codex: "Codex",
   kimi: "Kimi",
 };
 
 /** npm package name for each provider, used to check for updates. */
-const NPM_PACKAGES: Record<string, string> = {
+export const NPM_PACKAGES: Record<string, string> = {
   claude: "@anthropic-ai/claude-code",
   codex: "@openai/codex",
 };

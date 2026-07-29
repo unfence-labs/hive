@@ -1,12 +1,12 @@
 import type { FastifyInstance } from "fastify";
 import { getWorkspace } from "../workspaces/workspace-manager.js";
 import { getTerminalProcess } from "../services/terminal-runner.js";
-import { isAuthorized } from "../utils/auth.js";
+import { isAuthorized, type AuthExpectation } from "../utils/auth.js";
 import { attachPtyToSocket } from "./pty-socket.js";
 
 export interface TerminalWsRoutesOptions {
   dataDir?: string;
-  authToken?: string;
+  auth?: AuthExpectation;
 }
 
 /**
@@ -18,7 +18,7 @@ export async function terminalWsRoutes(
   app: FastifyInstance,
   opts: TerminalWsRoutesOptions = {},
 ) {
-  const { authToken, dataDir } = opts;
+  const { auth, dataDir } = opts;
 
   app.get<{
     Params: { wsId: string };
@@ -29,7 +29,7 @@ export async function terminalWsRoutes(
     async (socket, req) => {
       const queryToken =
         typeof req.query.token === "string" ? req.query.token : undefined;
-      if (!isAuthorized(req.headers, authToken, queryToken)) {
+      if (!isAuthorized(req.headers, auth, queryToken)) {
         socket.send(JSON.stringify({ type: "error", message: "Unauthorized" }));
         socket.close(1008, "Unauthorized");
         return;

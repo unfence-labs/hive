@@ -1,20 +1,18 @@
 import SwiftUI
 
 /// First-run funnel shown when no server has been configured yet. Guides the user
-/// through entering their Hive server address, hints at VPN/Tailscale state, and
-/// verifies reachability before dismissing.
+/// through entering their Hive server address and verifies reachability before
+/// dismissing.
 struct OnboardingView: View {
     let onDone: () -> Void
 
     @AppStorage("serverHost") private var host = ""
-    @AppStorage("serverPort") private var port = "3000"
+    @AppStorage("serverPort") private var port = ServerEndpoint.defaultPort
     @AppStorage("authToken") private var token = ""
     @AppStorage("hiveAccent") private var accentId = AccentOption.defaultId
 
     @FocusState private var focused: Field?
     @State private var phase: Phase = .idle
-    @State private var vpnActive = NetworkEnvironment.isVPNActive()
-    @State private var vpnRefreshSpin = 0.0
 
     private enum Field: Hashable { case host, port, token }
     private enum Phase: Equatable { case idle, testing, success, failed }
@@ -32,7 +30,7 @@ struct OnboardingView: View {
             Form {
                 headerSection
                 serverSection
-                statusSection
+                connectionFailureSection
             }
             .scrollContentBackground(.hidden)
             .hiveScreenBackground()
@@ -57,7 +55,7 @@ struct OnboardingView: View {
                 Text("Connect to your Hive server")
                     .font(.title2.weight(.bold))
                     .multilineTextAlignment(.center)
-                Text("Enter your server address to get started. If it's behind Tailscale, make sure the VPN is connected first.")
+                Text("Enter the address and credentials for your Hive server.")
                     .font(.subheadline)
                     .foregroundStyle(WhisperColor.textSecondary)
                     .multilineTextAlignment(.center)
@@ -70,6 +68,7 @@ struct OnboardingView: View {
 
     private var serverSection: some View {
         Section("Server") {
+            transportSecurityWarning
             LabeledContent("Host") {
                 TextField("hostname or IP", text: $host)
                     .focused($focused, equals: .host)
@@ -93,44 +92,33 @@ struct OnboardingView: View {
         .listRowBackground(WhisperColor.surfaceRaised)
     }
 
-    private var statusSection: some View {
-        Section {
-            HStack(spacing: HiveSpacing.sm) {
-                Image(systemName: vpnActive ? "lock.shield.fill" : "lock.shield")
-                    .font(.title3)
-                    .foregroundStyle(vpnActive ? WhisperColor.success : WhisperColor.textMuted)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(vpnActive ? "VPN active" : "No VPN detected")
-                        .font(.subheadline.weight(.medium))
-                    Text(vpnActive
-                        ? "A tunnel is up — good if your server needs Tailscale."
-                        : "If your server is behind Tailscale, connect the VPN first.")
-                        .font(.caption)
-                        .foregroundStyle(WhisperColor.textSecondary)
-                }
-                Spacer()
-                Button {
-                    withAnimation(.snappy(duration: 0.5)) { vpnRefreshSpin += 360 }
-                    vpnActive = NetworkEnvironment.isVPNActive()
-                } label: {
-                    Image(systemName: "arrow.clockwise")
-                        .rotationEffect(.degrees(vpnRefreshSpin))
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(WhisperColor.textSecondary)
-                .accessibilityLabel("Re-check VPN")
-            }
+    private var transportSecurityWarning: some View {
+        VStack(alignment: .leading, spacing: HiveSpacing.xs) {
+            Text("Private network required")
+                .font(.footnote.weight(.medium))
+                .foregroundStyle(WhisperColor.danger)
+            Text(
+                "HTTPS is not supported yet. Connect through an encrypted private network such as Tailscale, WireGuard, or another VPN. Never use a public address."
+            )
+            .font(.caption)
+            .foregroundStyle(WhisperColor.textSecondary)
+        }
+        .accessibilityElement(children: .combine)
+    }
 
-            if phase == .failed {
+    @ViewBuilder
+    private var connectionFailureSection: some View {
+        if phase == .failed {
+            Section {
                 Label(
-                    "Couldn't reach \(host):\(port). Check the address\(vpnActive ? "" : " and your VPN"), then try again.",
+                    "Couldn't reach \(host):\(port). Check the address and credentials, then try again.",
                     systemImage: "wifi.slash"
                 )
                 .font(.caption)
                 .foregroundStyle(.red)
             }
+            .listRowBackground(WhisperColor.surfaceRaised)
         }
-        .listRowBackground(WhisperColor.surfaceRaised)
     }
 
     private var connectBar: some View {
@@ -174,7 +162,6 @@ struct OnboardingView: View {
 
     private func testAndConnect() async {
         focused = nil
-        vpnActive = NetworkEnvironment.isVPNActive()
         phase = .testing
         HiveHTTP.clearCache()
         if await runHealthCheck() {

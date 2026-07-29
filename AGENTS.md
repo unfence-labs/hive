@@ -61,6 +61,10 @@ Core model: Project -> Workspace -> Session. Projects are bare repositories; wor
 
 ## Architecture Guardrails
 
+- V1 client traffic assumes an operator-managed encrypted private network; never document direct
+  public HTTP as supported.
+- Provisioning resumes only an exact incomplete install identity and rejects completed installs.
+- `ServerConnection.setupPending` gates the ordinary app until Accounts setup finishes.
 - Use `git(args, cwd)` from `backend/src/utils/git.ts`; do not execute raw shell git strings in backend code.
 - Validate repository URLs with `validateRepositoryUrl()` before cloning.
 - Keep WebSocket protocol types aligned across `backend/src/types.ts`, `frontend/src/types.ts`, and `ios/HiveMobile/Models/WebSocketTypes.swift`.

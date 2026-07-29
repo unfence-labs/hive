@@ -1,4 +1,4 @@
-import { getServerUrl } from "@/hooks/useServerUrl";
+import { getAuthToken, getServerUrl } from "@/hooks/useConnection";
 
 /**
  * Build a WebSocket URL against the configured backend, factoring the
@@ -18,7 +18,7 @@ export function buildWsUrl(path: string, params?: Record<string, string>): strin
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
     wsHost = import.meta.env.VITE_WS_URL || `${protocol}//${window.location.host}`;
   }
-  const authToken = (import.meta.env.VITE_HIVE_AUTH_TOKEN as string | undefined)?.trim();
+  const authToken = getAuthToken();
   const search = new URLSearchParams(params ?? {});
   if (authToken) search.set("token", authToken);
   const query = search.toString();

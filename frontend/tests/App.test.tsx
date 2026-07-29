@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import App from "@/App";
+import { getConnection, replaceConnection } from "@/hooks/useConnection";
 
 function renderApp() {
   const queryClient = new QueryClient({
@@ -127,6 +128,57 @@ vi.mock("@/pages/settings/ConnectionSettings", () => ({
   ),
 }));
 
+vi.mock("@/pages/settings/ServerSettings", () => ({
+  default: ({ onOpenInstaller }: { onOpenInstaller: () => void }) => (
+    <button type="button" onClick={onOpenInstaller}>
+      open installer
+    </button>
+  ),
+}));
+
+vi.mock("@/pages/installer/Installer", async () => {
+  const { completeConnectionSetup, replaceConnection: store } =
+    await import("@/hooks/useConnection");
+  return {
+    default: ({ onClose, cancellable }: { onClose?: () => void; cancellable?: boolean }) => (
+      <div data-testid="installer">
+        <button type="button" onClick={onClose}>
+          close installer
+        </button>
+        {cancellable && (
+          <button type="button" onClick={onClose}>
+            cancel installer
+          </button>
+        )}
+        {/* Stands in for the install storing the connection it just created. */}
+        <button
+          type="button"
+          onClick={() =>
+            store({
+              host: "203.0.113.10",
+              port: 9420,
+              authToken: "issued",
+              sshUser: "hive",
+              setupPending: true,
+            })
+          }
+        >
+          store connection
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            completeConnectionSetup();
+            onClose?.();
+          }}
+        >
+          complete setup
+        </button>
+      </div>
+    ),
+  };
+});
+
 vi.mock("@/pages/settings/NotificationSettings", () => ({
   default: () => <div>notification settings</div>,
 }));
@@ -165,9 +217,20 @@ vi.mock("@/components/AppLayout", async () => {
   };
 });
 
+type DesktopWindow = Window & { __TAURI_INTERNALS__?: unknown };
+
+function runInDesktopShell(): void {
+  (window as DesktopWindow).__TAURI_INTERNALS__ = {};
+}
+
 describe("App", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    localStorage.clear();
+    delete (window as DesktopWindow).__TAURI_INTERNALS__;
+    // Most tests exercise the configured app; the boot gate has its own tests,
+    // which clear this again.
+    replaceConnection({ host: "100.64.0.10", port: 9420, authToken: "tok" });
     mocks.projects = makeProjects();
     mocks.loading = false;
     window.history.pushState({}, "", "/projects");
@@ -316,6 +379,109 @@ describe("App", () => {
 
     expect(screen.getByRole("button", { name: "open add project" })).toBeInTheDocument();
     expect(window.location.pathname).toBe("/home");
+  });
+
+  it("boots on the installer alone when no server is configured", async () => {
+    replaceConnection(null);
+    runInDesktopShell();
+
+    renderApp();
+
+    expect(await screen.findByTestId("installer")).toBeInTheDocument();
+    // The gate: nothing else mounts, so nothing calls a server that is not
+    // there. No layout, no routes, no dialogs.
+    expect(screen.queryByTestId("app-layout")).not.toBeInTheDocument();
+    expect(mocks.syncWorkspaces).not.toHaveBeenCalled();
+    // With no server there is no way out but the welcome screen's own paths.
+    expect(screen.queryByRole("button", { name: "cancel installer" })).not.toBeInTheDocument();
+  });
+
+  it("keeps the gate up once the install stores its connection", async () => {
+    const user = userEvent.setup();
+    replaceConnection(null);
+    runInDesktopShell();
+    renderApp();
+
+    await user.click(await screen.findByRole("button", { name: "store connection" }));
+
+    // The install stores the connection partway through: the final screen —
+    // connect your accounts — still has to run on the server it just built,
+    // and the app must not start bootstrapping underneath it.
+    expect(screen.getByTestId("installer")).toBeInTheDocument();
+    expect(screen.queryByTestId("app-layout")).not.toBeInTheDocument();
+    // A gate is not an overlay: there is still nothing to abandon it for.
+    expect(screen.queryByRole("button", { name: "cancel installer" })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "complete setup" }));
+    expect(screen.queryByTestId("installer")).not.toBeInTheDocument();
+    // The configured app mounts for the first time now.
+    expect(await screen.findByTestId("app-layout")).toBeInTheDocument();
+    expect(getConnection()).not.toHaveProperty("setupPending");
+  });
+
+  it("gates the web build too, offering the connect path", async () => {
+    replaceConnection(null);
+
+    renderApp();
+
+    expect(await screen.findByTestId("installer")).toBeInTheDocument();
+    expect(screen.queryByTestId("app-layout")).not.toBeInTheDocument();
+  });
+
+  it("does not open the installer once a server is configured", () => {
+    runInDesktopShell();
+    replaceConnection({ host: "100.64.0.10", port: 9420 });
+
+    renderApp();
+
+    expect(screen.queryByTestId("installer")).not.toBeInTheDocument();
+  });
+
+  it("boots on the installer alone while guided setup is pending", async () => {
+    runInDesktopShell();
+    replaceConnection({
+      host: "100.64.0.10",
+      port: 9420,
+      authToken: "tok",
+      sshUser: "hive",
+      setupPending: true,
+    });
+
+    renderApp();
+
+    expect(await screen.findByTestId("installer")).toBeInTheDocument();
+    expect(screen.queryByTestId("app-layout")).not.toBeInTheDocument();
+    expect(mocks.syncWorkspaces).not.toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: "cancel installer" })).not.toBeInTheDocument();
+  });
+
+  it("opens the installer on demand from Settings, and closing it changes nothing", async () => {
+    const user = userEvent.setup();
+    runInDesktopShell();
+    replaceConnection({ host: "100.64.0.10", port: 9420, authToken: "tok" });
+    window.history.pushState({}, "", "/settings/server");
+    renderApp();
+
+    await user.click(await screen.findByRole("button", { name: "open installer" }));
+    expect(await screen.findByTestId("installer")).toBeInTheDocument();
+    // Reopened over a configured app it is an overlay, not the gate: the app
+    // stays mounted and abandoning is offered.
+    expect(screen.getByTestId("app-layout")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "cancel installer" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "close installer" }));
+
+    expect(screen.queryByTestId("installer")).not.toBeInTheDocument();
+    expect(getConnection()).toMatchObject({ host: "100.64.0.10", port: 9420, authToken: "tok" });
+  });
+
+  it("does not register the server settings route in the web build", () => {
+    replaceConnection({ host: "100.64.0.10", port: 9420 });
+    window.history.pushState({}, "", "/settings/server");
+
+    renderApp();
+
+    expect(screen.queryByRole("button", { name: "open installer" })).not.toBeInTheDocument();
   });
 
   it("redirects /projects to /home", () => {

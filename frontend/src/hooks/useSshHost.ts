@@ -1,31 +1,20 @@
-import { useMemo } from "react";
-import { useTailscaleConfig } from "@/hooks/useTailscaleConfig";
-import { useServerUrl } from "@/hooks/useServerUrl";
+import { useConnection } from "@/hooks/useConnection";
 
 /**
  * Derive the SSH host used for VS Code Remote SSH + terminal-SSH actions.
  *
- * Resolution order for the base host: Tailscale IP → backend server hostname →
- * the current window hostname. When an SSH user is configured it is prefixed as
- * `user@host`. `sshBaseHost` is exposed separately so callers can tell "no host
- * configured at all" apart from "host but no user".
+ * The host comes from the connection record, falling back to the current window
+ * hostname when no server is configured. The user is the record's `sshUser` —
+ * the unprivileged service account — never `adminUser`: an editor session
+ * connecting as root takes ownership of every file it saves, after which the
+ * agent can no longer write them. `sshBaseHost` is exposed separately so callers
+ * can tell "no host configured at all" apart from "host but no user".
  */
 export function useSshHost(): { sshHost: string; sshBaseHost: string } {
-  const { ip: tailscaleIp, sshUser } = useTailscaleConfig();
-  const { serverUrl } = useServerUrl();
-
-  const backendHost = useMemo(() => {
-    if (!serverUrl) return "";
-    try {
-      const normalized = serverUrl.includes("://") ? serverUrl : `http://${serverUrl}`;
-      return new URL(normalized).hostname;
-    } catch {
-      return "";
-    }
-  }, [serverUrl]);
-
+  const { connection } = useConnection();
+  const sshUser = connection?.sshUser ?? "";
   const fallbackWindowHost = typeof window !== "undefined" ? window.location.hostname : "";
-  const sshBaseHost = tailscaleIp || backendHost || fallbackWindowHost;
+  const sshBaseHost = connection?.host || fallbackWindowHost;
   const sshHost = sshUser && sshBaseHost ? `${sshUser}@${sshBaseHost}` : sshBaseHost;
 
   return { sshHost, sshBaseHost };

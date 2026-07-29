@@ -62,8 +62,16 @@ export class KimiProvider extends ClaudeProvider {
     const { model, thinkingLevel } = this.resolveModelOptions(options);
     const contextWindow = model?.contextWindow ?? DEFAULT_CONTEXT_WINDOW;
     const cliModel = model?.cliValue;
+    // Kimi runs the same binary against Moonshot's endpoint with Moonshot's
+    // key. An Anthropic OAuth token inherited from the Claude provider would
+    // give the CLI two ways to authenticate for one request, so it is dropped
+    // rather than left to whichever the CLI happens to prefer.
+    const { CLAUDE_CODE_OAUTH_TOKEN: _anthropicOnly, ...claudeEnv } = super.buildEnv({
+      ...options,
+      thinkingLevel,
+    });
     return {
-      ...super.buildEnv({ ...options, thinkingLevel }),
+      ...claudeEnv,
       ANTHROPIC_BASE_URL: "https://api.kimi.com/coding/",
       ANTHROPIC_API_KEY: getKimiApiKey(),
       ...(cliModel ? {

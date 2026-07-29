@@ -250,6 +250,34 @@ describe("SettingsSidebar", () => {
     expect(screen.getByRole("link", { name: /Skills/i })).toBeInTheDocument();
   });
 
+  it("offers the Server page only in the desktop shell", () => {
+    const sidebar = (
+      <MemoryRouter initialEntries={["/settings/appearance"]}>
+        <Routes>
+          <Route path="/settings" element={<SettingsShell />}>
+            <Route path="appearance" element={<div>Appearance settings</div>} />
+          </Route>
+        </Routes>
+      </MemoryRouter>
+    );
+
+    // The web build has no SSH sidecar, so it gets no installer entry at all.
+    const { unmount } = renderWithProviders(sidebar);
+    expect(screen.queryByRole("link", { name: "Server" })).not.toBeInTheDocument();
+    unmount();
+
+    Object.defineProperty(window, "__TAURI_INTERNALS__", { value: {}, configurable: true });
+    try {
+      renderWithProviders(sidebar);
+      expect(screen.getByRole("link", { name: "Server" })).toHaveAttribute(
+        "href",
+        "/settings/server",
+      );
+    } finally {
+      Reflect.deleteProperty(window, "__TAURI_INTERNALS__");
+    }
+  });
+
   it("groups repositories with sidebar folders in settings", async () => {
     const user = userEvent.setup();
     renderWithProviders(

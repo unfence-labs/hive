@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { createHash } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -31,6 +32,10 @@ vi.mock("fastify", async (importOriginal) => {
 
 import { buildApp } from "./index.js";
 
+function sha256Hex(value: string): string {
+  return createHash("sha256").update(value).digest("hex");
+}
+
 let app: Awaited<ReturnType<typeof buildApp>>;
 let tempDataDir: string;
 let previousDataDir: string | undefined;
@@ -42,7 +47,13 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  // Vitest runs with NODE_ENV=test; tests that pin the production posture set
+  // it themselves and this puts it back.
+  process.env.NODE_ENV = "test";
   delete process.env.HIVE_AUTH_TOKEN;
+  delete process.env.HIVE_AUTH_TOKEN_SHA256;
+  delete process.env.HIVE_ALLOWED_HOSTS;
+  delete process.env.HIVE_ALLOWED_ORIGINS;
   delete process.env.HIVE_RATE_LIMIT_MAX;
   delete process.env.HIVE_RATE_LIMIT_WINDOW_MS;
   delete process.env.HIVE_CLAUDE_SKIP_PERMISSIONS;
@@ -114,16 +125,18 @@ describe("buildApp", () => {
     });
   });
 
-  it("registers agent settings routes", async () => {
+  it("registers setup tool routes", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response("Not Found", { status: 404 }),
     );
     app = await buildApp();
-    const res = await app.inject({ method: "GET", url: "/api/settings/cli" });
+    const res = await app.inject({ method: "GET", url: "/api/setup/tools" });
 
     expect(res.statusCode).toBe(200);
     expect(res.json()).toEqual({
-      agents: expect.any(Array),
+      tools: expect.any(Array),
+      operations: expect.any(Array),
+      authSessions: expect.any(Array),
     });
   });
 
@@ -278,6 +291,200 @@ describe("buildApp", () => {
     expect(body).toHaveProperty("env");
   });
 
+  it("requires auth for API routes when only the token hash is configured", async () => {
+    process.env.HIVE_AUTH_TOKEN_SHA256 = sha256Hex("hashed-secret");
+    app = await buildApp();
+
+    const unauthorized = await app.inject({ method: "GET", url: "/api/projects" });
+    expect(unauthorized.statusCode).toBe(401);
+
+    const wrong = await app.inject({
+      method: "GET",
+      url: "/api/projects",
+      headers: { authorization: "Bearer nope" },
+    });
+    expect(wrong.statusCode).toBe(401);
+
+    const authorized = await app.inject({
+      method: "GET",
+      url: "/api/projects",
+      headers: { authorization: "Bearer hashed-secret" },
+    });
+    expect(authorized.statusCode).toBe(200);
+  });
+
+  it("accepts the hashed token through the ?token= query param", async () => {
+    process.env.HIVE_AUTH_TOKEN_SHA256 = sha256Hex("hashed-secret");
+    app = await buildApp();
+
+    const res = await app.inject({ method: "GET", url: "/api/projects?token=hashed-secret" });
+    expect(res.statusCode).toBe(200);
+  });
+
+  it("stays open when neither token nor token hash is configured", async () => {
+    app = await buildApp();
+    const res = await app.inject({ method: "GET", url: "/api/projects" });
+    expect(res.statusCode).toBe(200);
+  });
+
+  it("enforces the same expectation on WebSocket endpoints as on REST", async () => {
+    process.env.HIVE_AUTH_TOKEN_SHA256 = sha256Hex("ws-secret");
+    app = await buildApp();
+    await app.ready();
+
+    const wsPaths = [
+      "/ws/hub",
+      "/ws/script/ws-1?type=setup",
+      "/ws/terminal/ws-1?sessionId=session-1",
+      "/ws/browser/ws-1/session-1",
+    ];
+    for (const path of wsPaths) {
+      await expect(app.injectWS(path, { headers: { host: "localhost" } })).rejects.toThrow(
+        "Unexpected server response: 401",
+      );
+    }
+
+    const socket = await app.injectWS("/ws/hub?token=ws-secret", {
+      headers: { host: "localhost" },
+    });
+    const firstFrame = await Promise.race([
+      new Promise<string>((resolve) => {
+        socket.once("message", (data) => resolve(data.toString()));
+      }),
+      new Promise<string>((resolve) => setTimeout(() => resolve(""), 150)),
+    ]);
+    expect(firstFrame).not.toContain("Unauthorized");
+    expect(socket.readyState).toBe(socket.OPEN);
+    socket.close();
+  });
+
+  it("rejects a Host header that is not an IP, localhost or explicitly allowed", async () => {
+    app = await buildApp();
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/projects",
+      headers: { host: "evil.example.com" },
+    });
+    expect(res.statusCode).toBe(403);
+    expect(res.json()).toEqual({ error: "Forbidden host" });
+  });
+
+  it("keeps the Host guard on even when auth is configured", async () => {
+    process.env.HIVE_AUTH_TOKEN = "secret";
+    app = await buildApp();
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/projects",
+      headers: { host: "evil.example.com", authorization: "Bearer secret" },
+    });
+    expect(res.statusCode).toBe(403);
+  });
+
+  it("accepts a Host header listed in HIVE_ALLOWED_HOSTS", async () => {
+    process.env.HIVE_ALLOWED_HOSTS = "hive.example.com";
+    app = await buildApp();
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/projects",
+      headers: { host: "hive.example.com" },
+    });
+    expect(res.statusCode).toBe(200);
+  });
+
+  it("accepts IP Host headers", async () => {
+    app = await buildApp();
+    for (const host of ["100.74.156.118:3000", "[2001:db8::1]:3000"]) {
+      const res = await app.inject({ method: "GET", url: "/api/projects", headers: { host } });
+      expect(res.statusCode).toBe(200);
+    }
+  });
+
+  it("keeps /health reachable from a disallowed Host", async () => {
+    app = await buildApp();
+    const res = await app.inject({
+      method: "GET",
+      url: "/health",
+      headers: { host: "evil.example.com" },
+    });
+    expect(res.statusCode).toBe(200);
+  });
+
+  it("serves /health with an open CORS header and no secrets", async () => {
+    process.env.HIVE_AUTH_TOKEN = "secret";
+    app = await buildApp();
+    const res = await app.inject({
+      method: "GET",
+      url: "/health",
+      headers: { origin: "https://attacker.example" },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.headers["access-control-allow-origin"]).toBe("*");
+    expect(res.body).not.toContain("secret");
+    expect(Object.keys(res.json())).toEqual(["status", "env", "system"]);
+  });
+
+  it("does not grant CORS to arbitrary web origins in production", async () => {
+    process.env.NODE_ENV = "production";
+    app = await buildApp();
+    const request = await app.inject({
+      method: "GET",
+      url: "/api/projects",
+      headers: { origin: "https://attacker.example" },
+    });
+    expect(request.headers).not.toHaveProperty("access-control-allow-origin");
+
+    const preflight = await app.inject({
+      method: "OPTIONS",
+      url: "/api/projects",
+      headers: {
+        origin: "https://attacker.example",
+        "access-control-request-method": "GET",
+      },
+    });
+    expect(preflight.headers).not.toHaveProperty("access-control-allow-origin");
+  });
+
+  it("grants CORS to any origin outside production", async () => {
+    // The dev server runs with --host and may be reached from any address —
+    // a tailnet IP included — so dev keeps the pre-allowlist behavior.
+    app = await buildApp();
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/projects",
+      headers: { origin: "http://100.64.0.10:5173" },
+    });
+    expect(res.headers["access-control-allow-origin"]).toBe("http://100.64.0.10:5173");
+  });
+
+  it("allows an exact origin configured through HIVE_ALLOWED_ORIGINS", async () => {
+    process.env.NODE_ENV = "production";
+    process.env.HIVE_ALLOWED_ORIGINS = "https://hive.example.com";
+    app = await buildApp();
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/projects",
+      headers: { origin: "https://hive.example.com" },
+    });
+    expect(res.headers["access-control-allow-origin"]).toBe("https://hive.example.com");
+  });
+
+  it("rejects a WebSocket upgrade from an untrusted browser origin", async () => {
+    process.env.NODE_ENV = "production";
+    app = await buildApp();
+    await app.ready();
+    await expect(
+      app.injectWS("/ws/hub", {
+        headers: { host: "localhost", origin: "https://attacker.example" },
+      }),
+    ).rejects.toThrow("Unexpected server response: 403");
+
+    const socket = await app.injectWS("/ws/hub", {
+      headers: { host: "localhost", origin: "tauri://localhost" },
+    });
+    expect(socket.readyState).toBe(socket.OPEN);
+    socket.close();
+  });
+
   it("rate-limits API requests when threshold is exceeded", async () => {
     process.env.HIVE_RATE_LIMIT_MAX = "2";
     process.env.HIVE_RATE_LIMIT_WINDOW_MS = "60000";
@@ -291,5 +498,38 @@ describe("buildApp", () => {
     expect(second.statusCode).toBe(200);
     expect(third.statusCode).toBe(429);
     expect(third.json().error).toContain("Rate limit exceeded");
+  });
+
+  it("rate-limits repeated failed authentications", async () => {
+    process.env.HIVE_AUTH_TOKEN = "secret";
+    process.env.HIVE_RATE_LIMIT_MAX = "2";
+    process.env.HIVE_RATE_LIMIT_WINDOW_MS = "60000";
+    app = await buildApp();
+
+    const attempt = () =>
+      app.inject({
+        method: "GET",
+        url: "/api/projects",
+        headers: { authorization: "Bearer wrong" },
+      });
+
+    expect((await attempt()).statusCode).toBe(401);
+    expect((await attempt()).statusCode).toBe(401);
+    const throttled = await attempt();
+    expect(throttled.statusCode).toBe(429);
+    expect(throttled.json().error).toContain("Rate limit exceeded");
+
+    // The limiter must not lock out an operator polling the open health probe.
+    const health = await app.inject({ method: "GET", url: "/health" });
+    expect(health.statusCode).toBe(200);
+  });
+
+  it("rejects a repeated ?token= query param with 401 rather than 500", async () => {
+    process.env.HIVE_AUTH_TOKEN = "secret";
+    app = await buildApp();
+
+    const res = await app.inject({ method: "GET", url: "/api/projects?token=secret&token=other" });
+    expect(res.statusCode).toBe(401);
+    expect(res.json()).toEqual({ error: "Unauthorized" });
   });
 });

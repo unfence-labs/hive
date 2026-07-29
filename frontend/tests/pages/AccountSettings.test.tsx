@@ -2,6 +2,7 @@ import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor, act } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import type { SetupStatusResponse, ToolAuthSession } from "@hive/shared/setup-types";
 import AccountSettings from "@/pages/settings/AccountSettings";
 import type { ReactNode } from "react";
 
@@ -10,13 +11,9 @@ const mocks = vi.hoisted(() => ({
   post: vi.fn(),
   openExternal: vi.fn(),
   copyToClipboard: vi.fn(),
-}));
-
-vi.mock("@/hooks/useApi", () => ({
-  api: {
-    get: mocks.get,
-    post: mocks.post,
-  },
+  getStatus: vi.fn(),
+  startAuth: vi.fn(),
+  cancelAuth: vi.fn(),
 }));
 
 vi.mock("@/lib/open-external", () => ({
@@ -25,6 +22,18 @@ vi.mock("@/lib/open-external", () => ({
 
 vi.mock("@/lib/clipboard", () => ({
   copyToClipboard: mocks.copyToClipboard,
+}));
+
+// The account endpoints go through the setup client too: they need the same
+// target plumbing. `get` / `post` are the account status read and the sign-out.
+vi.mock("@/lib/setup-api", () => ({
+  createSetupApi: () => ({
+    getStatus: mocks.getStatus,
+    startAuth: mocks.startAuth,
+    cancelAuth: mocks.cancelAuth,
+    getAccountStatus: mocks.get,
+    disconnectAccount: mocks.post,
+  }),
 }));
 
 function createAccountWrapper() {
@@ -40,10 +49,29 @@ function createAccountWrapper() {
   return { queryClient, Wrapper };
 }
 
+function ghSession(overrides: Partial<ToolAuthSession> = {}): ToolAuthSession {
+  return {
+    tool: "gh",
+    state: "awaiting_authorization",
+    verificationUri: "https://github.com/login/device",
+    userCode: "ABCD-1234",
+    needsCode: false,
+    startedAt: "2026-07-27T00:00:00.000Z",
+    ...overrides,
+  };
+}
+
+function status(sessions: ToolAuthSession[]): SetupStatusResponse {
+  return { operations: [], authSessions: sessions };
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   vi.useFakeTimers({ shouldAdvanceTime: true });
   mocks.copyToClipboard.mockResolvedValue(undefined);
+  mocks.getStatus.mockResolvedValue(status([]));
+  mocks.startAuth.mockResolvedValue(ghSession({ state: "starting" }));
+  mocks.cancelAuth.mockResolvedValue(ghSession({ state: "cancelled" }));
 });
 
 afterEach(() => {
@@ -143,45 +171,43 @@ describe("AccountSettings", () => {
 
   // -- Connect flow --
 
-  it("starts device flow and shows user code", async () => {
+  it("starts the server-driven sign-in and shows the code it produced", async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     mocks.get.mockResolvedValue({ ghInstalled: true, authenticated: false });
+    mocks.getStatus
+      .mockResolvedValueOnce(status([]))
+      .mockResolvedValue(status([ghSession()]));
     const { Wrapper } = createAccountWrapper();
 
     render(<AccountSettings />, { wrapper: Wrapper });
     await screen.findByText("Connect with GitHub");
 
-    mocks.post.mockResolvedValueOnce({
-      userCode: "ABCD-1234",
-      verificationUri: "https://github.com/login/device",
-      expiresIn: 900,
-      interval: 5,
-    });
-    mocks.post.mockResolvedValue({ status: "pending" });
-
     await user.click(screen.getByText("Connect with GitHub"));
 
+    expect(mocks.startAuth).toHaveBeenCalledWith("gh");
     expect(await screen.findByText("ABCD-1234")).toBeInTheDocument();
-    expect(screen.getByText("Waiting for authorization...")).toBeInTheDocument();
+    expect(screen.getByText("Waiting for authorization…")).toBeInTheDocument();
+  });
+
+  it("resumes a sign-in still running on the server after a reload", async () => {
+    mocks.get.mockResolvedValue({ ghInstalled: true, authenticated: false });
+    mocks.getStatus.mockResolvedValue(status([ghSession()]));
+    const { Wrapper } = createAccountWrapper();
+
+    render(<AccountSettings />, { wrapper: Wrapper });
+
+    // No click: the server still holds the flow, so the code comes back.
+    expect(await screen.findByText("ABCD-1234")).toBeInTheDocument();
+    expect(mocks.startAuth).not.toHaveBeenCalled();
   });
 
   it("copies device code with clipboard helper and toggles copy label", async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     mocks.get.mockResolvedValue({ ghInstalled: true, authenticated: false });
+    mocks.getStatus.mockResolvedValue(status([ghSession({ userCode: "COPY-CODE" })]));
     const { Wrapper } = createAccountWrapper();
 
     render(<AccountSettings />, { wrapper: Wrapper });
-    await screen.findByText("Connect with GitHub");
-
-    mocks.post.mockResolvedValueOnce({
-      userCode: "COPY-CODE",
-      verificationUri: "https://github.com/login/device",
-      expiresIn: 900,
-      interval: 5,
-    });
-    mocks.post.mockResolvedValue({ status: "pending" });
-
-    await user.click(screen.getByText("Connect with GitHub"));
     await screen.findByText("COPY-CODE");
 
     await user.click(screen.getByLabelText("Copy code to clipboard"));
@@ -199,60 +225,35 @@ describe("AccountSettings", () => {
   it("opens GitHub verification URL", async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     mocks.get.mockResolvedValue({ ghInstalled: true, authenticated: false });
+    mocks.getStatus.mockResolvedValue(status([ghSession({ userCode: "TEST-CODE" })]));
     const { Wrapper } = createAccountWrapper();
 
     render(<AccountSettings />, { wrapper: Wrapper });
-    await screen.findByText("Connect with GitHub");
-
-    mocks.post.mockResolvedValueOnce({
-      userCode: "TEST-CODE",
-      verificationUri: "https://github.com/login/device",
-      expiresIn: 900,
-      interval: 5,
-    });
-    mocks.post.mockResolvedValue({ status: "pending" });
-
-    await user.click(screen.getByText("Connect with GitHub"));
     await screen.findByText("TEST-CODE");
-    await user.click(screen.getByText("Open GitHub"));
+
+    await user.click(screen.getByRole("button", { name: /open sign-in page/i }));
 
     expect(mocks.openExternal).toHaveBeenCalledWith("https://github.com/login/device");
   });
 
-  it("transitions to connected after successful poll", async () => {
-    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
-    mocks.get.mockResolvedValue({ ghInstalled: true, authenticated: false });
+  it("transitions to connected once the server reports the sign-in landed", async () => {
+    mocks.get
+      .mockResolvedValueOnce({ ghInstalled: true, authenticated: false })
+      .mockResolvedValue({
+        ghInstalled: true,
+        authenticated: true,
+        user: { login: "octocat", name: "Mona Lisa", email: "", avatarUrl: "" },
+      });
+    mocks.getStatus
+      .mockResolvedValueOnce(status([ghSession()]))
+      .mockResolvedValue(status([ghSession({ state: "connected" })]));
     const { Wrapper } = createAccountWrapper();
 
     render(<AccountSettings />, { wrapper: Wrapper });
-    await screen.findByText("Connect with GitHub");
-
-    mocks.post.mockResolvedValueOnce({
-      userCode: "FLOW-CODE",
-      verificationUri: "https://github.com/login/device",
-      expiresIn: 900,
-      interval: 1,
-    });
-    mocks.post
-      .mockResolvedValueOnce({ status: "pending" })
-      .mockResolvedValueOnce({
-        status: "complete",
-        user: {
-          login: "octocat",
-          name: "Mona Lisa",
-          email: "octocat@github.com",
-          avatarUrl: "",
-        },
-      });
-
-    await user.click(screen.getByText("Connect with GitHub"));
-    await screen.findByText("FLOW-CODE");
+    await screen.findByText("ABCD-1234");
 
     await act(async () => {
-      vi.advanceTimersByTime(1000);
-    });
-    await act(async () => {
-      vi.advanceTimersByTime(1000);
+      vi.advanceTimersByTime(2000);
     });
 
     await waitFor(() => {
@@ -260,74 +261,67 @@ describe("AccountSettings", () => {
     });
   });
 
-  it("shows error when connect flow initiation fails", async () => {
-    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+  it("shows an error when the code expires", async () => {
     mocks.get.mockResolvedValue({ ghInstalled: true, authenticated: false });
+    mocks.getStatus
+      .mockResolvedValueOnce(status([ghSession()]))
+      .mockResolvedValue(status([ghSession({ state: "expired" })]));
     const { Wrapper } = createAccountWrapper();
 
     render(<AccountSettings />, { wrapper: Wrapper });
-    await screen.findByText("Connect with GitHub");
-
-    mocks.post.mockRejectedValueOnce(new Error("network error"));
-
-    await user.click(screen.getByText("Connect with GitHub"));
-
-    expect(await screen.findByText("Failed to start GitHub connection flow")).toBeInTheDocument();
-  });
-
-  it("shows error on expired poll status", async () => {
-    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
-    mocks.get.mockResolvedValue({ ghInstalled: true, authenticated: false });
-    const { Wrapper } = createAccountWrapper();
-
-    render(<AccountSettings />, { wrapper: Wrapper });
-    await screen.findByText("Connect with GitHub");
-
-    mocks.post.mockResolvedValueOnce({
-      userCode: "EXP-CODE",
-      verificationUri: "https://github.com/login/device",
-      expiresIn: 900,
-      interval: 1,
-    });
-    mocks.post.mockResolvedValueOnce({ status: "expired" });
-
-    await user.click(screen.getByText("Connect with GitHub"));
-    await screen.findByText("EXP-CODE");
+    await screen.findByText("ABCD-1234");
 
     await act(async () => {
-      vi.advanceTimersByTime(1000);
+      vi.advanceTimersByTime(2000);
     });
 
     await waitFor(() => {
-      expect(screen.getByText("Authorization timed out. Please try again.")).toBeInTheDocument();
+      expect(screen.getByText(/code expired before it was confirmed/i)).toBeInTheDocument();
     });
   });
 
-  it("shows error on denied poll status", async () => {
-    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+  it("shows the failure and its hint when the sign-in fails", async () => {
     mocks.get.mockResolvedValue({ ghInstalled: true, authenticated: false });
+    mocks.getStatus
+      .mockResolvedValueOnce(status([ghSession()]))
+      .mockResolvedValue(
+        status([
+          ghSession({
+            state: "failed",
+            failure: { reason: "command_failed", message: "Signing the GitHub CLI in failed." },
+          }),
+        ]),
+      );
     const { Wrapper } = createAccountWrapper();
 
     render(<AccountSettings />, { wrapper: Wrapper });
-    await screen.findByText("Connect with GitHub");
-
-    mocks.post.mockResolvedValueOnce({
-      userCode: "DENY-CODE",
-      verificationUri: "https://github.com/login/device",
-      expiresIn: 900,
-      interval: 1,
-    });
-    mocks.post.mockResolvedValueOnce({ status: "denied" });
-
-    await user.click(screen.getByText("Connect with GitHub"));
-    await screen.findByText("DENY-CODE");
+    await screen.findByText("ABCD-1234");
 
     await act(async () => {
-      vi.advanceTimersByTime(1000);
+      vi.advanceTimersByTime(2000);
     });
 
     await waitFor(() => {
-      expect(screen.getByText("Authorization was denied.")).toBeInTheDocument();
+      expect(screen.getByText(/Signing the GitHub CLI in failed/)).toBeInTheDocument();
+    });
+  });
+
+  it("cancels the sign-in on the server and returns to disconnected", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    mocks.get.mockResolvedValue({ ghInstalled: true, authenticated: false });
+    mocks.getStatus
+      .mockResolvedValueOnce(status([ghSession()]))
+      .mockResolvedValue(status([ghSession({ state: "cancelled" })]));
+    const { Wrapper } = createAccountWrapper();
+
+    render(<AccountSettings />, { wrapper: Wrapper });
+    await screen.findByText("ABCD-1234");
+
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+
+    expect(mocks.cancelAuth).toHaveBeenCalled();
+    await waitFor(() => {
+      expect(screen.getByText("Not connected")).toBeInTheDocument();
     });
   });
 
