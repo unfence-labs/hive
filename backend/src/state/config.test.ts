@@ -4,12 +4,9 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { loadConfig, saveConfig, updateConfig, type AppConfig } from "./config.js";
 
-const DEFAULT_APNS = { enabled: false, teamId: "", keyId: "", keyContent: "", bundleId: "", sandbox: false, deviceTokens: [] as string[] };
-
 const DEFAULT_CONFIG: AppConfig = {
   notifications: {
     telegram: { enabled: false, botToken: "", chatId: "" },
-    apns: { ...DEFAULT_APNS },
   },
   kimi: { apiKey: "" },
 };
@@ -50,7 +47,6 @@ describe("loadConfig", () => {
     expect(config).toEqual({
       notifications: {
         telegram: { enabled: true, botToken: "", chatId: "" },
-        apns: { ...DEFAULT_APNS },
       },
       kimi: { apiKey: "" },
     });
@@ -69,7 +65,6 @@ describe("loadConfig", () => {
     const full: AppConfig = {
       notifications: {
         telegram: { enabled: true, botToken: "tok", chatId: "cid" },
-        apns: { enabled: true, teamId: "T", keyId: "K", keyContent: "PEM", bundleId: "com.x", sandbox: true, deviceTokens: ["abc"] },
       },
       kimi: { apiKey: "kimi-key" },
     };
@@ -93,7 +88,6 @@ describe("loadConfig", () => {
     expect(config).toEqual({
       notifications: {
         telegram: { enabled: true, botToken: "t", chatId: "c" },
-        apns: { ...DEFAULT_APNS },
       },
       kimi: { apiKey: "" },
     });
@@ -133,24 +127,6 @@ describe("loadConfig", () => {
     expect(config.kimi.apiKey).toBe("sk-kimi");
   });
 
-  it("fills missing apns fields with defaults when only some are present", async () => {
-    await writeFile(
-      join(dataDir, "config.json"),
-      JSON.stringify({ notifications: { telegram: { enabled: false, botToken: "", chatId: "" }, apns: { enabled: true, teamId: "T1" } } }),
-      "utf-8",
-    );
-
-    const config = await loadConfig(dataDir);
-    expect(config.notifications.apns).toEqual({
-      enabled: true,
-      teamId: "T1",
-      keyId: "",
-      keyContent: "",
-      bundleId: "",
-      sandbox: false,
-      deviceTokens: [],
-    });
-  });
 });
 
 describe("saveConfig", () => {
@@ -167,7 +143,6 @@ describe("saveConfig", () => {
     const config: AppConfig = {
       notifications: {
         telegram: { enabled: true, botToken: "bot-token", chatId: "chat-id" },
-        apns: { enabled: true, teamId: "T", keyId: "K", keyContent: "PEM", bundleId: "com.x", sandbox: false, deviceTokens: ["deadbeef"] },
       },
       kimi: { apiKey: "kimi-key" },
     };
@@ -198,12 +173,12 @@ describe("updateConfig", () => {
   it("persists concurrent updates without dropping either", async () => {
     await Promise.all([
       updateConfig((c) => { c.defaultModelId = "claude:opus-4-8"; }, dataDir),
-      updateConfig((c) => { c.notifications.apns.deviceTokens.push("deadbeef"); }, dataDir),
+      updateConfig((c) => { c.kimi.apiKey = "sk-kimi"; }, dataDir),
     ]);
 
     const loaded = await loadConfig(dataDir);
     expect(loaded.defaultModelId).toBe("claude:opus-4-8");
-    expect(loaded.notifications.apns.deviceTokens).toEqual(["deadbeef"]);
+    expect(loaded.kimi.apiKey).toBe("sk-kimi");
   });
 
   it("keeps accepting updates after a mutate callback throws", async () => {

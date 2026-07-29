@@ -9,19 +9,8 @@ export interface TelegramConfig {
   chatId: string;
 }
 
-export interface ApnsConfig {
-  enabled: boolean;
-  teamId: string;
-  keyId: string;
-  keyContent: string;
-  bundleId: string;
-  sandbox: boolean;
-  deviceTokens: string[];
-}
-
 export interface NotificationsConfig {
   telegram: TelegramConfig;
-  apns: ApnsConfig;
 }
 
 export interface KimiConfig {
@@ -37,20 +26,9 @@ export interface AppConfig {
   claudeCodeOAuthToken?: string;
 }
 
-const DEFAULT_APNS: ApnsConfig = {
-  enabled: false,
-  teamId: "",
-  keyId: "",
-  keyContent: "",
-  bundleId: "",
-  sandbox: false,
-  deviceTokens: [],
-};
-
 const DEFAULT_CONFIG: AppConfig = {
   notifications: {
     telegram: { enabled: false, botToken: "", chatId: "" },
-    apns: { ...DEFAULT_APNS },
   },
   kimi: { apiKey: "" },
 };
@@ -70,22 +48,12 @@ function configFilePath(dataDir: string): string {
 }
 
 function withDefaults(parsed: Partial<AppConfig>): AppConfig {
-  const apns = parsed.notifications?.apns;
   return {
     notifications: {
       telegram: {
         enabled: parsed.notifications?.telegram?.enabled ?? DEFAULT_CONFIG.notifications.telegram.enabled,
         botToken: parsed.notifications?.telegram?.botToken ?? DEFAULT_CONFIG.notifications.telegram.botToken,
         chatId: parsed.notifications?.telegram?.chatId ?? DEFAULT_CONFIG.notifications.telegram.chatId,
-      },
-      apns: {
-        enabled: apns?.enabled ?? DEFAULT_APNS.enabled,
-        teamId: apns?.teamId ?? DEFAULT_APNS.teamId,
-        keyId: apns?.keyId ?? DEFAULT_APNS.keyId,
-        keyContent: apns?.keyContent ?? DEFAULT_APNS.keyContent,
-        bundleId: apns?.bundleId ?? DEFAULT_APNS.bundleId,
-        sandbox: apns?.sandbox ?? DEFAULT_APNS.sandbox,
-        deviceTokens: apns?.deviceTokens ?? [],
       },
     },
     kimi: {
@@ -136,16 +104,15 @@ export async function saveConfig(config: AppConfig, dataDir = getDataDir()): Pro
   await mkdir(dataDir, { recursive: true });
   const target = configFilePath(dataDir);
   const tmp = join(dataDir, `config.${randomUUID()}.tmp`);
-  // Owner-only permissions: config.json holds credentials (Kimi API key,
-  // notification tokens). Same pattern as project-env.ts.
+  // Owner-only permissions: config.json holds credentials. Same pattern as project-env.ts.
   await writeFile(tmp, JSON.stringify(config, null, 2), { encoding: "utf-8", mode: 0o600 });
   await rename(tmp, target);
   await chmod(target, 0o600).catch(() => {});
 }
 
-// Serializes read-modify-write cycles so concurrent writers (settings routes,
-// APNs token persistence) cannot load the same snapshot and drop each other's
-// changes. saveConfig alone is atomic per write but does not close this window.
+// Serializes read-modify-write cycles so concurrent writers cannot load the
+// same snapshot and drop each other's changes. saveConfig alone is atomic per
+// write but does not close this window.
 let updateQueue: Promise<unknown> = Promise.resolve();
 
 export function updateConfig(

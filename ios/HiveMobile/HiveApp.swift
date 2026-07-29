@@ -108,21 +108,9 @@ struct HiveApp: App {
             .onChange(of: projectStore.pendingNavigation) { _, workspace in
                 guard let workspace else { return }
                 switchTab(to: .hub)
-                // Deferred one tick so the push animates after UIKit animations re-enable.
+                // Deferred one tick so navigation animates after UIKit animations re-enable.
                 DispatchQueue.main.async { hubPath.append(workspace) }
                 projectStore.pendingNavigation = nil
-            }
-            .onAppear {
-                mergePushCompletions()
-                handlePushNavigation()
-            }
-            .onChange(of: CompletedWorkspacesStore.shared.pending) { _, pending in
-                guard !pending.isEmpty else { return }
-                mergePushCompletions()
-            }
-            .onChange(of: CompletedWorkspacesStore.shared.navigationRequest) { _, request in
-                guard request != nil else { return }
-                handlePushNavigation()
             }
             .onChange(of: scenePhase) { _, newPhase in
                 switch newPhase {
@@ -140,36 +128,6 @@ struct HiveApp: App {
                 default:
                     break
                 }
-            }
-        }
-    }
-
-    /// Merge workspace IDs delivered via push notification taps into the hub status monitor.
-    private func mergePushCompletions() {
-        let store = CompletedWorkspacesStore.shared
-        for wsId in store.pending {
-            projectStore.statusMonitor.markCompletedFromPush(wsId)
-        }
-        store.clearAll()
-    }
-
-    /// Resolve the most recent push tap and navigate to its workspace (and session),
-    /// falling back silently to the Hub tab when the workspace can't be resolved.
-    private func handlePushNavigation() {
-        guard let request = CompletedWorkspacesStore.shared.navigationRequest else { return }
-        CompletedWorkspacesStore.shared.clearNavigationRequest()
-        Task { @MainActor in
-            if let target = await projectStore.resolvePushTarget(
-                workspaceId: request.workspaceId,
-                sessionId: request.sessionId
-            ) {
-                projectStore.pendingSessionNavigation = target.sessionId.map {
-                    PendingSessionNavigation(workspaceId: target.workspace.id, sessionId: $0)
-                }
-                projectStore.pendingNavigation = target.workspace
-            } else {
-                projectStore.pendingSessionNavigation = nil
-                switchTab(to: .hub)
             }
         }
     }

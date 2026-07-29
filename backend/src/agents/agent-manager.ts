@@ -15,13 +15,10 @@ import { removeTerminal } from "../services/terminal-runner.js";
 import type { ChatMessage, SessionKind, SessionMetadata, WorkspaceSource } from "../types.js";
 import { Notifier } from "../notifications/notifier.js";
 import { TelegramChannel } from "../notifications/telegram.js";
-import { ApnsChannel } from "../notifications/apns.js";
 import { browserSessionManager } from "../services/browser-session-manager.js";
 import type { AppConfig } from "../state/config.js";
-import { updateConfig } from "../state/config.js";
 
 let notifier: Notifier | undefined;
-let liveApnsChannel: ApnsChannel | null = null;
 
 export function setNotifier(n: Notifier): void {
   notifier = n;
@@ -32,38 +29,13 @@ export function getNotifier(): Notifier | undefined {
 }
 
 export function rebuildNotifier(config: AppConfig): void {
-  liveApnsChannel?.destroy();
-  liveApnsChannel = null;
-
   const channels = [];
   const tg = config.notifications.telegram;
   if (tg.enabled) {
     const ch = TelegramChannel.fromConfig(tg);
     if (ch) channels.push(ch);
   }
-  const apns = config.notifications.apns;
-  if (apns.enabled) {
-    const ch = ApnsChannel.fromConfig(apns, (tokens) => {
-      void (async () => {
-        try {
-          await updateConfig((c) => {
-            c.notifications.apns.deviceTokens = tokens;
-          });
-        } catch (err) {
-          console.error("[apns] failed to persist token changes:", err);
-        }
-      })();
-    });
-    if (ch) {
-      channels.push(ch);
-      liveApnsChannel = ch;
-    }
-  }
   setNotifier(new Notifier(channels));
-}
-
-export function updateLiveApnsToken(token: string): void {
-  liveApnsChannel?.addToken(token);
 }
 
 const loadedSessionsByWorkspace = new Map<string, Map<string, ConversationSession>>();

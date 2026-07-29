@@ -1,6 +1,6 @@
 import { useState, useSyncExternalStore, type ReactNode } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Eye, EyeOff, Send, Save, Loader2, Smartphone } from "lucide-react";
+import { Eye, EyeOff, Send, Save, Loader2 } from "lucide-react";
 import { SettingsHeader } from "@/components/AppLayout";
 import { CenterCard } from "@/components/CenterCard";
 
@@ -14,27 +14,13 @@ interface TelegramConfig {
   chatId: string;
 }
 
-interface ApnsConfig {
-  enabled: boolean;
-  teamId: string;
-  keyId: string;
-  keyContent: string;
-  bundleId: string;
-  sandbox: boolean;
-  deviceTokens: string[];
-}
-
 interface NotificationsConfig {
   telegram: TelegramConfig;
-  apns: ApnsConfig;
 }
 
 type Feedback = { type: "success" | "error"; message: string } | null;
 
 const defaultTelegram: TelegramConfig = { enabled: false, botToken: "", chatId: "" };
-const defaultApns: ApnsConfig = {
-  enabled: false, teamId: "", keyId: "", keyContent: "", bundleId: "", sandbox: false, deviceTokens: [],
-};
 
 export default function NotificationSettings() {
   const query = useQuery({
@@ -45,7 +31,6 @@ export default function NotificationSettings() {
   if (query.isLoading) return null;
 
   const telegram = query.data?.telegram ?? defaultTelegram;
-  const apns = query.data?.apns ?? defaultApns;
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden">
@@ -57,7 +42,6 @@ export default function NotificationSettings() {
       <div className="max-w-2xl space-y-6 px-4 py-5">
         <LocalToastsSection />
         <TelegramForm initial={telegram} />
-        <ApnsForm initial={apns} />
       </div>
       </CenterCard>
     </div>
@@ -292,131 +276,6 @@ function TelegramForm({ initial }: { initial: TelegramConfig }) {
             placeholder="-1001234567890"
             className="font-mono text-xs"
           />
-        </div>
-      </div>
-
-      <div className="mt-4">
-        <FormActions {...channel} hasCredentials={hasCredentials} />
-      </div>
-    </NotificationSection>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// APNs
-// ---------------------------------------------------------------------------
-
-function ApnsForm({ initial }: { initial: ApnsConfig }) {
-  const [teamId, setTeamId] = useState(initial.teamId);
-  const [keyId, setKeyId] = useState(initial.keyId);
-  const [keyContent, setKeyContent] = useState(initial.keyContent);
-  const [bundleId, setBundleId] = useState(initial.bundleId);
-  const [sandbox, setSandbox] = useState(initial.sandbox);
-  const [showKey, setShowKey] = useState(false);
-
-  const channel = useNotificationChannel({
-    initialEnabled: initial.enabled,
-    buildSavePayload: (en) => ({ apns: { enabled: en, teamId, keyId, keyContent, bundleId, sandbox } }),
-    testUrl: "/api/settings/notifications/test-apns",
-    buildTestPayload: () => ({ teamId, keyId, keyContent, bundleId, sandbox }),
-    testSuccessMsg: "Test push sent!",
-  });
-
-  const hasCredentials = teamId.trim() !== "" && keyId.trim() !== "" && keyContent.trim() !== "" && bundleId.trim() !== "";
-  const deviceCount = initial.deviceTokens.length;
-
-  return (
-    <NotificationSection
-      id="apns"
-      title="Apple Push Notifications"
-      description="Push notifications to your iOS devices."
-      enabled={channel.enabled}
-      onToggle={channel.handleToggle}
-    >
-      <div className={cn("mt-5 space-y-4 transition-opacity", !channel.enabled && "pointer-events-none opacity-50")}>
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <label htmlFor="apns-team" className="mb-1.5 block text-xs font-medium text-muted-foreground">
-              Team ID
-            </label>
-            <Input
-              id="apns-team"
-              value={teamId}
-              onChange={(e) => { setTeamId(e.target.value); channel.clearFeedback(); }}
-              placeholder="ABCDE12345"
-              className="font-mono text-xs"
-            />
-          </div>
-          <div>
-            <label htmlFor="apns-key-id" className="mb-1.5 block text-xs font-medium text-muted-foreground">
-              Key ID
-            </label>
-            <Input
-              id="apns-key-id"
-              value={keyId}
-              onChange={(e) => { setKeyId(e.target.value); channel.clearFeedback(); }}
-              placeholder="FGHIJ67890"
-              className="font-mono text-xs"
-            />
-          </div>
-        </div>
-
-        <div>
-          <label htmlFor="apns-bundle" className="mb-1.5 block text-xs font-medium text-muted-foreground">
-            Bundle ID
-          </label>
-          <Input
-            id="apns-bundle"
-            value={bundleId}
-            onChange={(e) => { setBundleId(e.target.value); channel.clearFeedback(); }}
-            placeholder="com.example.hive"
-            className="font-mono text-xs"
-          />
-        </div>
-
-        <div>
-          <label htmlFor="apns-key" className="mb-1.5 block text-xs font-medium text-muted-foreground">
-            Private Key (.p8)
-          </label>
-          <div className="relative">
-            <textarea
-              id="apns-key"
-              value={showKey ? keyContent : keyContent ? "••••••••••••••••" : ""}
-              onChange={(e) => { setKeyContent(e.target.value); channel.clearFeedback(); }}
-              onFocus={() => setShowKey(true)}
-              placeholder={"-----BEGIN PRIVATE KEY-----\n..."}
-              rows={4}
-              className="flex w-full rounded-md border border-input bg-background px-3 py-2 font-mono text-xs ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-            />
-            <button
-              type="button"
-              onClick={() => setShowKey(!showKey)}
-              className="absolute right-2 top-2 text-muted-foreground transition-colors hover:text-foreground"
-            >
-              {showKey
-                ? <EyeOff className="h-3.5 w-3.5" />
-                : <Eye className="h-3.5 w-3.5" />}
-            </button>
-          </div>
-        </div>
-
-        <div className="flex items-center justify-between">
-          <label className="flex cursor-pointer items-center gap-2 text-xs text-muted-foreground">
-            <input
-              type="checkbox"
-              checked={sandbox}
-              onChange={(e) => { setSandbox(e.target.checked); channel.clearFeedback(); }}
-              className="rounded border-border"
-            />
-            Sandbox (development)
-          </label>
-
-          {deviceCount > 0 && (
-            <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
-              <Smartphone className="h-3 w-3" />
-              {deviceCount} device{deviceCount !== 1 ? "s" : ""} registered
-            </span>
-          )}
         </div>
       </div>
 

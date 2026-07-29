@@ -24,10 +24,6 @@ beforeEach(() => {
   localStorage.removeItem("hive:local-toasts-enabled");
 });
 
-const defaultApns = {
-  enabled: false, teamId: "", keyId: "", keyContent: "", bundleId: "", sandbox: false, deviceTokens: [] as string[],
-};
-
 async function renderReady(config?: {
   enabled?: boolean;
   botToken?: string;
@@ -39,7 +35,6 @@ async function renderReady(config?: {
       botToken: config?.botToken ?? "",
       chatId: config?.chatId ?? "",
     },
-    apns: { ...defaultApns },
   };
   mocks.get.mockResolvedValue(response);
   mocks.get.mockResolvedValueOnce(response);

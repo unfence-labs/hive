@@ -295,9 +295,4 @@ final class APIClient {
         let body = try JSONEncoder().encode(SaveBody(message: message))
         return try await post(path: "/api/brain/save", body: body)
     }
-
-    func registerDeviceToken(_ token: String) async throws {
-        let body = try JSONEncoder().encode(["token": token])
-        try await requestVoid("POST", path: "/api/devices/apns", body: body)
-    }
 }
