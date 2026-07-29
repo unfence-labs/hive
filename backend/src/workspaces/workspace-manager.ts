@@ -3,7 +3,7 @@ import { readdir, readFile, stat, mkdir, writeFile, rename } from "node:fs/promi
 import { join, resolve } from "node:path";
 import { nanoid } from "nanoid";
 import { git } from "../utils/git.js";
-import { ensureGitIdentity } from "../utils/git-identity.js";
+import { commitIdentityArgs } from "../utils/git-identity.js";
 import {
   addWorktreeFromBranch,
   addWorktreeWithNewBranch,
@@ -719,13 +719,16 @@ export async function mergeWorkspace(
     await git(["worktree", "add", tempPath, defaultBranch], bare);
 
     // A non-fast-forward merge creates a merge commit, which needs a git
-    // identity. Ensure the global one is in place (idempotent; honours the
-    // connected GitHub account) so the merge never fails with "identity unknown"
-    // if startup could not set it.
-    await ensureGitIdentity();
+    // identity. Supply one for this command only (honouring a configured
+    // identity, falling back to the neutral default) so the merge never fails
+    // with "identity unknown" and never mutates global config.
+    const identityArgs = await commitIdentityArgs(tempPath);
 
     // Merge the workspace branch
-    await git(["merge", workspace.branch, "-m", `Merge workspace ${workspace.name}`], tempPath);
+    await git(
+      [...identityArgs, "merge", workspace.branch, "-m", `Merge workspace ${workspace.name}`],
+      tempPath,
+    );
 
     // Update the bare repo's default branch ref to point to the merge commit
     const { stdout: mergeHash } = await git(["rev-parse", "HEAD"], tempPath);

@@ -1,9 +1,16 @@
 import { describe, it, expect, vi } from "vitest";
+
+// Mock gh so its default-runner (production) path can be exercised without
+// calling GitHub. Dependency-injected tests below pass their own fakes.
+vi.mock("./github.js", () => ({ gh: vi.fn(async () => ({ stdout: "", stderr: "" })) }));
+
 import {
   ensureGitIdentity,
+  commitIdentityArgs,
   HIVE_DEFAULT_GIT_NAME,
   HIVE_DEFAULT_GIT_EMAIL,
 } from "./git-identity.js";
+import { gh } from "./github.js";
 
 /**
  * Build a fake `runGit` backed by an in-memory map of global config keys.
@@ -29,7 +36,7 @@ function makeRunGit(initial: Record<string, string> = {}) {
     }
     throw new Error(`git config: key ${key} not set`);
   });
-  return { runGit, config };
+  return { runGit };
 }
 
 /** Fake `runGh` that returns a JSON user payload, or rejects when signed out. */
@@ -109,6 +116,28 @@ describe("ensureGitIdentity()", () => {
     ]);
   });
 
+  it("fills the missing name when only the operator's email is set", async () => {
+    const { runGit } = makeRunGit({ "user.email": "me@real.dev" });
+    const runGh = makeRunGh(null);
+
+    await ensureGitIdentity({ runGit, runGh });
+
+    // The operator's email is kept; the missing name is completed so a commit
+    // never fails under user.useConfigOnly.
+    expect(writes(runGit)).toEqual([
+      ["config", "--global", "user.name", HIVE_DEFAULT_GIT_NAME],
+    ]);
+  });
+
+  it("passes the timeout to gh on the default (production) path", async () => {
+    const { runGit } = makeRunGit();
+
+    // No runGh injected → the default runner calls the real (mocked) gh.
+    await ensureGitIdentity({ runGit });
+
+    expect(gh).toHaveBeenCalledWith(["api", "user"], { timeoutMs: 5000 });
+  });
+
   it("upgrades the sentinel identity to github once gh is connected", async () => {
     const { runGit } = makeRunGit({
       "user.name": HIVE_DEFAULT_GIT_NAME,
@@ -134,5 +163,57 @@ describe("ensureGitIdentity()", () => {
     await ensureGitIdentity({ runGit, runGh });
 
     expect(writes(runGit)).toEqual([]);
+  });
+});
+
+describe("commitIdentityArgs()", () => {
+  /** Fake `runGit` reading effective (non-scoped) config from a map, rejecting when unset. */
+  function makeReader(initial: Record<string, string> = {}) {
+    const config = new Map(Object.entries(initial));
+    return vi.fn(async (args: string[]) => {
+      const [cmd, key] = args;
+      if (cmd !== "config") throw new Error(`unexpected git args: ${args.join(" ")}`);
+      if (config.has(key)) return { stdout: config.get(key)! };
+      throw new Error(`git config: key ${key} not set`);
+    });
+  }
+
+  it("reuses the configured identity when both fields resolve", async () => {
+    const runGit = makeReader({ "user.name": "Real Operator", "user.email": "me@real.dev" });
+
+    const args = await commitIdentityArgs("/tmp/wt", { runGit });
+
+    expect(args).toEqual([
+      "-c",
+      "user.name=Real Operator",
+      "-c",
+      "user.email=me@real.dev",
+    ]);
+  });
+
+  it("falls back to the neutral default when no identity resolves", async () => {
+    const runGit = makeReader();
+
+    const args = await commitIdentityArgs("/tmp/wt", { runGit });
+
+    expect(args).toEqual([
+      "-c",
+      `user.name=${HIVE_DEFAULT_GIT_NAME}`,
+      "-c",
+      `user.email=${HIVE_DEFAULT_GIT_EMAIL}`,
+    ]);
+  });
+
+  it("fills only the missing field", async () => {
+    const runGit = makeReader({ "user.email": "me@real.dev" });
+
+    const args = await commitIdentityArgs("/tmp/wt", { runGit });
+
+    expect(args).toEqual([
+      "-c",
+      `user.name=${HIVE_DEFAULT_GIT_NAME}`,
+      "-c",
+      "user.email=me@real.dev",
+    ]);
   });
 });
