@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
 import { gh, _resetGhState } from "../../../utils/github.js";
+import { ensureGitIdentity } from "../../../utils/git-identity.js";
 import type { ToolDetection } from "../detect.js";
 import { ToolAuthError, type AuthFlow, type ToolAuthOutcome } from "./flow.js";
 
@@ -200,6 +201,10 @@ export function githubAuthFlow(deps: GitHubAuthDeps): AuthFlow {
         await loginWithToken(poll.access_token);
         _resetGhState();
         await setupGitCredentials();
+        // Upgrade the global git identity to this account now that it is known,
+        // unless the operator has set their own. A failure here must not fail an
+        // otherwise-successful sign-in.
+        await ensureGitIdentity().catch(() => {});
         return "connected";
       }
     })();

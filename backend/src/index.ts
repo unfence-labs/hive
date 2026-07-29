@@ -25,6 +25,7 @@ import {
 } from "./utils/auth.js";
 import { createRateLimitHook } from "./utils/rate-limit.js";
 import { parsePositiveNumber } from "./utils/env.js";
+import { ensureGitIdentity } from "./utils/git-identity.js";
 import { ensureDataDir, getDataDir, loadAllProjects, saveProject } from "./state/state.js";
 import { type SessionOptions, rebuildNotifier, stopAllSessions } from "./agents/agent-manager.js";
 import { GitSyncService } from "./services/git-sync.js";
@@ -456,6 +457,13 @@ async function main() {
 
   await preflight();
   await detectAvailableProviders();
+
+  // Ensure a global git identity so agent commits never leak the server's
+  // hostname via git's `$USER@$(hostname)` default. Best effort: a failure here
+  // must not stop the server from starting.
+  await ensureGitIdentity().catch((err: unknown) => {
+    console.warn("Could not ensure a git identity for agent commits:", err);
+  });
 
   const dataDir = getDataDir();
   await ensureDataDir(dataDir);

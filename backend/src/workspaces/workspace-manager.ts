@@ -717,10 +717,9 @@ export async function mergeWorkspace(
   try {
     await git(["worktree", "add", tempPath, defaultBranch], bare);
 
-    // Configure git user in the temp worktree
-    await git(["config", "user.email", "hive@orchestrator.local"], tempPath);
-    await git(["config", "user.name", "Hive Orchestrator"], tempPath);
-
+    // The merge commit's identity comes from the global git identity Hive
+    // maintains (see ensureGitIdentity), so the connected GitHub account is
+    // honoured here instead of a hardcoded orchestrator identity.
     // Merge the workspace branch
     await git(["merge", workspace.branch, "-m", `Merge workspace ${workspace.name}`], tempPath);
 
