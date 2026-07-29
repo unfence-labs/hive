@@ -99,9 +99,3 @@ Found a bug or have an idea? [Open an issue](https://github.com/unfence-labs/hiv
 ## License
 
 Released under the [GNU General Public License v3.0](LICENSE). Copyright (C) 2026 419Labs.
-
----
-
-<div align="center">
-<sub>Built with 🧡 for people who run many agents at once.</sub>
-</div>
