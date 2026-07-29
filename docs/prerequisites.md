@@ -75,7 +75,8 @@ claim success while its port may be closed.
   runtime**, its releases, and the uninstall script.
 - Installs the Claude Code, Codex, GitHub and `agent-browser` CLIs under `/home/hive/.local`, as the
   service account, plus a Chrome build under `/home/hive/.agent-browser` and the system libraries it
-  needs (via `agent-browser install --with-deps`).
+  needs (via `agent-browser install --with-deps`). On arm64 servers the browser step is skipped —
+  Chrome for Testing ships no linux-arm64 build — and Hive runs without browser automation.
 - Writes `/etc/hive/hive.env`, root-owned and readable by nobody else, holding the service
   configuration and the SHA-256 digest of the access token.
 - Writes a non-secret install identity manifest containing its schema, port, install directory, and

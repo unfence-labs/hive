@@ -13,7 +13,7 @@
 # left untouched.
 #
 # The backend tarball is built once by scripts/release/build-backend-tarball.sh
-# inside a node:22 container. Set HIVE_E2E_TARBALL to reuse an existing one.
+# inside a node:24 container. Set HIVE_E2E_TARBALL to reuse an existing one.
 #
 # shellcheck disable=SC2016  # single-quoted bodies are expanded in the container, not here
 set -Eeuo pipefail
@@ -23,7 +23,7 @@ PROV="$ROOT/scripts/provision"
 MODE="${1:-install}"
 VERSION="0.0.0-e2e"
 IMAGE="hive-provision-e2e"
-BUILDER_IMAGE="node:22"
+BUILDER_IMAGE="node:24"
 NETWORK="hive-provision-e2e"
 RELEASE_HOST="hive-e2e-release"
 SERVER_HOST="hive-e2e-server"
@@ -73,7 +73,7 @@ build_release() {
     log "Reusing $HIVE_E2E_TARBALL"
     cp "$HIVE_E2E_TARBALL" "$RELEASE_DIR/$ASSET"
   else
-    log "Build the real backend release tarball (node:22 container)"
+    log "Build the real backend release tarball (node:24 container)"
     local src="$WORK/src"
     mkdir -p "$src"
     # Tracked files from the working tree, so local edits are what gets built.
@@ -192,6 +192,9 @@ assert_provisioned() {
     || die "an agent CLI was installed system-wide"
   echo "OK: claude, codex and gh live under /home/hive/.local"
 
+  # Skipped on arm64 hosts, mirroring the step: Chrome for Testing has no
+  # linux-arm64 build, so those servers provision without browser automation.
+  if [ "$ARCH_TAG" = x64 ]; then
   log "The browser automation tool is installed with a Chrome the service account owns"
   sh_server 'runuser -u hive -- env HOME=/home/hive PATH=/home/hive/.local/bin:/opt/hive/runtime/current/bin:/usr/bin:/bin agent-browser --version' >/dev/null \
     || die "agent-browser is not runnable as the hive service account"
@@ -202,6 +205,7 @@ assert_provisioned() {
   sh_server 'grep -q "^AGENT_BROWSER_ARGS=--no-sandbox$" /etc/hive/hive.env' \
     || die "the service environment does not disable the Chrome sandbox"
   echo "OK: agent-browser and its Chrome live under /home/hive, sandbox flag configured"
+  fi
 
   log "The release was activated by symlink and the service is hardened"
   sh_server 'test -L /opt/hive/current' || die "/opt/hive/current is not a symlink"

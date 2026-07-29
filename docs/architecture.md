@@ -112,7 +112,7 @@ changes done. For iOS changes, also run `cd ios && swift test`.
 
 ```bash
 # Build the backend release tarball for the host architecture into dist-release/.
-# Requires a Linux host on Node 22 (native modules are compiled during the build).
+# Requires a Linux host on Node 24 (native modules are compiled during the build).
 npm run release:backend -- 0.0.0-dev
 
 # Bundle scripts/provision/{lib,steps,main}.sh into scripts/provision/dist/provision.sh.

@@ -19,9 +19,9 @@ APT_BASELINE="ca-certificates curl git xz-utils iproute2"
 # both digests and RELEASE_NODE_MAJOR in scripts/release/build-backend-tarball.sh.
 # Digests are pinned rather than fetched from SHASUMS256.txt so a compromised
 # mirror cannot serve a matching tarball/checksum pair over the same TLS session.
-NODE_VERSION="22.23.1"
-NODE_SHA256_X64="9749e988f437343b7fa832c69ded82a312e41a03116d766797ac14f6f9eee578"
-NODE_SHA256_ARM64="0294e8b915ab75f92c7513d2fcb830ae06e10684e6c603e99a87dbf8835389c1"
+NODE_VERSION="24.18.0"
+NODE_SHA256_X64="55aa7153f9d88f28d765fcdad5ae6945b5c0f98a36881703817e4c450fa76742"
+NODE_SHA256_ARM64="58c9520501f6ae2b52d5b210444e24b9d0c029a58c5011b797bc1fe7105886f6"
 
 # GitHub CLI, installed from its official release tarball for the same reason:
 # no vendor apt repository is added to the operator's machine.
@@ -689,11 +689,12 @@ title_install_agent_browser() { echo "Install the browser automation tool"; }
 # The agent-browser CLI plus the Chrome build it drives. Its npm postinstall
 # fetches a native binary from the tool's GitHub releases and tolerates a
 # failed download, so the package being present proves nothing — the guard and
-# the post-install verification both ask the binary itself. The package is
-# installed without a version spec on purpose: npm resolves the newest version
-# whose engines constraint matches the pinned private runtime, where `@latest`
-# would force-install one that may need a newer Node.
+# the post-install verification both ask the binary itself.
 guard_install_agent_browser() {
+  # Chrome for Testing publishes no linux-arm64 build, so the tool cannot
+  # install a browser there. The backend treats agent-browser as optional:
+  # an arm64 server provisions without browser automation rather than failing.
+  [ "$ARCH_TAG" = x64 ] || return 0
   [ -x "$HIVE_TOOLS_DIR/bin/agent-browser" ] || return 1
   as_hive agent-browser --version >/dev/null 2>&1 || return 1
   compgen -G "$HIVE_HOME/.agent-browser/browsers/chrome-*/chrome" >/dev/null 2>&1 || return 1
