@@ -306,11 +306,11 @@ point at it rather than repeating it.
 | `HIVE_DEBUG_AGENT_LOGS` | unset | Verbose agent process logging when `1`/`true`/`yes`/`on` |
 | `GITHUB_CLIENT_ID` | built in | Override GitHub OAuth app client id |
 
-**With neither `HIVE_AUTH_TOKEN` nor `HIVE_AUTH_TOKEN_SHA256` set, the backend has no expectation to
-check and accepts every request.** `ecosystem.config.cjs` sets neither, so a manually started
-production server is unauthenticated until you configure one. `provision.sh` generates a token,
-writes only its digest, and refuses to finish a run in which an unauthenticated request to
-`/api/projects` does not return `401`.
+**With neither `HIVE_AUTH_TOKEN` nor `HIVE_AUTH_TOKEN_SHA256` set, the backend only starts on a
+loopback address.** Bound to anything else — `ecosystem.config.cjs`'s production profile binds
+`0.0.0.0` and sets neither variable — it refuses to start and names the variable to set.
+`provision.sh` generates a token, writes only its digest, and refuses to finish a run in which an
+unauthenticated request to `/api/projects` does not return `401`.
 
 </details>
 

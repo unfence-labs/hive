@@ -89,6 +89,24 @@ export interface AuthExpectation {
   expectedTokenSha256?: string;
 }
 
+function isLoopbackBindHost(host: string): boolean {
+  const value = host.trim().toLowerCase();
+  if (value === "localhost" || value === "::1") return true;
+  // Anything in 127.0.0.0/8, not just 127.0.0.1.
+  return isIP(value) === 4 && value.startsWith("127.");
+}
+
+/**
+ * Whether the server may start listening on `host` under the given auth
+ * expectation. A non-loopback bind (0.0.0.0 and :: included) with no token
+ * configured would serve every endpoint unauthenticated to the network, so it
+ * is refused; loopback binds are always allowed.
+ */
+export function isBindAllowed(host: string, expectation?: AuthExpectation): boolean {
+  if (isLoopbackBindHost(host)) return true;
+  return Boolean(expectation?.expectedToken?.trim() || expectation?.expectedTokenSha256?.trim());
+}
+
 /** Routes exempt from the auth, Host and origin guards; they carry no secrets. */
 function isPublicRoute(url: string): boolean {
   return url.startsWith("/health");

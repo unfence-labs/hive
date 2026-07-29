@@ -162,10 +162,10 @@ npm run build
 
 ### Configure the access token
 
-**Set a token.** With neither `HIVE_AUTH_TOKEN` nor `HIVE_AUTH_TOKEN_SHA256` configured, the backend
-has no expectation to check against and accepts every request. `backend/ecosystem.config.cjs` does
-not set either one, so a bare `pm2 start ecosystem.config.cjs --env production` produces an
-unauthenticated server.
+**Set a token.** With neither `HIVE_AUTH_TOKEN` nor `HIVE_AUTH_TOKEN_SHA256` configured, the
+backend only starts on a loopback address; requests are then accepted without authentication.
+`backend/ecosystem.config.cjs`'s production profile binds `0.0.0.0` and sets neither variable, so
+a bare `pm2 start ecosystem.config.cjs --env production` refuses to start until you provide one.
 
 Generate one:
 

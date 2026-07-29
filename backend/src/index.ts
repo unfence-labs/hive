@@ -21,6 +21,7 @@ import {
   createBrowserOriginPolicy,
   createHostGuardHook,
   createWebSocketOriginGuardHook,
+  isBindAllowed,
 } from "./utils/auth.js";
 import { createRateLimitHook } from "./utils/rate-limit.js";
 import { parsePositiveNumber } from "./utils/env.js";
@@ -438,6 +439,18 @@ async function main() {
       "Refusing to start the dev backend without DATA_DIR set: it would use the " +
         "production data dir (~/.hive). Launch via the hive.json runner, or set " +
         "DATA_DIR explicitly (e.g. DATA_DIR=~/.hive-dev).",
+    );
+  }
+
+  // Fail closed: a non-loopback bind with no access token configured would
+  // expose every endpoint unauthenticated to the network.
+  const authExpectation = {
+    expectedToken: process.env.HIVE_AUTH_TOKEN,
+    expectedTokenSha256: process.env.HIVE_AUTH_TOKEN_SHA256,
+  };
+  if (!isBindAllowed(HOST, authExpectation)) {
+    throw new Error(
+      `Refusing to bind ${HOST} without an access token: set HIVE_AUTH_TOKEN or HIVE_AUTH_TOKEN_SHA256.`,
     );
   }
 
