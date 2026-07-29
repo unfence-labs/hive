@@ -372,7 +372,8 @@ data_dir=/home/hive/.hive"' || die "the install identity manifest is wrong"
   echo "OK: the skipped create_user still named the service account"
 
   local token2; token2="$(token_from_stream "$WORK/resume.ndjson")"
-  [ -n "$token2" ] && [ "$token1" != "$token2" ] || die "the access token was not rotated on the resume"
+  [ -n "$token2" ] || die "the resume did not report an access token"
+  [ "$token1" != "$token2" ] || die "the access token was not rotated on the resume"
   [ "$(sh_server "curl -s -o /dev/null -w '%{http_code}' -H 'x-hive-token: $token1' http://127.0.0.1:$PORT/api/projects")" = 401 ] \
     || die "the previous run's token still works"
   [ "$(sh_server "curl -s -o /dev/null -w '%{http_code}' -H 'x-hive-token: $token2' http://127.0.0.1:$PORT/api/projects")" = 200 ] \
@@ -697,7 +698,8 @@ mode_neighbour() {
   peer_can_reach "$SERVER_HOST" "$PORT" /health \
     || die "a peer cannot reach Hive on $PORT through the active firewall"
   local token2; token2="$(token_from_stream "$WORK/neighbour-b.ndjson")"
-  [ -n "$token2" ] && [ -n "$token" ] || die "no token was reported"
+  [ -n "$token" ] || die "the first run reported no token"
+  [ -n "$token2" ] || die "the resumed run reported no token"
   echo "OK: Hive is reachable through the active firewall"
 
   peer_can_reach "$SERVER_HOST" 5432 \
