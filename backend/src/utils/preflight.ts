@@ -42,6 +42,12 @@ const DEPENDENCIES: Dependency[] = [
     versionArgs: ["--version"],
     required: false,
   },
+  {
+    name: "agent-browser",
+    command: "agent-browser",
+    versionArgs: ["--version"],
+    required: false,
+  },
 ];
 
 export function meetsMinVersion(version: string, min: [number, number]): boolean {

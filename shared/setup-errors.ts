@@ -23,6 +23,7 @@ export const SETUP_ERROR_CODES = [
   "APT_FAILURE",
   "NODE_INSTALL_FAILED",
   "AGENT_CLI_INSTALL_FAILED",
+  "BROWSER_INSTALL_FAILED",
   "RELEASE_DOWNLOAD_FAILED",
   "CHECKSUM_MISMATCH",
   "TOKEN_GENERATION_FAILED",
@@ -73,6 +74,8 @@ export const SETUP_ERROR_HINTS: Record<SetupErrorCode, string> = {
     "Hive's private Node.js runtime could not be installed. Check that the server can reach nodejs.org, then press Retry.",
   AGENT_CLI_INSTALL_FAILED:
     "The agent command-line tools could not be installed. Check that the server can reach the npm registry and github.com, then press Retry.",
+  BROWSER_INSTALL_FAILED:
+    "The browser automation tool could not be installed. Check that the server can reach the npm registry, github.com and storage.googleapis.com (the Chrome download), then press Retry.",
   RELEASE_DOWNLOAD_FAILED:
     "The Hive backend could not be fetched onto the server. Check that the server has internet access, then press Retry.",
   CHECKSUM_MISMATCH:

@@ -11,7 +11,7 @@ set -Eeuo pipefail
 # node-pty has no Linux prebuild: it is compiled by node-gyp at install time
 # against the ABI of the Node that runs this build. The runtime provisioned on
 # the server is pinned to the same major, otherwise the addon will not load.
-RELEASE_NODE_MAJOR=22
+RELEASE_NODE_MAJOR=24
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 VERSION="${1:-0.0.0-dev}"

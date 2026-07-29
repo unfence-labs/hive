@@ -19,9 +19,9 @@ APT_BASELINE="ca-certificates curl git xz-utils iproute2"
 # both digests and RELEASE_NODE_MAJOR in scripts/release/build-backend-tarball.sh.
 # Digests are pinned rather than fetched from SHASUMS256.txt so a compromised
 # mirror cannot serve a matching tarball/checksum pair over the same TLS session.
-NODE_VERSION="22.23.1"
-NODE_SHA256_X64="9749e988f437343b7fa832c69ded82a312e41a03116d766797ac14f6f9eee578"
-NODE_SHA256_ARM64="0294e8b915ab75f92c7513d2fcb830ae06e10684e6c603e99a87dbf8835389c1"
+NODE_VERSION="24.18.0"
+NODE_SHA256_X64="55aa7153f9d88f28d765fcdad5ae6945b5c0f98a36881703817e4c450fa76742"
+NODE_SHA256_ARM64="58c9520501f6ae2b52d5b210444e24b9d0c029a58c5011b797bc1fe7105886f6"
 
 # GitHub CLI, installed from its official release tarball for the same reason:
 # no vendor apt repository is added to the operator's machine.
@@ -684,6 +684,78 @@ step_install_agent_clis() {
 
 # ---------------------------------------------------------------------------
 
+title_install_agent_browser() { echo "Install the browser automation tool"; }
+
+# The agent-browser CLI plus the Chrome build it drives. Its npm postinstall
+# fetches a native binary from the tool's GitHub releases and tolerates a
+# failed download, so the package being present proves nothing — the guard and
+# the post-install verification both ask the binary itself.
+guard_install_agent_browser() {
+  # Chrome for Testing publishes no linux-arm64 build, so the tool cannot
+  # install a browser there. The backend treats agent-browser as optional:
+  # an arm64 server provisions without browser automation rather than failing.
+  [ "$ARCH_TAG" = x64 ] || return 0
+  [ -x "$HIVE_TOOLS_DIR/bin/agent-browser" ] || return 1
+  as_hive agent-browser --version >/dev/null 2>&1 || return 1
+  compgen -G "$HIVE_HOME/.agent-browser/browsers/chrome-*/chrome" >/dev/null 2>&1 || return 1
+  # The step's own verification, repeated: a binary and a Chrome on disk do
+  # not prove the system libraries arrived or that the state directory is the
+  # service account's. Opening a page is the one check that cannot lie, and it
+  # is what keeps a Retry from skipping past a half-repaired install. The
+  # sandbox flag matches the one write_secrets puts in the service
+  # environment: without it Chrome cannot start under the hive unit at all.
+  as_hive env AGENT_BROWSER_ARGS=--no-sandbox agent-browser open about:blank \
+    >/dev/null 2>&1 || return 1
+  as_hive agent-browser close >/dev/null 2>&1 || true
+}
+step_install_agent_browser() {
+  local shim
+  STEP_ERR_CODE=BROWSER_INSTALL_FAILED
+  run_logged install_agent_browser as_hive npm install -g --prefix "$HIVE_TOOLS_DIR" \
+    --no-audit --no-fund agent-browser
+
+  # The state directory is rebuilt root-side before the tool writes into it as
+  # root: an existing tree is hive-writable, and a symlink planted inside it
+  # would redirect root's writes. The step only runs when the install is
+  # absent or broken, so the discarded download is a broken one.
+  rm -rf "$HIVE_HOME/.agent-browser"
+  install -d -o "$HIVE_USER" -g "$HIVE_USER" "$HIVE_HOME/.agent-browser"
+
+  # `install --with-deps` needs root for Chrome's system libraries, but the
+  # browser download lands under $HOME — so it runs as root with the service
+  # account's HOME, and the state directory is handed over afterwards. Not
+  # `as_hive`: the service account cannot install apt packages. Two details:
+  # the tool invokes `sudo apt-get` even when it is already root and a minimal
+  # Debian has no sudo, so it gets a pass-through shim; and the PATH is
+  # root-owned directories only — never $HIVE_TOOLS_DIR/bin, which the service
+  # account can write to. That root runs the hive-installed agent-browser
+  # binary at all is the residual trust this step accepts; it is why the
+  # invocation is by absolute path and nothing else resolves through hive's
+  # prefix.
+  shim="$HIVE_VAR_DIR/sudo-shim"
+  install -d -m 700 "$shim"
+  printf '#!/bin/sh\nexec "$@"\n' >"$shim/sudo"
+  chmod 700 "$shim/sudo"
+  run_logged install_agent_browser env HOME="$HIVE_HOME" \
+    PATH="$shim:$HIVE_RUNTIME_DIR/current/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" \
+    DEBIAN_FRONTEND=noninteractive \
+    "$HIVE_TOOLS_DIR/bin/agent-browser" install --with-deps
+  rm -rf "$shim"
+  chown -R "$HIVE_USER:$HIVE_USER" "$HIVE_HOME/.agent-browser"
+
+  as_hive agent-browser --version >/dev/null 2>&1 || die BROWSER_INSTALL_FAILED \
+    "'agent-browser' is not runnable as the $HIVE_USER service account after installation"
+  # The installer treats a failed dependency install as a warning, so the only
+  # proof of a working browser is opening a page as the service account.
+  run_logged install_agent_browser as_hive env AGENT_BROWSER_ARGS=--no-sandbox \
+    agent-browser open about:blank || die BROWSER_INSTALL_FAILED \
+    "the installed browser could not open a page as the $HIVE_USER service account"
+  as_hive agent-browser close >/dev/null 2>&1 || true
+  STEP_ERR_CODE=""
+}
+
+# ---------------------------------------------------------------------------
+
 title_install_release() { echo "Install the Hive backend"; }
 
 verify_release_structure() {
@@ -848,6 +920,12 @@ step_generate_token() {
 title_write_secrets() { echo "Write the service configuration"; }
 
 hive_env_base() {
+  # AGENT_BROWSER_ARGS: Chromium's sandbox cannot work under the hive unit —
+  # NoNewPrivileges blocks the setuid helper and Ubuntu 24.04 restricts
+  # unprivileged user namespaces — so the browser the agents drive through
+  # `agent-browser` must run without it. Deliberately not HIVE_-prefixed: the
+  # backend strips HIVE_* from agent environments (backend/src/utils/env.ts)
+  # and this variable must reach them.
   cat <<EOF
 NODE_ENV=production
 HOST=0.0.0.0
@@ -857,6 +935,7 @@ HIVE_AUTH_TOKEN_SHA256=$HIVE_AUTH_TOKEN_SHA256
 HIVE_AUTOMATION_TIMEOUT_SEC=1800
 HOME=$HIVE_HOME
 PATH=$HIVE_SERVICE_PATH
+AGENT_BROWSER_ARGS=--no-sandbox
 EOF
   [ -z "${OPT_ALLOWED_HOST:-}" ] || echo "HIVE_ALLOWED_HOSTS=$OPT_ALLOWED_HOST"
   # A prerelease install is a developer's test server. The webview of a debug
