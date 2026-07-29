@@ -582,8 +582,9 @@ expect "preflight ends with a summary and a clean terminal event" \
   bash -c 'grep -q "\"event\":\"preflight\",\"ok\":" "$1" && grep -q "\"event\":\"run_end\",\"status\":\"ok\"" "$1"' _ "$pre_out"
 
 # Every errorCode preflight can name must be one the taxonomy declares, or a
-# client would render a blocker it has no hint for.
-pre_codes="$(grep -ohE '"errorCode":"[A-Z_]+"' "$pre_out" | cut -d'"' -f4 | sort -u)"
+# client would render a blocker it has no hint for. A clean host reports no
+# findings at all, so an empty grep is a pass, not an errexit abort.
+pre_codes="$(grep -ohE '"errorCode":"[A-Z_]+"' "$pre_out" | cut -d'"' -f4 | sort -u || true)"
 undeclared_pre="$(comm -23 <(printf '%s\n' "$pre_codes") <(printf '%s\n' "$ts_codes") | grep -v '^$' || true)"
 if [ -z "$undeclared_pre" ]; then
   pass "preflight findings name only declared error codes"
