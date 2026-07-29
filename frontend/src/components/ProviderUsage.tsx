@@ -177,7 +177,8 @@ function sortProviderBuckets(provider: ProviderUsageEntry): ProviderUsageBucket[
 function bucketOrder(bucket: ProviderUsageBucket): number {
   if (bucket.id === "five_hour") return 0;
   if (bucket.id === "weekly" || bucket.id === "seven_day") return 1;
-  return 2;
+  // Providers without well-known bucket ids (Codex) sort shortest window first.
+  return bucket.windowDurationMins ?? 2;
 }
 
 function statusLabel(status: ProviderUsageEntry["status"]): string {

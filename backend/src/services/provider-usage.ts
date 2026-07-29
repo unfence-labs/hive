@@ -58,6 +58,8 @@ interface CodexRateLimitBucket {
   rateLimitReachedType?: unknown;
 }
 
+const CODEX_WINDOW_SLOTS = ["primary", "secondary"] as const;
+
 interface ClaudeCredentials {
   claudeAiOauth?: {
     accessToken?: unknown;
@@ -70,6 +72,13 @@ interface ClaudeCredentials {
 interface ClaudeUsageWindow {
   utilization?: unknown;
   resets_at?: unknown;
+}
+
+interface ClaudeUsageLimit {
+  kind?: unknown;
+  percent?: unknown;
+  resets_at?: unknown;
+  scope?: unknown;
 }
 
 interface UsageFetchRequest {
@@ -162,15 +171,36 @@ async function getCodexUsage(label: string, installed: boolean): Promise<Provide
     codexUsageCache = { value: entry, expiresAt: now + CODEX_USAGE_CACHE_TTL_MS };
     return entry;
   } catch (err) {
+    const raw = err instanceof Error ? err.message : "";
+    if (isCodexAuthError(raw)) {
+      return {
+        id: "codex",
+        label,
+        status: "unknown",
+        buckets: [],
+        lastUpdatedAt: null,
+        message: "Codex sign-in expired. Run `codex login`.",
+      };
+    }
     return {
       id: "codex",
       label,
       status: "error",
       buckets: [],
       lastUpdatedAt: codexUsageCache?.value.lastUpdatedAt ?? null,
-      message: err instanceof Error ? err.message : "Could not read Codex account usage.",
+      message: raw ? summarizeCodexError(raw) : "Could not read Codex account usage.",
     };
   }
+}
+
+// The app-server surfaces upstream failures as a single line embedding the HTTP status and body.
+function isCodexAuthError(message: string): boolean {
+  return /\b401\b|\b403\b|token_invalidated|signing in again|not logged in/i.test(message);
+}
+
+function summarizeCodexError(message: string): string {
+  const firstLine = message.split("\n")[0]!.trim();
+  return firstLine.length > 160 ? `${firstLine.slice(0, 157)}...` : firstLine;
 }
 
 async function getClaudeUsage(label: string, installed: boolean, version: string | null): Promise<ProviderUsageEntry> {
@@ -195,8 +225,8 @@ async function getClaudeUsage(label: string, installed: boolean, version: string
   }
 
   try {
-    const token = await readClaudeAccessToken();
-    if (!token) {
+    const credentials = await readClaudeCredentials();
+    if (!credentials) {
       return {
         id: "claude",
         label,
@@ -207,7 +237,19 @@ async function getClaudeUsage(label: string, installed: boolean, version: string
       };
     }
 
-    const buckets = parseClaudeUsageBuckets(await fetchClaudeUsage(token, version));
+    // The CLI refreshes the access token on startup; polling an expired one only earns a 401.
+    if (credentials.expiresAt !== null && credentials.expiresAt <= now) {
+      return {
+        id: "claude",
+        label,
+        status: "unknown",
+        buckets: [],
+        lastUpdatedAt: null,
+        message: "Claude sign-in expired. Run `claude` to refresh the token.",
+      };
+    }
+
+    const buckets = parseClaudeUsageBuckets(await fetchClaudeUsage(credentials.token, version));
     if (buckets.length === 0) {
       return {
         id: "claude",
@@ -340,7 +382,7 @@ function getCodexClient(): CodexUsageClient {
   return codexClient;
 }
 
-async function readClaudeAccessToken(): Promise<string | null> {
+async function readClaudeCredentials(): Promise<{ token: string; expiresAt: number | null } | null> {
   const credentialsPath = join(process.env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude"), ".credentials.json");
   let parsed: ClaudeCredentials;
   try {
@@ -350,7 +392,8 @@ async function readClaudeAccessToken(): Promise<string | null> {
   }
 
   const oauth = asRecord(parsed.claudeAiOauth) ?? parsed;
-  return asString(oauth.accessToken);
+  const token = asString(oauth.accessToken);
+  return token ? { token, expiresAt: asNumber(oauth.expiresAt) } : null;
 }
 
 async function fetchClaudeUsage(token: string, version: string | null): Promise<unknown> {
@@ -433,13 +476,47 @@ async function fetchUsageJson(request: UsageFetchRequest): Promise<unknown> {
   }
 }
 
+// The usage API reports every window in `limits`, including the per-model weekly limits that the
+// legacy top-level `seven_day_*` keys now return as null. Those keys remain the fallback for
+// accounts whose response predates `limits`.
 function parseClaudeUsageBuckets(result: unknown): ProviderUsageBucket[] {
   const record = asRecord(result);
   if (!record) return [];
 
+  const limits = Array.isArray(record.limits) ? record.limits : [];
+  const fromLimits = limits
+    .map((limit) => parseClaudeUsageLimit(asRecord(limit) as ClaudeUsageLimit | null))
+    .filter((bucket): bucket is ProviderUsageBucket => bucket !== null);
+  if (fromLimits.length > 0) return fromLimits;
+
   return Object.entries(CLAUDE_USAGE_BUCKETS)
     .map(([id, config]) => parseClaudeUsageBucket(id, config, asRecord(record[id]) as ClaudeUsageWindow | null))
     .filter((bucket): bucket is ProviderUsageBucket => bucket !== null);
+}
+
+const CLAUDE_LIMIT_KINDS: Record<string, { label: string; windowDurationMins: number }> = {
+  session: { label: "5h", windowDurationMins: 300 },
+  weekly_all: { label: "7d", windowDurationMins: 10_080 },
+  weekly_scoped: { label: "7d", windowDurationMins: 10_080 },
+};
+
+function parseClaudeUsageLimit(limit: ClaudeUsageLimit | null): ProviderUsageBucket | null {
+  const kind = limit ? asString(limit.kind) : null;
+  const config = kind ? CLAUDE_LIMIT_KINDS[kind] : null;
+  if (!limit || !kind || !config) return null;
+
+  const usedPercent = normalizeClaudePercent(limit.percent);
+  if (usedPercent === null) return null;
+
+  // A scoped limit applies to one model, so its name disambiguates it from the account-wide window.
+  const model = asString(asRecord(asRecord(limit.scope)?.model)?.display_name);
+  return {
+    id: model ? `${kind}:${model.toLowerCase()}` : kind,
+    label: model ? `${config.label} ${model}` : config.label,
+    usedPercent,
+    windowDurationMins: config.windowDurationMins,
+    resetsAt: parseResetTimestamp(limit.resets_at),
+  };
 }
 
 const CLAUDE_USAGE_BUCKETS: Record<string, { label: string; windowDurationMins: number | null }> = {
@@ -543,27 +620,52 @@ function parseCodexRateLimitBuckets(result: unknown): ProviderUsageBucket[] {
         record,
       ];
 
-  return source
-    .map((value) => parseCodexRateLimitBucket(asRecord(value) as CodexRateLimitBucket | null))
-    .filter((bucket): bucket is ProviderUsageBucket => bucket !== null);
+  return source.flatMap((value) => parseCodexRateLimitBucket(asRecord(value) as CodexRateLimitBucket | null));
 }
 
-function parseCodexRateLimitBucket(bucket: CodexRateLimitBucket | null): ProviderUsageBucket | null {
-  if (!bucket) return null;
-  const primary = asRecord(bucket.primary) as CodexRateLimitWindow | null;
-  const id = asString(bucket.limitId) ?? asString(bucket.limitName) ?? (primary ? "codex" : null);
-  if (!id || !primary) return null;
+// Codex reports two windows per metered limit: `primary` and `secondary`. Which one holds the
+// short (5h) or long (weekly) window varies by plan, so both are surfaced and labelled by duration.
+function parseCodexRateLimitBucket(bucket: CodexRateLimitBucket | null): ProviderUsageBucket[] {
+  if (!bucket) return [];
+  const limitId = asString(bucket.limitId) ?? asString(bucket.limitName) ?? "codex";
+  const limitName = asString(bucket.limitName);
 
-  return {
-    id,
-    label: asString(bucket.limitName),
-    usedPercent: normalizeCodexPercent(primary),
-    windowDurationMins: asNumber(primary.windowDurationMins),
-    resetsAt: parseResetTimestamp(primary.resetsAt ?? primary.resetAt),
-    planType: asString(bucket.planType),
-    credits: bucket.credits,
-    rateLimitReachedType: asString(bucket.rateLimitReachedType),
-  };
+  return CODEX_WINDOW_SLOTS.flatMap((slot) => {
+    const window = asRecord(bucket[slot]) as CodexRateLimitWindow | null;
+    if (!window) return [];
+    const usedPercent = normalizeCodexPercent(window);
+    if (usedPercent === null) return [];
+    const windowDurationMins = asNumber(window.windowDurationMins);
+
+    return [{
+      id: `${limitId}:${slot}`,
+      label: codexBucketLabel(limitName, windowDurationMins, slot),
+      usedPercent,
+      windowDurationMins,
+      resetsAt: parseResetTimestamp(window.resetsAt ?? window.resetAt),
+      planType: asString(bucket.planType),
+      credits: bucket.credits,
+      rateLimitReachedType: asString(bucket.rateLimitReachedType),
+    }];
+  });
+}
+
+function codexBucketLabel(
+  limitName: string | null,
+  windowDurationMins: number | null,
+  slot: string,
+): string {
+  const window = formatWindowLabel(windowDurationMins) ?? slot;
+  // The default limit is named after the provider; repeating it would render "Codex Codex 5h".
+  return !limitName || limitName.toLowerCase() === "codex"
+    ? window
+    : `${limitName} ${window}`;
+}
+
+function formatWindowLabel(windowDurationMins: number | null): string | null {
+  if (windowDurationMins === null || windowDurationMins <= 0) return null;
+  if (windowDurationMins < 1440) return `${Math.round(windowDurationMins / 60)}h`;
+  return `${Math.round(windowDurationMins / 1440)}d`;
 }
 
 function normalizeCodexPercent(window: CodexRateLimitWindow): number | null {
@@ -771,16 +873,27 @@ class CodexUsageClient {
     this.rpc?.respondError(request.id, `${request.method} is not supported by Hive usage polling`);
   }
 
+  // `account/rateLimits/updated` is a sparse rolling update covering a single limit, so it is
+  // merged into the cached snapshot instead of replacing every bucket read earlier.
   private cacheRateLimits(params: unknown): void {
-    const entry = {
-      id: "codex",
-      label: "Codex",
-      status: "available" as const,
-      buckets: parseCodexRateLimitBuckets(params),
-      lastUpdatedAt: new Date().toISOString(),
-    };
-    if (entry.buckets.length > 0) {
-      codexUsageCache = { value: entry, expiresAt: Date.now() + CODEX_USAGE_CACHE_TTL_MS };
+    const updated = parseCodexRateLimitBuckets(params);
+    if (updated.length === 0) return;
+
+    const cached = codexUsageCache?.value;
+    const merged = new Map(cached?.buckets.map((bucket) => [bucket.id, bucket]));
+    for (const bucket of updated) {
+      merged.set(bucket.id, bucket);
     }
+
+    codexUsageCache = {
+      value: {
+        id: "codex",
+        label: cached?.label ?? "Codex",
+        status: "available",
+        buckets: [...merged.values()],
+        lastUpdatedAt: new Date().toISOString(),
+      },
+      expiresAt: Date.now() + CODEX_USAGE_CACHE_TTL_MS,
+    };
   }
 }

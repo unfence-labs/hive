@@ -160,8 +160,8 @@ describe("provider usage", () => {
       },
     })).toEqual([
       {
-        id: "codex",
-        label: null,
+        id: "codex:primary",
+        label: "5h",
         usedPercent: 0.4,
         windowDurationMins: 300,
         resetsAt: 1781110800,
@@ -184,8 +184,8 @@ describe("provider usage", () => {
       },
     })).toMatchObject([
       {
-        id: "weekly",
-        label: "Weekly",
+        id: "weekly:primary",
+        label: "Weekly primary",
         usedPercent: 87,
         resetsAt: 1781542800,
       },
@@ -198,7 +198,7 @@ describe("provider usage", () => {
       },
     })).toMatchObject([
       {
-        id: "codex",
+        id: "codex:primary",
         usedPercent: 1,
       },
     ]);
@@ -209,7 +209,7 @@ describe("provider usage", () => {
       },
     })).toMatchObject([
       {
-        id: "codex",
+        id: "codex:primary",
         usedPercent: 1,
       },
     ]);
@@ -220,10 +220,105 @@ describe("provider usage", () => {
       },
     })).toMatchObject([
       {
-        id: "codex",
+        id: "codex:primary",
         usedPercent: 42,
       },
     ]);
+  });
+
+  // Field names and nesting mirror the RateLimitSnapshot bindings emitted by
+  // `codex app-server generate-ts` (codex-cli 0.145.0).
+  it("surfaces both the primary and secondary window of every Codex limit", () => {
+    expect(__providerUsageTestHooks.parseCodexRateLimitBuckets({
+      rateLimits: {
+        limitId: "codex",
+        limitName: "Codex",
+        primary: { usedPercent: 0, windowDurationMins: 10080, resetsAt: 1781542800 },
+        secondary: { usedPercent: 64, windowDurationMins: 300, resetsAt: 1781110800 },
+      },
+      rateLimitsByLimitId: {
+        codex: {
+          limitId: "codex",
+          limitName: "Codex",
+          primary: { usedPercent: 0, windowDurationMins: 10080, resetsAt: 1781542800 },
+          secondary: { usedPercent: 64, windowDurationMins: 300, resetsAt: 1781110800 },
+        },
+        "gpt-5.3-codex": {
+          limitId: "gpt-5.3-codex",
+          limitName: "GPT-5.3-Codex",
+          primary: { usedPercent: 0, windowDurationMins: 10080, resetsAt: 1781542800 },
+          secondary: null,
+        },
+      },
+    })).toEqual([
+      {
+        id: "codex:primary",
+        label: "7d",
+        usedPercent: 0,
+        windowDurationMins: 10080,
+        resetsAt: 1781542800,
+        planType: null,
+        credits: undefined,
+        rateLimitReachedType: null,
+      },
+      {
+        id: "codex:secondary",
+        label: "5h",
+        usedPercent: 64,
+        windowDurationMins: 300,
+        resetsAt: 1781110800,
+        planType: null,
+        credits: undefined,
+        rateLimitReachedType: null,
+      },
+      {
+        id: "gpt-5.3-codex:primary",
+        label: "GPT-5.3-Codex 7d",
+        usedPercent: 0,
+        windowDurationMins: 10080,
+        resetsAt: 1781542800,
+        planType: null,
+        credits: undefined,
+        rateLimitReachedType: null,
+      },
+    ]);
+  });
+
+  it("reports an expired Codex sign-in instead of the raw upstream error", async () => {
+    const proc = createMockProcess();
+    mocks.spawn.mockReturnValue(proc);
+    mocks.getAllProviderInfo.mockReturnValue([
+      {
+        id: "codex",
+        label: "Codex",
+        npmPackage: "@openai/codex",
+        installed: true,
+        version: "1.0.0",
+      },
+    ]);
+
+    const resultPromise = getProviderUsageSnapshot();
+    const init = findMethod(proc, "initialize");
+    proc._stdout.push(appServerResponse(init.id, {}));
+    await flushPromises();
+    const read = findMethod(proc, "account/rateLimits/read");
+    proc._stdout.push(JSON.stringify({
+      id: read.id,
+      error: {
+        code: -32603,
+        message: "failed to fetch codex rate limits: GET https://chatgpt.com/backend-api/wham/usage"
+          + ' failed: 401 Unauthorized; content-type=text/plain; body={"error":{"code":"token_invalidated"}}',
+      },
+    }) + "\n");
+
+    const result = await resultPromise;
+
+    expect(result.providers[0]).toMatchObject({
+      id: "codex",
+      status: "unknown",
+      buckets: [],
+      message: "Codex sign-in expired. Run `codex login`.",
+    });
   });
 
   it("reads Codex usage through the App Server JSON-RPC endpoint", async () => {
@@ -266,8 +361,8 @@ describe("provider usage", () => {
       status: "available",
       buckets: [
         {
-          id: "primary",
-          label: "Primary",
+          id: "primary:primary",
+          label: "Primary 5h",
           usedPercent: 25,
           resetsAt: 1781110800,
         },
@@ -353,7 +448,7 @@ describe("provider usage", () => {
     expect(secondResult.providers[0]).toMatchObject({
       id: "codex",
       status: "available",
-      buckets: [{ id: "codex", usedPercent: 12 }],
+      buckets: [{ id: "codex:primary", usedPercent: 12 }],
     });
   });
 
@@ -414,7 +509,7 @@ describe("provider usage", () => {
     const secondResult = await getProviderUsageSnapshot();
     expect(secondResult.providers[0]).toMatchObject({
       id: "codex",
-      buckets: [{ id: "codex", usedPercent: 12 }],
+      buckets: [{ id: "codex:primary", usedPercent: 12 }],
     });
     expect(parseWrites(proc).filter((entry) => entry.method === "account/rateLimits/read")).toHaveLength(1);
 
@@ -424,6 +519,87 @@ describe("provider usage", () => {
     await vi.advanceTimersByTimeAsync(1);
     expect(proc.kill).toHaveBeenCalledWith("SIGTERM");
     expect(mocks.spawn).toHaveBeenCalledTimes(1);
+  });
+
+  // Field names, nesting, and null-vs-populated keys mirror the live /api/oauth/usage response
+  // captured on 2026-07-28 (claude-code 2.1.217). Percentages are synthetic.
+  it("parses the per-model Claude limits that the legacy top-level keys no longer carry", () => {
+    expect(__providerUsageTestHooks.parseClaudeUsageBuckets({
+      five_hour: { utilization: 2, resets_at: "2026-07-29T02:50:00Z" },
+      seven_day: { utilization: 34, resets_at: "2026-08-04T05:00:00Z" },
+      seven_day_opus: null,
+      seven_day_sonnet: null,
+      limits: [
+        {
+          kind: "session",
+          percent: 2,
+          resets_at: "2026-07-29T02:50:00Z",
+          scope: null,
+        },
+        {
+          kind: "weekly_all",
+          percent: 34,
+          resets_at: "2026-08-04T05:00:00Z",
+          scope: null,
+        },
+        {
+          kind: "weekly_scoped",
+          percent: 60,
+          resets_at: "2026-08-04T05:00:00Z",
+          scope: { model: { id: null, display_name: "Fable" }, surface: null },
+        },
+      ],
+    })).toEqual([
+      {
+        id: "session",
+        label: "5h",
+        usedPercent: 2,
+        windowDurationMins: 300,
+        resetsAt: 1785293400,
+      },
+      {
+        id: "weekly_all",
+        label: "7d",
+        usedPercent: 34,
+        windowDurationMins: 10_080,
+        resetsAt: 1785819600,
+      },
+      {
+        id: "weekly_scoped:fable",
+        label: "7d Fable",
+        usedPercent: 60,
+        windowDurationMins: 10_080,
+        resetsAt: 1785819600,
+      },
+    ]);
+  });
+
+  it("falls back to the legacy Claude usage keys when the response carries no limits", () => {
+    expect(__providerUsageTestHooks.parseClaudeUsageBuckets({
+      five_hour: { utilization: 42, resets_at: "2026-06-10T17:00:00Z" },
+      limits: [],
+    })).toMatchObject([
+      { id: "five_hour", label: "5h", usedPercent: 42 },
+    ]);
+  });
+
+  it("reports an expired Claude sign-in without calling the usage endpoint", async () => {
+    mocks.readFile.mockResolvedValue(JSON.stringify({
+      claudeAiOauth: {
+        accessToken: "expired-token",
+        expiresAt: Date.now() - 1_000,
+      },
+    }));
+
+    const result = await getProviderUsageSnapshot();
+
+    expect(result.providers[0]).toMatchObject({
+      id: "claude",
+      status: "unknown",
+      buckets: [],
+      message: "Claude sign-in expired. Run `claude` to refresh the token.",
+    });
+    expect(fetch).not.toHaveBeenCalled();
   });
 
   it("parses Claude OAuth usage windows", () => {
