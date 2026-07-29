@@ -1,15 +1,18 @@
 # Prerequisites
 
-Read this before starting the guided installer. It takes about a minute.
+Read this before installing Hive. It takes about a minute.
 
-Hive runs on a server you own. The installer connects to that server over SSH from the Hive desktop
-app, installs the backend as a systemd service, and hands you back a running server and its access
-token. Setup instructions are in **[GETTING_STARTED.md](../GETTING_STARTED.md)**.
+Hive runs in a Linux environment you control: either a remote VPS or a local VM. For the initial
+installation paths, that environment must grant root privileges directly or through `sudo`. The
+automatic installer connects over SSH, installs the backend as a systemd service, and hands you
+back a running server and its access token. Setup instructions are in
+**[Getting Started](getting-started.md)**.
 
 ## The server
 
 | | |
 |---|---|
+| Environment | Remote VPS or local VM |
 | Operating system | Ubuntu 22.04, Ubuntu 24.04, Debian 12, or Debian 13 |
 | Architecture | x86-64 or arm64 |
 | Init system | **systemd** — Hive installs itself as a systemd service |
@@ -38,7 +41,7 @@ The installer connects over SSH on port 22, with a key.
 - `ssh`, `ssh-keyscan` and `ssh-keygen` must be present on the machine running the app. `ssh-add` is
   used to see which keys an agent already holds.
 - The guided installer is part of the **desktop app**. From a browser build, use the `provision.sh`
-  path in [GETTING_STARTED.md](../GETTING_STARTED.md) instead.
+  path described in [Getting Started](getting-started.md) instead.
 
 ## How you will reach the server
 
