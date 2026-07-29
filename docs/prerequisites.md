@@ -6,7 +6,7 @@ Hive runs in a Linux environment you control: either a remote VPS or a local VM.
 installation paths, that environment must grant root privileges directly or through `sudo`. The
 automatic installer connects over SSH, installs the backend as a systemd service, and hands you
 back a running server and its access token. Setup instructions are in
-**[Getting Started](../GETTING_STARTED.md)**.
+**[Getting Started](getting-started.md)**.
 
 ## The server
 
@@ -41,7 +41,7 @@ The installer connects over SSH on port 22, with a key.
 - `ssh`, `ssh-keyscan` and `ssh-keygen` must be present on the machine running the app. `ssh-add` is
   used to see which keys an agent already holds.
 - The guided installer is part of the **desktop app**. From a browser build, use the `provision.sh`
-  path described in [Getting Started](../GETTING_STARTED.md) instead.
+  path described in [Getting Started](getting-started.md) instead.
 
 ## How you will reach the server
 

@@ -2,7 +2,7 @@
 
 This file is for coding agents. Keep it short and operational.
 
-For product overview, architecture notes, API surface, and the only approved backlog, read `README.md`. Do not duplicate that material here. `GETTING_STARTED.md` is only the remote backend plus Tauri setup guide. `CLAUDE.md` intentionally points at this file.
+For the product overview, read `README.md`. Architecture notes and the API surface live in `docs/architecture.md`, environment variables in `docs/configuration.md`, and setup in `docs/getting-started.md`. Do not duplicate that material here. `CLAUDE.md` intentionally points at this file.
 
 ## Commands
 
@@ -57,7 +57,7 @@ Core model: Project -> Workspace -> Session. Projects are bare repositories; wor
 - Use `rg` / `rg --files` for repository searches.
 - Do not commit unless explicitly asked.
 - Do not revert unrelated user changes in a dirty worktree.
-- Keep docs factual and current. Documentation of unfinished work belongs only in the README backlog section.
+- Keep docs factual and current. Do not document unfinished work.
 
 ## Architecture Guardrails
 

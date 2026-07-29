@@ -17,17 +17,19 @@
 [![SwiftUI](https://img.shields.io/badge/SwiftUI-iOS-F05138?logo=swift&logoColor=white)](https://developer.apple.com/xcode/swiftui/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.9-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org)
 
-[Features](#features) · [Supported Models](#supported-models) · [Getting Started](#getting-started) · [Documentation](#documentation)
+[Features](#features) · [Supported Models](#supported-models) · [Getting Started](#getting-started) · [Documentation](#documentation) · [Contributing](#contributing)
 
 </div>
 
 ---
 
-> [!WARNING]
-> Hive does not provide HTTPS yet. Never expose port 9420 directly to the
-> public Internet. Connect only through an encrypted private network such as
-> Tailscale, WireGuard, or another VPN. The access token is sent over HTTP and
-> WebSocket and can be intercepted on an untrusted network.
+<!-- TODO(release): hero screenshot — drop the image into .github/assets/screenshot-hero.png
+     (workspace chat with a live diff is the money shot), then uncomment:
+
+<p align="center">
+  <img src=".github/assets/screenshot-hero.png" alt="A Hive workspace running an agent session" width="90%" />
+</p>
+-->
 
 ## What is Hive?
 
@@ -37,21 +39,14 @@ Hive runs on your own server, keeping your projects, workspaces, and agent sessi
 
 ## Features
 
-This is a non-exhaustive overview of what Hive brings to your workflow:
-
-- **Launch and forget** — Start an agent from any Hive client, then close Hive, shut down your laptop, or switch devices. When the backend runs on an always-on server, the work continues without a connected client and is ready whenever you return.
-- **Run remotely or locally** — Deploy Hive on an always-on remote VPS for access from anywhere, or run it inside a local Linux VM when you want the entire environment on your own machine.
-- **Multi-harness** — Use different agent runtimes side by side through the same interface, with provider and model selection scoped to each session.
-- **Persistent, resumable sessions** — Conversations, tool calls, plans, and results are stored on the backend. Follow live progress or resume later from the desktop, web, or iOS client.
 - **Parallel, isolated workspaces** — Every workspace gets its own git worktree and branch, so multiple agents can work on the same project without overwriting each other's changes.
+- **Launch and forget** — Sessions live on the backend: conversations, tool calls, plans, and results are all persisted. Start an agent, close your laptop, and pick the work back up later from the desktop, web, or iOS client.
+- **Multi-harness** — Run different agent runtimes side by side through the same interface, with provider and model selection scoped to each session.
+- **Live visibility and control** — Stream agent text, reasoning, tool calls, file changes, diffs, and plans as they happen. Interrupt a run, send a follow-up, or take over from another client. Browse files, comment on diffs, attach images, open a terminal in the worktree — or continue in VS Code over Remote SSH.
 - **GitHub-aware workflows** — Create workspaces from branches, pull requests, or issues, keep their source context attached, and follow pull request status from Hive.
-- **Live visibility and control** — Stream agent text, reasoning, tool calls, file changes, diffs, tasks, plans, and diagnostics. Interrupt a run, send a follow-up, or take over from another client.
+- **The Brain** — A free-standing workspace that belongs to no project: a git-backed knowledge base you can edit, chat with, and share context through across everything you build.
+- **Server-native automation** — Define reusable Team agents and schedule recurring runs directly in Hive. Automations run on the backend without an open client, keep their full run history, and notify you when work finishes or fails.
 - **Shared agent configuration** — Keep global instructions, skills, and subagents aligned across harnesses. Hive connects standards such as `AGENTS.md` and `.agents/skills` with harness-native counterparts, so your setup stays consistent.
-- **One home for your work** — Repositories, workspaces, conversations, agent configuration, compute, and your Brain knowledge base live together on the backend. Resume instantly from any client, including a lightweight client with no local development environment.
-- **Continue in your IDE** — Open any workspace in VS Code over Remote SSH and keep coding with your usual editor, extensions, and tooling.
-- **Built-in development tools** — Browse files, inspect diffs, comment on changes, attach images, manage project environment variables, and open a workspace in a terminal.
-- **Server-native automation** — Define reusable Team agents and schedule recurring runs directly in Hive. Automations run on the backend without an open client and retain their prompts, results, status, and history.
-- **Notifications when work finishes** — Receive completion and failure notifications without keeping Hive in the foreground.
 
 ## Supported Models
 
@@ -63,11 +58,46 @@ This is a non-exhaustive overview of what Hive brings to your workflow:
 
 ## Getting Started
 
-### Installation
+Hive separates the machine doing the work from the client controlling it. The backend runs on a Linux server you control — a remote VPS for an always-on setup, or a local VM when you want everything on your own machine.
 
-The recommended way to install Hive is through the macOS desktop app. During onboarding, the app
-connects to your VPS or local VM over SSH, checks the target, and installs the complete Hive backend
-for you.
+> [!IMPORTANT]
+> Hive is designed to run on your own infrastructure, behind an encrypted private network such as
+> Tailscale or WireGuard. It does not terminate HTTPS in V1, so the backend port must never be
+> reachable from the public Internet. See **[Networking](docs/networking.md)**.
 
-If you want to build and configure every component yourself, follow the
-**[manual installation guide](docs/manual-installation.md)**.
+1. **[Download the desktop app](https://github.com/unfence-labs/hive/releases/latest)** (macOS).
+2. Point it at your server: the guided installer connects over SSH, runs a read-only preflight, and installs the complete backend as a systemd service. Check **[Prerequisites](docs/prerequisites.md)** for what it needs and what it changes.
+3. Connect from anywhere — the desktop app, a browser, or the iOS app share the same backend.
+
+The full walkthrough, including the terminal-only installer, lives in
+**[Getting Started](docs/getting-started.md)**. To build and configure every component yourself,
+follow the **[Manual Installation guide](docs/manual-installation.md)**.
+
+## Documentation
+
+| Guide | What it covers |
+|---|---|
+| [Getting Started](docs/getting-started.md) | Choosing a server, installing the backend, connecting clients |
+| [Prerequisites](docs/prerequisites.md) | Supported systems, SSH access, exactly what the installer changes |
+| [Networking](docs/networking.md) | The encrypted private network Hive expects |
+| [Manual Installation](docs/manual-installation.md) | Building from source and managing the runtime yourself |
+| [Configuration](docs/configuration.md) | Backend and frontend environment variables |
+| [Architecture](docs/architecture.md) | Monorepo layout, core model, HTTP and WebSocket APIs, testing |
+
+## Contributing
+
+Contributions are welcome! Read **[CONTRIBUTING.md](CONTRIBUTING.md)** for the dev setup and
+guidelines — and **[AGENTS.md](AGENTS.md)** for the commands, repository map, and guardrails
+(written for coding agents, works just as well for humans).
+
+Found a bug or have an idea? [Open an issue](https://github.com/unfence-labs/hive/issues).
+
+## License
+
+Released under the [GNU General Public License v3.0](LICENSE). Copyright (C) 2026 419Labs.
+
+---
+
+<div align="center">
+<sub>Built with 🧡 for people who run many agents at once.</sub>
+</div>

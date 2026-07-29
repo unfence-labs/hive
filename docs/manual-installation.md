@@ -4,6 +4,7 @@ Use this guide when you want to build Hive from source and manage its runtime, a
 process yourself. For the normal setup, use the desktop app instead.
 
 Read **[Prerequisites](prerequisites.md)** and **[Networking](networking.md)** before continuing.
+All backend environment variables are documented in **[Configuration](configuration.md)**.
 
 ## Dependencies
 
