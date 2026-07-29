@@ -33,6 +33,8 @@
 
 ## What is Hive?
 
+Test change for validating the pull request workflow.
+
 Hive is a control plane for AI coding agents. It manages your projects as **bare git repositories**, spins up **isolated workspaces** as git worktrees and branches, and keeps every agent conversation as a **resumable session** — so multiple agents can work in parallel without stepping on each other.
 
 Hive runs on your own server, keeping your projects, workspaces, and agent sessions under your control. Through an encrypted private network, that server is easily accessible from any Hive client: the web app, the Tauri desktop app, or the native SwiftUI iOS app. Every client uses the same REST and WebSocket protocols, so your work is available wherever you need it.
