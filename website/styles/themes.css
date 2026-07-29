@@ -1,0 +1,110 @@
+/*
+ * Per-theme signature treatments the CSS variables cannot express: the page
+ * texture layer plus Daylight light mode fixes. Structure lives in
+ * landing.css and docs.css. Identity lives here.
+ */
+
+/* Full-page texture layer, painted behind everything. */
+.landing::before,
+.docs::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background-image: var(--page-texture, none);
+  background-size: var(--page-texture-size, auto);
+  opacity: var(--page-texture-opacity, 1);
+}
+
+.landing > *,
+.docs > * {
+  position: relative;
+  z-index: 1;
+}
+
+/* The hex field is Ember's motif; Daylight brings its own dot grid. */
+[data-theme="daylight"] .hero-hex {
+  display: none;
+}
+
+/*
+ * The laptop/phone mock and the bento inner panels are always a dark "product
+ * screenshot", regardless of page theme. Pin a dark neutral ink context inside
+ * them so their text stays readable (notably under Daylight). Accent stays
+ * theme-driven, so the product shot still picks up the page's vibe.
+ */
+.laptop-screen,
+.phone,
+.bento-visual {
+  --ink: #f3f1ea;
+  --ink-dim: #b9b7c2;
+  --ink-faint: #807e8c;
+  --wash: #f3f1ea;
+}
+
+/* =================== DAYLIGHT =================== */
+[data-theme="daylight"] {
+  --page-texture: radial-gradient(
+    color-mix(in srgb, var(--wash) 8%, transparent) 1px,
+    transparent 1.4px
+  );
+  --page-texture-size: 22px 22px;
+  --page-texture-opacity: 0.7;
+}
+
+/* On white, the accent gradient's light stop would vanish — use solid accent. */
+[data-theme="daylight"] .hero-title-accent,
+[data-theme="daylight"] .accent-text {
+  background: none;
+  color: var(--accent);
+  -webkit-text-fill-color: currentColor;
+}
+
+/* Nav turns to frosted white; ghost button gains a crisp hairline. */
+[data-theme="daylight"] .nav.scrolled {
+  background: color-mix(in srgb, var(--bg-elev) 78%, transparent);
+}
+[data-theme="daylight"] .btn-ghost {
+  border-color: var(--line-strong);
+  background: var(--bg-elev);
+}
+[data-theme="daylight"] .btn-ghost:hover {
+  border-color: color-mix(in srgb, var(--wash) 28%, transparent);
+  background: color-mix(in srgb, var(--wash) 4%, transparent);
+}
+/* Bento inner visuals sit on a dark panel by default; lift them on light. */
+[data-theme="daylight"] .bento-visual {
+  background: #0c0c14;
+  border-color: transparent;
+}
+[data-theme="daylight"] .stream-visual::before {
+  background: linear-gradient(180deg, #0c0c14, transparent);
+}
+[data-theme="daylight"] .stream-visual::after {
+  background: linear-gradient(0deg, #0c0c14, transparent);
+}
+
+/* The switcher trigger and hero glows read softer on light. Nudge for presence. */
+[data-theme="daylight"] .hero-glow,
+[data-theme="daylight"] .closing-glow {
+  opacity: 0.8;
+}
+
+/* On light, give the laptop chassis a silver finish and soften the shadows. */
+[data-theme="daylight"] .laptop-screen {
+  border-color: rgba(16, 16, 26, 0.12);
+  box-shadow: 0 30px 70px -34px rgba(16, 16, 26, 0.4);
+}
+[data-theme="daylight"] .laptop-base {
+  background: linear-gradient(180deg, #dededf, #b4b4bd);
+  border-color: rgba(16, 16, 26, 0.1);
+  box-shadow: 0 20px 40px -24px rgba(16, 16, 26, 0.45);
+}
+[data-theme="daylight"] .phone {
+  box-shadow: 0 30px 60px -22px rgba(16, 16, 26, 0.4);
+}
+[data-theme="daylight"] .phone.live {
+  box-shadow: 0 30px 66px -20px rgba(16, 16, 26, 0.45),
+    0 0 50px -16px var(--accent-glow);
+}

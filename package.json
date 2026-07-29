@@ -4,13 +4,14 @@
   "workspaces": [
     "backend",
     "frontend",
-    "shared"
+    "shared",
+    "website"
   ],
   "scripts": {
-    "lint": "npm run lint --workspace @hive/backend --workspace @hive/frontend",
-    "lint:fix": "npm run lint:fix --workspace @hive/backend --workspace @hive/frontend",
+    "lint": "npm run lint --workspace @hive/backend --workspace @hive/frontend --workspace @hive/website",
+    "lint:fix": "npm run lint:fix --workspace @hive/backend --workspace @hive/frontend --workspace @hive/website",
     "knip": "knip",
-    "typecheck": "npm run typecheck --workspace @hive/backend --workspace @hive/frontend",
+    "typecheck": "npm run typecheck --workspace @hive/backend --workspace @hive/frontend --workspace @hive/website",
     "test": "npm run test --workspace @hive/backend --workspace @hive/frontend"
   },
   "devDependencies": {

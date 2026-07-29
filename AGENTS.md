@@ -34,6 +34,12 @@ npm test
 npm run tauri dev
 npm run tauri build
 
+cd ../website
+npm run dev
+npm run build
+npm run lint
+npm run typecheck
+
 cd ../ios
 swift test
 ```
@@ -46,6 +52,7 @@ Root checks do not run the iOS suite. Run `cd ios && swift test` for Swift chang
 - `frontend/`: React 19 plus Vite web UI and Tauri v2 desktop shell.
 - `ios/`: SwiftUI mobile client that shares the same REST and hub protocols.
 - `shared/`: TypeScript helpers shared by backend and frontend.
+- `website/`: public marketing site plus product docs. Next.js App Router with `output: "export"`, so every route is static HTML rendered at build time. Docs are Markdown files in `website/docs/` read and rendered at build time. Standalone. It never imports app code. The docs intentionally do not cover installation while the install flow is reworked.
 
 Core model: Project -> Workspace -> Session. Projects are bare repositories; workspaces are git worktrees and branches; sessions are persisted agent conversations. The Brain uses the synthetic workspace id `brain` for shared session and hub plumbing.
 

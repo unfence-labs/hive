@@ -1,0 +1,165 @@
+/* Fonts are loaded via next/font/local in app/layout.tsx, which injects the
+   --font-geist-* variables with preloading and zero layout shift. */
+
+/*
+ * Each theme is a full design language, not just a hue. A theme sets colors,
+ * the ink "wash" (drives every translucent surface + hairline), typography
+ * (display / body / label fonts), shape (radii, border width) and surface
+ * treatment (card fill + shadow). Signature motifs — scanlines, grid paper,
+ * corner brackets, uppercase titles — live in themes.css, keyed on [data-theme].
+ * A theme only sets --accent, --accent-ink, --violet for hue; the soft/strong/
+ * deep/glow variants are derived here so all accent surfaces repaint together.
+ */
+:root {
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, "SFMono-Regular", Menlo, Consolas,
+    monospace;
+  --font-pixel: var(--font-geist-pixel), var(--font-geist-mono), ui-monospace, monospace;
+  --green: #34d399;
+  --amber: #facc15;
+  --nav-height: 64px;
+
+  /* Derived accent ramp (do not set per theme) */
+  --accent-soft: color-mix(in srgb, var(--accent) 62%, white);
+  --accent-strong: color-mix(in srgb, var(--accent) 85%, white);
+  --accent-deep: color-mix(in srgb, var(--accent) 78%, #200a02);
+  --accent-glow: color-mix(in srgb, var(--accent) 35%, transparent);
+
+  /* Derived hairlines from the theme wash */
+  --line: color-mix(in srgb, var(--wash) 9%, transparent);
+  --line-strong: color-mix(in srgb, var(--wash) 16%, transparent);
+}
+
+/* ============ EMBER — warm premium dark (default) ============ */
+:root,
+[data-theme="ember"] {
+  --bg: #0b0b10;
+  --bg-elev: #0e0e15;
+  --bg-card: #14141d;
+  --ink: #f3f1ea;
+  --ink-dim: #b9b7c2;
+  --ink-faint: #807e8c;
+  --wash: #f3f1ea;
+  --accent: #ff7048;
+  --accent-ink: #1a0d07;
+  --violet: #635bff;
+  --font-display: var(--font-sans);
+  --font-body: var(--font-sans);
+  --font-label: var(--font-pixel);
+  --radius: 12px;
+  --radius-card: 18px;
+  --btn-radius: 999px;
+  --border-width: 1px;
+  --card-bg: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--wash) 3.5%, transparent),
+    color-mix(in srgb, var(--wash) 1%, transparent)
+  );
+  --card-shadow: none;
+  color-scheme: dark;
+}
+
+/* ============ DAYLIGHT — clean light ============ */
+[data-theme="daylight"] {
+  --bg: #f6f6f3;
+  --bg-elev: #ffffff;
+  --bg-card: #ffffff;
+  --ink: #15151b;
+  --ink-dim: #55555f;
+  --ink-faint: #8a8a95;
+  --wash: #12131a;
+  --accent: #5b57f5;
+  --accent-ink: #ffffff;
+  --violet: #ff7048;
+  --font-display: var(--font-sans);
+  --font-body: var(--font-sans);
+  --font-label: var(--font-pixel);
+  --radius: 14px;
+  --radius-card: 20px;
+  --btn-radius: 999px;
+  --border-width: 1px;
+  --card-bg: var(--bg-card);
+  --card-shadow: 0 1px 2px rgba(16, 16, 26, 0.05), 0 14px 34px -20px rgba(16, 16, 26, 0.22);
+  color-scheme: light;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+  scroll-padding-top: calc(var(--nav-height) + 24px);
+}
+
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: 16px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  overflow-x: hidden;
+  transition: background 0.4s ease, color 0.4s ease;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+img,
+svg {
+  display: block;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--accent) 32%, transparent);
+  color: var(--ink);
+}
+
+/* Scroll-reveal primitives (JS toggles .is-visible via IntersectionObserver) */
+.reveal {
+  opacity: 0;
+  transform: translateY(26px);
+  transition:
+    opacity 0.7s cubic-bezier(0.22, 1, 0.36, 1),
+    transform 0.7s cubic-bezier(0.22, 1, 0.36, 1);
+  transition-delay: var(--reveal-delay, 0s);
+}
+
+.reveal.is-visible {
+  opacity: 1;
+  transform: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  .reveal {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

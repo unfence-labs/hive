@@ -45,7 +45,7 @@ Run Hive as a **local web app**, a **Tauri desktop app** (pointed at a local or 
 - Clone or create git-backed projects, then spin up isolated workspaces from them.
 - Create workspaces from an existing branch, pull request, or issue: the workspace source is injected into the agent's git context (PR workspaces carry the base branch), and issue workspaces pre-fill the composer from the editable issue draft prompt.
 - Run **Claude** and **Codex** sessions with provider-aware model selection and per-session provider locking.
-- Up to **4 sessions per workspace**, with REST-fetched per-session history, queued follow-ups, unread indicators, and interrupt/stop handling.
+- Up to **6 sessions per workspace**, with REST-fetched per-session history, queued follow-ups, unread indicators, and interrupt/stop handling.
 - Stream live assistant text, thinking, tool calls, file changes, diagnostics, tasks, images, plan updates, branch info, and diff stats over the hub WebSocket.
 - Attach images to messages; the backend resizes and stores them per session.
 - Browse files, preview raw content, inspect inline diffs, paste diff comments into prompts, and use `#file`, `/command`, and `@agent` autocomplete.
@@ -200,6 +200,7 @@ backend/    Fastify REST API, WebSocket hub, provider runners, git/worktree mana
 frontend/   React 19 + Vite web UI and Tauri v2 desktop shell
 ios/        SwiftUI client sharing the same REST and hub protocols
 shared/     TypeScript helpers shared by backend and frontend
+website/    Public marketing site + product docs (Markdown in website/docs/)
 ```
 
 **Core model:** `Project → Workspace → Session`
