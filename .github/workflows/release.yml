@@ -1,38 +1,91 @@
 name: release
 
 on:
-  push:
-    tags:
-      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Exact Cargo version to release (for example 0.1.0-beta.1)
+        required: true
+        type: string
 
-# Least privilege: only the publish job writes release contents. The build jobs
-# run npm install (third-party install scripts) and must not hold a write token.
-# Every third-party action is pinned by commit SHA.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+# Build and verification jobs cannot publish repository contents. Only the
+# final draft-release job receives a write token.
 permissions:
   contents: read
 
 jobs:
-  validate-tag:
+  validate:
     runs-on: ubuntu-24.04
     outputs:
       version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+      macos-version: ${{ steps.version.outputs.macos-version }}
+      macos-build: ${{ steps.version.outputs.macos-build }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
+      commit: ${{ steps.version.outputs.commit }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
       - id: version
-        name: Validate the tag against the desktop package version
+        name: Validate main and release version
+        env:
+          REQUESTED_VERSION: ${{ inputs.version }}
         shell: bash
         run: |
-          version="$(awk '
-            /^\[package\]$/ { in_package=1; next }
-            /^\[/ && in_package { exit }
-            in_package && /^version = / { gsub(/["[:space:]]/, "", $3); print $3; exit }
-          ' frontend/src-tauri/Cargo.toml)"
-          [[ "$version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$ ]]
-          test "$GITHUB_REF_NAME" = "v$version"
-          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if [ "$GITHUB_REF" != "refs/heads/main" ]; then
+            echo "releases must be dispatched from main, not $GITHUB_REF" >&2
+            exit 1
+          fi
+          node scripts/release/release-version.mjs check "$REQUESTED_VERSION"
+          version="$(node scripts/release/release-version.mjs get)"
+          macos_version="$(node scripts/release/release-version.mjs macos "$version")"
+          macos_build="$(git rev-list --count HEAD)"
+          commit="$(git rev-parse HEAD)"
+          prerelease=false
+          case "$version" in *-*) prerelease=true ;; esac
+
+          if git ls-remote --exit-code --tags origin "refs/tags/v$version" >/dev/null 2>&1; then
+            echo "tag v$version already exists" >&2
+            exit 1
+          fi
+
+          {
+            echo "version=$version"
+            echo "tag=v$version"
+            echo "macos-version=$macos_version"
+            echo "macos-build=$macos_build"
+            echo "prerelease=$prerelease"
+            echo "commit=$commit"
+          } >> "$GITHUB_OUTPUT"
+
+  verify:
+    needs: validate
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+        env:
+          NODE_ENV: test
+      - run: npm run test:release
+      - run: npm run test:provision
 
   backend-tarball:
-    needs: validate-tag
+    needs: [validate, verify]
     strategy:
       fail-fast: false
       matrix:
@@ -44,41 +97,144 @@ jobs:
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      # Must match RELEASE_NODE_MAJOR in scripts/release/build-backend-tarball.sh
-      # and the Node major installed on the deployment host: node-pty is compiled
-      # here against this Node's ABI. The build fails loudly on a mismatch.
-      # No dependency cache: a release must not be built from cached tarballs.
+
+      # Must match RELEASE_NODE_MAJOR in build-backend-tarball.sh and the Node
+      # major provisioned on servers because node-pty is compiled in this job.
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24
+
       - name: Build backend tarball
-        run: bash scripts/release/build-backend-tarball.sh "${{ needs.validate-tag.outputs.version }}" "${{ matrix.arch }}"
+        run: bash scripts/release/build-backend-tarball.sh "${{ needs.validate.outputs.version }}" "${{ matrix.arch }}"
+
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: backend-${{ matrix.arch }}
           path: dist-release/*
           if-no-files-found: error
 
-  # provision.sh is published alongside the tarballs so an operator can install
-  # with `curl -fsSL .../provision.sh | bash`. It carries the release version,
-  # which is the version of the backend tarball it downloads.
   provision-script:
-    needs: validate-tag
+    needs: [validate, verify]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Provision contracts
-        run: bash test/provision/contract.sh
+
       - name: Build provision.sh
-        run: bash scripts/provision/build.sh "${{ needs.validate-tag.outputs.version }}"
+        run: bash scripts/provision/build.sh "${{ needs.validate.outputs.version }}"
+
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: provision-script
           path: scripts/provision/dist/provision.sh
           if-no-files-found: error
 
-  publish:
-    needs: [validate-tag, backend-tarball, provision-script]
+  desktop-macos-arm64:
+    needs: [validate, verify]
+    runs-on: macos-26
+    environment:
+      name: release
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+
+      - name: Build signed and notarized Apple Silicon DMG
+        working-directory: frontend
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_PRIVATE_KEY: ${{ secrets.APPLE_API_PRIVATE_KEY }}
+          RELEASE_VERSION: ${{ needs.validate.outputs.version }}
+          MACOS_VERSION: ${{ needs.validate.outputs.macos-version }}
+          MACOS_BUILD: ${{ needs.validate.outputs.macos-build }}
+        shell: bash
+        run: |
+          for name in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_API_ISSUER APPLE_API_KEY APPLE_API_PRIVATE_KEY; do
+            if [ -z "${!name:-}" ]; then
+              echo "missing release environment secret: $name" >&2
+              exit 1
+            fi
+          done
+          case "$APPLE_API_KEY" in
+            *[!A-Za-z0-9]*)
+              echo "APPLE_API_KEY must contain only letters and digits" >&2
+              exit 1
+              ;;
+          esac
+          export APPLE_API_KEY_PATH="$RUNNER_TEMP/AuthKey_${APPLE_API_KEY}.p8"
+          mount_point=""
+          cleanup() {
+            if [ -n "$mount_point" ]; then
+              hdiutil detach "$mount_point" >/dev/null 2>&1 || true
+            fi
+            if [ -n "${APPLE_API_KEY_PATH:-}" ]; then
+              rm -f -- "$APPLE_API_KEY_PATH"
+            fi
+          }
+          trap cleanup EXIT
+          umask 077
+          printf '%s' "$APPLE_API_PRIVATE_KEY" > "$APPLE_API_KEY_PATH"
+          unset APPLE_API_PRIVATE_KEY
+          test -s "$APPLE_API_KEY_PATH"
+          rustup target add aarch64-apple-darwin
+          release_config="$(jq -cn \
+            --arg version "$MACOS_VERSION" \
+            --arg build "$MACOS_BUILD" \
+            '{version: $version, bundle: {macOS: {bundleVersion: $build}}}')"
+          npm run tauri build -- \
+            --target aarch64-apple-darwin \
+            --bundles dmg \
+            --config "$release_config"
+
+          generated_dir="src-tauri/target/aarch64-apple-darwin/release/bundle/dmg"
+          generated_count="$(find "$generated_dir" -maxdepth 1 -type f -name '*.dmg' | wc -l | tr -d ' ')"
+          test "$generated_count" = 1
+          generated_dmg="$(find "$generated_dir" -maxdepth 1 -type f -name '*.dmg' -print -quit)"
+          mkdir -p ../dist-release
+          dmg="../dist-release/Hive-$RELEASE_VERSION-macos-arm64.dmg"
+          cp "$generated_dmg" "$dmg"
+
+          mount_point="$RUNNER_TEMP/hive-release-dmg"
+          mkdir -p "$mount_point"
+          hdiutil attach "$dmg" -readonly -nobrowse -mountpoint "$mount_point"
+          app="$mount_point/Hive.app"
+          test -d "$app"
+          test "$(lipo -archs "$app/Contents/MacOS/Hive")" = arm64
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Contents/Info.plist")" = io.419labs.hive
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app/Contents/Info.plist")" = "$MACOS_VERSION"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$app/Contents/Info.plist")" = "$MACOS_BUILD"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :LSMinimumSystemVersion' "$app/Contents/Info.plist")" = 14.0
+          test -f "$app/Contents/Resources/LICENSE"
+          codesign --verify --deep --strict --verbose=2 "$app"
+          spctl --assess --type execute --verbose=2 "$app"
+          hdiutil detach "$mount_point"
+          mount_point=""
+          xcrun stapler validate "$dmg"
+
+          (
+            cd ../dist-release
+            shasum -a 256 "$(basename "$dmg")" > "$(basename "$dmg").sha256"
+          )
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: desktop-macos-arm64
+          path: |
+            dist-release/Hive-${{ needs.validate.outputs.version }}-macos-arm64.dmg
+            dist-release/Hive-${{ needs.validate.outputs.version }}-macos-arm64.dmg.sha256
+          if-no-files-found: error
+
+  draft-release:
+    needs: [validate, backend-tarball, provision-script, desktop-macos-arm64]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -86,21 +242,40 @@ jobs:
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           path: artifacts
+
       - name: Assemble release assets
+        env:
+          VERSION: ${{ needs.validate.outputs.version }}
         shell: bash
         run: |
-          mkdir -p release
-          find artifacts -type f -exec cp {} release/ \;
-          ls -l release
-          test -f "release/hive-backend-${{ needs.validate-tag.outputs.version }}-linux-x64.tar.gz"
-          test -f "release/hive-backend-${{ needs.validate-tag.outputs.version }}-linux-x64.tar.gz.sha256"
-          test -f "release/hive-backend-${{ needs.validate-tag.outputs.version }}-linux-arm64.tar.gz"
-          test -f "release/hive-backend-${{ needs.validate-tag.outputs.version }}-linux-arm64.tar.gz.sha256"
-          test -f "release/provision.sh"
-      - name: Publish GitHub release
+          mkdir release
+          while IFS= read -r asset; do
+            cp -n "$asset" release/
+          done < <(find artifacts -type f | sort)
+
+          for asset in \
+            "hive-backend-$VERSION-linux-x64.tar.gz" \
+            "hive-backend-$VERSION-linux-x64.tar.gz.sha256" \
+            "hive-backend-$VERSION-linux-arm64.tar.gz" \
+            "hive-backend-$VERSION-linux-arm64.tar.gz.sha256" \
+            "Hive-$VERSION-macos-arm64.dmg" \
+            "Hive-$VERSION-macos-arm64.dmg.sha256" \
+            "provision.sh"; do
+            test -f "release/$asset" || {
+              echo "missing release asset: $asset" >&2
+              exit 1
+            }
+          done
+          test "$(find release -type f | wc -l)" = 7
+
+      - name: Create draft GitHub release
         uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
         with:
+          tag_name: ${{ needs.validate.outputs.tag }}
+          name: Hive ${{ needs.validate.outputs.tag }}
+          target_commitish: ${{ needs.validate.outputs.commit }}
           files: release/*
           fail_on_unmatched_files: true
           generate_release_notes: true
-          prerelease: ${{ contains(needs.validate-tag.outputs.version, '-') }}
+          draft: true
+          prerelease: ${{ needs.validate.outputs.prerelease }}

@@ -1,7 +1,7 @@
 # Contributing to Hive
 
 Thanks for your interest in Hive! Contributions of all kinds are welcome — bug reports, docs,
-and code.
+and code. Support is provided on a best-effort basis.
 
 ## Before you start
 
@@ -9,6 +9,8 @@ and code.
   PR directly.
 - For larger changes or new features, open an issue first so we can discuss the approach before you
   invest time in it.
+- Report suspected vulnerabilities privately as described in [SECURITY.md](SECURITY.md), never in
+  a public issue.
 
 ## Development setup
 
@@ -37,4 +39,5 @@ To exercise the real server install flow end to end, see
 ## License
 
 By contributing, you agree that your contributions are licensed under the
-[GNU General Public License v3.0](LICENSE).
+[GNU General Public License v3.0 or later](LICENSE). The project does not require a contributor
+license agreement; you retain copyright in your contribution.

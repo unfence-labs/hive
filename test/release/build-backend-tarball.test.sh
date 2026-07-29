@@ -36,6 +36,7 @@ expect_rejected() {
 
 expect_rejected "rejects a non-semantic version" "invalid semantic version" 1.0
 expect_rejected "rejects a leading-zero version" "invalid semantic version" 1.0.01
+expect_rejected "rejects a leading-zero prerelease" "invalid semantic version" 1.0.0-rc.01
 expect_rejected "rejects an unknown architecture" "unsupported release architecture" 1.0.0 mips
 expect_rejected "rejects a cross-architecture build" \
   "must be built on a linux-$FOREIGN_ARCH host" 1.0.0 "$FOREIGN_ARCH"
