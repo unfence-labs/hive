@@ -192,6 +192,17 @@ assert_provisioned() {
     || die "an agent CLI was installed system-wide"
   echo "OK: claude, codex and gh live under /home/hive/.local"
 
+  log "The browser automation tool is installed with a Chrome the service account owns"
+  sh_server 'runuser -u hive -- env HOME=/home/hive PATH=/home/hive/.local/bin:/opt/hive/runtime/current/bin:/usr/bin:/bin agent-browser --version' >/dev/null \
+    || die "agent-browser is not runnable as the hive service account"
+  sh_server 'ls /home/hive/.agent-browser/browsers/chrome-*/chrome >/dev/null' \
+    || die "no Chrome build under /home/hive/.agent-browser/browsers"
+  [ "$(sh_server 'stat -c %U /home/hive/.agent-browser')" = hive ] \
+    || die "the browser state directory is not owned by the service account"
+  sh_server 'grep -q "^AGENT_BROWSER_ARGS=--no-sandbox$" /etc/hive/hive.env' \
+    || die "the service environment does not disable the Chrome sandbox"
+  echo "OK: agent-browser and its Chrome live under /home/hive, sandbox flag configured"
+
   log "The release was activated by symlink and the service is hardened"
   sh_server 'test -L /opt/hive/current' || die "/opt/hive/current is not a symlink"
   [ "$(in_server systemctl show hive -p User --value)" = hive ] || die "the service does not run as hive"
@@ -359,7 +370,7 @@ data_dir=/home/hive/.hive"' || die "the install identity manifest is wrong"
     || die "the resume did not recognise the key as already authorized"
   echo "OK: two entries — ours once, the operator's untouched"
   local step
-  for step in probe_os apt_baseline create_user install_node install_agent_clis install_release; do
+  for step in probe_os apt_baseline create_user install_node install_agent_clis install_agent_browser install_release; do
     grep -q "\"step\":\"$step\",\"status\":\"skip\"" "$WORK/resume.ndjson" \
       || die "step '$step' repeated its work on a resume"
   done

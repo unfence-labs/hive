@@ -16,6 +16,8 @@ The backend runs a startup preflight and exits if a required dependency is missi
 - **GitHub CLI** (`gh`), installed and authenticated for GitHub-backed flows
 - **PM2** for the documented production process
 - **Codex CLI** (`codex`), optional and required only for its provider features
+- **agent-browser** (`agent-browser`), optional — powers the live browser panel and agent-driven UI
+  checks; run `agent-browser install` once (`--with-deps` on Linux) to download its Chrome build
 
 Install PM2 if it is not already available:
 

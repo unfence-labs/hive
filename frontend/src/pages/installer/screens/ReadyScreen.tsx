@@ -71,8 +71,9 @@ export function ReadyScreen({ inputs, escalates, onContinue, onBack }: ReadyScre
       icon: Bot,
       text: (
         <>
-          Installs Claude Code, Codex and the GitHub CLI inside that prefix, for the{" "}
-          <code>hive</code> account only.
+          Installs Claude Code, Codex, the GitHub CLI and the <code>agent-browser</code>{" "}
+          automation tool inside that prefix, for the <code>hive</code> account only — plus a
+          Chrome build under that account's home and the system libraries it needs.
         </>
       ),
     },

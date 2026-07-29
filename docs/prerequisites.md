@@ -73,7 +73,9 @@ claim success while its port may be closed.
 - Creates an unprivileged `hive` service account with the home directory `/home/hive`.
 - Creates the install directory (`/opt/hive` by default) holding Hive's **own pinned Node.js
   runtime**, its releases, and the uninstall script.
-- Installs the Claude Code, Codex and GitHub CLIs under `/home/hive/.local`, as the service account.
+- Installs the Claude Code, Codex, GitHub and `agent-browser` CLIs under `/home/hive/.local`, as the
+  service account, plus a Chrome build under `/home/hive/.agent-browser` and the system libraries it
+  needs (via `agent-browser install --with-deps`).
 - Writes `/etc/hive/hive.env`, root-owned and readable by nobody else, holding the service
   configuration and the SHA-256 digest of the access token.
 - Writes a non-secret install identity manifest containing its schema, port, install directory, and
