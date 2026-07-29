@@ -2,6 +2,7 @@ import { act, renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, it } from "vitest";
 import {
   CONNECTION_STORAGE_KEY,
+  completeConnectionSetup,
   getAuthToken,
   getConnection,
   getServerUrl,
@@ -49,6 +50,49 @@ describe("connection store", () => {
 
     expect(stored?.sshUser).toBe("hive");
     expect(stored?.adminUser).toBe("root");
+  });
+
+  it("preserves only a literal pending flag", () => {
+    replaceConnection({ host: "h", port: 3000, setupPending: true });
+    expect(getConnection()).toEqual({ host: "h", port: 3000, setupPending: true });
+    expect(renderHook(() => useConnection()).result.current.isSetupPending).toBe(true);
+
+    for (const setupPending of [false, "true", 1, null]) {
+      localStorage.setItem(
+        CONNECTION_STORAGE_KEY,
+        JSON.stringify({ host: "h", port: 3000, setupPending }),
+      );
+      expect(getConnection()).toEqual({ host: "h", port: 3000 });
+      expect(renderHook(() => useConnection()).result.current.isSetupPending).toBe(false);
+    }
+  });
+
+  it("completes setup without dropping any connection fields", () => {
+    replaceConnection({
+      host: "example.com",
+      port: 443,
+      protocol: "https",
+      setupPending: true,
+      authToken: "secret",
+      sshUser: "hive",
+      adminUser: "ops",
+    });
+
+    expect(completeConnectionSetup()).toBe(true);
+    expect(getConnection()).toEqual({
+      host: "example.com",
+      port: 443,
+      protocol: "https",
+      authToken: "secret",
+      sshUser: "hive",
+      adminUser: "ops",
+    });
+    expect(localStorage).toHaveLength(1);
+  });
+
+  it("cannot complete setup without a valid stored connection", () => {
+    expect(completeConnectionSetup()).toBe(false);
+    expect(getConnection()).toBeNull();
   });
 
   it("removes the record and reports nothing configured", () => {

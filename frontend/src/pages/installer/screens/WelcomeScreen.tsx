@@ -3,6 +3,7 @@ import { Bot, FolderGit2, MonitorSmartphone } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { HiveLogo } from "@/components/HiveLogo";
+import { TransportSecurityWarning } from "@/components/setup/TransportSecurityWarning";
 import { BackButton } from "./BackButton";
 import { cn } from "@/lib/utils";
 import { DEFAULT_BACKEND_PORT, isValidPort, switchServer } from "@/lib/server-connection";
@@ -93,7 +94,8 @@ export function WelcomeScreen({ onInstall, onConnected, onCancel }: WelcomeScree
 
           {showForm ? (
             <div className="w-full text-left">
-              <div className="grid grid-cols-[1fr_120px] gap-3">
+              <TransportSecurityWarning />
+              <div className="mt-4 grid grid-cols-[1fr_120px] gap-3">
                 <div>
                   <label
                     htmlFor="existing-host"

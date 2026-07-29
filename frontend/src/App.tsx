@@ -60,13 +60,14 @@ function BootScreen() {
  * changes nothing.
  */
 export default function App() {
-  const { isConfigured } = useConnection();
+  const { isConfigured, isSetupPending } = useConnection();
+  const requiresSetup = !isConfigured || isSetupPending;
   const [installer, setInstaller] = useState<"gate" | "overlay" | null>(() =>
-    isConfigured ? null : "gate",
+    requiresSetup ? "gate" : null,
   );
   useEffect(() => {
-    if (!isConfigured) setInstaller((current) => current ?? "gate");
-  }, [isConfigured]);
+    if (requiresSetup) setInstaller((current) => current ?? "gate");
+  }, [requiresSetup]);
   const closeInstaller = useCallback(() => setInstaller(null), []);
 
   if (installer === "gate") {

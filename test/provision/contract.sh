@@ -221,6 +221,13 @@ for step in probe_env generate_token write_secrets verify_auth firewall_rule; do
     grep -q "guard_$step() { return 1; }" "$PROV/steps.sh"
 done
 
+expect "the completion step is last, after authenticated health verification" \
+  bash -c 'tail="$(sed -n "/^STEPS=(/,/^)/p" "$1" | tr "\n" " ")"
+           [[ "$tail" == *"health_check verify_auth complete_install"* ]]' _ "$PROV/main.sh"
+expect "the completion marker is written atomically by the final step" \
+  bash -c 'sed -n "/^step_complete_install()/,/^}/p" "$1" |
+             grep -q "atomic_state_marker.*HIVE_INSTALL_COMPLETE_MARKER"' _ "$PROV/steps.sh"
+
 rerun_out="$(HIVE_VAR_DIR="$WORK/rerun" HIVE_LOG_FILE="$WORK/rerun/log.ndjson" bash -c '
   mkdir -p "$HIVE_VAR_DIR/state"
   # shellcheck disable=SC1090
@@ -323,6 +330,140 @@ expect "every step that writes under the install directory claims it first" \
   bash -c 'for s in install_node install_release write_uninstall; do
              sed -n "/^step_$s()/,/^}/p" "$1" | grep -q claim_install_dir || exit 1
            done' _ "$PROV/steps.sh"
+
+identity_out="$(bash -c '
+  # shellcheck disable=SC1090
+  source "$1"; source "$2"
+  HIVE_ETC_DIR="$3/etc"
+  HIVE_INSTALL_MARKER="$HIVE_ETC_DIR/.hive-install"
+  HIVE_INSTALL_COMPLETE_MARKER="$HIVE_ETC_DIR/.hive-install-complete"
+  HIVE_ENV_FILE="$HIVE_ETC_DIR/hive.env"
+  OPT_PORT=9420
+  OPT_INSTALL_DIR="$3/opt/hive"
+  OPT_DATA_DIR="$3/home/hive/.hive"
+  resolve_paths
+  mkdir -p "$HIVE_ETC_DIR"
+
+  install_identity_state; echo "none=$HIVE_INSTALL_STATE"
+  claim_install_dir
+  echo "manifest=$(tr "\n" "," <"$HIVE_INSTALL_MARKER")"
+  echo "mode=$(stat -c %a "$HIVE_INSTALL_MARKER")"
+  before="$(sha256sum "$HIVE_INSTALL_MARKER")"
+  claim_install_dir
+  after="$(sha256sum "$HIVE_INSTALL_MARKER")"
+  [ "$before" = "$after" ] && echo immutable
+  install_identity_state; echo "exact=$HIVE_INSTALL_STATE"
+  OPT_PORT=9421
+  install_identity_state; echo "port=$HIVE_INSTALL_STATE"
+  OPT_PORT=9420; HIVE_OPT="$3/opt/other"
+  install_identity_state; echo "install=$HIVE_INSTALL_STATE"
+  HIVE_OPT="$3/opt/hive"; HIVE_DATA_DIR="$3/data/other"
+  install_identity_state; echo "data=$HIVE_INSTALL_STATE"
+  HIVE_DATA_DIR="$3/home/hive/.hive"
+  atomic_state_marker "$HIVE_INSTALL_COMPLETE_MARKER" schema=1
+  echo "complete-mode=$(stat -c %a "$HIVE_INSTALL_COMPLETE_MARKER")"
+  install_identity_state; echo "complete=$HIVE_INSTALL_STATE"
+  : >"$HIVE_INSTALL_MARKER"
+  install_identity_state; echo "empty=$HIVE_INSTALL_STATE"
+  rm -f "$HIVE_INSTALL_MARKER"
+  install_identity_state; echo "orphan-complete=$HIVE_INSTALL_STATE"
+' _ "$PROV/lib.sh" "$PROV/steps.sh" "$WORK/identity")"
+
+for state in none=none exact=incomplete port=mismatch install=mismatch data=mismatch \
+             complete=complete empty=malformed orphan-complete=malformed; do
+  expect "install identity state: $state" grep -qx "$state" <<<"$identity_out"
+done
+expect "the identity manifest contains only schema, port, install dir, and data dir" \
+  grep -q 'manifest=schema=1,port=9420,install_dir=.*/opt/hive,data_dir=.*/home/hive/.hive,' \
+    <<<"$identity_out"
+expect "the identity manifest is mode 0644" grep -qx 'mode=644' <<<"$identity_out"
+expect "the completion marker is mode 0644" grep -qx 'complete-mode=644' <<<"$identity_out"
+expect "claim_install_dir never rewrites an existing identity manifest" \
+  grep -qx immutable <<<"$identity_out"
+refute "the install manifest is never sourced or evaluated" \
+  grep -nE '(source|eval)[[:space:]].*HIVE_INSTALL_MARKER' "$CODE"
+refute "the install manifest is never truncated" \
+  grep -nE ':[[:space:]]*>[[:space:]]*"\$HIVE_INSTALL_MARKER"' "$CODE"
+
+ownership_out="$(bash -c '
+  # shellcheck disable=SC1090
+  source "$1"; source "$2"
+  HIVE_INSTALL_MARKER="$3/manifest"
+  HIVE_INSTALL_COMPLETE_MARKER="$3/complete"
+  HIVE_ENV_FILE="$3/hive.env"
+  OPT_PORT=9420; HIVE_OPT=/opt/hive; HIVE_DATA_DIR=/home/hive/.hive
+  mkdir -p "$3"
+  printf "schema=1\nport=9420\ninstall_dir=/opt/hive\ndata_dir=/home/hive/.hive\n" >"$HIVE_INSTALL_MARKER"
+  systemctl() { [ "$1:$2:$3" = "is-active:--quiet:hive" ]; }
+  printf "PORT=9420\n" >"$HIVE_ENV_FILE"
+  hive_service_owns_port && echo owned
+  printf "PORT=9421\n" >"$HIVE_ENV_FILE"
+  hive_service_owns_port || echo wrong-config
+  read_hive_service_port() { return 1; }
+  can_inspect_as_root() { return 1; }
+  hive_service_port_unverifiable && echo unknown
+  systemctl() { return 1; }
+  hive_service_owns_port || echo inactive
+  hive_service_port_unverifiable || echo inactive-not-unknown
+' _ "$PROV/lib.sh" "$PROV/steps.sh" "$WORK/ownership")"
+for result in owned wrong-config unknown inactive inactive-not-unknown; do
+  expect "busy-port ownership: $result" grep -qx "$result" <<<"$ownership_out"
+done
+
+unknown_port="$(HIVE_LOG_FILE="$WORK/unknown-port.log" bash -c '
+  # shellcheck disable=SC1090
+  source "$1"; source "$2"
+  HIVE_INSTALL_MARKER="$3/manifest"
+  HIVE_INSTALL_COMPLETE_MARKER="$3/complete"
+  OPT_PORT=9420; HIVE_OPT=/opt/hive; HIVE_DATA_DIR=/home/hive/.hive
+  mkdir -p "$3"
+  printf "schema=1\nport=9420\ninstall_dir=/opt/hive\ndata_dir=/home/hive/.hive\n" >"$HIVE_INSTALL_MARKER"
+  port_in_use() { return 0; }
+  systemctl() { [ "$1:$2:$3" = "is-active:--quiet:hive" ]; }
+  read_hive_service_port() { return 1; }
+  can_inspect_as_root() { return 1; }
+  preflight_port
+' _ "$PROV/lib.sh" "$PROV/steps.sh" "$WORK/unknown-port")"
+expect "unprivileged busy-port ownership is a non-blocking unknown warning" \
+  grep -q '"check":"port","status":"warn".*"heldByHive":null' <<<"$unknown_port"
+
+inactive_port="$(HIVE_LOG_FILE="$WORK/inactive-port.log" bash -c '
+  # shellcheck disable=SC1090
+  source "$1"; source "$2"
+  HIVE_INSTALL_MARKER="$3/manifest"
+  HIVE_INSTALL_COMPLETE_MARKER="$3/complete"
+  OPT_PORT=9420; HIVE_OPT=/opt/hive; HIVE_DATA_DIR=/home/hive/.hive
+  mkdir -p "$3"
+  printf "schema=1\nport=9420\ninstall_dir=/opt/hive\ndata_dir=/home/hive/.hive\n" >"$HIVE_INSTALL_MARKER"
+  port_in_use() { return 0; }
+  systemctl() { return 1; }
+  can_inspect_as_root() { return 1; }
+  preflight_port
+' _ "$PROV/lib.sh" "$PROV/steps.sh" "$WORK/inactive-port")"
+expect "an inactive Hive service never exempts a foreign busy listener" \
+  grep -q '"check":"port","status":"fail".*"heldByHive":false.*"errorCode":"PORT_IN_USE"' \
+    <<<"$inactive_port"
+
+identity_preflight="$(HIVE_LOG_FILE="$WORK/identity-preflight.log" bash -c '
+  # shellcheck disable=SC1090
+  source "$1"; source "$2"
+  HIVE_INSTALL_MARKER="$3/manifest"
+  HIVE_INSTALL_COMPLETE_MARKER="$3/complete"
+  OPT_PORT=9420; HIVE_OPT=/opt/hive; HIVE_DATA_DIR=/home/hive/.hive
+  mkdir -p "$3"
+  printf "schema=1\nport=9420\ninstall_dir=/opt/hive\ndata_dir=/home/hive/.hive\n" >"$HIVE_INSTALL_MARKER"
+  printf "schema=1\n" >"$HIVE_INSTALL_COMPLETE_MARKER"
+  preflight_existing_install
+  rm -f "$HIVE_INSTALL_COMPLETE_MARKER"
+  OPT_PORT=9421
+  preflight_existing_install
+' _ "$PROV/lib.sh" "$PROV/steps.sh" "$WORK/identity-preflight")"
+expect "completed preflight uses ALREADY_INSTALLED" \
+  grep -q '"check":"existing_install","status":"fail".*"errorCode":"ALREADY_INSTALLED"' \
+    <<<"$identity_preflight"
+expect "mismatched preflight uses INSTALL_IDENTITY_MISMATCH" \
+  grep -q '"check":"existing_install","status":"fail".*"errorCode":"INSTALL_IDENTITY_MISMATCH"' \
+    <<<"$identity_preflight"
 
 expect "the runtime follows --install-dir" \
   grep -q 'runtime=/srv/hive-app/runtime node=/srv/hive-app/runtime/current/bin/node' <<<"$paths_out"

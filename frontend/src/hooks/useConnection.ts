@@ -16,6 +16,8 @@ export interface ServerConnection {
   host: string;
   port: number;
   protocol?: "http" | "https";
+  /** A guided install still has to complete the Accounts screen. */
+  setupPending?: true;
   /** Runtime access token presented to the backend on every call. */
   authToken?: string;
   /** Unprivileged service account used for editor and terminal sessions. */
@@ -61,6 +63,7 @@ function normalizeConnection(value: unknown): ServerConnection | null {
     host,
     port,
     ...(candidate.protocol === "https" ? { protocol: "https" as const } : {}),
+    ...(candidate.setupPending === true ? { setupPending: true as const } : {}),
     ...(authToken ? { authToken } : {}),
     ...(sshUser ? { sshUser } : {}),
     ...(adminUser ? { adminUser } : {}),
@@ -124,6 +127,15 @@ export function replaceConnection(connection: ServerConnection | null): void {
   notify();
 }
 
+/** Mark the stored connection usable without changing any of its other fields. */
+export function completeConnectionSetup(): boolean {
+  const connection = getConnection();
+  if (!connection) return false;
+  const { setupPending: _setupPending, ...complete } = connection;
+  replaceConnection(complete);
+  return true;
+}
+
 /** Bracket-wrap IPv6 literals so they can carry a port in a URL. */
 function formatHost(host: string): string {
   return host.includes(":") && !host.startsWith("[") ? `[${host}]` : host;
@@ -162,6 +174,7 @@ export function useConnection() {
     connection,
     serverUrl: serverUrlFor(connection),
     isConfigured: connection !== null,
+    isSetupPending: connection?.setupPending === true,
     setConnection,
   };
 }

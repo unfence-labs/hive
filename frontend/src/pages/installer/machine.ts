@@ -15,8 +15,8 @@ import type { PrivilegeMode } from "@/lib/provision-client";
  * going back is unsafe. `install` is where that stops — see `InstallScreen`.
  *
  * `accounts` is the other side of that: the install has already succeeded and
- * the server is running, so the rule that forbids navigation during the install
- * no longer applies. It gates nothing.
+ * the server is running. Its durable gate lives on the stored connection, so
+ * `Installer.tsx` can restore it independently of this machine.
  */
 
 export const INSTALLER_STATES = [
@@ -171,10 +171,10 @@ export function isUsableDirectory(value: string): boolean {
  * install that was still going: the script is marker-based, so continuing it
  * costs only the steps that are not already done.
  *
- * `accounts` is not resumed. The install is over, the connection is stored, and
- * the screen's only content is the tool panel pointed at the server it just
- * built with credentials held in memory. Everything it offered is in Settings,
- * which is where a relaunched app should find it.
+ * `accounts` does not need to resume through this record. The stored connection
+ * marks setup pending and overrides the restored machine state until Accounts
+ * is complete. Resetting this machine to welcome also keeps stale inputs out of
+ * the next guided install.
  */
 export function resumeState(state: InstallerState, inputs: InstallerInputs): InstallerState {
   if (state === "server" || state === "accounts") return "welcome";

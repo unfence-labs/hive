@@ -89,8 +89,8 @@ export function ReadyScreen({ inputs, escalates, onContinue, onBack }: ReadyScre
       icon: KeyRound,
       text: (
         <>
-          Generates the access token and keeps only its SHA-256 digest in{" "}
-          <code>/etc/hive/hive.env</code> — the token itself is shown to you once, never stored.
+          Generates the access token and keeps only its SHA-256 digest on the server. After a
+          successful install, the desktop app stores the plaintext token in its local connection.
         </>
       ),
     },

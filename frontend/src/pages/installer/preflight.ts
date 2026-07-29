@@ -32,7 +32,6 @@ export const CHECK_FIELDS: Record<string, string> = {
   port: "the Hive port under Advanced",
   install_dir: "the install directory under Advanced",
   data_dir: "the data directory under Advanced",
-  existing_install: "the install directory under Advanced",
   ssh_key: "the SSH key",
 };
 

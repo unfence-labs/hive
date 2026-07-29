@@ -2,6 +2,7 @@ import { useState } from "react";
 import { RefreshCw } from "lucide-react";
 import { SettingsHeader } from "@/components/AppLayout";
 import { CenterCard } from "@/components/CenterCard";
+import { TransportSecurityWarning } from "@/components/setup/TransportSecurityWarning";
 import { useConnection } from "@/hooks/useConnection";
 import type { ConnectionStatus } from "@/hooks/useConnectionStatus";
 import { useConnectionStatus } from "@/hooks/useConnectionStatus";
@@ -163,6 +164,7 @@ export default function ConnectionSettings({ onRefreshConnection }: ConnectionSe
             )}
 
             <div className="mt-5 space-y-4">
+              <TransportSecurityWarning />
               <div className="grid grid-cols-[1fr_120px] gap-3">
                 <div>
                   <label htmlFor="server-host" className="mb-1.5 block text-xs font-medium text-muted-foreground">

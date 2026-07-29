@@ -14,6 +14,7 @@ import { InstallerScreen } from "./InstallerScreen";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
+import { TransportSecurityWarning } from "@/components/setup/TransportSecurityWarning";
 import { cn } from "@/lib/utils";
 import { isValidPort } from "@/lib/server-connection";
 import { openExternal } from "@/lib/open-external";
@@ -40,7 +41,7 @@ import {
   needsEscalationPassword,
 } from "@/pages/installer/preflight";
 
-/** Explains the reachability paths — Tailscale, VPN, a hardened public IP. */
+/** Explains the supported private-network reachability paths. */
 export const NETWORKING_GUIDE_URL =
   "https://github.com/unfence-labs/hive/blob/main/docs/networking.md";
 
@@ -61,9 +62,8 @@ interface ServerScreenProps {
  * and every failure lands next to the field that corrects it. Editing anything
  * discards the verification: what was checked is no longer what would install.
  *
- * The operator is deliberately not asked how their server is reachable. That
- * is theirs to arrange — a public address, a VPN, a private NIC — and the
- * backend binds every interface either way.
+ * The operator is deliberately not asked how their private network is
+ * arranged. Hive only explains the encrypted-network requirement.
  */
 export function ServerScreen({ client, inputs, onContinue, onBack }: ServerScreenProps) {
   const [address, setAddress] = useState(inputs.address);
@@ -238,8 +238,8 @@ export function ServerScreen({ client, inputs, onContinue, onBack }: ServerScree
       description={
         <>
           Hive installs itself over SSH. Type the address exactly as you would after{" "}
-          <code className="font-mono text-xs text-foreground">ssh</code> — a public IP, a
-          Tailscale name, anything that reaches the box.
+          <code className="font-mono text-xs text-foreground">ssh</code> — a Tailscale name
+          or another private-network address that reaches the box.
         </>
       }
       onContinue={primary.action}
@@ -267,8 +267,8 @@ export function ServerScreen({ client, inputs, onContinue, onBack }: ServerScree
           className="w-full bg-transparent pl-2 font-mono text-xs text-foreground outline-none placeholder:text-muted-foreground"
         />
       </div>
+      <TransportSecurityWarning className="mt-2" />
       <p className="mt-2 text-[11px] text-muted-foreground/60">
-        Your network, your rules — Tailscale, VPN, or a public address you harden yourself.{" "}
         <button
           type="button"
           className="cursor-pointer underline underline-offset-2 hover:text-foreground"

@@ -69,10 +69,10 @@ resolve_paths() {
   HIVE_SERVICE_PATH="$HIVE_TOOLS_DIR/bin:$HIVE_RUNTIME_DIR/current/bin:/usr/local/bin:/usr/bin:/bin"
 }
 
-# Durable "installed by Hive" marker: survives the state-dir wipe on a
-# SCRIPT_VERSION bump, so probe_env can tell our own install (a resume/update)
-# apart from a foreign occupant of /opt/hive.
+# Durable install identity: survives the state-dir wipe on a SCRIPT_VERSION
+# bump. Only an incomplete install with this exact identity may resume.
 HIVE_INSTALL_MARKER="$HIVE_ETC_DIR/.hive-install"
+HIVE_INSTALL_COMPLETE_MARKER="$HIVE_ETC_DIR/.hive-install-complete"
 HIVE_RESTART_REQUIRED="$HIVE_VAR_DIR/restart-required"
 # The exact firewall rule this install added, if any. The uninstall script
 # deletes that rule and nothing else, so a rule the operator wrote by hand —
@@ -90,16 +90,18 @@ HIVE_AUTH_TOKEN_SHA256=""
 
 sha256_of() { sha256sum "$1" | cut -d' ' -f1; }
 
-# Stamp the install directory as ours before creating anything inside it.
-# The marker is what tells a later run "this is your own install, resume it"
-# rather than "something else owns this directory, refuse". A run that created
-# $HIVE_OPT and died before writing the marker would read as a foreign occupant
-# on the next run and could never be resumed — which is exactly what happens if
-# the first step to create the directory forgets to call this.
+# Stamp the install directory as ours before creating anything inside it. The
+# identity is immutable: an existing manifest is validated by probe_env and is
+# never truncated or rewritten by a later step.
 claim_install_dir() {
   install -d -m 755 "$HIVE_ETC_DIR"
-  : >"$HIVE_INSTALL_MARKER"
-  chmod 600 "$HIVE_INSTALL_MARKER"
+  if [ ! -e "$HIVE_INSTALL_MARKER" ]; then
+    local tmp="$HIVE_INSTALL_MARKER.tmp.$$"
+    install -m 644 /dev/null "$tmp"
+    printf 'schema=1\nport=%s\ninstall_dir=%s\ndata_dir=%s\n' \
+      "$OPT_PORT" "$HIVE_OPT" "$HIVE_DATA_DIR" >"$tmp"
+    mv -f "$tmp" "$HIVE_INSTALL_MARKER"
+  fi
   install -d -m 755 "$HIVE_OPT"
 }
 
@@ -112,6 +114,13 @@ atomic_symlink() {
 
 atomic_marker() {
   local path="$1" value="$2" tmp="$1.tmp.$$"
+  printf '%s\n' "$value" >"$tmp"
+  mv -f "$tmp" "$path"
+}
+
+atomic_state_marker() {
+  local path="$1" value="$2" tmp="$1.tmp.$$"
+  install -m 644 /dev/null "$tmp"
   printf '%s\n' "$value" >"$tmp"
   mv -f "$tmp" "$path"
 }
@@ -232,14 +241,165 @@ port_in_use() {
   ss -ltn 2>/dev/null | grep ":${1}\b" >/dev/null
 }
 
-# True when this server carries an install this script made. Checked before
-# the conflict checks, because our own install is an update, never an error.
-hive_installed() { [ -e "$HIVE_INSTALL_MARKER" ]; }
+# Parsed manifest values. They are display-only until read_install_manifest has
+# validated the complete file.
+HIVE_STORED_SCHEMA=""
+HIVE_STORED_PORT=""
+HIVE_STORED_INSTALL_DIR=""
+HIVE_STORED_DATA_DIR=""
+HIVE_INSTALL_STATE=""
 
-# A foreign occupant of the install directory: something is there, and we did
-# not put it there.
+safe_install_path() {
+  [[ "$1" =~ ^(/[A-Za-z0-9._-]+)+$ ]] && [[ "$1" != *".."* ]]
+}
+
+# Read the manifest as data, never shell. Unknown, duplicate, missing, or
+# malformed fields fail closed.
+read_install_manifest() {
+  local content line key value
+  local seen_schema=0 seen_port=0 seen_install=0 seen_data=0
+  HIVE_STORED_SCHEMA=""
+  HIVE_STORED_PORT=""
+  HIVE_STORED_INSTALL_DIR=""
+  HIVE_STORED_DATA_DIR=""
+  [ -f "$HIVE_INSTALL_MARKER" ] || return 1
+  if [ -r "$HIVE_INSTALL_MARKER" ]; then
+    content="$({ cat "$HIVE_INSTALL_MARKER" || exit; printf '\034'; })" || return 1
+  elif sudo_nopasswd; then
+    content="$({ sudo -n cat "$HIVE_INSTALL_MARKER" </dev/null 2>/dev/null || exit; printf '\034'; })" || return 1
+  else
+    return 1
+  fi
+  [[ "$content" == *$'\034' ]] || return 1
+  content="${content%$'\034'}"
+  [[ "$content" == *$'\n' ]] || return 1
+  content="${content%$'\n'}"
+  [ -n "$content" ] || return 1
+  while IFS= read -r line; do
+    [[ "$line" == *=* ]] || return 1
+    key="${line%%=*}"
+    value="${line#*=}"
+    case "$key" in
+      schema)
+        [ "$seen_schema" = 0 ] || return 1
+        seen_schema=1; HIVE_STORED_SCHEMA="$value" ;;
+      port)
+        [ "$seen_port" = 0 ] || return 1
+        seen_port=1; HIVE_STORED_PORT="$value" ;;
+      install_dir)
+        [ "$seen_install" = 0 ] || return 1
+        seen_install=1; HIVE_STORED_INSTALL_DIR="$value" ;;
+      data_dir)
+        [ "$seen_data" = 0 ] || return 1
+        seen_data=1; HIVE_STORED_DATA_DIR="$value" ;;
+      *) return 1 ;;
+    esac
+  done <<<"$content"
+  [ "$seen_schema:$seen_port:$seen_install:$seen_data" = 1:1:1:1 ] || return 1
+  [ "$HIVE_STORED_SCHEMA" = 1 ] || return 1
+  [[ "$HIVE_STORED_PORT" =~ ^[0-9]+$ ]] &&
+    [ "$HIVE_STORED_PORT" -ge 1 ] && [ "$HIVE_STORED_PORT" -le 65535 ] || return 1
+  safe_install_path "$HIVE_STORED_INSTALL_DIR" || return 1
+  safe_install_path "$HIVE_STORED_DATA_DIR" || return 1
+}
+
+completion_marker_valid() {
+  local content
+  [ -f "$HIVE_INSTALL_COMPLETE_MARKER" ] || return 1
+  if [ -r "$HIVE_INSTALL_COMPLETE_MARKER" ]; then
+    content="$(cat "$HIVE_INSTALL_COMPLETE_MARKER")" || return 1
+  elif sudo_nopasswd; then
+    content="$(sudo -n cat "$HIVE_INSTALL_COMPLETE_MARKER" </dev/null 2>/dev/null)" || return 1
+  else
+    return 1
+  fi
+  [ "$content" = schema=1 ]
+}
+
+# none | incomplete | complete | mismatch | malformed
+install_identity_state() {
+  if [ ! -e "$HIVE_INSTALL_MARKER" ]; then
+    if [ -e "$HIVE_INSTALL_COMPLETE_MARKER" ]; then
+      HIVE_INSTALL_STATE=malformed
+    else
+      HIVE_INSTALL_STATE=none
+    fi
+    return
+  fi
+  if ! read_install_manifest; then
+    HIVE_INSTALL_STATE=malformed
+    return
+  fi
+  if [ -e "$HIVE_INSTALL_COMPLETE_MARKER" ]; then
+    if completion_marker_valid; then
+      HIVE_INSTALL_STATE=complete
+    else
+      HIVE_INSTALL_STATE=malformed
+    fi
+  elif [ "$HIVE_STORED_PORT" = "$OPT_PORT" ] &&
+       [ "$HIVE_STORED_INSTALL_DIR" = "$HIVE_OPT" ] &&
+       [ "$HIVE_STORED_DATA_DIR" = "$HIVE_DATA_DIR" ]; then
+    HIVE_INSTALL_STATE=incomplete
+  else
+    HIVE_INSTALL_STATE=mismatch
+  fi
+}
+
+install_identity_data() {
+  printf '{"stored":{"port":"%s","installDir":"%s","dataDir":"%s"},"requested":{"port":"%s","installDir":"%s","dataDir":"%s"}}' \
+    "$(json_escape "${HIVE_STORED_PORT:-unknown}")" \
+    "$(json_escape "${HIVE_STORED_INSTALL_DIR:-unknown}")" \
+    "$(json_escape "${HIVE_STORED_DATA_DIR:-unknown}")" \
+    "$(json_escape "$OPT_PORT")" "$(json_escape "$HIVE_OPT")" "$(json_escape "$HIVE_DATA_DIR")"
+}
+
+install_identity_detail() {
+  printf 'stored port=%s install_dir=%s data_dir=%s; requested port=%s install_dir=%s data_dir=%s' \
+    "${HIVE_STORED_PORT:-unknown}" "${HIVE_STORED_INSTALL_DIR:-unknown}" \
+    "${HIVE_STORED_DATA_DIR:-unknown}" "$OPT_PORT" "$HIVE_OPT" "$HIVE_DATA_DIR"
+}
+
+HIVE_SERVICE_PORT=""
+
+read_hive_service_port() {
+  local content
+  HIVE_SERVICE_PORT=""
+  if [ -r "$HIVE_ENV_FILE" ]; then
+    content="$(cat "$HIVE_ENV_FILE")" || return 1
+  elif sudo_nopasswd; then
+    content="$(sudo -n cat "$HIVE_ENV_FILE" </dev/null 2>/dev/null)" || return 1
+  else
+    return 1
+  fi
+  HIVE_SERVICE_PORT="$(sed -n 's/^PORT=//p' <<<"$content")"
+  [ -n "$HIVE_SERVICE_PORT" ]
+}
+
+# Strict ownership proof used by the root install path: exact incomplete
+# identity, active unit, and the service's persisted configuration all name
+# the requested port.
+hive_service_owns_port() {
+  install_identity_state
+  [ "$HIVE_INSTALL_STATE" = incomplete ] &&
+    systemctl is-active --quiet hive 2>/dev/null &&
+    read_hive_service_port &&
+    [ "$HIVE_SERVICE_PORT" = "$OPT_PORT" ]
+}
+
+# Password-requiring preflight may see that Hive is active while remaining
+# unable to read hive.env before elevation. It reports ownership as unknown;
+# the root install still proves the configured port before making any change.
+hive_service_port_unverifiable() {
+  install_identity_state
+  [ "$HIVE_INSTALL_STATE" = incomplete ] &&
+    systemctl is-active --quiet hive 2>/dev/null &&
+    ! can_inspect_as_root
+}
+
 foreign_install() {
-  ! hive_installed && { [ -e "$HIVE_UNIT_FILE" ] || [ -d "$HIVE_OPT" ]; }
+  install_identity_state
+  [ "$HIVE_INSTALL_STATE" = none ] &&
+    { [ -e "$HIVE_UNIT_FILE" ] || [ -d "$HIVE_OPT" ]; }
 }
 
 sudo_nopasswd() {
@@ -249,8 +409,7 @@ sudo_nopasswd() {
 }
 
 # The key blob identifies a key; the trailing comment does not. Comparing on
-# the blob is what makes a re-run with a re-typed comment an update rather
-# than a duplicate entry.
+# the blob keeps an exact incomplete resume from adding a duplicate entry.
 ssh_key_blob() { awk '{print $1" "$2}' <<<"$1"; }
 
 ssh_key_valid() {
@@ -297,17 +456,29 @@ assert_dir_usable() {
 # Always re-runs. Every finding here is about the server as it is right now:
 # the port may have been taken since the last run, a filesystem may have filled
 # up. A cached "conflict-free" answer from a previous run is worth nothing, and
-# the update/fresh distinction has to reach the stream on every run for a
-# client to render it.
+# the resume/fresh distinction has to reach the stream on every run.
 guard_probe_env() { return 1; }
 
 step_probe_env() {
-  local update=false
-  # Our own prior install is an update, not a conflict.
-  hive_installed && update=true
-  if foreign_install; then
-    die EXISTING_INSTALL "$HIVE_OPT or $HIVE_UNIT_FILE already exists but was not created by Hive"
-  fi
+  local state resume=false port_rc=0
+  install_identity_state
+  state="$HIVE_INSTALL_STATE"
+  case "$state" in
+    none)
+      if foreign_install; then
+        die EXISTING_INSTALL "$HIVE_OPT or $HIVE_UNIT_FILE already exists but was not created by Hive"
+      fi ;;
+    incomplete) resume=true ;;
+    complete)
+      die ALREADY_INSTALLED \
+        "Hive is already installed; updates are unsupported, so uninstall it before installing again ($(install_identity_detail))" ;;
+    mismatch)
+      die INSTALL_IDENTITY_MISMATCH \
+        "an incomplete Hive install can resume only with its original options: $(install_identity_detail)" ;;
+    malformed)
+      die INSTALL_IDENTITY_MISMATCH \
+        "the Hive install identity is missing or malformed and cannot be resumed safely: $(install_identity_detail)" ;;
+  esac
 
   assert_dir_usable "the install directory" "$HIVE_OPT" "$HIVE_INSTALL_MIN_MB"
   assert_dir_usable "the data directory" "$HIVE_DATA_DIR" "$HIVE_DATA_MIN_MB"
@@ -317,20 +488,15 @@ step_probe_env() {
       "the value passed for the $HIVE_USER account's public key is not an OpenSSH public key"
   fi
 
-  # This server is expected to be running other things; only the port Hive
-  # wants has to be free. On an update Hive's own service is the listener, so
-  # the check would otherwise fail against ourselves.
-  if [ "$update" = false ]; then
-    local port_rc=0
-    port_in_use "$OPT_PORT" || port_rc=$?
-    case "$port_rc" in
-      0) die PORT_IN_USE "port ${OPT_PORT} is already in use by another service" ;;
-      2) emit_log probe_env "ss unavailable; skipping the port ${OPT_PORT} availability check" ;;
-    esac
-  fi
+  port_in_use "$OPT_PORT" || port_rc=$?
+  case "$port_rc" in
+    0)
+      hive_service_owns_port || die PORT_IN_USE \
+        "port ${OPT_PORT} is already in use and is not owned by the matching active Hive service" ;;
+    2) emit_log probe_env "ss unavailable; skipping the port ${OPT_PORT} availability check" ;;
+  esac
 
-  # The update/fresh distinction is the one finding a client renders.
-  STEP_DATA="$(printf '{"update":%s}' "$update")"
+  STEP_DATA="$(printf '{"resume":%s}' "$resume")"
 }
 
 # ---------------------------------------------------------------------------
@@ -390,7 +556,7 @@ authorized_key_present() {
   [ -f "$HIVE_AUTHORIZED_KEYS" ] || return 1
   local blob; blob="$(ssh_key_blob "$1")"
   # Match on type+blob, never on the whole line: the trailing comment is not
-  # part of the key's identity, so a re-run with a different comment must not
+  # part of the key's identity, so an incomplete resume with a different comment must not
   # append a second copy of the same key.
   awk -v want="$blob" '{ if ($1" "$2 == want) found=1 } END { exit found ? 0 : 1 }' \
     "$HIVE_AUTHORIZED_KEYS"
@@ -649,8 +815,8 @@ step_install_release() {
 
 title_generate_token() { echo "Generate the access token"; }
 
-# Always re-runs: the plaintext is reported exactly once, on this run's stream,
-# and cannot be recovered from a resumed run. Every run therefore rotates it.
+# Always re-runs during an incomplete resume: the plaintext is reported exactly
+# once on its run's stream and cannot be recovered from an earlier attempt.
 guard_generate_token() { return 1; }
 
 # /dev/urandom is guaranteed on the pinned Ubuntu/Debian targets, and RUN_ID
@@ -786,8 +952,7 @@ title_firewall_rule() { echo "Check the firewall"; }
 # install because their runtime/permanent and zone semantics cannot be guessed
 # safely, and succeeding with a closed port would leave Hive unusable.
 # Every rule this install added, one per line, appended and never rewritten.
-# A run that changes the port adds a second rule rather than replacing the
-# first. The uninstaller must remember both so it never leaves one behind.
+# Exact resumes reassert the same rule without duplicating it.
 record_firewall_rule() {
   local spec="$1"
   [ -f "$HIVE_FIREWALL_RULE_FILE" ] || : >"$HIVE_FIREWALL_RULE_FILE"
@@ -1061,6 +1226,14 @@ step_verify_auth() {
 }
 
 # ---------------------------------------------------------------------------
+
+title_complete_install() { echo "Complete the install"; }
+guard_complete_install() { [ -e "$HIVE_INSTALL_COMPLETE_MARKER" ]; }
+step_complete_install() {
+  atomic_state_marker "$HIVE_INSTALL_COMPLETE_MARKER" "schema=1"
+}
+
+# ---------------------------------------------------------------------------
 # Preflight
 # ---------------------------------------------------------------------------
 #
@@ -1124,33 +1297,54 @@ preflight_privilege() {
 }
 
 preflight_existing_install() {
-  if hive_installed; then
-    emit_check existing_install ok "Hive is already installed here; this run would be an update" \
-      "$(printf '{"installed":true,"update":true,"installDir":"%s"}' "$HIVE_OPT")"
-  elif foreign_install; then
-    emit_check existing_install fail \
-      "$HIVE_OPT or $HIVE_UNIT_FILE already exists but was not created by Hive" \
-      "$(printf '{"installed":false,"update":false,"installDir":"%s"}' "$HIVE_OPT")" \
-      EXISTING_INSTALL
-  else
-    emit_check existing_install ok "no existing install; this run would be a fresh install" \
-      "$(printf '{"installed":false,"update":false,"installDir":"%s"}' "$HIVE_OPT")"
-  fi
+  local state
+  install_identity_state
+  state="$HIVE_INSTALL_STATE"
+  case "$state" in
+    none)
+      if foreign_install; then
+        emit_check existing_install fail \
+          "$HIVE_OPT or $HIVE_UNIT_FILE already exists but was not created by Hive" \
+          "$(printf '{"installed":false,"resume":false,"installDir":"%s"}' "$(json_escape "$HIVE_OPT")")" \
+          EXISTING_INSTALL
+      else
+        emit_check existing_install ok "no existing install; this run would be a fresh install" \
+          "$(printf '{"installed":false,"resume":false,"installDir":"%s"}' "$(json_escape "$HIVE_OPT")")"
+      fi ;;
+    incomplete)
+      emit_check existing_install ok "an incomplete Hive install with these exact options can resume" \
+        "$(install_identity_data)" ;;
+    complete)
+      emit_check existing_install fail \
+        "Hive is already installed; updates are unsupported, so uninstall it before installing again" \
+        "$(install_identity_data)" ALREADY_INSTALLED ;;
+    mismatch)
+      emit_check existing_install fail \
+        "the incomplete Hive install has different options and cannot be resumed: $(install_identity_detail)" \
+        "$(install_identity_data)" INSTALL_IDENTITY_MISMATCH ;;
+    malformed)
+      emit_check existing_install fail \
+        "the Hive install identity is missing or malformed and cannot be resumed safely" \
+        "$(install_identity_data)" INSTALL_IDENTITY_MISMATCH ;;
+  esac
 }
 
 preflight_port() {
   local rc=0
-  # An update finds its own service on the port. That is the expected state,
-  # not a conflict — the same exemption the install step makes.
-  if hive_installed; then
-    emit_check port ok "port $OPT_PORT belongs to the existing Hive install" \
-      "$(printf '{"port":%s,"free":true,"heldByHive":true}' "$OPT_PORT")"
-    return 0
-  fi
   port_in_use "$OPT_PORT" || rc=$?
   case "$rc" in
-    0) emit_check port fail "port $OPT_PORT is already in use by another service" \
-         "$(printf '{"port":%s,"free":false}' "$OPT_PORT")" PORT_IN_USE ;;
+    0)
+      if hive_service_owns_port; then
+        emit_check port ok "port $OPT_PORT belongs to the matching incomplete Hive install" \
+          "$(printf '{"port":%s,"free":true,"heldByHive":true}' "$OPT_PORT")"
+      elif hive_service_port_unverifiable; then
+        emit_check port warn \
+          "port $OPT_PORT is busy, but Hive service ownership cannot be checked until installation gains root" \
+          "$(printf '{"port":%s,"free":false,"heldByHive":null}' "$OPT_PORT")"
+      else
+        emit_check port fail "port $OPT_PORT is already in use by another service" \
+          "$(printf '{"port":%s,"free":false,"heldByHive":false}' "$OPT_PORT")" PORT_IN_USE
+      fi ;;
     2) emit_check port warn "ss is not installed, so port $OPT_PORT could not be checked" \
          "$(printf '{"port":%s}' "$OPT_PORT")" ;;
     *) emit_check port ok "port $OPT_PORT is free" \

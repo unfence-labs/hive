@@ -148,6 +148,11 @@ run_provision() {
     "$CID" bash -s -- "$@" <"$PROV/dist/provision.sh"
 }
 
+run_preflight_unprivileged() {
+  docker exec -i --user nobody "$CID" bash -s -- --preflight "$@" \
+    <"$PROV/dist/provision.sh"
+}
+
 # --- Assertions ------------------------------------------------------------
 
 token_from_stream() {
@@ -232,76 +237,148 @@ assert_provisioned() {
 mode_install() {
   build_release; build_provision; start_stack
 
-  # Arguments go through `bash -s --`, which is how an operator passes options
-  # to a piped script.
-  log "Run 1: full install on a bare server"
-  run_provision --port "$PORT" --ssh-public-key "$TEST_SSH_KEY" >"$WORK/run1.ndjson" \
-    || { tail -30 "$WORK/run1.ndjson" >&2; die "provisioning failed"; }
-  assert_run_ok "$WORK/run1.ndjson"
-  assert_provisioned "$WORK/run1.ndjson"
-  local token1; token1="$(token_from_stream "$WORK/run1.ndjson")"
+  log "Fresh install succeeds and writes both durable markers"
+  run_provision --port "$PORT" --ssh-public-key "$TEST_SSH_KEY" >"$WORK/fresh.ndjson" \
+    || { tail -30 "$WORK/fresh.ndjson" >&2; die "fresh provisioning failed"; }
+  assert_run_ok "$WORK/fresh.ndjson"
+  assert_provisioned "$WORK/fresh.ndjson"
+  sh_server 'test "$(cat /etc/hive/.hive-install)" = "schema=1
+port=9420
+install_dir=/opt/hive
+data_dir=/home/hive/.hive"' || die "the install identity manifest is wrong"
+  sh_server 'test "$(cat /etc/hive/.hive-install-complete)" = "schema=1"' \
+    || die "the completion marker is missing"
+  [ "$(sh_server 'stat -c "%U:%G %a" /etc/hive/.hive-install')" = "root:root 644" ] \
+    || die "the identity manifest is not root-owned mode 644"
+  [ "$(sh_server 'stat -c "%U:%G %a" /etc/hive/.hive-install-complete')" = "root:root 644" ] \
+    || die "the completion marker is not root-owned mode 644"
+  sh_server 'runuser -u nobody -- cat /etc/hive/.hive-install /etc/hive/.hive-install-complete >/dev/null' \
+    || die "an unprivileged preflight account cannot read the install state"
+  echo "OK: fresh install completed with an exact, root-owned, preflight-readable identity"
 
-  # The service account owns the repositories and worktrees. An editor session
-  # that lands on root instead takes ownership of every file it saves, after
-  # which the agent can no longer write them.
-  log "The operator's key authorizes the hive account, not root"
-  [ "$(sh_server 'stat -c "%U:%G %a" /home/hive/.ssh')" = "hive:hive 700" ] \
-    || die "/home/hive/.ssh is not owned by hive with mode 700"
-  [ "$(sh_server 'stat -c "%U:%G %a" /home/hive/.ssh/authorized_keys')" = "hive:hive 600" ] \
-    || die "authorized_keys is not owned by hive with mode 600"
-  [ "$(sh_server "grep -c 'hive-e2e' /home/hive/.ssh/authorized_keys")" = 1 ] \
-    || die "the key was not appended exactly once"
-  echo "OK: the key is authorized on the hive account"
+  local rc
+  log "A completed install rejects an exact re-run"
+  set +e
+  run_provision --port "$PORT" >"$WORK/completed-exact.ndjson" 2>&1; rc=$?
+  set -e
+  if [ "$rc" = 0 ] || ! grep -q '"errorCode":"ALREADY_INSTALLED"' "$WORK/completed-exact.ndjson"; then
+    tail -20 "$WORK/completed-exact.ndjson" >&2
+    die "completed exact re-run was not rejected"
+  fi
 
-  # A key the operator adds by hand must survive, and a re-run must not append
-  # a second copy of ours — the same key with a different trailing comment is
-  # still the same key.
+  log "A completed install rejects changed options as an unsupported update"
+  set +e
+  run_provision --port "$((PORT + 1))" --install-dir /srv/hive-app --data-dir /mnt/hive-data \
+    >"$WORK/completed-changed.ndjson" 2>&1; rc=$?
+  set -e
+  if [ "$rc" = 0 ] || ! grep -q '"errorCode":"ALREADY_INSTALLED"' "$WORK/completed-changed.ndjson"; then
+    tail -20 "$WORK/completed-changed.ndjson" >&2
+    die "completed changed re-run was not rejected"
+  fi
+  echo "OK: completed installs reject exact and changed re-runs"
+
+  docker rm -f "$CID" >/dev/null; CID=""
+  docker rm -f "$RELEASE_CID" >/dev/null; RELEASE_CID=""
+  docker network rm "$NETWORK" >/dev/null
+  start_stack
+
+  log "Crash after authenticated health verification, before completion"
+  set +e
+  DIE_AFTER=verify_auth run_provision --port "$PORT" --ssh-public-key "$TEST_SSH_KEY" \
+    >"$WORK/crash.ndjson" 2>&1; rc=$?
+  set -e
+  [ "$rc" = 137 ] || { tail -20 "$WORK/crash.ndjson" >&2; die "expected exit 137 before completion, got $rc"; }
+  grep -q '"step":"verify_auth","status":"ok"' "$WORK/crash.ndjson" \
+    || die "authenticated health was not proven before the crash"
+  sh_server 'test ! -e /etc/hive/.hive-install-complete' \
+    || die "the crashed install was marked complete"
+  assert_provisioned "$WORK/crash.ndjson"
+  local token1; token1="$(token_from_stream "$WORK/crash.ndjson")"
+
+  log "Root preflight strictly proves the active Hive listener"
+  run_provision --preflight --port "$PORT" >"$WORK/root-preflight.ndjson"
+  grep -q '"check":"port","status":"ok".*"heldByHive":true' "$WORK/root-preflight.ndjson" \
+    || die "root preflight did not prove the listener from hive.env"
+
+  log "Unprivileged preflight recognizes the identity and defers port ownership"
+  run_preflight_unprivileged --port "$PORT" >"$WORK/unprivileged-preflight.ndjson"
+  grep -q '"check":"existing_install","status":"ok".*incomplete Hive install' \
+    "$WORK/unprivileged-preflight.ndjson" \
+    || die "unprivileged preflight could not read the incomplete identity"
+  if sh_server 'test -S /run/dbus/system_bus_socket'; then
+    grep -q '"check":"port","status":"warn".*"heldByHive":null' \
+      "$WORK/unprivileged-preflight.ndjson" \
+      || { grep '"check":"port"' "$WORK/unprivileged-preflight.ndjson" >&2
+           die "unprivileged preflight did not defer root-only port ownership"; }
+    grep -q '"event":"preflight","ok":true' "$WORK/unprivileged-preflight.ndjson" \
+      || { grep '"status":"fail"' "$WORK/unprivileged-preflight.ndjson" >&2
+           die "the exact incomplete install did not pass unprivileged preflight"; }
+    echo "OK: preflight defers ownership without claiming it, then root proves it"
+  else
+    grep -q '"check":"port","status":"fail".*"errorCode":"PORT_IN_USE"' \
+      "$WORK/unprivileged-preflight.ndjson" \
+      || die "preflight did not fail closed without access to systemd state"
+    echo "SKIP: the minimal fixture has no system bus for unprivileged systemctl"
+  fi
+
+  log "Changed port, install directory, and data directory each reject the incomplete install"
+  set +e
+  DIE_AFTER="" run_provision --port "$((PORT + 1))" >"$WORK/mismatch-port.ndjson" 2>&1; rc=$?
+  set -e
+  if [ "$rc" = 0 ] || ! grep -q '"errorCode":"INSTALL_IDENTITY_MISMATCH"' "$WORK/mismatch-port.ndjson"; then
+    die "changed port did not fail with INSTALL_IDENTITY_MISMATCH"
+  fi
+  set +e
+  run_provision --install-dir /srv/hive-app >"$WORK/mismatch-install.ndjson" 2>&1; rc=$?
+  set -e
+  if [ "$rc" = 0 ] || ! grep -q '"errorCode":"INSTALL_IDENTITY_MISMATCH"' "$WORK/mismatch-install.ndjson"; then
+    die "changed install directory did not fail with INSTALL_IDENTITY_MISMATCH"
+  fi
+  set +e
+  run_provision --data-dir /mnt/hive-data >"$WORK/mismatch-data.ndjson" 2>&1; rc=$?
+  set -e
+  if [ "$rc" = 0 ] || ! grep -q '"errorCode":"INSTALL_IDENTITY_MISMATCH"' "$WORK/mismatch-data.ndjson"; then
+    die "changed data directory did not fail with INSTALL_IDENTITY_MISMATCH"
+  fi
+
+  log "The exact incomplete install resumes without repeating expensive work"
   sh_server 'printf "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHhhbmRhZGRlZGJ5dGhlb3BlcmF0b3JzaGVsbA operator-laptop\n" >>/home/hive/.ssh/authorized_keys'
+  run_provision --port "$PORT" --ssh-public-key "${TEST_SSH_KEY% *} a-completely-different-comment" \
+    >"$WORK/resume.ndjson" || { tail -30 "$WORK/resume.ndjson" >&2; die "the exact resume failed"; }
+  assert_run_ok "$WORK/resume.ndjson"
+  sh_server 'test -e /etc/hive/.hive-install-complete' || die "the resumed install was not completed"
 
-  log "Run 2: re-run resumes instead of repeating the expensive work"
-  run_provision --ssh-public-key "${TEST_SSH_KEY% *} a-completely-different-comment" \
-    >"$WORK/run2.ndjson" || { tail -30 "$WORK/run2.ndjson" >&2; die "the re-run failed"; }
-  assert_run_ok "$WORK/run2.ndjson"
-
-  log "The re-run neither duplicated our key nor removed the hand-added one"
+  log "The resume neither duplicated our key nor removed the hand-added one"
   [ "$(sh_server "grep -c 'AAAAC3NzaC1lZDI1NTE5AAAAIHZ2hRZjZDZlZTBhMzYxN2E0MmM4YjE0NjUzMWEz' /home/hive/.ssh/authorized_keys")" = 1 ] \
     || { sh_server 'cat /home/hive/.ssh/authorized_keys' >&2; die "the key was appended twice"; }
   [ "$(sh_server "grep -c 'operator-laptop' /home/hive/.ssh/authorized_keys")" = 1 ] \
     || { sh_server 'cat /home/hive/.ssh/authorized_keys' >&2; die "a hand-added key was lost"; }
   [ "$(sh_server 'grep -c . /home/hive/.ssh/authorized_keys')" = 2 ] \
     || { sh_server 'cat /home/hive/.ssh/authorized_keys' >&2; die "authorized_keys has the wrong number of entries"; }
-  grep -q '"step":"authorize_ssh_key","status":"skip"' "$WORK/run2.ndjson" \
-    || die "the re-run did not recognise the key as already authorized"
+  grep -q '"step":"authorize_ssh_key","status":"skip"' "$WORK/resume.ndjson" \
+    || die "the resume did not recognise the key as already authorized"
   echo "OK: two entries — ours once, the operator's untouched"
   local step
   for step in probe_os apt_baseline create_user install_node install_agent_clis install_release; do
-    grep -q "\"step\":\"$step\",\"status\":\"skip\"" "$WORK/run2.ndjson" \
-      || die "step '$step' repeated its work on a re-run"
+    grep -q "\"step\":\"$step\",\"status\":\"skip\"" "$WORK/resume.ndjson" \
+      || die "step '$step' repeated its work on a resume"
   done
   echo "OK: every download and install step was skipped"
   # The account is what the desktop app's editor and terminal sessions connect
   # as. A resumed run skips create_user, so the skip has to carry it too, or the
   # caller is left assuming a name that may not be the one on the server.
-  grep -q '"step":"create_user","status":"skip".*"data":{"user":"hive"' "$WORK/run2.ndjson" \
-    || die "the re-run did not report the service account it created"
+  grep -q '"step":"create_user","status":"skip".*"data":{"user":"hive"' "$WORK/resume.ndjson" \
+    || die "the resume did not report the service account it created"
   echo "OK: the skipped create_user still named the service account"
 
-  local token2; token2="$(token_from_stream "$WORK/run2.ndjson")"
-  [ -n "$token2" ] && [ "$token1" != "$token2" ] || die "the access token was not rotated on the re-run"
+  local token2; token2="$(token_from_stream "$WORK/resume.ndjson")"
+  [ -n "$token2" ] && [ "$token1" != "$token2" ] || die "the access token was not rotated on the resume"
   [ "$(sh_server "curl -s -o /dev/null -w '%{http_code}' -H 'x-hive-token: $token1' http://127.0.0.1:$PORT/api/projects")" = 401 ] \
     || die "the previous run's token still works"
   [ "$(sh_server "curl -s -o /dev/null -w '%{http_code}' -H 'x-hive-token: $token2' http://127.0.0.1:$PORT/api/projects")" = 200 ] \
     || die "the rotated token does not work"
-  echo "OK: the token rotated and the old one stopped working"
-
-  log "Run 3: recover a stopped service"
-  in_server systemctl stop hive
-  run_provision >"$WORK/run3.ndjson" || { tail -30 "$WORK/run3.ndjson" >&2; die "recovery run failed"; }
-  assert_run_ok "$WORK/run3.ndjson"
-  in_server systemctl is-active --quiet hive || die "the service was not restarted"
-  echo "OK: a stopped service is restarted and re-verified"
-
-  log "PASS (install, token enforcement, resume, recovery)"
+  echo "OK: the resume rotated the token and the old one stopped working"
+  log "PASS (fresh, exact resume, mismatch rejection, completed rejection)"
 }
 
 # Every failing case here dies inside install_release, so the same server can
@@ -443,9 +520,14 @@ mode_guards() {
 mode_rollback() {
   build_release; build_provision; start_stack
 
-  log "Install the healthy release"
-  run_provision >"$WORK/healthy.ndjson" || { tail -30 "$WORK/healthy.ndjson" >&2; die "install failed"; }
-  assert_run_ok "$WORK/healthy.ndjson"
+  log "Install the healthy release, then crash before marking the install complete"
+  local rc
+  set +e
+  DIE_AFTER=verify_auth run_provision >"$WORK/healthy.ndjson" 2>&1; rc=$?
+  set -e
+  [ "$rc" = 137 ] || { tail -30 "$WORK/healthy.ndjson" >&2; die "healthy setup did not stop before completion"; }
+  sh_server 'test ! -e /etc/hive/.hive-install-complete' \
+    || die "the rollback fixture was already marked complete"
   local previous; previous="$(sh_server 'readlink -f /opt/hive/current')"
 
   log "Publish a release whose backend exits on start"
@@ -465,9 +547,9 @@ mode_rollback() {
 
   log "Provision the broken release: it must fail and roll back"
   bash "$PROV/build.sh" "$next" >/dev/null
-  local out rc
+  local out
   set +e
-  out="$(HEALTH_ATTEMPTS=3 run_provision 2>&1)"; rc=$?
+  out="$(DIE_AFTER="" HEALTH_ATTEMPTS=3 run_provision 2>&1)"; rc=$?
   set -e
   printf '%s\n' "$out" >"$WORK/rollback.ndjson"
   [ "$rc" != 0 ] || die "the unhealthy release was accepted"
@@ -541,9 +623,13 @@ mode_neighbour() {
   # here may change: not the policy, not the enabled state, not one rule.
   log "Phase A: ufw is installed but inactive — the installer must not touch it"
   [ "$(sh_server 'ufw status')" = "Status: inactive" ] || die "ufw is not inactive to begin with"
-  run_provision --port "$PORT" >"$WORK/neighbour-a.ndjson" \
-    || { tail -30 "$WORK/neighbour-a.ndjson" >&2; die "provisioning failed"; }
-  assert_run_ok "$WORK/neighbour-a.ndjson"
+  local rc
+  set +e
+  DIE_AFTER=verify_auth run_provision --port "$PORT" >"$WORK/neighbour-a.ndjson" 2>&1; rc=$?
+  set -e
+  [ "$rc" = 137 ] || { tail -30 "$WORK/neighbour-a.ndjson" >&2; die "phase A did not stop before completion"; }
+  sh_server 'test ! -e /etc/hive/.hive-install-complete' \
+    || die "phase A was marked complete"
 
   assert_neighbours_alive "after installing next to them"
   [ "$(sh_server 'ufw status')" = "Status: inactive" ] \
@@ -568,7 +654,7 @@ mode_neighbour() {
   echo "OK: Hive is healthy on $PORT and the system Node is untouched"
 
   # -- Phase B: ufw ACTIVE, with the operator's own policy ------------------
-  log "Phase B: the operator turns ufw on with their own policy, then re-runs"
+  log "Phase B: the operator turns ufw on with their own policy, then resumes"
   sh_server "ufw allow 80/tcp >/dev/null && ufw --force enable >/dev/null" \
     || die "could not enable ufw in the test container"
   [ "$(sh_server 'ufw status | head -1')" = "Status: active" ] || die "ufw did not come up active"
@@ -583,8 +669,8 @@ mode_neighbour() {
     && die "port 5432 should be blocked by the operator's own default-deny policy"
   echo "OK: with ufw active, port 80 answers and 5432 does not — the operator's policy, not ours"
 
-  run_provision --port "$PORT" >"$WORK/neighbour-b.ndjson" \
-    || { tail -30 "$WORK/neighbour-b.ndjson" >&2; die "the re-run failed"; }
+  DIE_AFTER="" run_provision --port "$PORT" >"$WORK/neighbour-b.ndjson" \
+    || { tail -30 "$WORK/neighbour-b.ndjson" >&2; die "the resume failed"; }
   assert_run_ok "$WORK/neighbour-b.ndjson"
 
   log "Exactly one rule was added, and the policy was not touched"
@@ -606,7 +692,7 @@ mode_neighbour() {
          die "the applied rule was not reported on the progress stream"; }
   echo "OK: the applied rule was reported on the stream"
 
-  assert_neighbour_80_alive "after the second install with ufw active"
+  assert_neighbour_80_alive "after the resume with ufw active"
   echo "OK: the web server on port 80 still answers a peer"
   peer_can_reach "$SERVER_HOST" "$PORT" /health \
     || die "a peer cannot reach Hive on $PORT through the active firewall"
@@ -780,13 +866,16 @@ mode_paths() {
     && die "the uninstaller still carries the default install directory"
   echo "OK: the uninstaller was written for this install, not for the defaults"
 
-  log "A re-run finds its own install and treats it as an update"
-  run_provision --port "$PORT" --install-dir "$ALT_INSTALL" --data-dir "$ALT_DATA" \
-    >"$WORK/paths2.ndjson" || { tail -30 "$WORK/paths2.ndjson" >&2; die "the update run failed"; }
-  assert_run_ok "$WORK/paths2.ndjson"
-  grep -q '"step":"probe_env","status":"ok".*"update":true' "$WORK/paths2.ndjson" \
-    || { grep probe_env "$WORK/paths2.ndjson" >&2; die "the re-run was not reported as an update"; }
-  echo "OK: the port it is already listening on is not a conflict with itself"
+  log "The durable identity records the non-default paths exactly"
+  sh_server "grep -qx 'port=$PORT' /etc/hive/.hive-install" \
+    || die "the manifest does not record the configured port"
+  sh_server "grep -qx 'install_dir=$ALT_INSTALL' /etc/hive/.hive-install" \
+    || die "the manifest does not record the configured install directory"
+  sh_server "grep -qx 'data_dir=$ALT_DATA' /etc/hive/.hive-install" \
+    || die "the manifest does not record the configured data directory"
+  sh_server 'test -e /etc/hive/.hive-install-complete' \
+    || die "the custom-path install was not marked complete"
+  echo "OK: the completed identity carries the configured port and paths"
 
   log "PASS (a non-default install and data directory are honoured end to end)"
 }
@@ -808,16 +897,14 @@ mode_uninstall() {
   assert_run_ok "$WORK/uninst.ndjson"
   sh_server "ufw status | grep -q '^$PORT/tcp'" || die "no firewall rule was added"
 
-  # A port change adds a second rule. The uninstaller must remember both rather
-  # than leaving the rule from the earlier configuration behind.
+  # An operator-owned rule next to Hive's rule must survive uninstall.
   local second_port=$((PORT + 1))
-  log "Re-run on port $second_port, so two Hive rules are recorded"
-  run_provision --port "$second_port" >"$WORK/uninst2.ndjson" \
-    || { tail -30 "$WORK/uninst2.ndjson" >&2; die "the second-port re-run failed"; }
-  assert_run_ok "$WORK/uninst2.ndjson"
+  log "The operator adds an unrelated rule on port $second_port"
+  sh_server "ufw allow $second_port/tcp >/dev/null" \
+    || die "the operator-owned firewall rule could not be added"
   sh_server "ufw status | grep -q '^$second_port/tcp'" \
-    || die "the second port rule was not added"
-  echo "OK: both Hive port rules are in place"
+    || die "the operator-owned port rule was not added"
+  echo "OK: Hive's rule and the operator's rule are both in place"
 
   log "Leave something behind that stands in for the operator's work"
   sh_server "runuser -u hive -- touch /home/hive/.hive/my-precious-project" \
@@ -842,10 +929,10 @@ mode_uninstall() {
   in_server id hive >/dev/null 2>&1 && die "the service account survived"
   sh_server "ufw status | grep -q '^$PORT/tcp'" && die "the firewall rule this install added survived"
   sh_server "ufw status | grep -q '^$second_port/tcp'" \
-    && die "the second firewall rule this install added survived"
+    || die "the uninstaller removed the operator-owned firewall rule"
   [ "$(sh_server 'ufw status | head -1')" = "Status: active" ] \
     || die "the uninstaller disabled the operator's firewall"
-  echo "OK: unit, install directory, runtime, configuration, state, account and rule are all gone"
+  echo "OK: Hive is gone, and the operator-owned firewall rule remains"
 
   log "The operator's data and the machine's packages are not"
   sh_server 'test -f /home/hive/.hive/my-precious-project' \

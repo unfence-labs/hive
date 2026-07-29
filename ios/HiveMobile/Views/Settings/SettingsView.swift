@@ -188,6 +188,7 @@ struct SettingsView: View {
 
     private var connectionSection: some View {
         Section {
+            transportSecurityWarning
             LabeledContent("Host") {
                 TextField("hostname or IP", text: $host)
                     .focused($focusedField, equals: .host)
@@ -213,6 +214,20 @@ struct SettingsView: View {
             Text("Enter your server's hostname or IP and port, plus the auth token shown when the backend starts.")
         }
         .listRowBackground(WhisperColor.surfaceRaised)
+    }
+
+    private var transportSecurityWarning: some View {
+        VStack(alignment: .leading, spacing: HiveSpacing.xs) {
+            Text("Private network required")
+                .font(.footnote.weight(.medium))
+                .foregroundStyle(WhisperColor.danger)
+            Text(
+                "HTTPS is not supported yet. Connect through an encrypted private network such as Tailscale, WireGuard, or another VPN. Never use a public address."
+            )
+            .font(.caption)
+            .foregroundStyle(WhisperColor.textSecondary)
+        }
+        .accessibilityElement(children: .combine)
     }
 
     private var connectionHeader: some View {

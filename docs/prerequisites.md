@@ -42,15 +42,16 @@ The installer connects over SSH on port 22, with a key.
 
 ## How you will reach the server
 
-All the installer wants is the address that reaches your server, typed on the "Where the server is"
-screen. How you make it reachable is yours to arrange — a public address, or a private network you
-run yourself: Tailscale, WireGuard, ZeroTier, a cloud provider's private network. Hive neither
-installs nor configures any of them and does not ask which one you chose.
+Hive does not provide HTTPS or configure networking. Before setup, establish an encrypted private
+network such as Tailscale, WireGuard, another VPN, or a cloud provider's private network. Enter the
+server's private address in the installer. Never expose port `9420` directly to the public Internet:
+the access token travels over HTTP and WebSocket and can be intercepted on an untrusted network.
+See **[networking.md](networking.md)**.
 
-The backend binds every interface (`0.0.0.0` on port `9420` by default) and is protected by the
-access token the install generates. Every install run generates a new token and reports it exactly
-once, on its progress stream; it is never written to a log file, and only its SHA-256 digest is
-stored on the server.
+The backend binds every interface (`0.0.0.0` on port `9420` by default), so firewall and routing
+remain your responsibility. Every fresh or resumed incomplete install generates a new access token
+and reports it exactly once on its progress stream. The plaintext is never written to a log file;
+the server stores only its SHA-256 digest and cannot recover the token.
 
 The address you type is the address the app keeps using afterwards. The installer never hands over
 to a second one.
@@ -72,12 +73,14 @@ claim success while its port may be closed.
 - Installs the Claude Code, Codex and GitHub CLIs under `/home/hive/.local`, as the service account.
 - Writes `/etc/hive/hive.env`, root-owned and readable by nobody else, holding the service
   configuration and the SHA-256 digest of the access token.
+- Writes a non-secret install identity manifest containing its schema, port, install directory, and
+  data directory, plus a completion marker after all checks pass.
 - Installs, enables and starts `/etc/systemd/system/hive.service`, running as `hive` with
   `NoNewPrivileges`, `ProtectSystem=strict` and a restricted `ReadWritePaths`.
 - Keeps provisioning state and its own log under `/var/lib/hive`.
 - Creates the data directory (`/home/hive/.hive` by default) for projects, worktrees and sessions.
 - If you supply one, appends your public key to `/home/hive/.ssh/authorized_keys` — appended only,
-  never rewritten, and never duplicated on a re-run.
+  never rewritten, and never duplicated on an exact incomplete resume.
 - Opens Hive's configured TCP port automatically when `ufw` is active.
 
 ## What the installer does not change
@@ -97,7 +100,9 @@ claim success while its port may be closed.
   never to `~/.ssh/known_hosts`.
 - **Other services.** Only the port Hive wants has to be free; the install stops if it is taken. An
   install directory that already exists but was not created by Hive is a refusal, not an overwrite.
-  Hive's own previous install is treated as an update.
+  An incomplete Hive install resumes only when its port, install directory, and data directory match
+  exactly. A completed install rejects another provisioning run because V1 does not support updates.
+  Changing the port or paths requires uninstalling and performing a fresh install.
 
 ## Removing it
 

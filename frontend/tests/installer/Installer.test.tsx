@@ -55,6 +55,14 @@ const GITHUB_CONNECTED: AccountStatus = {
  */
 const GATE_HINT = /(copy the access token|sign in to Claude or Codex)\./i;
 
+const TRANSPORT_SECURITY_WARNING =
+  "HTTPS is not supported yet. Connect through an encrypted private network such as Tailscale, WireGuard, or another VPN. Never use a public address.";
+
+function expectTransportSecurityWarning() {
+  const warning = screen.getByText(TRANSPORT_SECURITY_WARNING).closest('[role="alert"]');
+  expect(warning).toHaveTextContent("Private network required");
+}
+
 /** The tools a freshly installed server reports, all present and up to date. */
 function toolList(claudeSignedIn = false): ToolStatus[] {
   return [
@@ -210,6 +218,7 @@ describe("Installer", () => {
     expect(screen.queryByRole("button", { name: "Install on a server" })).not.toBeInTheDocument();
     expect(screen.getByLabelText("Address")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Connect" })).toBeInTheDocument();
+    expectTransportSecurityWarning();
   });
 
   it("configures the app from the existing-server form and dismisses itself", async () => {
@@ -221,6 +230,7 @@ describe("Installer", () => {
     render(<Installer client={createMockProvisionClient()} onClose={onClose} />);
 
     await user.click(screen.getByRole("button", { name: "I already have a server" }));
+    expectTransportSecurityWarning();
     await user.type(screen.getByLabelText("Address"), "100.64.0.10");
     await user.type(screen.getByLabelText("Access token"), "issued-token");
     await user.click(screen.getByRole("button", { name: "Connect" }));
@@ -236,6 +246,7 @@ describe("Installer", () => {
       port: 9420,
       authToken: "issued-token",
     });
+    expect(getConnection()).not.toHaveProperty("setupPending");
     // Nothing was installed, so no installer progress survives.
     expect(localStorage.getItem(INSTALLER_STORAGE_KEY)).toBe(
       JSON.stringify({ schema: INSTALLER_SCHEMA, state: "welcome", inputs: defaultInputs() }),
@@ -252,7 +263,7 @@ describe("Installer", () => {
     await user.type(screen.getByLabelText("Address"), "100.64.0.10");
     await user.click(screen.getByRole("button", { name: "Connect" }));
 
-    expect(await screen.findByRole("alert")).toHaveTextContent("could not be reached");
+    expect(await screen.findByText(/could not be reached/i)).toBeInTheDocument();
     expect(getConnection()).toBeNull();
     expect(onClose).not.toHaveBeenCalled();
   });
@@ -276,6 +287,7 @@ describe("Installer", () => {
     expect(screen.queryByLabelText("Install directory")).not.toBeInTheDocument();
     // The technical reading moved off the welcome screen to here.
     expect(screen.getByRole("button", { name: /networking guide/i })).toBeInTheDocument();
+    expectTransportSecurityWarning();
 
     // How the server is reachable is the operator's business, so there is no
     // exposure question here at all — and nothing to answer it with.
@@ -401,9 +413,9 @@ describe("Installer", () => {
     expect(
       screen.getByText("Correct the Hive port under Advanced, then connect again."),
     ).toBeInTheDocument();
-    expect(screen.getByRole("alert")).toHaveTextContent(
-      "The install cannot start until the findings above are cleared.",
-    );
+    expect(
+      screen.getByText("The install cannot start until the findings above are cleared."),
+    ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Continue" })).toBeDisabled();
 
     // The named field is on this same screen. Correcting it discards the
@@ -487,7 +499,7 @@ describe("Installer", () => {
     render(<Installer client={client} />);
     await connectToServer(user);
 
-    const alert = await screen.findByRole("alert");
+    const alert = (await screen.findByText("SSH_UNREACHABLE")).closest('[role="alert"]');
     expect(alert).toHaveTextContent("SSH_UNREACHABLE");
     expect(alert).toHaveTextContent("The server did not answer on SSH.");
     expect(alert).toHaveTextContent("No route to host");
@@ -519,6 +531,11 @@ describe("Installer", () => {
     render(<Installer client={client} />);
 
     expect(await screen.findByText("Ready to install")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Generates the access token and keeps only its SHA-256 digest on the server. After a successful install, the desktop app stores the plaintext token in its local connection.",
+      ),
+    ).toBeInTheDocument();
     expect(client.install).not.toHaveBeenCalled();
 
     await user.click(screen.getByRole("button", { name: "Start the install" }));
@@ -539,8 +556,8 @@ describe("Installer", () => {
   it("offers no way out while the install is running", async () => {
     const client = createMockProvisionClient();
     seedRunningInstall();
-    // onClose is what a re-launched installer gets; even then, nothing here
-    // may offer to leave a run that the server carries on regardless.
+    // onClose is what a re-launched installer gets; while its local run is
+    // active, the UI offers no second invocation or editable identity.
     render(<Installer client={client} onClose={vi.fn()} />);
 
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
@@ -579,7 +596,11 @@ describe("Installer", () => {
     await user.click(screen.getByRole("button", { name: "Continue" }));
 
     expect(await screen.findByRole("heading", { name: "Connect your accounts" })).toBeInTheDocument();
-    expect(getConnection()).toMatchObject({ authToken: ACCESS_TOKEN, sshUser: "hive" });
+    expect(getConnection()).toMatchObject({
+      authToken: ACCESS_TOKEN,
+      sshUser: "hive",
+      setupPending: true,
+    });
   });
 
   it("shows the streamed output as the screen, and never writes it to storage", async () => {
@@ -677,7 +698,8 @@ describe("Installer", () => {
     await user.click(screen.getByRole("button", { name: "Retry" }));
 
     await waitFor(() => expect(client.installs).toHaveLength(2));
-    // The retried run reports itself as a resume; nothing is repeated.
+    // The retried run reports itself as a resume; completed server steps can
+    // be skipped while token and verification steps run again.
     emit(client.installs[1], ...successRecords(true).slice(0, 6));
     expect(screen.getByText(/Continuing an earlier run/)).toBeInTheDocument();
     // And it is a run in progress again, so the way out closes.
@@ -725,6 +747,7 @@ describe("Installer", () => {
       host: "203.0.113.10",
       port: 9420,
       authToken: ACCESS_TOKEN,
+      setupPending: true,
       // Day-to-day editor and terminal sessions run as the service account…
       sshUser: "hive",
       // …and the install login is kept only for a future reinstall.
@@ -746,6 +769,76 @@ describe("Installer", () => {
   });
 
   // ── connecting accounts ────────────────────────────────────────────────────
+
+  it("restores Accounts from the pending connection after a relaunch", async () => {
+    const fetchMock = stubTools();
+    seed("accounts", { privilegeMode: "root" });
+    replaceConnection({
+      host: "pending.example.com",
+      port: 443,
+      protocol: "https",
+      authToken: "stored-token",
+      sshUser: "hive",
+      adminUser: "root",
+      setupPending: true,
+    });
+
+    renderInstaller(<Installer client={createMockProvisionClient()} />);
+
+    expect(await screen.findByRole("heading", { name: "Connect your accounts" }))
+      .toBeInTheDocument();
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        "https://pending.example.com/api/setup/tools",
+        expect.objectContaining({ headers: { Authorization: "Bearer stored-token" } }),
+      ),
+    );
+    expect(loadMachine().state).toBe("welcome");
+  });
+
+  it("uses pending setup instead of restarting provisioning in the crash window", async () => {
+    stubTools();
+    seedRunningInstall();
+    replaceConnection({
+      host: "203.0.113.10",
+      port: 9420,
+      authToken: ACCESS_TOKEN,
+      sshUser: "hive",
+      adminUser: "root",
+      setupPending: true,
+    });
+    const client = createMockProvisionClient();
+
+    renderInstaller(<Installer client={client} />);
+
+    expect(await screen.findByRole("heading", { name: "Connect your accounts" }))
+      .toBeInTheDocument();
+    expect(client.install).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when a pending connection is missing required credentials", async () => {
+    const onClose = vi.fn();
+    replaceConnection({
+      host: "203.0.113.10",
+      port: 9420,
+      authToken: "   ",
+      setupPending: true,
+    });
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+
+    render(<Installer client={createMockProvisionClient()} onClose={onClose} />);
+
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "missing its access token or service account",
+    );
+    expect(screen.queryByRole("heading", { name: "Welcome to Hive" })).not.toBeInTheDocument();
+    expect(onClose).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole("button", { name: "Connect again" }));
+    expect(await screen.findByRole("heading", { name: "Welcome to Hive" })).toBeInTheDocument();
+    expect(getConnection()).toBeNull();
+    expect(onClose).not.toHaveBeenCalled();
+  });
 
   it("ends on the same cards Settings uses, pointed at the new server", async () => {
     const fetchMock = stubTools();
@@ -790,10 +883,10 @@ describe("Installer", () => {
     const truncated = `${ACCESS_TOKEN.slice(0, 8)}…${ACCESS_TOKEN.slice(-4)}`;
     expect(screen.getByText(truncated)).toBeInTheDocument();
     expect(screen.queryByText(ACCESS_TOKEN)).not.toBeInTheDocument();
-    // The server keeps only the digest, so this screen is the one chance at it.
+    // The server keeps only the digest, and later settings are write-only.
     expect(
       screen.getByText(
-        "You'll need it to connect your phone, browser or another machine — it is shown only here and cannot be recovered.",
+        "The server cannot recover this token. Copy it now: Accounts is the only screen that reveals it, and later Connection settings are write-only.",
       ),
     ).toBeInTheDocument();
 
@@ -944,18 +1037,24 @@ describe("Installer", () => {
     // Finishing closes the installer and hands over to the ordinary app…
     expect(onClose).toHaveBeenCalledTimes(1);
     // …with the connection it installed intact.
-    expect(getConnection()).toMatchObject({ host: "203.0.113.10", port: 9420 });
+    expect(getConnection()).toEqual({
+      host: "203.0.113.10",
+      port: 9420,
+      authToken: ACCESS_TOKEN,
+      sshUser: "hive",
+      adminUser: "root",
+    });
     // Nothing of the run survives to be resumed.
     expect(localStorage.getItem(INSTALLER_STORAGE_KEY)).toBe(
       JSON.stringify({ schema: INSTALLER_SCHEMA, state: "welcome", inputs: defaultInputs() }),
     );
   });
 
-  it("does not resume onto the accounts screen after a relaunch", () => {
+  it("resets the machine record while the pending connection restores Accounts", () => {
     seed("accounts", { privilegeMode: "root" });
 
-    // The install is over and the connection is stored; everything that screen
-    // offered lives in Settings, which is where a relaunched app finds it.
+    // Accounts is durable through the connection, not duplicated in this
+    // machine record.
     expect(loadMachine().state).toBe("welcome");
   });
 

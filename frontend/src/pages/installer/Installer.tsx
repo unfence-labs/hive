@@ -11,12 +11,18 @@ import { clearInstallRuns } from "@/pages/installer/install-run";
 import { createProvisionClient, type ProvisionClient } from "@/lib/provision-client";
 import { switchServer } from "@/lib/server-connection";
 import { isDesktopShell } from "@/lib/is-desktop";
-import { serverUrlFor } from "@/hooks/useConnection";
+import {
+  completeConnectionSetup,
+  replaceConnection,
+  serverUrlFor,
+  useConnection,
+} from "@/hooks/useConnection";
 import { WelcomeScreen } from "./screens/WelcomeScreen";
 import { ServerScreen } from "./screens/ServerScreen";
 import { ReadyScreen } from "./screens/ReadyScreen";
 import { AccountsScreen } from "./screens/AccountsScreen";
 import { InstallScreen, type InstallResult } from "./screens/InstallScreen";
+import { InstallerScreen } from "./screens/InstallerScreen";
 
 interface InstallerProps {
   /** Injectable for tests; defaults to the desktop shell's SSH sidecar. */
@@ -55,11 +61,9 @@ export default function Installer({
     [injectedClient],
   );
   const [machine, dispatch] = useReducer(reduce, undefined, loadMachine);
+  const { connection } = useConnection();
   // Held for the length of one install and deliberately never persisted.
   const [escalationPassword, setEscalationPassword] = useState<string | undefined>(undefined);
-  // What the install reported, kept only for the final screen: it addresses the
-  // new server directly rather than through the stored connection.
-  const [installed, setInstalled] = useState<InstallResult | null>(null);
 
   // Persist on every change, so closing the app resumes where it stopped.
   useEffect(() => {
@@ -77,14 +81,28 @@ export default function Installer({
    * wiped and reset to its pristine state, so reopening it starts from the
    * welcome screen rather than resuming a flow that no longer applies.
    */
-  const finish = useCallback(() => {
+  const close = useCallback(() => {
     clearMachine();
     dispatch({ type: "reset" });
-    setInstalled(null);
     onClose?.();
   }, [onClose]);
 
-  const { state, inputs } = machine;
+  const finish = useCallback(() => {
+    if (!completeConnectionSetup()) return;
+    close();
+  }, [close]);
+
+  const restart = useCallback(() => {
+    replaceConnection(null);
+    clearMachine();
+    dispatch({ type: "reset" });
+  }, []);
+
+  const { inputs } = machine;
+  // The connection write is the durable boundary. Once it says setup is
+  // pending, Accounts wins over any stale machine state, including the small
+  // crash window before the install screen advances.
+  const state = connection?.setupPending ? "accounts" : machine.state;
 
   /**
    * The install succeeded: the server it just built becomes the one server this
@@ -114,9 +132,9 @@ export default function Installer({
         authToken: result.accessToken,
         sshUser: result.serviceUser,
         adminUser: user ?? "root",
+        setupPending: true,
       });
       clearInstallRuns();
-      setInstalled(result);
       advance();
     },
     [inputs.address, inputs.port, advance],
@@ -130,7 +148,7 @@ export default function Installer({
           // The install path runs over the desktop shell's SSH sidecar; the
           // web build only connects to servers that already exist.
           {...(isDesktopShell() ? { onInstall: () => advance() } : {})}
-          onConnected={finish}
+          onConnected={close}
           {...(cancellable && onClose ? { onCancel: onClose } : {})}
         />
       );
@@ -173,18 +191,27 @@ export default function Installer({
       );
       break;
     case "accounts":
-      // `installed` is set in the same update that lands here, and a relaunch
-      // resumes on welcome rather than on a screen whose credentials are gone,
-      // so the null branch is unreachable in practice.
       screen =
-        installed === null ? null : (
+        connection?.setupPending && connection.authToken && connection.sshUser ? (
           <AccountsScreen
             target={{
-              baseUrl: serverUrlFor({ host: parseAddress(inputs.address).host, port: inputs.port }),
-              authToken: installed.accessToken,
+              baseUrl: serverUrlFor(connection),
+              authToken: connection.authToken,
             }}
-            accessToken={installed.accessToken}
+            accessToken={connection.authToken}
             onFinish={finish}
+          />
+        ) : (
+          <InstallerScreen
+            title="Setup cannot continue"
+            description={
+              <span role="alert">
+                The saved setup is missing its access token or service account. Connect again to
+                restore a usable server connection.
+              </span>
+            }
+            onContinue={restart}
+            continueLabel="Connect again"
           />
         );
       break;

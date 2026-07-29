@@ -13,6 +13,8 @@ export const SETUP_ERROR_CODES = [
   "NOT_ROOT",
   "CONCURRENT_RUN",
   "EXISTING_INSTALL",
+  "ALREADY_INSTALLED",
+  "INSTALL_IDENTITY_MISMATCH",
   "PORT_IN_USE",
   "DIRECTORY_UNUSABLE",
   "INSUFFICIENT_DISK_SPACE",
@@ -50,7 +52,11 @@ export const SETUP_ERROR_HINTS: Record<SetupErrorCode, string> = {
   CONCURRENT_RUN:
     "Another installer run is already in progress on this server. Wait for it to finish, then Retry.",
   EXISTING_INSTALL:
-    "Something other than Hive already owns /opt/hive on this server. Remove it, or pick a different server, then Retry.",
+    "Something other than Hive already owns the selected install directory or service unit. Remove it, or pick a different server, then Retry.",
+  ALREADY_INSTALLED:
+    "Hive is already installed on this server, and this installer does not support updates. Run the generated uninstaller before installing again.",
+  INSTALL_IDENTITY_MISMATCH:
+    "An incomplete install can resume only with its original port, install directory, and data directory. Use those exact values, or uninstall before starting over.",
   PORT_IN_USE:
     "The port Hive wants is already taken by another service. Free it, or re-run the installer with a different --port, then Retry.",
   DIRECTORY_UNUSABLE:

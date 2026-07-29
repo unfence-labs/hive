@@ -137,7 +137,8 @@ vi.mock("@/pages/settings/ServerSettings", () => ({
 }));
 
 vi.mock("@/pages/installer/Installer", async () => {
-  const { replaceConnection: store } = await import("@/hooks/useConnection");
+  const { completeConnectionSetup, replaceConnection: store } =
+    await import("@/hooks/useConnection");
   return {
     default: ({ onClose, cancellable }: { onClose?: () => void; cancellable?: boolean }) => (
       <div data-testid="installer">
@@ -152,9 +153,26 @@ vi.mock("@/pages/installer/Installer", async () => {
         {/* Stands in for the install storing the connection it just created. */}
         <button
           type="button"
-          onClick={() => store({ host: "203.0.113.10", port: 9420, authToken: "issued" })}
+          onClick={() =>
+            store({
+              host: "203.0.113.10",
+              port: 9420,
+              authToken: "issued",
+              sshUser: "hive",
+              setupPending: true,
+            })
+          }
         >
           store connection
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            completeConnectionSetup();
+            onClose?.();
+          }}
+        >
+          complete setup
         </button>
       </div>
     ),
@@ -394,10 +412,11 @@ describe("App", () => {
     // A gate is not an overlay: there is still nothing to abandon it for.
     expect(screen.queryByRole("button", { name: "cancel installer" })).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "close installer" }));
+    await user.click(screen.getByRole("button", { name: "complete setup" }));
     expect(screen.queryByTestId("installer")).not.toBeInTheDocument();
     // The configured app mounts for the first time now.
     expect(await screen.findByTestId("app-layout")).toBeInTheDocument();
+    expect(getConnection()).not.toHaveProperty("setupPending");
   });
 
   it("gates the web build too, offering the connect path", async () => {
@@ -416,6 +435,24 @@ describe("App", () => {
     renderApp();
 
     expect(screen.queryByTestId("installer")).not.toBeInTheDocument();
+  });
+
+  it("boots on the installer alone while guided setup is pending", async () => {
+    runInDesktopShell();
+    replaceConnection({
+      host: "100.64.0.10",
+      port: 9420,
+      authToken: "tok",
+      sshUser: "hive",
+      setupPending: true,
+    });
+
+    renderApp();
+
+    expect(await screen.findByTestId("installer")).toBeInTheDocument();
+    expect(screen.queryByTestId("app-layout")).not.toBeInTheDocument();
+    expect(mocks.syncWorkspaces).not.toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: "cancel installer" })).not.toBeInTheDocument();
   });
 
   it("opens the installer on demand from Settings, and closing it changes nothing", async () => {

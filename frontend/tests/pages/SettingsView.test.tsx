@@ -27,6 +27,14 @@ vi.mock("@/hooks/useThemeMode", () => ({
   THEME_MODES: ["system", "light", "dark"],
 }));
 
+const TRANSPORT_SECURITY_WARNING =
+  "HTTPS is not supported yet. Connect through an encrypted private network such as Tailscale, WireGuard, or another VPN. Never use a public address.";
+
+function expectTransportSecurityWarning() {
+  const warning = screen.getByText(TRANSPORT_SECURITY_WARNING).closest('[role="alert"]');
+  expect(warning).toHaveTextContent("Private network required");
+}
+
 describe("ConnectionSettings", () => {
   let check: ReturnType<typeof vi.fn>;
 
@@ -52,6 +60,7 @@ describe("ConnectionSettings", () => {
     expect(screen.getByPlaceholderText("9420")).toHaveValue("9420");
     expect(screen.getByPlaceholderText("Paste the access token")).toHaveValue("");
     expect(screen.getByText("Not configured")).toBeInTheDocument();
+    expectTransportSecurityWarning();
   });
 
   it("prefills host, port and SSH user from the stored record, but never the token", () => {
@@ -75,6 +84,7 @@ describe("ConnectionSettings", () => {
     expect(screen.getByPlaceholderText("hive")).toHaveValue("hive");
     expect(screen.getByText("root")).toBeInTheDocument();
     expect(screen.getByText("Connected")).toBeInTheDocument();
+    expectTransportSecurityWarning();
   });
 
   it("shows the token-rejected badge distinctly from an unreachable server", () => {
@@ -129,7 +139,7 @@ describe("ConnectionSettings", () => {
     await user.type(screen.getByPlaceholderText("203.0.113.10"), "100.64.0.10");
     await user.click(screen.getByRole("button", { name: "Connect" }));
 
-    expect(await screen.findByRole("alert")).toHaveTextContent("The server could not be reached.");
+    expect(await screen.findByText("The server could not be reached.")).toBeInTheDocument();
     expect(getConnection()).toBeNull();
   });
 
@@ -142,7 +152,7 @@ describe("ConnectionSettings", () => {
     await user.type(screen.getByPlaceholderText("Paste the access token"), "wrong");
     await user.click(screen.getByRole("button", { name: "Connect" }));
 
-    expect(await screen.findByRole("alert")).toHaveTextContent("The server rejected the access token.");
+    expect(await screen.findByText("The server rejected the access token.")).toBeInTheDocument();
     expect(getConnection()).toBeNull();
   });
 
@@ -175,7 +185,7 @@ describe("ConnectionSettings", () => {
     await user.type(host, "new.example.com");
     await user.click(screen.getByRole("button", { name: "Connect" }));
 
-    await screen.findByRole("alert");
+    await screen.findByText("The server rejected the access token.");
     expect(getConnection()).toMatchObject({ host: "old.example.com", authToken: "good" });
   });
 

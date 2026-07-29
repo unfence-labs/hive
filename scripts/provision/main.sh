@@ -139,7 +139,7 @@ detect_arch() {
 STEPS=(
   probe_os probe_env apt_baseline create_user authorize_ssh_key install_node
   install_agent_clis install_release generate_token write_secrets write_units
-  write_uninstall firewall_rule enable_service health_check verify_auth
+  write_uninstall firewall_rule enable_service health_check verify_auth complete_install
 )
 
 main() {

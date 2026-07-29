@@ -9,6 +9,11 @@ build** of the desktop app closes that gap itself: it looks for a locally built
 tarball, uploads it to the server over the same SSH connection, and installs
 from the uploaded copy (`--release-file`). Release builds never do this.
 
+OrbStack is a local development exception. Its private VM address is suitable
+for this test, but it is not production transport guidance. A real server still
+requires the encrypted private network described in
+**[networking.md](networking.md)**.
+
 ## 1. Create an Ubuntu VM and allow root SSH
 
 Use the 24.04 image — `probe_os` accepts only Ubuntu 22.04/24.04 and Debian
@@ -74,14 +79,20 @@ The screens, in order: **welcome → server → review → install → accounts*
 
 1. **Server** — type the VM's IP (the key whose public half you authorized on
    root is auto-selected), then **Connect**: approve the host fingerprint, and
-   the preflight report renders what the server looks like. Hive takes no
-   position on how the server is reached; a local VM IP is as good as any.
+   the preflight report renders what the server looks like.
 2. **Review** — the settled plan, restated; **Start the install**.
 3. **Install** — the checklist streams `provision.sh`'s progress. The upload of
    the local tarball shows up as a log line before the release step. The run
-   ends with a fresh access token; the backend listens on port **9420**.
-4. **Accounts** — connect Claude and Codex on the server; finishing lands the
-   app in a working Hive at `http://<VM_IP>:9420`.
+   writes a non-secret identity manifest for its schema, port, install
+   directory, and data directory, then ends with a fresh access token; the
+   backend listens on port **9420**. If interrupted, Retry resumes only with
+   those exact values. A completed V1 install rejects another provisioning
+   run; changing values requires uninstalling and starting fresh. The generated
+   uninstaller keeps the data directory unless you pass `--purge`.
+4. **Accounts** — copy the access token, connect GitHub, and authenticate at
+   least one of Claude Code or Codex. Relaunching returns here until all three
+   requirements are complete. Finishing lands the app in a working Hive at
+   `http://<VM_IP>:9420`; these account controls remain available in Settings.
 
 A prerelease (`0.0.0-dev`) install writes `HIVE_ALLOWED_ORIGINS` with the Vite
 dev origins into `/etc/hive/hive.env`, so the dev app — whose webview origin is

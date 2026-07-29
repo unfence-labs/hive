@@ -4,6 +4,12 @@ Hive runs a backend on a server you own and talks to it from the desktop app, a 
 client. This guide covers the three ways to get that backend running, and how to connect a client to
 it.
 
+> [!WARNING]
+> Hive does not provide HTTPS yet. Never expose port 9420 directly to the
+> public Internet. Connect only through an encrypted private network such as
+> Tailscale, WireGuard, or another VPN. The access token is sent over HTTP and
+> WebSocket and can be intercepted on an untrusted network.
+
 Read **[docs/prerequisites.md](docs/prerequisites.md)** first — supported operating systems, what
 access the installer needs, and exactly what it will and will not change on a server that is already
 running other software.
@@ -20,9 +26,9 @@ repeating it.
 +------------------+                             +------------------+
 ```
 
-The server does the work: agent CLIs, git, worktrees, sessions. The client is a view onto it. How
-you make that server reachable — a public address, or a private network you run yourself — is yours
-to arrange; Hive does not ask and does not set one up.
+The server does the work: agent CLIs, git, worktrees, sessions. The client is a view onto it. Hive
+does not configure networking or HTTPS; establish an encrypted private network before setup and use
+the server's private address. See **[docs/networking.md](docs/networking.md)**.
 
 ## Which path
 
@@ -49,7 +55,7 @@ npm run tauri dev              # or: npm run tauri build
 ```
 
 With no server configured, the installer opens by itself. With one configured, open it from
-**Settings → Connection → Install Hive on a server**.
+**Settings → Server → Install Hive on a server**.
 
 The screens, in order:
 
@@ -70,17 +76,19 @@ The screens, in order:
    changed by this step.
 3. **Ready to install.** The settled plan, restated. This is the last screen where going back is
    free.
-4. **Installing Hive.** A live checklist and the raw output. It cannot be cancelled: the script runs
-   on the server, so stopping this end would not stop it. It is resumable instead — each completed
-   step is recorded on the server, so closing the app or pressing Retry continues from where it
-   stopped rather than starting over.
-5. **Connect your accounts.** The server is up. Sign in to Claude or Codex from here.
-   Everything is optional and everything is also in **Settings → Harness**; GitHub connects
-   later from **Settings → Account**.
+4. **Installing Hive.** A live checklist and the raw output. Closing the installer or interrupting
+   SSH stops the current local run. Each completed server step is recorded, so reopening or pressing
+   Retry resumes an incomplete install when the port, install directory, and data directory still
+   match the original run exactly.
+5. **Connect your accounts.** The server is up. Copy the access token, connect GitHub, and
+   authenticate at least one of Claude Code or Codex. The ordinary app stays gated on this screen,
+   including after a relaunch, until all three requirements are complete. The same controls remain
+   available later in **Settings → Account** and **Settings → Harness**.
 
-When the install succeeds the app stores the connection itself — address, port, the generated access
-token, and `hive` as the SSH user for editor and terminal sessions. There is nothing to copy by
-hand.
+When the install succeeds the app stores the connection itself — address, port, the plaintext
+generated access token, and `hive` as the SSH user for editor and terminal sessions — in its local
+connection record. The Accounts screen is the only UI that reveals that token. Later Connection
+settings accept a replacement token but do not reveal the stored value.
 
 ## 2. `provision.sh` from a terminal
 
@@ -108,7 +116,8 @@ curl -fsSL <url>/provision.sh | bash -s -- \
 
 Progress is NDJSON, one record per line. **The access token appears exactly once, on that stream**,
 on the `generate_token` step — it is never written to the log file, and only its SHA-256 digest is
-stored on the server. Every run rotates it, so keep the value the run prints:
+stored on the server. The server cannot recover the plaintext token. Every fresh or resumed
+incomplete run generates a new token, so keep the value printed by the run that completes:
 
 ```text
 {"v":1,...,"step":"generate_token","status":"ok",...,"data":{"accessToken":"<64 hex characters>"}}
@@ -120,6 +129,12 @@ of every file it saves, after which the agent can no longer write them.
 
 The run ends by proving the token is enforced: an unauthenticated request to `/api/projects` must
 return `401`. If it does not, the script stops the service and fails the run.
+
+A fresh install writes a non-secret identity manifest containing its schema, port, install
+directory, and data directory. An interrupted install resumes only with those exact values. A
+completed install rejects another provisioning run because V1 does not support updates. To change
+the port or either path, uninstall and perform a fresh install. The uninstaller keeps the data
+directory unless you pass `--purge`.
 
 ## 3. Manual install
 
@@ -217,7 +232,7 @@ Two guards sit in front of everything but `/health`, and both are on by default:
 The guided installer adds the selected address to `HIVE_ALLOWED_HOSTS` automatically. A manual
 `provision.sh` install can do the same with `--allowed-host`.
 
-### Update
+### Update a manual install
 
 ```bash
 cd hive
@@ -238,7 +253,9 @@ distinguishes the failures: *Token rejected* means the server answered and refus
 *Client refused* means it refused this client (see the two guards above), *Unreachable* means it did
 not answer at all.
 
-The guided installer fills all of this in for you.
+The guided installer fills all of this in for you. Its successful install stores the plaintext
+token in the local connection record. This form is write-only for the token: it accepts a
+replacement but never reveals the stored value.
 
 ### Browser
 
@@ -286,12 +303,13 @@ sudo /opt/hive/hive-uninstall.sh --purge    # remove your data as well
 
 ## Troubleshooting
 
-**The install stopped.** The panel names a typed error code and the failing output. Press Retry: the
-script records each completed step on the server and continues from there. Failures that a form
-field can fix say which field.
+**The install stopped.** The panel names a typed error code and the failing output. Press Retry with
+the same port, install directory, and data directory: the script resumes from the completed server
+steps. A different identity is rejected. Failures that a form field can fix say which field.
 
-**`401` from a server you believe is configured.** Every provisioning run rotates the token. Copy
-the current one from the run that installed the server, or reinstall to get a new one.
+**`401` from a server you believe is configured.** Use the token reported by the run that completed
+the install. The server keeps only its digest and cannot recover the plaintext. A completed V1
+install cannot be reprovisioned to rotate it; uninstall and perform a fresh install instead.
 
 **`403 Forbidden host` / `403 Forbidden origin`.** See
 [the two guards](#if-the-client-is-a-browser-or-a-custom-hostname).

@@ -69,6 +69,20 @@ describe("installer machine", () => {
     expect(loadMachine()).toEqual(initialMachine());
   });
 
+  it("leaves Accounts restoration to the pending connection record", () => {
+    saveMachine({
+      schema: INSTALLER_SCHEMA,
+      state: "accounts",
+      inputs: {
+        ...initialMachine().inputs,
+        address: "root@203.0.113.10",
+        privilegeMode: "root",
+      },
+    });
+
+    expect(loadMachine()).toEqual(initialMachine());
+  });
+
   it("resumes where it stopped once the server has been proven", () => {
     saveMachine({
       schema: INSTALLER_SCHEMA,

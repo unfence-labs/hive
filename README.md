@@ -23,6 +23,12 @@
 
 ---
 
+> [!WARNING]
+> Hive does not provide HTTPS yet. Never expose port 9420 directly to the
+> public Internet. Connect only through an encrypted private network such as
+> Tailscale, WireGuard, or another VPN. The access token is sent over HTTP and
+> WebSocket and can be intercepted on an untrusted network.
+
 ## What is Hive?
 
 Hive is a control plane for AI coding agents. It manages your projects as **bare git repositories**, spins up **isolated workspaces** as git worktrees and branches, and keeps every agent conversation as a **resumable session** — so multiple agents can work in parallel without stepping on each other.
@@ -96,8 +102,8 @@ Run Hive as a **local web app**, a **Tauri desktop app** (pointed at a local or 
 - **GitHub CLI** installed and authenticated for GitHub-backed flows (`gh`)
 - _Optional:_ **Codex CLI** (`codex`) for OpenAI model support
 - _Optional (desktop build):_ **Rust** ≥ 1.77 for Tauri
-- _Optional (remote):_ a way to reach the server — a public address, or a private network you run
-  yourself (Tailscale, WireGuard, ZeroTier, a cloud provider's private network)
+- _Remote:_ an encrypted private network that reaches the server, such as Tailscale, WireGuard,
+  another VPN, or a cloud provider's private network
 
 > The backend preflight requires `git`, `claude`, and `gh`. `codex` is optional and only affects its provider features.
 
@@ -141,7 +147,7 @@ software.
 #### From the desktop app
 
 The desktop app installs Hive on a server itself, over SSH, with no terminal. With no server
-configured it opens on launch; otherwise it is under **Settings → Connection → Install Hive on a
+configured it opens on launch; otherwise it is under **Settings → Server → Install Hive on a
 server**.
 
 It walks through giving the address and port, picking an SSH key from `~/.ssh`, approving the
@@ -153,11 +159,15 @@ machine — only its path is stored, and only its public half is sent, to be aut
 account. An account that needs a `sudo` password is asked for one, which is used for that install
 only and never written to disk.
 
-The install itself cannot be cancelled — the script runs on the server, so stopping the local end
-would not stop it — but it resumes: each completed step is recorded on the server, so closing the
-app or pressing Retry continues from there. On success the app stores the connection, including the
-generated access token and `hive` as the SSH user for editor and terminal sessions, and finishes on
-a screen for signing in to Claude or Codex.
+Closing the installer or interrupting its SSH connection stops the current local run. Each completed
+server step is recorded, so reopening the installer or pressing Retry can resume an incomplete
+install only when the port, install directory, and data directory match the original run exactly.
+On success the app stores the connection, including the plaintext generated access token and `hive`
+as the SSH user for editor and terminal sessions, in its local connection record. The final Accounts
+screen stays in front of the ordinary app, including after a relaunch, until you copy the token,
+connect GitHub, and authenticate at least one of Claude Code or Codex. The same account controls
+remain available later in Settings. Accounts is the only UI that reveals the token; later Connection
+settings accept a replacement but do not reveal the stored value.
 
 The desktop shell embeds the same provisioning script described below and streams it over the SSH
 connection, so both paths install exactly the same server. Screen-by-screen detail is in
@@ -180,11 +190,14 @@ under systemd as an unprivileged, sandboxed unit on port 9420.
 
 It also generates the server's access token, writes only its SHA-256 digest to root-owned
 `/etc/hive/hive.env`, and prints the plaintext exactly once on its progress stream — never to a
-log file. Every run rotates the token, so keep the value the run reports.
+log file. Every fresh or resumed incomplete run generates a new token, so keep the value reported
+by the run that completes successfully.
 
 Progress is NDJSON, one record per line, so a client can render a live checklist; failures carry a
-typed code from `shared/setup-errors.ts`. The run takes an exclusive lock and records each step, so
-it is safe to interrupt and re-run. An existing Hive install is an update, not an error.
+typed code from `shared/setup-errors.ts`. A fresh install writes a non-secret identity manifest
+containing its schema, port, install directory, and data directory. An interrupted install resumes
+only with those exact values. A completed install rejects another provisioning run because V1 does
+not support updates. To change the port or paths, uninstall Hive and perform a fresh install.
 
 The guiding assumption is that **the server is already doing something else**. Check what the
 installer would find, without changing anything, before you commit to it:
@@ -214,11 +227,11 @@ escalation needs a password. It writes nothing and always exits 0: findings are 
 curl -fsSL <url>/provision.sh | bash -s -- --port 9420 --install-dir /srv/hive --data-dir /mnt/hive
 ```
 
-**How the server is reached is the operator's business.** There is no network mode: the installer
-takes the address that reaches the server, and a public address, a private network the operator
-runs themselves (Tailscale, WireGuard, ZeroTier, a cloud provider's private network) or a second NIC
-are all the same to it. Hive neither installs nor configures any of them. The backend binds every
-interface and the access token is the security boundary either way.
+**Networking is an operator prerequisite.** Hive does not configure a network or HTTPS. Establish an
+encrypted private network before setup and connect through the server's private address. The backend
+binds every interface, so firewall and routing policy remain the operator's responsibility. Port
+9420 must never be reachable directly from the public Internet. See
+**[docs/networking.md](docs/networking.md)**.
 
 **The host firewall is automatic.** The installer never enables a firewall or changes its default
 policy. If `ufw` is active, it opens only the configured TCP port. If no firewall is active, no rule
@@ -227,9 +240,9 @@ configure its policy safely; the installer never reports success with a port it 
 
 Because the service account owns every repository and worktree, pass `--ssh-public-key` so an
 editor or terminal session connects as `hive` rather than root. The key is appended to
-`/home/hive/.ssh/authorized_keys` idempotently: a re-run neither duplicates it nor removes keys you
-added by hand. Without this, files an editor saves become root-owned and the agent can no longer
-write them.
+`/home/hive/.ssh/authorized_keys` idempotently: an exact incomplete resume neither duplicates it nor
+removes keys you added by hand. Without this, files an editor saves become root-owned and the agent
+can no longer write them.
 
 Each install writes `<install-dir>/hive-uninstall.sh`, carrying the paths that run actually used:
 
@@ -240,7 +253,7 @@ sudo /opt/hive/hive-uninstall.sh --purge    # remove your data as well
 
 It removes the service unit, the install directory and private runtime, the configuration, the
 provisioning state, the service account and the one firewall rule the install added. It never
-removes system packages, package repositories, or your data.
+removes system packages or package repositories. Data is kept unless you pass `--purge`.
 
 ### Scripts
 
@@ -442,7 +455,8 @@ Public backend surface exposed by route modules under `backend/src/api/`.
 
 - Backend/frontend tests use **Vitest**; iOS uses **Swift Testing**.
 - Tests live next to source: `backend/src/**/*.test.ts`, `frontend/tests/**`, `ios/Tests/**`.
-- CI runs Node lint, typecheck, build, and tests, plus iOS Swift package tests and an iOS app compile on every push/PR to `main`.
+- CI runs Node lint, typecheck, build, and tests on pushes and pull requests to `main`. The iOS CI
+  job is currently disabled.
 - Provisioning has two lanes. `test/provision/contract.sh` (`npm run test:provision`, in CI) asserts the shell and TypeScript error taxonomies stay in sync, that the deliberate departures from the reference install flow stay departed, that the token never reaches a log file, and that shellcheck is clean. `test/provision/e2e-docker.sh` (`npm run test:provision:e2e`) is the Docker lane: it builds a real backend tarball, provisions a bare Ubuntu 24.04 systemd container from it, and proves the backend comes up healthy, rejects a request with no token, and accepts one with the right token. Its `neighbour` mode installs onto a server already running a web server on port 80 and a service on 5432 and proves an outside peer can still reach them afterwards — first with `ufw` installed but inactive, then with `ufw` active under the operator's own policy, where exactly one rule is added and the default policy is untouched. `preflight` compares a filesystem and service-table snapshot before and after, `paths` drives a non-default install and data directory end to end, and `uninstall` proves the generated script removes the install, keeps the data, and removes that too under `--purge`. All modes run on demand via `.github/workflows/provision-e2e.yml`.
 - Pushing a `v<version>` tag runs `.github/workflows/release.yml`, which builds the backend tarball on native linux-x64 and linux-arm64 runners and attaches `hive-backend-<version>-linux-<arch>.tar.gz` plus its `.sha256`, and the generated `provision.sh`, to the GitHub release. The tag must match the version in `frontend/src-tauri/Cargo.toml`.
 
@@ -451,6 +465,9 @@ Run the narrowest relevant checks during development, then the root checks befor
 ## Roadmap
 
 > This is the single approved place for documented remaining work. Do not add TODO / roadmap / "future" notes to `AGENTS.md`, `GETTING_STARTED.md`, or standalone docs.
+
+**Networking**
+- Support HTTPS termination and safe public access.
 
 **Workspace & git UX**
 - Structure merge-conflict API responses instead of returning generic merge errors.
