@@ -94,8 +94,7 @@ export function WelcomeScreen({ onInstall, onConnected, onCancel }: WelcomeScree
 
           {showForm ? (
             <div className="w-full text-left">
-              <TransportSecurityWarning />
-              <div className="mt-4 grid grid-cols-[1fr_120px] gap-3">
+              <div className="grid grid-cols-[1fr_120px] gap-3">
                 <div>
                   <label
                     htmlFor="existing-host"
@@ -150,6 +149,7 @@ export function WelcomeScreen({ onInstall, onConnected, onCancel }: WelcomeScree
                   }}
                 />
               </div>
+              <TransportSecurityWarning className="mt-3" />
               {/* Always mounted: reserving the line keeps the Connect button
                   from shifting when a one-line error appears. */}
               <p role="alert" className="mt-3 min-h-4 text-xs text-destructive">

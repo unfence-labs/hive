@@ -126,7 +126,10 @@ async function installTo(
   renderInstaller(<Installer client={client} onClose={onClose} />);
   await waitFor(() => expect(client.installs).toHaveLength(1));
   emit(client.installs[0], ...records);
-  await user.click(await screen.findByRole("button", { name: "Continue" }));
+  // Continue is mounted for the whole run and only arms once it succeeds.
+  const cont = await screen.findByRole("button", { name: "Continue" });
+  await waitFor(() => expect(cont).toBeEnabled());
+  await user.click(cont);
   return screen.findByRole("heading", { name: "Connect your accounts" });
 }
 
@@ -883,10 +886,10 @@ describe("Installer", () => {
     const truncated = `${ACCESS_TOKEN.slice(0, 8)}…${ACCESS_TOKEN.slice(-4)}`;
     expect(screen.getByText(truncated)).toBeInTheDocument();
     expect(screen.queryByText(ACCESS_TOKEN)).not.toBeInTheDocument();
-    // The server keeps only the digest, and later settings are write-only.
+    // The card says the token is shown once and cannot be recovered.
     expect(
       screen.getByText(
-        "The server cannot recover this token. Copy it now: Accounts is the only screen that reveals it, and later Connection settings are write-only.",
+        "You'll need it to connect your phone, browser or another machine — it is shown only here and cannot be recovered.",
       ),
     ).toBeInTheDocument();
 

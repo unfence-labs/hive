@@ -83,8 +83,8 @@ export function AccessTokenCard({
       }
     >
       <p className="mt-2 text-xs text-muted-foreground">
-        The server cannot recover this token. Copy it now: Accounts is the only screen that reveals
-        it, and later Connection settings are write-only.
+        You'll need it to connect your phone, browser or another machine
+        — it is shown only here and cannot be recovered.
       </p>
 
       {failed && (

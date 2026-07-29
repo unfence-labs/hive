@@ -152,7 +152,8 @@ export function InstallScreen({
             : "This runs on the server and takes a few minutes. It cannot be cancelled — closing the app pauses it, and reopening the installer picks it up where it stopped."
       }
       onBack={failed ? onBack : undefined}
-      {...(succeeded ? { onContinue: leave, continueLabel: "Continue" } : {})}
+      onContinue={leave}
+      continueDisabled={!succeeded}
       footer={
         failed ? (
           <Button variant="outline" size="sm" onClick={retry}>
