@@ -32,6 +32,7 @@ import {
   extractAuthToken,
   isAllowedHostHeader,
   isAuthorized,
+  isBindAllowed,
 } from "./auth.js";
 
 function bearer(token: string): Record<string, string> {
@@ -475,6 +476,31 @@ describe("createWebSocketOriginGuardHook", () => {
     } finally {
       await app.close();
     }
+  });
+});
+
+describe("isBindAllowed", () => {
+  it("always allows loopback binds, token or not", () => {
+    expect(isBindAllowed("127.0.0.1", undefined)).toBe(true);
+    expect(isBindAllowed("127.1.2.3", undefined)).toBe(true);
+    expect(isBindAllowed("localhost", undefined)).toBe(true);
+    expect(isBindAllowed("::1", undefined)).toBe(true);
+  });
+
+  it("refuses non-loopback binds without a configured token", () => {
+    expect(isBindAllowed("0.0.0.0", undefined)).toBe(false);
+    expect(isBindAllowed("::", undefined)).toBe(false);
+    expect(isBindAllowed("192.168.1.10", {})).toBe(false);
+  });
+
+  it("allows non-loopback binds with either token form", () => {
+    expect(isBindAllowed("0.0.0.0", { expectedToken: "secret" })).toBe(true);
+    expect(isBindAllowed("::", { expectedTokenSha256: sha256Hex("secret") })).toBe(true);
+  });
+
+  it("treats whitespace-only tokens as unset", () => {
+    expect(isBindAllowed("0.0.0.0", { expectedToken: "  " })).toBe(false);
+    expect(isBindAllowed("0.0.0.0", { expectedTokenSha256: "  " })).toBe(false);
   });
 });
 

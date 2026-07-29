@@ -1,6 +1,7 @@
 /** Exact env vars set by pm2 / the Hive backend / Claude Code that should not leak into workspace child processes. */
 const STRIPPED_VARS = [
   "NODE_ENV",
+  "HOST",
   "PORT",
   "DATA_DIR",
   "TELEGRAM_BOT_TOKEN",
