@@ -7,6 +7,10 @@ import { tmpdir } from "node:os";
 // Prevent the top-level main() from running preflight checks (claude not on CI)
 vi.mock("./utils/preflight.js", () => ({ preflight: vi.fn() }));
 
+// main() sets the global git identity at startup. Stub it so importing this
+// module never mutates the real ~/.gitconfig or calls out to GitHub.
+vi.mock("./utils/git-identity.js", () => ({ ensureGitIdentity: vi.fn(async () => {}) }));
+
 // Prevent the top-level main() from actually listening on a port
 vi.mock("fastify", async (importOriginal) => {
   const actual = await importOriginal<typeof import("fastify")>();

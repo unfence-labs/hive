@@ -856,6 +856,56 @@ describe("mergeWorkspace", () => {
     expect(existsSync(join(ws2Path, "merged-file.txt"))).toBe(true);
   });
 
+  it("creates a merge commit when the default branch has diverged", async () => {
+    // ws1 branches off main, then main advances by merging ws2. ws1 is now
+    // behind main, so merging it is a non-fast-forward that creates a merge
+    // commit — the path that actually needs a git identity.
+    const ws1 = await createWorkspace(projectId, dataDir);
+    const ws1Path = join(dataDir, projectId, "workspaces", ws1.name);
+    await writeFile(join(ws1Path, "from-ws1.txt"), "ws1\n");
+    await git(["add", "."], ws1Path);
+    await git(
+      [
+        "-c",
+        "user.email=test@hive.dev",
+        "-c",
+        "user.name=Test",
+        "commit",
+        "-m",
+        "add from-ws1",
+      ],
+      ws1Path,
+    );
+
+    const ws2 = await createWorkspace(projectId, dataDir);
+    const ws2Path = join(dataDir, projectId, "workspaces", ws2.name);
+    await writeFile(join(ws2Path, "from-ws2.txt"), "ws2\n");
+    await git(["add", "."], ws2Path);
+    await git(
+      [
+        "-c",
+        "user.email=test@hive.dev",
+        "-c",
+        "user.name=Test",
+        "commit",
+        "-m",
+        "add from-ws2",
+      ],
+      ws2Path,
+    );
+
+    // Advances main to include from-ws2 (fast-forward).
+    await mergeWorkspace(ws2.id, dataDir);
+    // Diverged merge: must not throw "identity unknown".
+    await mergeWorkspace(ws1.id, dataDir);
+
+    // Both branches' changes land on the default branch.
+    const ws3 = await createWorkspace(projectId, dataDir);
+    const ws3Path = join(dataDir, projectId, "workspaces", ws3.name);
+    expect(existsSync(join(ws3Path, "from-ws1.txt"))).toBe(true);
+    expect(existsSync(join(ws3Path, "from-ws2.txt"))).toBe(true);
+  });
+
   it("throws for non-existent workspace", async () => {
     await expect(mergeWorkspace("nonexistent", dataDir)).rejects.toThrow("not found");
   });

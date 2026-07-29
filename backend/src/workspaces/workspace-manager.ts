@@ -3,6 +3,7 @@ import { readdir, readFile, stat, mkdir, writeFile, rename } from "node:fs/promi
 import { join, resolve } from "node:path";
 import { nanoid } from "nanoid";
 import { git } from "../utils/git.js";
+import { commitIdentityArgs } from "../utils/git-identity.js";
 import {
   addWorktreeFromBranch,
   addWorktreeWithNewBranch,
@@ -717,12 +718,17 @@ export async function mergeWorkspace(
   try {
     await git(["worktree", "add", tempPath, defaultBranch], bare);
 
-    // Configure git user in the temp worktree
-    await git(["config", "user.email", "hive@orchestrator.local"], tempPath);
-    await git(["config", "user.name", "Hive Orchestrator"], tempPath);
+    // A non-fast-forward merge creates a merge commit, which needs a git
+    // identity. Supply one for this command only (honouring a configured
+    // identity, falling back to the neutral default) so the merge never fails
+    // with "identity unknown" and never mutates global config.
+    const identityArgs = await commitIdentityArgs(tempPath);
 
     // Merge the workspace branch
-    await git(["merge", workspace.branch, "-m", `Merge workspace ${workspace.name}`], tempPath);
+    await git(
+      [...identityArgs, "merge", workspace.branch, "-m", `Merge workspace ${workspace.name}`],
+      tempPath,
+    );
 
     // Update the bare repo's default branch ref to point to the merge commit
     const { stdout: mergeHash } = await git(["rev-parse", "HEAD"], tempPath);
