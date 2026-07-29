@@ -3,6 +3,7 @@ import { readdir, readFile, stat, mkdir, writeFile, rename } from "node:fs/promi
 import { join, resolve } from "node:path";
 import { nanoid } from "nanoid";
 import { git } from "../utils/git.js";
+import { ensureGitIdentity } from "../utils/git-identity.js";
 import {
   addWorktreeFromBranch,
   addWorktreeWithNewBranch,
@@ -717,9 +718,12 @@ export async function mergeWorkspace(
   try {
     await git(["worktree", "add", tempPath, defaultBranch], bare);
 
-    // The merge commit's identity comes from the global git identity Hive
-    // maintains (see ensureGitIdentity), so the connected GitHub account is
-    // honoured here instead of a hardcoded orchestrator identity.
+    // A non-fast-forward merge creates a merge commit, which needs a git
+    // identity. Ensure the global one is in place (idempotent; honours the
+    // connected GitHub account) so the merge never fails with "identity unknown"
+    // if startup could not set it.
+    await ensureGitIdentity();
+
     // Merge the workspace branch
     await git(["merge", workspace.branch, "-m", `Merge workspace ${workspace.name}`], tempPath);
 

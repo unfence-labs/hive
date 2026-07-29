@@ -16,6 +16,12 @@ vi.mock("../../../utils/github.js", () => ({
   _resetGhState: mocks._resetGhState,
 }));
 
+// The sign-in flow sets the global git identity on success. Stub it so tests
+// never touch the developer's or CI runner's real ~/.gitconfig or hit GitHub.
+vi.mock("../../../utils/git-identity.js", () => ({
+  ensureGitIdentity: vi.fn(async () => {}),
+}));
+
 vi.mock("node:child_process", () => ({
   execFile: mocks.execFile,
 }));

@@ -97,6 +97,18 @@ describe("ensureGitIdentity()", () => {
     expect(writes(runGit)).toEqual([]);
   });
 
+  it("never overwrites an operator-set name when only the email is missing", async () => {
+    const { runGit } = makeRunGit({ "user.name": "Real Operator" });
+    const runGh = makeRunGh(null);
+
+    await ensureGitIdentity({ runGit, runGh });
+
+    // The name the operator set is kept; only the missing email is filled.
+    expect(writes(runGit)).toEqual([
+      ["config", "--global", "user.email", HIVE_DEFAULT_GIT_EMAIL],
+    ]);
+  });
+
   it("upgrades the sentinel identity to github once gh is connected", async () => {
     const { runGit } = makeRunGit({
       "user.name": HIVE_DEFAULT_GIT_NAME,

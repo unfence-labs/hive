@@ -11,6 +11,9 @@ import { gh } from "./github.js";
 export const HIVE_DEFAULT_GIT_NAME = "Hive Agent";
 export const HIVE_DEFAULT_GIT_EMAIL = "hive@orchestrator.local";
 
+/** Cap the `gh api user` lookup so a stalled network or credential prompt cannot hang startup. */
+const GH_IDENTITY_TIMEOUT_MS = 5000;
+
 interface GitIdentity {
   name: string;
   email: string;
@@ -71,10 +74,12 @@ async function githubIdentity(runGh: Runner): Promise<GitIdentity | null> {
  */
 export async function ensureGitIdentity(deps: EnsureGitIdentityDeps = {}): Promise<void> {
   const runGit = deps.runGit ?? ((args: string[]) => git(args));
-  const runGh = deps.runGh ?? ((args: string[]) => gh(args));
+  const runGh = deps.runGh ?? ((args: string[]) => gh(args, { timeoutMs: GH_IDENTITY_TIMEOUT_MS }));
 
   const currentEmail = await readGlobal(runGit, "user.email");
-  // The operator owns their identity once it is anything but our sentinel.
+  // Email is the only field that can leak the hostname (git's `$USER@$(hostname)`
+  // default), so once it is anything but our sentinel the operator owns their
+  // identity and we leave it — name included.
   if (currentEmail && currentEmail !== HIVE_DEFAULT_GIT_EMAIL) return;
 
   const currentName = await readGlobal(runGit, "user.name");
@@ -83,7 +88,10 @@ export async function ensureGitIdentity(deps: EnsureGitIdentityDeps = {}): Promi
     email: HIVE_DEFAULT_GIT_EMAIL,
   };
 
-  if (currentName !== target.name) {
+  // Never overwrite a name the operator set themselves; only fill it when it is
+  // empty or still our own default.
+  const nameClaimed = currentName !== "" && currentName !== HIVE_DEFAULT_GIT_NAME;
+  if (!nameClaimed && currentName !== target.name) {
     await runGit(["config", "--global", "user.name", target.name]);
   }
   if (currentEmail !== target.email) {
