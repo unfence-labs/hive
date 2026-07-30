@@ -8,11 +8,18 @@ OPT_PORT="${OPT_ENV_PORT:-9420}"
 OPT_INSTALL_DIR="$OPT_ENV_INSTALL_DIR"
 OPT_DATA_DIR="$OPT_ENV_DATA_DIR"
 OPT_SSH_KEY="$OPT_ENV_SSH_KEY"
+OPT_PORT_EXPLICIT=0
+OPT_INSTALL_DIR_EXPLICIT=0
+OPT_DATA_DIR_EXPLICIT=0
+[ -n "${OPT_ENV_PORT:-}" ] && OPT_PORT_EXPLICIT=1
+[ -n "$OPT_ENV_INSTALL_DIR" ] && OPT_INSTALL_DIR_EXPLICIT=1
+[ -n "$OPT_ENV_DATA_DIR" ] && OPT_DATA_DIR_EXPLICIT=1
 OPT_ALLOWED_HOST=""
 # Flag-only on purpose: the debug sidecar passes it in argv, which survives
 # `sudo bash -s` where an environment variable would not.
 OPT_RELEASE_FILE=""
 OPT_PREFLIGHT=0
+OPT_UPDATE=0
 ARCH_TAG=""
 HIVE_VERSION=""
 DO_RESET=0
@@ -24,11 +31,14 @@ Hive server installer.
   curl -fsSL <url>/provision.sh | bash
   curl -fsSL <url>/provision.sh | bash -s -- --port 9420
   curl -fsSL <url>/provision.sh | bash -s -- --preflight
+  curl -fsSL <url>/provision.sh | bash -s -- --update
 
 Options:
 
   --preflight               Report what this server looks like and change
                             nothing at all. Always exits 0.
+  --update                  Update an existing completed Hive installation to
+                            this script's version
   --install-dir <path>      Where Hive and its private runtime live
                             (default /opt/hive, $HIVE_INSTALL_DIR)
   --data-dir <path>         Where projects, worktrees and sessions live — the
@@ -64,13 +74,20 @@ missing() { echo "missing value for $1" >&2; exit 2; }
 parse_args() {
   while [ $# -gt 0 ]; do
     case "$1" in
-      --port) [ $# -ge 2 ] || missing "$1"; OPT_PORT="$2"; shift ;;
-      --install-dir) [ $# -ge 2 ] || missing "$1"; OPT_INSTALL_DIR="$2"; shift ;;
-      --data-dir) [ $# -ge 2 ] || missing "$1"; OPT_DATA_DIR="$2"; shift ;;
+      --port)
+        [ $# -ge 2 ] || missing "$1"
+        OPT_PORT="$2"; OPT_PORT_EXPLICIT=1; shift ;;
+      --install-dir)
+        [ $# -ge 2 ] || missing "$1"
+        OPT_INSTALL_DIR="$2"; OPT_INSTALL_DIR_EXPLICIT=1; shift ;;
+      --data-dir)
+        [ $# -ge 2 ] || missing "$1"
+        OPT_DATA_DIR="$2"; OPT_DATA_DIR_EXPLICIT=1; shift ;;
       --allowed-host) [ $# -ge 2 ] || missing "$1"; OPT_ALLOWED_HOST="$2"; shift ;;
       --ssh-public-key) [ $# -ge 2 ] || missing "$1"; OPT_SSH_KEY="$2"; shift ;;
       --release-file) [ $# -ge 2 ] || missing "$1"; OPT_RELEASE_FILE="$2"; shift ;;
       --preflight) OPT_PREFLIGHT=1 ;;
+      --update) OPT_UPDATE=1 ;;
       --reset) DO_RESET=1 ;;
       -h|--help) usage; exit 0 ;;
       *) echo "unknown option: $1" >&2; usage >&2; exit 2 ;;
@@ -106,6 +123,12 @@ parse_args() {
   done
   OPT_INSTALL_DIR="${OPT_INSTALL_DIR%/}"
   OPT_DATA_DIR="${OPT_DATA_DIR%/}"
+
+  if [ "$OPT_UPDATE" = 1 ] &&
+     { [ -n "$OPT_ALLOWED_HOST" ] || [ -n "$OPT_SSH_KEY" ]; }; then
+    echo "--allowed-host and --ssh-public-key cannot be changed during an update" >&2
+    exit 2
+  fi
 
   # The release file is read by sha256sum and tar and recorded nowhere: same
   # shape rules as the directories.
@@ -145,6 +168,7 @@ STEPS=(
 main() {
   parse_args "$@"
   detect_arch
+  apply_update_identity_defaults
   resolve_paths
 
   # Preflight forks off before bootstrap: bootstrap creates directories, opens

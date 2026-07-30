@@ -119,8 +119,27 @@ claim success while its port may be closed.
 - **Other services.** Only the port Hive wants has to be free; the install stops if it is taken. An
   install directory that already exists but was not created by Hive is a refusal, not an overwrite.
   An incomplete Hive install resumes only when its port, install directory, and data directory match
-  exactly. A completed install rejects another provisioning run because V1 does not support updates.
-  Changing the port or paths requires uninstalling and performing a fresh install.
+  exactly. A completed install can be updated with a release's `provision.sh --update`; the script
+  reads those values from the existing manifest and refuses explicit mismatches. Changing the port
+  or paths still requires uninstalling and performing a fresh install.
+
+## Updating it
+
+Run the provisioner published with the exact target release:
+
+```bash
+curl -fsSL <release-url>/provision.sh | sudo bash -s -- --update
+```
+
+Use `--preflight --update` for a read-only check first. An update preserves the data directory,
+authorized SSH keys, access token, and `/etc/hive/hive.env`. It can update the private Node.js
+runtime within its current major version, then reconciles the backend release, systemd unit,
+uninstaller, and firewall rule before restarting the service. A failed backend health check restores
+the previous backend release. A release that changes the Node.js major requires a fresh install.
+Backend updates do not upgrade agent command-line tools; their lifecycle is managed separately.
+
+Updates interrupt active backend child processes. Wait for agents, terminals, and automations to
+finish first. The provisioner does not back up the data directory automatically.
 
 ## Removing it
 

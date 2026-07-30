@@ -102,9 +102,29 @@ editor or terminal session connects as `hive` rather than root. Without this, fi
 become root-owned and the agent can no longer write them.
 
 An interrupted install resumes only with the exact same port, install directory, and data
-directory. A completed install rejects another provisioning run because V1 does not support
-updates. What the installer changes on the host, the read-only `--preflight` mode, and the
-generated uninstall script are all covered in **[Prerequisites](prerequisites.md)**.
+directory. What the installer changes on the host, the read-only `--preflight` mode, updates, and
+the generated uninstall script are all covered in **[Prerequisites](prerequisites.md)**.
+
+### Update the backend
+
+Wait for active agents, terminals, and automations to finish, then run the provisioner from the
+exact release you want:
+
+```bash
+curl -fsSL https://github.com/unfence-labs/hive/releases/download/v0.1.0-beta.2/provision.sh \
+  | sudo bash -s -- --update
+```
+
+The script reads the existing port and directories from the installation manifest. It preserves
+the data directory, SSH keys, access token, and `/etc/hive/hive.env`, then verifies the new release
+before switching to it. The service restarts briefly. If the new backend does not become healthy,
+the provisioner restores the previous backend release.
+
+Use `--preflight --update` to inspect the server without changing it. Running the same version
+again is safe and reconciles Hive-managed files. Running an older release's provisioner performs an
+explicit downgrade. The provisioner updates Node.js within the currently installed major version,
+but a release that changes the Node.js major requires a fresh install. Back up the data directory
+before important updates; the provisioner does not copy it automatically.
 
 ### Manual installation
 

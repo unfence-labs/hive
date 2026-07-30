@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # End-to-end provisioning lane.
 #
-#   test/provision/e2e-docker.sh [install|guards|checksum|rollback|chaos|
-#                                 neighbour|preflight|paths|uninstall]
+#   test/provision/e2e-docker.sh [install|update|guards|checksum|rollback|
+#                                 chaos|neighbour|preflight|paths|uninstall]
 #   (default: install)
 #
 # Takes a bare Ubuntu 24.04 container with systemd as PID 1 — no curl, no git,
@@ -100,6 +100,26 @@ build_release() {
 build_provision() {
   log "Build provision.sh $VERSION"
   bash "$PROV/build.sh" "$VERSION" >/dev/null
+}
+
+publish_derived_release() {
+  # publish_derived_release <version> [broken]
+  local version="$1" broken="${2:-false}"
+  local source="$WORK/release-source-$version"
+  local asset="hive-backend-$version-linux-$ARCH_TAG.tar.gz"
+  mkdir -p "$source"
+  tar -xzf "$RELEASE_DIR/$ASSET" -C "$source"
+  ( cd "$source" && node -e '
+      const fs = require("node:fs");
+      const p = JSON.parse(fs.readFileSync("package.json", "utf8"));
+      p.version = process.argv[1];
+      fs.writeFileSync("package.json", JSON.stringify(p, null, 2));
+    ' "$version" )
+  if [ "$broken" = true ]; then
+    printf 'process.exit(1);\n' >"$source/dist/index.js"
+  fi
+  ( cd "$source" && tar --no-xattrs -czf "$RELEASE_DIR/$asset" . )
+  ( cd "$RELEASE_DIR" && sha256sum "$asset" >"$asset.sha256" )
 }
 
 # --- Containers ------------------------------------------------------------
@@ -397,6 +417,96 @@ data_dir=/home/hive/.hive"' || die "the install identity manifest is wrong"
   log "PASS (fresh, exact resume, mismatch rejection, completed rejection)"
 }
 
+mode_update() {
+  build_release; build_provision; start_stack
+
+  local update_port=$((PORT + 7))
+  local install_dir=/srv/hive-update data_dir=/home/hive/update-data
+  log "Install release A to completion on non-default paths and port"
+  run_provision --port "$update_port" --install-dir "$install_dir" --data-dir "$data_dir" \
+    --ssh-public-key "$TEST_SSH_KEY" >"$WORK/install-a.ndjson" \
+    || { tail -30 "$WORK/install-a.ndjson" >&2; die "release A installation failed"; }
+  assert_run_ok "$WORK/install-a.ndjson"
+  sh_server 'test -e /etc/hive/.hive-install-complete' \
+    || die "release A was not marked complete"
+
+  local token digest_before env_before identity_before previous target="0.0.1-e2e"
+  token="$(token_from_stream "$WORK/install-a.ndjson")"
+  [ -n "$token" ] || die "release A reported no access token"
+  digest_before="$(sh_server 'sed -n "s/^HIVE_AUTH_TOKEN_SHA256=//p" /etc/hive/hive.env')"
+  env_before="$(sh_server 'sha256sum /etc/hive/hive.env')"
+  identity_before="$(sh_server 'sha256sum /etc/hive/.hive-install')"
+  previous="$(sh_server "readlink -f '$install_dir/current'")"
+  sh_server "runuser -u hive -- sh -c \"printf operator-data > '$data_dir/update-sentinel'\"" \
+    || die "could not create operator data before the update"
+
+  log "Publish release B and run its update preflight without repeating install options"
+  publish_derived_release "$target"
+  bash "$PROV/build.sh" "$target" >/dev/null
+  run_provision --preflight --update >"$WORK/update-preflight.ndjson" \
+    || { tail -30 "$WORK/update-preflight.ndjson" >&2; die "update preflight failed"; }
+  grep -q '"check":"existing_install","status":"ok"' "$WORK/update-preflight.ndjson" \
+    || die "update preflight did not accept the completed installation"
+  grep -q '"event":"preflight","ok":true' "$WORK/update-preflight.ndjson" \
+    || { grep '"status":"fail"' "$WORK/update-preflight.ndjson" >&2
+         die "update preflight reported a blocker"; }
+  grep -q '"check":"port","status":"ok".*"port":'"$update_port" \
+    "$WORK/update-preflight.ndjson" \
+    || die "update preflight did not use the stored non-default port"
+  [ "$(sh_server 'sha256sum /etc/hive/hive.env')" = "$env_before" ] \
+    || die "update preflight changed hive.env"
+  [ "$(sh_server 'sha256sum /etc/hive/.hive-install')" = "$identity_before" ] \
+    || die "update preflight changed the install identity"
+
+  log "Update the completed installation to release B"
+  run_provision --update >"$WORK/update-b.ndjson" \
+    || { tail -30 "$WORK/update-b.ndjson" >&2; die "release B update failed"; }
+  assert_run_ok "$WORK/update-b.ndjson"
+  ! grep -q '"accessToken":' "$WORK/update-b.ndjson" \
+    || die "the update exposed or rotated an access token"
+  grep -q '"step":"install_release","status":"ok"' "$WORK/update-b.ndjson" \
+    || die "the update did not install release B"
+  local current; current="$(sh_server "readlink -f '$install_dir/current'")"
+  [ "$current" != "$previous" ] || die "the update did not activate a new release"
+  [ "$(sh_server "cat '$install_dir/current/.hive-version'")" = "$target" ] \
+    || die "release B is not the active target"
+  [ "$(sh_server "'$install_dir/runtime/current/bin/node' -p 'require(\"$install_dir/current/package.json\").version'")" = "$target" ] \
+    || die "the active backend package is not release B"
+
+  log "The update preserved the credential, configuration, identity, and operator data"
+  [ "$(sh_server 'sed -n "s/^HIVE_AUTH_TOKEN_SHA256=//p" /etc/hive/hive.env')" = "$digest_before" ] \
+    || die "the update changed the token digest"
+  [ "$(sh_server 'sha256sum /etc/hive/hive.env')" = "$env_before" ] \
+    || die "the update rewrote hive.env"
+  [ "$(sh_server 'sha256sum /etc/hive/.hive-install')" = "$identity_before" ] \
+    || die "the update rewrote the port or install paths"
+  [ "$(sh_server "cat '$data_dir/update-sentinel'")" = operator-data ] \
+    || die "the update changed operator data"
+  [ "$(sh_server "curl -s -o /dev/null -w '%{http_code}' -H 'x-hive-token: $token' http://127.0.0.1:$update_port/api/projects")" = 200 ] \
+    || die "the original access token no longer works"
+  in_server systemctl is-active --quiet hive || die "hive.service is not active after the update"
+  echo "OK: release B is healthy with the original token, configuration, paths, and data"
+
+  log "Updating to the already-active version is idempotent"
+  run_provision --update >"$WORK/update-same.ndjson" \
+    || { tail -30 "$WORK/update-same.ndjson" >&2; die "same-version update failed"; }
+  assert_run_ok "$WORK/update-same.ndjson"
+  ! grep -q '"accessToken":' "$WORK/update-same.ndjson" \
+    || die "same-version update exposed or rotated an access token"
+  grep -q '"step":"install_release","status":"skip"' "$WORK/update-same.ndjson" \
+    || die "same-version update did not skip release installation"
+  [ "$(sh_server "readlink -f '$install_dir/current'")" = "$current" ] \
+    || die "same-version update changed the active release"
+  [ "$(sh_server 'sha256sum /etc/hive/hive.env')" = "$env_before" ] \
+    || die "same-version update rewrote hive.env"
+  [ "$(sh_server 'sha256sum /etc/hive/.hive-install')" = "$identity_before" ] \
+    || die "same-version update rewrote the install identity"
+  [ "$(sh_server "cat '$data_dir/update-sentinel'")" = operator-data ] \
+    || die "same-version update changed operator data"
+  echo "OK: same-version update skipped activation and changed no durable state"
+  log "PASS (completed update, preserved state, same-version idempotence)"
+}
+
 # Every failing case here dies inside install_release, so the same server can
 # carry all of them: the run resumes past the steps that already succeeded and
 # retries only the download. That is the resume guarantee under a typed failure.
@@ -536,54 +646,44 @@ mode_guards() {
 mode_rollback() {
   build_release; build_provision; start_stack
 
-  log "Install the healthy release, then crash before marking the install complete"
-  local rc
-  set +e
-  DIE_AFTER=verify_auth run_provision >"$WORK/healthy.ndjson" 2>&1; rc=$?
-  set -e
-  [ "$rc" = 137 ] || { tail -30 "$WORK/healthy.ndjson" >&2; die "healthy setup did not stop before completion"; }
-  sh_server 'test ! -e /etc/hive/.hive-install-complete' \
-    || die "the rollback fixture was already marked complete"
+  log "Install the healthy release to completion"
+  run_provision >"$WORK/healthy.ndjson" \
+    || { tail -30 "$WORK/healthy.ndjson" >&2; die "healthy setup failed"; }
+  assert_run_ok "$WORK/healthy.ndjson"
+  sh_server 'test -e /etc/hive/.hive-install-complete' \
+    || die "the rollback fixture was not marked complete"
   local previous; previous="$(sh_server 'readlink -f /opt/hive/current')"
+  local token; token="$(token_from_stream "$WORK/healthy.ndjson")"
+  [ -n "$token" ] || die "the completed install reported no access token"
+  local env_before; env_before="$(sh_server 'sha256sum /etc/hive/hive.env')"
 
   log "Publish a release whose backend exits on start"
-  local broken="$WORK/broken" next="0.0.1-e2e"
-  local next_asset="hive-backend-$next-linux-$ARCH_TAG.tar.gz"
-  mkdir -p "$broken"
-  tar -xzf "$RELEASE_DIR/$ASSET" -C "$broken"
-  printf 'process.exit(1);\n' >"$broken/dist/index.js"
-  ( cd "$broken" && node -e '
-      const fs = require("node:fs");
-      const p = JSON.parse(fs.readFileSync("package.json", "utf8"));
-      p.version = process.argv[1];
-      fs.writeFileSync("package.json", JSON.stringify(p, null, 2));
-    ' "$next" )
-  ( cd "$broken" && tar --no-xattrs -czf "$RELEASE_DIR/$next_asset" . )
-  ( cd "$RELEASE_DIR" && sha256sum "$next_asset" >"$next_asset.sha256" )
+  local next="0.0.1-e2e" rc
+  publish_derived_release "$next" true
 
-  log "Provision the broken release: it must fail and roll back"
+  log "Update to the broken release: it must fail and roll back"
   bash "$PROV/build.sh" "$next" >/dev/null
   local out
   set +e
-  out="$(DIE_AFTER="" HEALTH_ATTEMPTS=3 run_provision 2>&1)"; rc=$?
+  out="$(HEALTH_ATTEMPTS=3 run_provision --update 2>&1)"; rc=$?
   set -e
   printf '%s\n' "$out" >"$WORK/rollback.ndjson"
   [ "$rc" != 0 ] || die "the unhealthy release was accepted"
   grep -q '"errorCode":"HEALTH_TIMEOUT"' <<<"$out" \
     || { tail -20 <<<"$out" >&2; die "expected HEALTH_TIMEOUT"; }
+  ! grep -q '"accessToken":' <<<"$out" \
+    || die "the failed update exposed or rotated an access token"
   [ "$(sh_server 'readlink -f /opt/hive/current')" = "$previous" ] \
     || die "the current symlink was not rolled back"
   in_server systemctl is-active --quiet hive || die "the previous release was not restarted"
   [ "$(sh_server "curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:$PORT/health")" = 200 ] \
     || die "the restored release is not healthy"
-  # The failed run still rotated and reported a token, so the restored service
-  # must answer to it: a client is never left without a working credential.
-  local token; token="$(token_from_stream "$WORK/rollback.ndjson")"
-  [ -n "$token" ] || die "the failed run reported no access token"
+  [ "$(sh_server 'sha256sum /etc/hive/hive.env')" = "$env_before" ] \
+    || die "the failed update rewrote hive.env"
   [ "$(sh_server "curl -s -o /dev/null -w '%{http_code}' -H 'x-hive-token: $token' http://127.0.0.1:$PORT/api/projects")" = 200 ] \
-    || die "the restored release does not accept the token the failed run reported"
+    || die "the restored release does not accept the original token"
   echo "OK: rolled back to $previous and the service is healthy again"
-  log "PASS (an unhealthy release is rolled back)"
+  log "PASS (an unhealthy update is rolled back from a completed installation)"
 }
 
 # ---------------------------------------------------------------------------
@@ -984,6 +1084,7 @@ docker info >/dev/null 2>&1 || die "the docker daemon is not reachable"
 
 case "$MODE" in
   install)   mode_install ;;
+  update)    mode_update ;;
   guards)    mode_guards ;;
   checksum)  mode_checksum ;;
   rollback)  mode_rollback ;;
@@ -992,6 +1093,6 @@ case "$MODE" in
   preflight) mode_preflight ;;
   paths)     mode_paths ;;
   uninstall) mode_uninstall ;;
-  *) echo "usage: $0 [install|guards|checksum|rollback|chaos|neighbour|preflight|paths|uninstall]" >&2
+  *) echo "usage: $0 [install|update|guards|checksum|rollback|chaos|neighbour|preflight|paths|uninstall]" >&2
      exit 2 ;;
 esac
