@@ -222,6 +222,12 @@ jobs:
           spctl --assess --type execute --verbose=2 "$app"
           hdiutil detach "$mount_point"
           mount_point=""
+          xcrun notarytool submit "$dmg" \
+            --key "$APPLE_API_KEY_PATH" \
+            --key-id "$APPLE_API_KEY" \
+            --issuer "$APPLE_API_ISSUER" \
+            --wait
+          xcrun stapler staple "$dmg"
           xcrun stapler validate "$dmg"
 
           (
