@@ -132,9 +132,10 @@ curl -fsSL <release-url>/provision.sh | sudo bash -s -- --update
 ```
 
 Use `--preflight --update` for a read-only check first. An update preserves the data directory,
-authorized SSH keys, access token, and `/etc/hive/hive.env`. It reconciles Hive's private runtime,
-backend release, systemd unit, uninstaller, and firewall rule, then restarts the service. A failed
-backend health check restores the previous backend release.
+authorized SSH keys, access token, and `/etc/hive/hive.env`. It can update the private Node.js
+runtime within its current major version, then reconciles the backend release, systemd unit,
+uninstaller, and firewall rule before restarting the service. A failed backend health check restores
+the previous backend release. A release that changes the Node.js major requires a fresh install.
 
 Updates interrupt active backend child processes. Wait for agents, terminals, and automations to
 finish first. The provisioner does not back up the data directory automatically.

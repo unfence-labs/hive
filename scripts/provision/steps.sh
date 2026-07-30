@@ -19,9 +19,9 @@ APT_BASELINE="ca-certificates curl git xz-utils iproute2"
 # both digests and RELEASE_NODE_MAJOR in scripts/release/build-backend-tarball.sh.
 # Digests are pinned rather than fetched from SHASUMS256.txt so a compromised
 # mirror cannot serve a matching tarball/checksum pair over the same TLS session.
-NODE_VERSION="24.18.0"
-NODE_SHA256_X64="55aa7153f9d88f28d765fcdad5ae6945b5c0f98a36881703817e4c450fa76742"
-NODE_SHA256_ARM64="58c9520501f6ae2b52d5b210444e24b9d0c029a58c5011b797bc1fe7105886f6"
+NODE_VERSION="24.18.1"
+NODE_SHA256_X64="d6c664df3f3f61458e8c277585571328522d705166723a7c7823a9253a4d15a0"
+NODE_SHA256_ARM64="7201e3a09dc825bac57867c81913e2b8f0ef87d04cb9082af4cda82f6ff3d88c"
 
 # GitHub CLI, installed from its official release tarball for the same reason:
 # no vendor apt repository is added to the operator's machine.
@@ -336,6 +336,19 @@ current_release_version() {
   [ -n "$current" ] && cat "$current/.hive-version" 2>/dev/null || printf unknown
 }
 
+current_runtime_version() {
+  local version
+  [ -x "$HIVE_NODE_BIN" ] || { printf unknown; return; }
+  version="$("$HIVE_NODE_BIN" -p 'process.versions.node' 2>/dev/null || true)"
+  printf '%s' "${version:-unknown}"
+}
+
+update_runtime_matches_target() {
+  local current
+  current="$(current_runtime_version)"
+  [ "${current%%.*}" = "${NODE_VERSION%%.*}" ]
+}
+
 # none | incomplete | complete | mismatch | malformed
 install_identity_state() {
   if [ ! -e "$HIVE_INSTALL_MARKER" ]; then
@@ -484,7 +497,7 @@ assert_dir_usable() {
 guard_probe_env() { return 1; }
 
 step_probe_env() {
-  local state resume=false update=false port_rc=0
+  local state resume=false update=false port_rc=0 installed_runtime
   [ "${OPT_UPDATE:-0}" = 1 ] && update=true
   install_identity_state
   state="$HIVE_INSTALL_STATE"
@@ -506,6 +519,9 @@ step_probe_env() {
       if [ "${OPT_UPDATE:-0}" = 1 ]; then
         install_identity_matches_request || die INSTALL_IDENTITY_MISMATCH \
           "Hive can update only with its existing identity: $(install_identity_detail)"
+        installed_runtime="$(current_runtime_version)"
+        [ "${installed_runtime%%.*}" = "${NODE_VERSION%%.*}" ] || die UPDATE_RUNTIME_MISMATCH \
+          "backend-only update requires Node major ${NODE_VERSION%%.*}, but this installation uses $installed_runtime"
         emit_log probe_env \
           "Updating Hive from $(current_release_version) to ${HIVE_VERSION:-unknown}; the service will restart."
       else
@@ -633,8 +649,7 @@ title_install_node() { echo "Install Hive's private Node.js runtime"; }
 # server has one at all — is never read, replaced, or upgraded, and no vendor
 # package repository is added to the machine.
 guard_install_node() {
-  [ -x "$HIVE_NODE_BIN" ] && \
-    [ "$("$HIVE_NODE_BIN" -p 'process.versions.node' 2>/dev/null || true)" = "$NODE_VERSION" ]
+  [ "$(current_runtime_version)" = "$NODE_VERSION" ]
 }
 step_install_node() {
   local expected url dir staging
@@ -1447,9 +1462,15 @@ preflight_existing_install() {
     complete)
       if [ "${OPT_UPDATE:-0}" = 1 ]; then
         if install_identity_matches_request; then
-          emit_check existing_install ok \
-            "Hive $(current_release_version) can update to ${HIVE_VERSION:-unknown} with its existing identity" \
-            "$(install_identity_data)"
+          if update_runtime_matches_target; then
+            emit_check existing_install ok \
+              "Hive $(current_release_version) can update to ${HIVE_VERSION:-unknown} with its existing identity" \
+              "$(install_identity_data)"
+          else
+            emit_check existing_install fail \
+              "backend-only update requires Node major ${NODE_VERSION%%.*}, but this installation uses $(current_runtime_version)" \
+              "$(install_identity_data)" UPDATE_RUNTIME_MISMATCH
+          fi
         else
           emit_check existing_install fail \
             "Hive can update only with its existing identity: $(install_identity_detail)" \

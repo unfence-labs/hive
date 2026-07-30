@@ -473,12 +473,19 @@ identity_preflight="$(HIVE_LOG_FILE="$WORK/identity-preflight.log" bash -c '
   source "$1"; source "$2"
   HIVE_INSTALL_MARKER="$3/manifest"
   HIVE_INSTALL_COMPLETE_MARKER="$3/complete"
+  HIVE_NODE_BIN="$3/node"
   OPT_PORT=9420; HIVE_OPT=/opt/hive; HIVE_DATA_DIR=/home/hive/.hive
   mkdir -p "$3"
+  printf "#!/bin/sh\nprintf \"%%s\\\\n\" \"%s.0.0-test\"\n" "${NODE_VERSION%%.*}" >"$HIVE_NODE_BIN"
+  chmod +x "$HIVE_NODE_BIN"
+  update_runtime_matches_target && echo runtime-update-compatible
+  guard_install_node || echo runtime-install-required
   printf "schema=1\nport=9420\ninstall_dir=/opt/hive\ndata_dir=/home/hive/.hive\n" >"$HIVE_INSTALL_MARKER"
   printf "schema=1\n" >"$HIVE_INSTALL_COMPLETE_MARKER"
   preflight_existing_install
   OPT_UPDATE=1
+  preflight_existing_install
+  printf "#!/bin/sh\nprintf \"%%s\\\\n\" \"0.0.0-test\"\n" >"$HIVE_NODE_BIN"
   preflight_existing_install
   OPT_UPDATE=0
   rm -f "$HIVE_INSTALL_COMPLETE_MARKER"
@@ -488,8 +495,15 @@ identity_preflight="$(HIVE_LOG_FILE="$WORK/identity-preflight.log" bash -c '
 expect "completed preflight uses ALREADY_INSTALLED" \
   grep -q '"check":"existing_install","status":"fail".*"errorCode":"ALREADY_INSTALLED"' \
     <<<"$identity_preflight"
-expect "update preflight accepts an exact completed installation" \
+expect "update accepts a completed installation on an older runtime from the same major" \
   grep -q '"check":"existing_install","status":"ok".*can update' <<<"$identity_preflight"
+expect "an older runtime from the target major is update-compatible" \
+  grep -q '^runtime-update-compatible$' <<<"$identity_preflight"
+expect "a compatible runtime patch is still installed to reach the exact target version" \
+  grep -q '^runtime-install-required$' <<<"$identity_preflight"
+expect "update preflight rejects a private runtime change" \
+  grep -q '"check":"existing_install","status":"fail".*"errorCode":"UPDATE_RUNTIME_MISMATCH"' \
+    <<<"$identity_preflight"
 expect "mismatched preflight uses INSTALL_IDENTITY_MISMATCH" \
   grep -q '"check":"existing_install","status":"fail".*"errorCode":"INSTALL_IDENTITY_MISMATCH"' \
     <<<"$identity_preflight"

@@ -15,6 +15,7 @@ export const SETUP_ERROR_CODES = [
   "EXISTING_INSTALL",
   "ALREADY_INSTALLED",
   "UPDATE_NOT_INSTALLED",
+  "UPDATE_RUNTIME_MISMATCH",
   "INSTALL_IDENTITY_MISMATCH",
   "PORT_IN_USE",
   "DIRECTORY_UNUSABLE",
@@ -59,6 +60,8 @@ export const SETUP_ERROR_HINTS: Record<SetupErrorCode, string> = {
     "Hive is already installed on this server. Re-run this release with --update, or use the generated uninstaller before starting over.",
   UPDATE_NOT_INSTALLED:
     "Hive is not installed on this server yet. Run the installer without --update.",
+  UPDATE_RUNTIME_MISMATCH:
+    "This release requires a different major version of the private Node.js runtime. Use the generated uninstaller, then install the release fresh.",
   INSTALL_IDENTITY_MISMATCH:
     "Hive can resume or update only with its original port, install directory, and data directory. Use those exact values, or uninstall before starting over.",
   PORT_IN_USE:

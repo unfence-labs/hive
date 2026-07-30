@@ -122,8 +122,9 @@ the provisioner restores the previous backend release.
 
 Use `--preflight --update` to inspect the server without changing it. Running the same version
 again is safe and reconciles Hive-managed files. Running an older release's provisioner performs an
-explicit downgrade. Back up the data directory before important updates; the provisioner does not
-copy it automatically.
+explicit downgrade. The provisioner updates Node.js within the currently installed major version,
+but a release that changes the Node.js major requires a fresh install. Back up the data directory
+before important updates; the provisioner does not copy it automatically.
 
 ### Manual installation
 
