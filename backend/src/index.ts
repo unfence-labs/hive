@@ -31,7 +31,6 @@ import { type SessionOptions, rebuildNotifier, stopAllSessions } from "./agents/
 import { GitSyncService } from "./services/git-sync.js";
 import { settingsRoutes } from "./api/settings.js";
 import { setupRoutes } from "./api/setup.js";
-import { loadSetupSecrets } from "./services/setup/auth/secrets.js";
 import { providerUsageRoutes } from "./api/provider-usage.js";
 import { stopProviderUsagePolling } from "./services/provider-usage.js";
 import { accountRoutes } from "./api/account.js";
@@ -467,9 +466,6 @@ async function main() {
 
   const dataDir = getDataDir();
   await ensureDataDir(dataDir);
-  // A Claude token connected through the UI lives in this data directory, not
-  // in the environment, so it has to be read back before any session runs.
-  await loadSetupSecrets(dataDir);
   await reconcileStaleWorkspaces(dataDir);
   await initWorkspaceIndex(dataDir);
 

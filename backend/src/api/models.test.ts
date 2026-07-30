@@ -19,7 +19,6 @@ beforeEach(async () => {
   markProviderAvailable("codex");
   authenticated = { claude: true, codex: false };
   const detect: DetectDeps = {
-    env: {},
     run: vi.fn(async (command) => {
       const signedIn = authenticated[command as SetupToolId] === true;
       if (command === "claude") {

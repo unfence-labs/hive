@@ -1,13 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
   CLAUDE_OAUTH_ERROR_PTY,
-  CLAUDE_SETUP_TOKEN_PTY,
+  CLAUDE_AUTH_LOGIN_PTY,
   CODEX_DEVICE_AUTH_STDOUT,
 } from "./__fixtures__/cli-output.js";
 import {
   hyperlinkTargets,
   outputTail,
-  parseClaudeToken,
   parseDeviceCode,
   parseOAuthError,
   parseVerificationUri,
@@ -37,10 +36,11 @@ describe("codex device-auth output", () => {
   });
 });
 
-describe("claude setup-token output", () => {
+describe("claude auth login output", () => {
   it("recovers the whole authorisation URL from the hyperlink target", () => {
-    const url = parseVerificationUri(CLAUDE_SETUP_TOKEN_PTY);
+    const url = parseVerificationUri(CLAUDE_AUTH_LOGIN_PTY);
     expect(url).toContain("https://claude.com/cai/oauth/authorize");
+    expect(url).toContain("user%3Aprofile");
     // The part that proves the wrapping was survived: `state` is the last
     // parameter, so a URL scraped from the wrapped visible text stops short.
     expect(url).toMatch(/[?&]state=[A-Za-z0-9_-]+$/);
@@ -51,8 +51,8 @@ describe("claude setup-token output", () => {
     // What scraping the drawn text gets you: the first 80-column fragment, a
     // URL that parses and resolves to nothing. The hyperlink target is longer
     // because it is the whole thing.
-    const url = parseVerificationUri(CLAUDE_SETUP_TOKEN_PTY) ?? "";
-    const [scraped = ""] = stripAnsi(CLAUDE_SETUP_TOKEN_PTY).match(/https?:\/\/\S+/g) ?? [];
+    const url = parseVerificationUri(CLAUDE_AUTH_LOGIN_PTY) ?? "";
+    const [scraped = ""] = stripAnsi(CLAUDE_AUTH_LOGIN_PTY).match(/https?:\/\/\S+/g) ?? [];
 
     expect(scraped).toMatch(/^https:\/\/claude\.com\/cai\/oauth\/authorize/);
     expect(scraped).not.toContain("state=");
@@ -61,26 +61,7 @@ describe("claude setup-token output", () => {
   });
 
   it("exposes the hyperlink targets it read", () => {
-    expect(hyperlinkTargets(CLAUDE_SETUP_TOKEN_PTY).length).toBeGreaterThan(0);
-  });
-
-  it("finds a token the terminal wrapped across a line break", () => {
-    const token = "sk-ant-oat01-AbC123_dEf456-GhI789jkl";
-    const [head, tail] = [token.slice(0, 14), token.slice(14)];
-    // A pane narrower than the token: the wrap lands inside it.
-    const drawn = `\u001b[37m${head}\r\n${tail}\u001b[39m`;
-
-    expect(stripAnsi(drawn)).not.toContain(token);
-    expect(parseClaudeToken(drawn)).toBe(token);
-  });
-
-  it("finds a normally printed token without joining anything", () => {
-    const token = "sk-ant-oat01-PlainlyPrinted_Token-1234";
-    expect(parseClaudeToken(`Your token:\n  ${token}\n`)).toBe(token);
-  });
-
-  it("returns nothing when no token was printed", () => {
-    expect(parseClaudeToken(CLAUDE_SETUP_TOKEN_PTY)).toBeUndefined();
+    expect(hyperlinkTargets(CLAUDE_AUTH_LOGIN_PTY).length).toBeGreaterThan(0);
   });
 });
 
@@ -103,7 +84,7 @@ describe("rejected codes", () => {
   });
 
   it("reads nothing from output the CLI has not complained in", () => {
-    expect(parseOAuthError(CLAUDE_SETUP_TOKEN_PTY)).toBeUndefined();
+    expect(parseOAuthError(CLAUDE_AUTH_LOGIN_PTY)).toBeUndefined();
     // A label with nothing after it says nothing an operator could act on.
     expect(parseOAuthError("OAuth error:   \n")).toBeUndefined();
   });

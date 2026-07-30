@@ -7,35 +7,26 @@ import {
 } from "./flow.js";
 import {
   outputTail,
-  parseClaudeToken,
   parseOAuthError,
   parseVerificationUri,
 } from "./output.js";
 import { spawnPtyAuthProcess, type AuthProcess, type SpawnAuthProcess } from "./process.js";
-import { isValidClaudeToken, type ClaudeTokenWriter } from "./secrets.js";
 
 /**
  * Claude sign-in.
  *
- * `claude setup-token` refuses to run without a terminal, opens a browser, and
- * waits for an authorisation code to be typed back at it. There is no HTTP
- * equivalent to call instead, so this drives the CLI through a pseudo-terminal
+ * `claude auth login --claudeai` opens a browser and waits for an authorisation
+ * code to be typed back at it. Hive drives the CLI through a pseudo-terminal
  * and relays both halves: the link out to the operator, the code back in.
  *
- * The token it prints is the credential. It is validated, stored by
- * `secrets.ts`, and never reaches a command line — the code travels over the
- * terminal's stdin, and the token is only ever read out of output that is
- * redacted before anything else can see it.
- *
- * Output, not exit, decides the outcome. The CLI prints the token and then
- * lingers, and it answers a rejected code by printing why and waiting for
- * another one rather than by exiting — so a driver that only read the buffer
- * after the process was gone would sit silent through both.
+ * Claude Code owns the resulting credential, including refresh. Hive never
+ * copies or persists OAuth tokens itself. This also gives account features
+ * such as usage polling the full `user:profile` scope that long-lived
+ * inference-only setup tokens deliberately omit.
  */
 
 export interface ClaudeAuthDeps {
   detect: () => Promise<ToolDetection>;
-  writeToken: ClaudeTokenWriter;
   spawn?: SpawnAuthProcess;
 }
 
@@ -46,40 +37,12 @@ export function claudeAuthFlow(deps: ClaudeAuthDeps): AuthFlow {
     let child: AuthProcess | null = null;
     let buffer = "";
     let cancelled = false;
-    let settled = false;
     let awaitingCode = false;
     let codePending = false;
     let verificationUri: string | undefined;
 
-    // Settled by the watcher below when the output alone decides the outcome.
-    // Raced against the exit so whichever happens first is what is reported.
-    let resolveFromOutput!: (outcome: ToolAuthOutcome) => void;
-    let rejectFromOutput!: (error: unknown) => void;
-    const fromOutput = new Promise<ToolAuthOutcome>((resolve, reject) => {
-      resolveFromOutput = resolve;
-      rejectFromOutput = reject;
-    });
-
     function watch(active: AuthProcess): void {
-      if (settled || cancelled) return;
-
-      // The token is the credential. Once it is on screen the flow has
-      // succeeded, whether or not the CLI has got round to exiting.
-      const token = parseClaudeToken(buffer);
-      if (isValidClaudeToken(token)) {
-        settled = true;
-        void deps.writeToken(token).then(
-          () => {
-            active.kill();
-            resolveFromOutput("connected");
-          },
-          (error: unknown) => {
-            active.kill();
-            rejectFromOutput(error);
-          },
-        );
-        return;
-      }
+      if (cancelled) return;
 
       // A code the provider refused. The CLI stays alive and offers a retry on
       // the same link, so the operator gets another go without repeating the
@@ -113,22 +76,8 @@ export function claudeAuthFlow(deps: ClaudeAuthDeps): AuthFlow {
       ctx.prompt({ verificationUri: uri, needsCode: true });
     }
 
-    async function afterExit(code: number, before: ToolDetection): Promise<ToolAuthOutcome> {
+    async function afterExit(code: number): Promise<ToolAuthOutcome> {
       if (cancelled) return "cancelled";
-
-      const token = parseClaudeToken(buffer);
-      if (isValidClaudeToken(token)) {
-        await deps.writeToken(token);
-        return "connected";
-      }
-
-      // The CLI may have persisted a session of its own. Only trusted when
-      // Claude was not already signed in before this ran — otherwise the probe
-      // would be answering about the credential this attempt was replacing.
-      if (!before.authenticated) {
-        const after = await deps.detect();
-        if (after.authenticated) return "connected";
-      }
 
       if (code !== 0) {
         throw new ToolAuthError(
@@ -137,16 +86,20 @@ export function claudeAuthFlow(deps: ClaudeAuthDeps): AuthFlow {
           { outputExcerpt: outputTail(buffer) },
         );
       }
+
+      const after = await deps.detect();
+      if (after.authenticated) return "connected";
+
       throw new ToolAuthError(
         "no_credential",
-        "Claude sign-in finished without producing a token.",
+        "Claude sign-in finished without saving a usable credential.",
         { outputExcerpt: outputTail(buffer) },
       );
     }
 
     const done = (async (): Promise<ToolAuthOutcome> => {
-      const before = await deps.detect();
-      if (!before.installed) {
+      const current = await deps.detect();
+      if (!current.installed) {
         throw new ToolAuthError(
           "not_installed",
           "Claude Code is not installed on this server.",
@@ -154,17 +107,14 @@ export function claudeAuthFlow(deps: ClaudeAuthDeps): AuthFlow {
       }
       if (cancelled) return "cancelled";
 
-      child = spawn("claude", ["setup-token"]);
+      child = spawn("claude", ["auth", "login", "--claudeai"]);
       const active = child;
       active.onData((chunk) => {
         buffer += chunk;
         watch(active);
       });
 
-      return await Promise.race([
-        fromOutput,
-        active.exit.then((code) => (settled ? fromOutput : afterExit(code, before))),
-      ]);
+      return afterExit(await active.exit);
     })();
 
     return {
@@ -187,7 +137,7 @@ export function claudeAuthFlow(deps: ClaudeAuthDeps): AuthFlow {
         const active = child;
         active.write(code);
         setTimeout(() => {
-          if (!cancelled && !settled) active.write("\r");
+          if (!cancelled) active.write("\r");
         }, 50);
         ctx.setState("verifying");
       },

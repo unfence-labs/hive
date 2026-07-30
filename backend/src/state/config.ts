@@ -22,8 +22,6 @@ export interface AppConfig {
   kimi: KimiConfig;
   /** Compound model id ("provider:model") used as the default for new conversations. */
   defaultModelId?: string;
-  /** Long-lived Claude token the setup panel provisions; primed into the env at boot. */
-  claudeCodeOAuthToken?: string;
 }
 
 const DEFAULT_CONFIG: AppConfig = {
@@ -61,9 +59,6 @@ function withDefaults(parsed: Partial<AppConfig>): AppConfig {
     },
     defaultModelId: typeof parsed.defaultModelId === "string" && parsed.defaultModelId
       ? parsed.defaultModelId
-      : undefined,
-    claudeCodeOAuthToken: typeof parsed.claudeCodeOAuthToken === "string" && parsed.claudeCodeOAuthToken
-      ? parsed.claudeCodeOAuthToken
       : undefined,
   };
 }

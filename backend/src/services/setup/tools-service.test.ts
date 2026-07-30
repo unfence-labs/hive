@@ -49,7 +49,6 @@ function makeDeps(scenario: Scenario = {}) {
       return table?.[key] ?? missing();
     },
     detect: {
-      env: {},
       run: async (command, args) => deps.run(command, args),
     },
   };
