@@ -86,9 +86,10 @@ The screens, in order: **welcome → server → review → install → accounts*
    writes a non-secret identity manifest for its schema, port, install
    directory, and data directory, then ends with a fresh access token; the
    backend listens on port **9420**. If interrupted, Retry resumes only with
-   those exact values. A completed V1 install rejects another provisioning
-   run; changing values requires uninstalling and starting fresh. The generated
-   uninstaller keeps the data directory unless you pass `--purge`.
+   those exact values. A completed install rejects another provisioning run
+   unless `--update` is used; changing identity values requires uninstalling
+   and starting fresh. The generated uninstaller keeps the data directory
+   unless you pass `--purge`.
 4. **Accounts** — copy the access token, connect GitHub, and authenticate at
    least one of Claude Code or Codex. Relaunching returns here until all three
    requirements are complete. Finishing lands the app in a working Hive at
