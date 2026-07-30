@@ -91,9 +91,18 @@ describe("resolveGitHubCloneUrl", () => {
     expect(ghClient).toHaveBeenCalledWith([
       "auth",
       "status",
+      "--active",
       "--hostname",
       "github.com",
-    ]);
+    ], { timeoutMs: 8_000 });
+  });
+
+  it("uses HTTPS for a GitHub ssh:// URL when gh is authenticated", async () => {
+    const ghClient = vi.fn(async () => ({ stdout: "", stderr: "" }));
+
+    await expect(
+      resolveGitHubCloneUrl("ssh://git@github.com/acme/widget.git", ghClient),
+    ).resolves.toBe("https://github.com/acme/widget.git");
   });
 
   it("preserves a GitHub SSH URL when gh is not authenticated", async () => {

@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { existsSync } from "node:fs";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -100,6 +100,28 @@ describe("connectBrain", () => {
     expect(existsSync(join(brainRepoPath(dataDir), ".git"))).toBe(true);
     const { stdout } = await git(["remote", "get-url", "origin"], brainRepoPath(dataDir));
     expect(stdout).toBe(origin);
+  });
+
+  it("clones a GitHub SSH URL through the resolved transport", async () => {
+    const fixtureDir = join(tempDir, "fixtures");
+    await mkdir(fixtureDir, { recursive: true });
+    const origin = await createFixtureRepo(fixtureDir);
+    const githubModule = await import("../utils/github.js");
+    const resolveSpy = vi
+      .spyOn(githubModule, "resolveGitHubCloneUrl")
+      .mockResolvedValue(origin);
+
+    try {
+      const sshUrl = "git@github.com:acme/brain.git";
+      const state = await connectBrain(sshUrl, dataDir);
+
+      expect(resolveSpy).toHaveBeenCalledWith(sshUrl);
+      expect(state.repoUrl).toBe(origin);
+      const { stdout } = await git(["remote", "get-url", "origin"], brainRepoPath(dataDir));
+      expect(stdout).toBe(origin);
+    } finally {
+      vi.restoreAllMocks();
+    }
   });
 
   it("rejects a second Brain", async () => {

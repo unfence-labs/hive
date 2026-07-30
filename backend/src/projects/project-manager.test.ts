@@ -36,6 +36,24 @@ describe("createProject", () => {
     expect(existsSync(join(dataDir, state.id, "state.json"))).toBe(true);
   });
 
+  it("clones a GitHub SSH URL through the resolved transport", async () => {
+    const githubModule = await import("../utils/github.js");
+    const resolveSpy = vi
+      .spyOn(githubModule, "resolveGitHubCloneUrl")
+      .mockResolvedValue(fixtureRepoUrl);
+
+    try {
+      const sshUrl = "git@github.com:acme/widget.git";
+      const state = await createProject(sshUrl, dataDir);
+
+      expect(resolveSpy).toHaveBeenCalledWith(sshUrl);
+      expect(state.url).toBe(fixtureRepoUrl);
+      expect(existsSync(join(dataDir, state.id, "repo.git", "HEAD"))).toBe(true);
+    } finally {
+      vi.restoreAllMocks();
+    }
+  });
+
   it("rejects empty URL", async () => {
     await expect(createProject("", dataDir)).rejects.toThrow("Invalid repository URL");
   });

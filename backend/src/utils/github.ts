@@ -6,6 +6,7 @@ const execFile = promisify(execFileCb);
 
 const GH_RETRY_COOLDOWN_MS = 60_000;
 const GH_RATE_LIMIT_COOLDOWN_MS = 5 * 60_000;
+const GH_AUTH_STATUS_TIMEOUT_MS = 8_000;
 const GH_RATE_LIMIT_MESSAGE = "GitHub rate limit reached — PR status refresh is paused briefly";
 
 // After ENOENT, skip `gh` calls until cooldown expires.
@@ -86,7 +87,10 @@ export async function resolveGitHubCloneUrl(
   if (!repo || url.startsWith("https://")) return url;
 
   try {
-    await ghClient(["auth", "status", "--hostname", "github.com"]);
+    await ghClient(
+      ["auth", "status", "--active", "--hostname", "github.com"],
+      { timeoutMs: GH_AUTH_STATUS_TIMEOUT_MS },
+    );
   } catch {
     return url;
   }
