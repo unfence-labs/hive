@@ -311,6 +311,7 @@ paths_out="$(bash -c '
   OPT_DATA_DIR=/mnt/big/hive-data
   OPT_PORT=9999
   OPT_ALLOWED_HOST=server.example.com
+  HIVE_VERSION=0.0.0-test
   HIVE_AUTH_TOKEN_SHA256=deadbeef
   resolve_paths
   printf "opt=%s data=%s runtime=%s node=%s uninstall=%s\n" \
@@ -319,6 +320,17 @@ paths_out="$(bash -c '
   echo "--env--"; hive_env_base
   echo "--uninstall--"; hive_uninstall_script
 ' _ "$PROV/lib.sh" "$PROV/steps.sh")"
+
+# Updates preserve hive.env byte-for-byte. Pinning the managed key names makes
+# a future addition stop here until its author chooses a backend default or an
+# explicit config migration. Values and ordering remain free to change.
+managed_env_keys="$(sed -n '/^--env--$/,/^--uninstall--$/p' <<<"$paths_out" \
+  | sed '1d;$d' | sed -n 's/^\([A-Z][A-Z0-9_]*\)=.*/\1/p' | sort)"
+expected_managed_env_keys="$(printf '%s\n' \
+  AGENT_BROWSER_ARGS DATA_DIR HIVE_ALLOWED_HOSTS HIVE_ALLOWED_ORIGINS \
+  HIVE_AUTH_TOKEN_SHA256 HIVE_AUTOMATION_TIMEOUT_SEC HOME HOST NODE_ENV PATH PORT)"
+expect "managed hive.env key changes require an explicit update decision" \
+  test "$managed_env_keys" = "$expected_managed_env_keys"
 
 # A step that creates the install directory without stamping the marker first
 # makes the install unresumable: the next run sees a directory it did not

@@ -17,6 +17,8 @@ APT_BASELINE="ca-certificates curl git xz-utils iproute2"
 # Node is pinned: the release tarball's native modules (node-pty, sharp) are
 # compiled in CI against this major's ABI. Bumping the version means bumping
 # both digests and RELEASE_NODE_MAJOR in scripts/release/build-backend-tarball.sh.
+# An in-place update can change the pinned version within this major. Changing
+# the major requires a planned migration or a fresh install.
 # Digests are pinned rather than fetched from SHASUMS256.txt so a compromised
 # mirror cannot serve a matching tarball/checksum pair over the same TLS session.
 NODE_VERSION="24.18.1"

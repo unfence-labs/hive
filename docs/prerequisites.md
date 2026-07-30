@@ -136,6 +136,7 @@ authorized SSH keys, access token, and `/etc/hive/hive.env`. It can update the p
 runtime within its current major version, then reconciles the backend release, systemd unit,
 uninstaller, and firewall rule before restarting the service. A failed backend health check restores
 the previous backend release. A release that changes the Node.js major requires a fresh install.
+Backend updates do not upgrade agent command-line tools; their lifecycle is managed separately.
 
 Updates interrupt active backend child processes. Wait for agents, terminals, and automations to
 finish first. The provisioner does not back up the data directory automatically.
