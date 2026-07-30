@@ -5,6 +5,7 @@ import { git } from "../utils/git.js";
 import {
   createGitHubRepository,
   deleteGitHubRepository,
+  resolveGitHubCloneUrl,
   type GitHubRepository,
 } from "../utils/github.js";
 import { brainDir, brainRepoPath } from "../utils/paths.js";
@@ -80,7 +81,7 @@ export async function createBrain(
   const remote = await createRemote(name);
 
   try {
-    await git(["clone", remote.sshUrl, repoPath]);
+    await git(["clone", remote.url, repoPath]);
     await git(["checkout", "-b", "main"], repoPath);
     await writeFile(
       join(repoPath, "README.md"),
@@ -90,7 +91,7 @@ export async function createBrain(
     await git(["add", "README.md"], repoPath);
     await git(["commit", "-m", "Initial Brain"], repoPath);
     await git(["push", "-u", "origin", "main"], repoPath);
-    return await persistBrain(remote.sshUrl, dataDir, options.now ?? (() => new Date()));
+    return await persistBrain(remote.url, dataDir, options.now ?? (() => new Date()));
   } catch (err) {
     await rm(repoPath, { recursive: true, force: true }).catch(() => {});
     await deleteRemote(remote.fullName).catch(() => {});
@@ -108,9 +109,10 @@ export async function connectBrain(
   const validatedUrl = validateRepositoryUrl(url, {
     allowLocalPath: process.env.NODE_ENV === "test",
   });
+  const cloneUrl = await resolveGitHubCloneUrl(validatedUrl);
   await mkdir(brainDir(dataDir), { recursive: true });
-  await git(["clone", validatedUrl, brainRepoPath(dataDir)]);
-  return persistBrain(validatedUrl, dataDir, options.now ?? (() => new Date()));
+  await git(["clone", cloneUrl, brainRepoPath(dataDir)]);
+  return persistBrain(cloneUrl, dataDir, options.now ?? (() => new Date()));
 }
 
 /** Delete the singleton Brain state and normal clone. The remote GitHub repo is not deleted. */

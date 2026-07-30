@@ -6,6 +6,7 @@ import {
   gh,
   createGitHubRepository,
   fetchPrDetail,
+  resolveGitHubCloneUrl,
   _resetGhState,
 } from "./github.js";
 
@@ -77,6 +78,41 @@ describe("parseGitHubRepo", () => {
     // Should still extract owner/repo from first two segments
     const result = parseGitHubRepo("https://github.com/acme/widget/tree/main");
     expect(result).toEqual({ owner: "acme", repo: "widget" });
+  });
+});
+
+describe("resolveGitHubCloneUrl", () => {
+  it("uses HTTPS for a GitHub SSH URL when gh is authenticated", async () => {
+    const ghClient = vi.fn(async () => ({ stdout: "", stderr: "" }));
+
+    await expect(
+      resolveGitHubCloneUrl("git@github.com:acme/widget.git", ghClient),
+    ).resolves.toBe("https://github.com/acme/widget.git");
+    expect(ghClient).toHaveBeenCalledWith([
+      "auth",
+      "status",
+      "--hostname",
+      "github.com",
+    ]);
+  });
+
+  it("preserves a GitHub SSH URL when gh is not authenticated", async () => {
+    const ghClient = vi.fn(async () => {
+      throw new Error("not authenticated");
+    });
+    const url = "git@github.com:acme/widget.git";
+
+    await expect(resolveGitHubCloneUrl(url, ghClient)).resolves.toBe(url);
+  });
+
+  it("does not query gh for HTTPS or non-GitHub URLs", async () => {
+    const ghClient = vi.fn(async () => ({ stdout: "", stderr: "" }));
+    const httpsUrl = "https://github.com/acme/widget.git";
+    const gitLabUrl = "git@gitlab.com:acme/widget.git";
+
+    await expect(resolveGitHubCloneUrl(httpsUrl, ghClient)).resolves.toBe(httpsUrl);
+    await expect(resolveGitHubCloneUrl(gitLabUrl, ghClient)).resolves.toBe(gitLabUrl);
+    expect(ghClient).not.toHaveBeenCalled();
   });
 });
 
@@ -198,7 +234,7 @@ describe("createGitHubRepository", () => {
       if (key === "repo view") {
         return handlers.view
           ? handlers.view()
-          : { stdout: "git@github.com:octocat/my-repo.git", stderr: "" };
+          : { stdout: "https://github.com/octocat/my-repo", stderr: "" };
       }
       if (key === "repo delete") return { stdout: "", stderr: "" };
       throw new Error(`unexpected gh args: ${args.join(" ")}`);
@@ -212,12 +248,21 @@ describe("createGitHubRepository", () => {
       owner: "octocat",
       name: "my-repo",
       fullName: "octocat/my-repo",
-      sshUrl: "git@github.com:octocat/my-repo.git",
+      url: "https://github.com/octocat/my-repo",
     });
+    expect(ghClient).toHaveBeenCalledWith([
+      "repo",
+      "view",
+      "octocat/my-repo",
+      "--json",
+      "url",
+      "--jq",
+      ".url",
+    ]);
     expect(ghClient.mock.calls.some((c) => c[0][0] === "repo" && c[0][1] === "delete")).toBe(false);
   });
 
-  it("deletes the just-created repo when the sshUrl fetch fails (no orphan)", async () => {
+  it("deletes the just-created repo when the URL fetch fails (no orphan)", async () => {
     const ghClient = makeGhClient({ view: () => Promise.reject(new Error("replication lag")) });
     await expect(createGitHubRepository("my-repo", "private", ghClient)).rejects.toThrow();
     expect(ghClient).toHaveBeenCalledWith(["repo", "delete", "octocat/my-repo", "--yes"]);

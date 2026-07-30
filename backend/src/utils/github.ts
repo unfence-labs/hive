@@ -20,7 +20,7 @@ export interface GitHubRepository {
   owner: string;
   name: string;
   fullName: string;
-  sshUrl: string;
+  url: string;
 }
 
 export type GhClient = typeof gh;
@@ -78,6 +78,22 @@ export function parseGitHubRepo(
   }
 }
 
+export async function resolveGitHubCloneUrl(
+  url: string,
+  ghClient: GhClient = gh,
+): Promise<string> {
+  const repo = parseGitHubRepo(url);
+  if (!repo || url.startsWith("https://")) return url;
+
+  try {
+    await ghClient(["auth", "status", "--hostname", "github.com"]);
+  } catch {
+    return url;
+  }
+
+  return `https://github.com/${repo.owner}/${repo.repo}.git`;
+}
+
 export async function gh(
   args: string[],
   opts: { timeoutMs?: number } = {},
@@ -89,7 +105,7 @@ export async function gh(
   return { stdout: stdout.trim(), stderr: stderr.trim() };
 }
 
-/** Create a GitHub repository and return its SSH clone URL. */
+/** Create a GitHub repository and return its HTTPS clone URL. */
 export async function createGitHubRepository(
   name: string,
   visibility: RepositoryVisibility,
@@ -123,14 +139,14 @@ export async function createGitHubRepository(
       "view",
       fullName,
       "--json",
-      "sshUrl",
+      "url",
       "--jq",
-      ".sshUrl",
+      ".url",
     ]);
-    const sshUrl = stdout.trim();
-    if (!sshUrl) throw new Error("Unable to determine GitHub SSH URL");
+    const url = stdout.trim();
+    if (!url) throw new Error("Unable to determine GitHub URL");
 
-    return { owner, name: repoName, fullName, sshUrl };
+    return { owner, name: repoName, fullName, url };
   } catch (err) {
     await deleteGitHubRepository(fullName, ghClient).catch(() => {});
     throw new Error(formatGhFailure(err));

@@ -62,7 +62,7 @@ describe("createBrain", () => {
         owner: "octocat",
         name,
         fullName: `octocat/${name}`,
-        sshUrl: origin,
+        url: origin,
       }),
       deleteRemote: async () => {},
       now: () => new Date("2026-06-05T12:00:00.000Z"),

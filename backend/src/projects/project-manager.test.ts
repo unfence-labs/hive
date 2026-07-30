@@ -133,7 +133,7 @@ describe("initProject", () => {
     expect(loaded?.url).toBeUndefined();
   });
 
-  it("creates a GitHub repo and stores its SSH URL", async () => {
+  it("creates a GitHub repo and stores its HTTPS URL", async () => {
     const githubModule = await import("../utils/github.js");
     const gitModule = await import("../utils/git.js");
     const originalGit = gitModule.git;
@@ -144,7 +144,7 @@ describe("initProject", () => {
         owner: "octocat",
         name: "remote-repo",
         fullName: "octocat/remote-repo",
-        sshUrl: "git@github.com:octocat/remote-repo.git",
+        url: "https://github.com/octocat/remote-repo",
       });
 
     const gitSpy = vi.spyOn(gitModule, "git").mockImplementation(async (args, cwd) => {
@@ -162,17 +162,17 @@ describe("initProject", () => {
       );
 
       expect(warning).toBeUndefined();
-      expect(state.url).toBe("git@github.com:octocat/remote-repo.git");
+      expect(state.url).toBe("https://github.com/octocat/remote-repo");
       expect(createGitHubRepositorySpy).toHaveBeenCalledWith("remote-repo", "private");
       expect(gitSpy).toHaveBeenCalledWith([
         "remote",
         "add",
         "origin",
-        "git@github.com:octocat/remote-repo.git",
+        "https://github.com/octocat/remote-repo",
       ], expect.any(String));
 
       const loaded = await getProject(state.id, dataDir);
-      expect(loaded?.url).toBe("git@github.com:octocat/remote-repo.git");
+      expect(loaded?.url).toBe("https://github.com/octocat/remote-repo");
     } finally {
       vi.restoreAllMocks();
     }
