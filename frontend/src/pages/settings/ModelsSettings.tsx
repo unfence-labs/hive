@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Check, Eye, EyeOff, Loader2, Save } from "lucide-react";
 import { SettingsHeader } from "@/components/AppLayout";
 import { CenterCard } from "@/components/CenterCard";
@@ -7,6 +8,7 @@ import { groupModelsByProvider } from "@/components/chat/ModelSelector";
 import { Input } from "@/components/ui/input";
 import { api } from "@/hooks/useApi";
 import { useModels, refreshModelCatalog, setCachedDefaultModelId } from "@/hooks/useModels";
+import { PROVIDER_USAGE_QUERY_KEY } from "@/hooks/useProviderUsage";
 import { cn } from "@/lib/utils";
 
 export default function ModelsSettings() {
@@ -112,6 +114,7 @@ export default function ModelsSettings() {
 }
 
 function KimiSection() {
+  const queryClient = useQueryClient();
   const [apiKey, setApiKey] = useState("");
   const [showKey, setShowKey] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -139,6 +142,7 @@ function KimiSection() {
       const saved = await api.put<{ apiKey: string }>("/api/settings/kimi", { apiKey });
       setApiKey(saved.apiKey);
       setFeedback("saved");
+      void queryClient.invalidateQueries({ queryKey: PROVIDER_USAGE_QUERY_KEY });
       // The key gates the Kimi models server-side: refetch so they
       // appear/disappear without a reload.
       await refreshModelCatalog();

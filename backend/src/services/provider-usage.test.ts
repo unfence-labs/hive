@@ -3,6 +3,7 @@ import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
+  getClaudeOAuthToken: vi.fn(),
   getKimiApiKey: vi.fn(),
   getAllProviderInfo: vi.fn(),
   readFile: vi.fn(),
@@ -21,6 +22,10 @@ vi.mock("../state/config.js", () => ({
   getKimiApiKey: mocks.getKimiApiKey,
 }));
 
+vi.mock("./setup/auth/secrets.js", () => ({
+  getClaudeOAuthToken: mocks.getClaudeOAuthToken,
+}));
+
 vi.mock("node:fs/promises", () => ({
   readFile: mocks.readFile,
 }));
@@ -28,6 +33,7 @@ vi.mock("node:fs/promises", () => ({
 import {
   __providerUsageTestHooks,
   getProviderUsageSnapshot,
+  invalidateProviderUsage,
 } from "./provider-usage.js";
 
 function createMockStream(): EventEmitter & { push(data: string): void } {
@@ -103,18 +109,16 @@ function mockFetchJson(status: number, body: unknown, headers: Record<string, st
 }
 
 // Quota values and timestamps are synthetic. Field names, nesting, and scalar
-// types match the live /coding/v1/usages response captured on 2026-07-23.
+// types match the live /coding/v1/usages response captured on 2026-07-30.
 const SANITIZED_KIMI_LIVE_USAGE_RESPONSE = {
   usage: {
     limit: "100",
-    used: "5",
     remaining: "95",
     resetTime: "2026-07-29T12:00:00Z",
   },
   limits: [{
     detail: {
       limit: "100",
-      used: "20",
       remaining: "80",
       resetTime: "2026-07-23T17:00:00Z",
     },
@@ -133,6 +137,8 @@ describe("provider usage", () => {
     vi.stubGlobal("fetch", vi.fn());
     __providerUsageTestHooks.resetProviderUsageCaches();
     mocks.spawn.mockReset();
+    mocks.getClaudeOAuthToken.mockReset();
+    mocks.getClaudeOAuthToken.mockReturnValue(undefined);
     mocks.getKimiApiKey.mockReset();
     mocks.getKimiApiKey.mockReturnValue("");
     mocks.getAllProviderInfo.mockReturnValue([
@@ -144,6 +150,7 @@ describe("provider usage", () => {
         version: "2.1.170",
       },
     ]);
+    mocks.readFile.mockReset();
     mocks.readFile.mockResolvedValue(JSON.stringify({
       claudeAiOauth: {
         accessToken: "test-token",
@@ -318,6 +325,58 @@ describe("provider usage", () => {
       status: "unknown",
       buckets: [],
       message: "Codex sign-in expired. Run `codex login`.",
+    });
+  });
+
+  it("restarts the Codex usage client after the connected account changes", async () => {
+    const firstProc = createMockProcess();
+    const secondProc = createMockProcess();
+    mocks.spawn
+      .mockReturnValueOnce(firstProc)
+      .mockReturnValueOnce(secondProc);
+    mocks.getAllProviderInfo.mockReturnValue([
+      {
+        id: "codex",
+        label: "Codex",
+        npmPackage: "@openai/codex",
+        installed: true,
+        version: "1.0.0",
+      },
+    ]);
+
+    const firstResultPromise = getProviderUsageSnapshot();
+    const firstInit = findMethod(firstProc, "initialize");
+    firstProc._stdout.push(appServerResponse(firstInit.id, {}));
+    await flushPromises();
+    const firstRead = findMethod(firstProc, "account/rateLimits/read");
+    firstProc._stdout.push(JSON.stringify({
+      id: firstRead.id,
+      error: {
+        code: -32603,
+        message: "failed to fetch codex rate limits: 401 Unauthorized",
+      },
+    }) + "\n");
+    await firstResultPromise;
+
+    invalidateProviderUsage("codex");
+
+    expect(firstProc.kill).toHaveBeenCalledWith("SIGTERM");
+    const secondResultPromise = getProviderUsageSnapshot();
+    const secondInit = findMethod(secondProc, "initialize");
+    secondProc._stdout.push(appServerResponse(secondInit.id, {}));
+    await flushPromises();
+    const secondRead = findMethod(secondProc, "account/rateLimits/read");
+    secondProc._stdout.push(appServerResponse(secondRead.id, {
+      primary: { usedPercent: 14, windowDurationMins: 300 },
+    }));
+
+    const secondResult = await secondResultPromise;
+
+    expect(mocks.spawn).toHaveBeenCalledTimes(2);
+    expect(secondResult.providers[0]).toMatchObject({
+      id: "codex",
+      status: "available",
+      buckets: [{ id: "codex:primary", usedPercent: 14 }],
     });
   });
 
@@ -667,6 +726,54 @@ describe("provider usage", () => {
     }));
   });
 
+  it("reads Claude usage with the token provisioned by Hive onboarding", async () => {
+    mocks.getClaudeOAuthToken.mockReturnValue("managed-token");
+    mockFetchJson(200, {
+      five_hour: { utilization: 18, resets_at: "2026-06-10T17:00:00Z" },
+    });
+
+    const result = await getProviderUsageSnapshot();
+
+    expect(result.providers[0]).toMatchObject({
+      id: "claude",
+      status: "available",
+      buckets: [{ id: "five_hour", usedPercent: 18 }],
+    });
+    expect(mocks.readFile).not.toHaveBeenCalled();
+    expect(fetch).toHaveBeenCalledWith("https://api.anthropic.com/api/oauth/usage", expect.objectContaining({
+      headers: expect.objectContaining({
+        Authorization: "Bearer managed-token",
+      }),
+    }));
+  });
+
+  it("drops cached Claude usage after the connected account changes", async () => {
+    mocks.getClaudeOAuthToken.mockReturnValue("first-managed-token");
+    mockFetchJson(200, {
+      five_hour: { utilization: 18, resets_at: "2026-06-10T17:00:00Z" },
+    });
+    await getProviderUsageSnapshot();
+
+    mocks.getClaudeOAuthToken.mockReturnValue("second-managed-token");
+    invalidateProviderUsage("claude");
+    mockFetchJson(200, {
+      five_hour: { utilization: 7, resets_at: "2026-06-10T17:00:00Z" },
+    });
+
+    const result = await getProviderUsageSnapshot();
+
+    expect(result.providers[0]).toMatchObject({
+      id: "claude",
+      status: "available",
+      buckets: [{ id: "five_hour", usedPercent: 7 }],
+    });
+    expect(fetch).toHaveBeenCalledWith("https://api.anthropic.com/api/oauth/usage", expect.objectContaining({
+      headers: expect.objectContaining({
+        Authorization: "Bearer second-managed-token",
+      }),
+    }));
+  });
+
   it("reports unknown Claude usage when OAuth credentials are missing", async () => {
     mocks.readFile.mockRejectedValue(new Error("missing"));
 
@@ -717,6 +824,12 @@ describe("provider usage", () => {
         resetsAt: 1784826000,
       },
     ]);
+  });
+
+  it("drops a Kimi bucket when neither used nor remaining is present", () => {
+    expect(__providerUsageTestHooks.parseKimiUsageBuckets({
+      usage: { limit: "100", resetTime: "2026-07-29T12:00:00Z" },
+    })).toEqual([]);
   });
 
   it("accepts snake_case aliases for confirmed Kimi fields", () => {

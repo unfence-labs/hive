@@ -76,8 +76,11 @@ function respond(response: Partial<ToolsResponse>): void {
 }
 
 function renderPanel() {
-  const { wrapper } = createWrapper();
-  return render(<ToolsPanel />, { wrapper });
+  const { queryClient, wrapper } = createWrapper();
+  return {
+    queryClient,
+    ...render(<ToolsPanel />, { wrapper }),
+  };
 }
 
 beforeEach(() => {
@@ -195,7 +198,8 @@ describe("ToolsPanel", () => {
       authSessions: [connecting],
     });
 
-    renderPanel();
+    const { queryClient } = renderPanel();
+    const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
     expect(await screen.findByText("Waiting for authorization…")).toBeInTheDocument();
     expect(mocks.refreshModelCatalog).not.toHaveBeenCalled();
 
@@ -207,6 +211,7 @@ describe("ToolsPanel", () => {
     await waitFor(() => expect(mocks.refreshModelCatalog).toHaveBeenCalledTimes(1), {
       timeout: 5_000,
     });
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["provider-usage"] });
   });
 
   it("does not refresh the model catalog when a sign-in expires", async () => {

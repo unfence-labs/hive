@@ -58,7 +58,7 @@ export function parseVersionFromOutput(stdout: string): string | null {
 
 /**
  * Probe which provider CLIs are installed.
- * Called once at startup (from preflight or main).
+ * Callers must await completion before publishing state that triggers catalog or usage reads.
  */
 export async function detectAvailableProviders(): Promise<void> {
   availableProviderIds.clear();

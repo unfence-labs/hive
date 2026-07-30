@@ -26,6 +26,7 @@ import {
   makeToolOperationRunner,
   type ToolsServiceDeps,
 } from "../services/setup/tools-service.js";
+import { invalidateProviderUsage } from "../services/provider-usage.js";
 import { getDataDir } from "../state/state.js";
 
 export interface SetupRoutesOptions {
@@ -71,7 +72,7 @@ export async function setupRoutes(
   const authStore =
     opts.authStore ??
     defaultToolAuthStore(dataDir, (tool, error) => {
-      app.log.error({ err: error }, `setup sign-in for ${tool} failed`);
+      app.log.error({ err: error }, `setup auth lifecycle for ${tool} encountered an unexpected error`);
     });
   const writeClaudeToken = makeClaudeTokenWriter(dataDir);
 
@@ -188,6 +189,7 @@ export async function setupRoutes(
     async (req, reply) => {
       try {
         await writeClaudeToken(req.body.token.trim());
+        invalidateProviderUsage("claude");
       } catch {
         // The message is fixed, never echoing the input: a rejected token is
         // still a credential and has no business in a response body or a log.
