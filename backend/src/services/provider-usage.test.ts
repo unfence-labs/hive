@@ -754,9 +754,9 @@ describe("provider usage", () => {
 
     expect(result.providers[0]).toMatchObject({
       id: "claude",
-      status: "unknown",
+      status: "unavailable",
       buckets: [],
-      message: "Reconnect Claude in Settings.",
+      message: "Claude is not signed in.",
     });
     expect(fetch).not.toHaveBeenCalled();
   });
