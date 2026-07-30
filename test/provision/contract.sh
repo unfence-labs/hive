@@ -216,9 +216,13 @@ refute "the token digest is never read back out of the environment file to reuse
 # 5. Framework behaviour the resumability guarantees rest on
 # ---------------------------------------------------------------------------
 
-for step in probe_env generate_token write_secrets verify_auth firewall_rule; do
+for step in probe_env verify_auth firewall_rule; do
   expect "'$step' re-runs on every invocation" \
     grep -q "guard_$step() { return 1; }" "$PROV/steps.sh"
+done
+for step in generate_token write_secrets; do
+  expect "'$step' re-runs for installs and skips updates" \
+    grep -q "guard_$step() { \\[ \"\${OPT_UPDATE:-0}\" = 1 \\]; }" "$PROV/steps.sh"
 done
 
 expect "the completion step is last, after authenticated health verification" \
@@ -385,6 +389,26 @@ refute "the install manifest is never sourced or evaluated" \
 refute "the install manifest is never truncated" \
   grep -nE ':[[:space:]]*>[[:space:]]*"\$HIVE_INSTALL_MARKER"' "$CODE"
 
+update_identity_out="$(bash -c '
+  # shellcheck disable=SC1090
+  source "$1"; source "$2"
+  HIVE_INSTALL_MARKER="$3/manifest"
+  mkdir -p "$3"
+  printf "schema=1\nport=9427\ninstall_dir=/srv/hive\ndata_dir=/mnt/hive-data\n" >"$HIVE_INSTALL_MARKER"
+  OPT_UPDATE=1
+  OPT_PORT=9420; OPT_INSTALL_DIR=""; OPT_DATA_DIR=""
+  OPT_PORT_EXPLICIT=0; OPT_INSTALL_DIR_EXPLICIT=0; OPT_DATA_DIR_EXPLICIT=0
+  apply_update_identity_defaults
+  printf "auto=%s:%s:%s\n" "$OPT_PORT" "$OPT_INSTALL_DIR" "$OPT_DATA_DIR"
+  OPT_PORT=9999; OPT_PORT_EXPLICIT=1
+  apply_update_identity_defaults
+  printf "explicit-port=%s\n" "$OPT_PORT"
+' _ "$PROV/lib.sh" "$PROV/steps.sh" "$WORK/update-identity")"
+expect "update auto-detects the stored port and directories" \
+  grep -qx 'auto=9427:/srv/hive:/mnt/hive-data' <<<"$update_identity_out"
+expect "an explicit update option is not overwritten by auto-detection" \
+  grep -qx 'explicit-port=9999' <<<"$update_identity_out"
+
 ownership_out="$(bash -c '
   # shellcheck disable=SC1090
   source "$1"; source "$2"
@@ -454,6 +478,9 @@ identity_preflight="$(HIVE_LOG_FILE="$WORK/identity-preflight.log" bash -c '
   printf "schema=1\nport=9420\ninstall_dir=/opt/hive\ndata_dir=/home/hive/.hive\n" >"$HIVE_INSTALL_MARKER"
   printf "schema=1\n" >"$HIVE_INSTALL_COMPLETE_MARKER"
   preflight_existing_install
+  OPT_UPDATE=1
+  preflight_existing_install
+  OPT_UPDATE=0
   rm -f "$HIVE_INSTALL_COMPLETE_MARKER"
   OPT_PORT=9421
   preflight_existing_install
@@ -461,6 +488,8 @@ identity_preflight="$(HIVE_LOG_FILE="$WORK/identity-preflight.log" bash -c '
 expect "completed preflight uses ALREADY_INSTALLED" \
   grep -q '"check":"existing_install","status":"fail".*"errorCode":"ALREADY_INSTALLED"' \
     <<<"$identity_preflight"
+expect "update preflight accepts an exact completed installation" \
+  grep -q '"check":"existing_install","status":"ok".*can update' <<<"$identity_preflight"
 expect "mismatched preflight uses INSTALL_IDENTITY_MISMATCH" \
   grep -q '"check":"existing_install","status":"fail".*"errorCode":"INSTALL_IDENTITY_MISMATCH"' \
     <<<"$identity_preflight"
@@ -637,10 +666,16 @@ head -c "$(( $(wc -c <"$bundle") / 2 ))" "$bundle" >"$truncated"
 refute "a truncated bundle fails to parse and executes nothing" bash "$truncated"
 
 expect "the bundle prints help without root" bash "$bundle" --help
+expect "the bundle accepts --update as an explicit mode" bash "$bundle" --update --help
 refute "the bundle rejects an out-of-range port" bash "$bundle" --port 99999
 refute "the bundle rejects an unknown option" bash "$bundle" --nope
 refute "the bundle rejects an allowed host that could be read as an option" \
   bash "$bundle" --allowed-host '-oProxyCommand=bad'
+refute "an update cannot change the allowed host" \
+  bash "$bundle" --update --allowed-host server.example.com
+refute "an update cannot add an SSH key" \
+  bash "$bundle" --update --ssh-public-key \
+    'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIH5Yk3xQ9v0mZ1n2ZQ8yq3Kx7bR4tV6wN8pL0aS2dF3g'
 
 # --release-file is a dev/test affordance: a prerelease bundle parses it, a
 # stable bundle refuses it — a stable install must never sideload a release.

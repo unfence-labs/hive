@@ -14,6 +14,7 @@ export const SETUP_ERROR_CODES = [
   "CONCURRENT_RUN",
   "EXISTING_INSTALL",
   "ALREADY_INSTALLED",
+  "UPDATE_NOT_INSTALLED",
   "INSTALL_IDENTITY_MISMATCH",
   "PORT_IN_USE",
   "DIRECTORY_UNUSABLE",
@@ -55,9 +56,11 @@ export const SETUP_ERROR_HINTS: Record<SetupErrorCode, string> = {
   EXISTING_INSTALL:
     "Something other than Hive already owns the selected install directory or service unit. Remove it, or pick a different server, then Retry.",
   ALREADY_INSTALLED:
-    "Hive is already installed on this server, and this installer does not support updates. Run the generated uninstaller before installing again.",
+    "Hive is already installed on this server. Re-run this release with --update, or use the generated uninstaller before starting over.",
+  UPDATE_NOT_INSTALLED:
+    "Hive is not installed on this server yet. Run the installer without --update.",
   INSTALL_IDENTITY_MISMATCH:
-    "An incomplete install can resume only with its original port, install directory, and data directory. Use those exact values, or uninstall before starting over.",
+    "Hive can resume or update only with its original port, install directory, and data directory. Use those exact values, or uninstall before starting over.",
   PORT_IN_USE:
     "The port Hive wants is already taken by another service. Free it, or re-run the installer with a different --port, then Retry.",
   DIRECTORY_UNUSABLE:

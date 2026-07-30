@@ -303,6 +303,14 @@ read_install_manifest() {
   safe_install_path "$HIVE_STORED_DATA_DIR" || return 1
 }
 
+apply_update_identity_defaults() {
+  [ "${OPT_UPDATE:-0}" = 1 ] || return 0
+  read_install_manifest || return 0
+  [ "$OPT_PORT_EXPLICIT" = 1 ] || OPT_PORT="$HIVE_STORED_PORT"
+  [ "$OPT_INSTALL_DIR_EXPLICIT" = 1 ] || OPT_INSTALL_DIR="$HIVE_STORED_INSTALL_DIR"
+  [ "$OPT_DATA_DIR_EXPLICIT" = 1 ] || OPT_DATA_DIR="$HIVE_STORED_DATA_DIR"
+}
+
 completion_marker_valid() {
   local content
   [ -f "$HIVE_INSTALL_COMPLETE_MARKER" ] || return 1
@@ -314,6 +322,18 @@ completion_marker_valid() {
     return 1
   fi
   [ "$content" = schema=1 ]
+}
+
+install_identity_matches_request() {
+  [ "$HIVE_STORED_PORT" = "$OPT_PORT" ] &&
+    [ "$HIVE_STORED_INSTALL_DIR" = "$HIVE_OPT" ] &&
+    [ "$HIVE_STORED_DATA_DIR" = "$HIVE_DATA_DIR" ]
+}
+
+current_release_version() {
+  local current
+  current="$(readlink -f "$HIVE_OPT/current" 2>/dev/null || true)"
+  [ -n "$current" ] && cat "$current/.hive-version" 2>/dev/null || printf unknown
 }
 
 # none | incomplete | complete | mismatch | malformed
@@ -380,7 +400,9 @@ read_hive_service_port() {
 # the requested port.
 hive_service_owns_port() {
   install_identity_state
-  [ "$HIVE_INSTALL_STATE" = incomplete ] &&
+  { [ "$HIVE_INSTALL_STATE" = incomplete ] ||
+    { [ "${OPT_UPDATE:-0}" = 1 ] && [ "$HIVE_INSTALL_STATE" = complete ]; }; } &&
+    install_identity_matches_request &&
     systemctl is-active --quiet hive 2>/dev/null &&
     read_hive_service_port &&
     [ "$HIVE_SERVICE_PORT" = "$OPT_PORT" ]
@@ -391,7 +413,9 @@ hive_service_owns_port() {
 # the root install still proves the configured port before making any change.
 hive_service_port_unverifiable() {
   install_identity_state
-  [ "$HIVE_INSTALL_STATE" = incomplete ] &&
+  { [ "$HIVE_INSTALL_STATE" = incomplete ] ||
+    { [ "${OPT_UPDATE:-0}" = 1 ] && [ "$HIVE_INSTALL_STATE" = complete ]; }; } &&
+    install_identity_matches_request &&
     systemctl is-active --quiet hive 2>/dev/null &&
     ! can_inspect_as_root
 }
@@ -460,18 +484,34 @@ assert_dir_usable() {
 guard_probe_env() { return 1; }
 
 step_probe_env() {
-  local state resume=false port_rc=0
+  local state resume=false update=false port_rc=0
+  [ "${OPT_UPDATE:-0}" = 1 ] && update=true
   install_identity_state
   state="$HIVE_INSTALL_STATE"
   case "$state" in
     none)
       if foreign_install; then
         die EXISTING_INSTALL "$HIVE_OPT or $HIVE_UNIT_FILE already exists but was not created by Hive"
+      elif [ "${OPT_UPDATE:-0}" = 1 ]; then
+        die UPDATE_NOT_INSTALLED \
+          "Hive is not installed on this server; run the installer without --update"
       fi ;;
-    incomplete) resume=true ;;
+    incomplete)
+      if [ "${OPT_UPDATE:-0}" = 1 ]; then
+        die INSTALL_IDENTITY_MISMATCH \
+          "the existing Hive installation is incomplete; resume it without --update"
+      fi
+      resume=true ;;
     complete)
-      die ALREADY_INSTALLED \
-        "Hive is already installed; updates are unsupported, so uninstall it before installing again ($(install_identity_detail))" ;;
+      if [ "${OPT_UPDATE:-0}" = 1 ]; then
+        install_identity_matches_request || die INSTALL_IDENTITY_MISMATCH \
+          "Hive can update only with its existing identity: $(install_identity_detail)"
+        emit_log probe_env \
+          "Updating Hive from $(current_release_version) to ${HIVE_VERSION:-unknown}; the service will restart."
+      else
+        die ALREADY_INSTALLED \
+          "Hive is already installed; re-run this release with --update ($(install_identity_detail))"
+      fi ;;
     mismatch)
       die INSTALL_IDENTITY_MISMATCH \
         "an incomplete Hive install can resume only with its original options: $(install_identity_detail)" ;;
@@ -496,7 +536,7 @@ step_probe_env() {
     2) emit_log probe_env "ss unavailable; skipping the port ${OPT_PORT} availability check" ;;
   esac
 
-  STEP_DATA="$(printf '{"resume":%s}' "$resume")"
+  STEP_DATA="$(printf '{"resume":%s,"update":%s}' "$resume" "$update")"
 }
 
 # ---------------------------------------------------------------------------
@@ -889,7 +929,7 @@ title_generate_token() { echo "Generate the access token"; }
 
 # Always re-runs during an incomplete resume: the plaintext is reported exactly
 # once on its run's stream and cannot be recovered from an earlier attempt.
-guard_generate_token() { return 1; }
+guard_generate_token() { [ "${OPT_UPDATE:-0}" = 1 ]; }
 
 # /dev/urandom is guaranteed on the pinned Ubuntu/Debian targets, and RUN_ID
 # already trusts it bare.
@@ -946,9 +986,9 @@ EOF
   esac
 }
 
-# Always re-runs: generate_token rotates the digest on every run, so there is
-# never a satisfied prior state to skip to.
-guard_write_secrets() { return 1; }
+# Installs and incomplete resumes rewrite the file with their newly generated
+# digest. Updates preserve the complete file, including operator settings.
+guard_write_secrets() { [ "${OPT_UPDATE:-0}" = 1 ]; }
 
 step_write_secrets() {
   local tmp written
@@ -1386,17 +1426,40 @@ preflight_existing_install() {
           "$HIVE_OPT or $HIVE_UNIT_FILE already exists but was not created by Hive" \
           "$(printf '{"installed":false,"resume":false,"installDir":"%s"}' "$(json_escape "$HIVE_OPT")")" \
           EXISTING_INSTALL
+      elif [ "${OPT_UPDATE:-0}" = 1 ]; then
+        emit_check existing_install fail \
+          "Hive is not installed on this server; there is nothing to update" \
+          "$(printf '{"installed":false,"resume":false,"update":true,"installDir":"%s"}' "$(json_escape "$HIVE_OPT")")" \
+          UPDATE_NOT_INSTALLED
       else
         emit_check existing_install ok "no existing install; this run would be a fresh install" \
           "$(printf '{"installed":false,"resume":false,"installDir":"%s"}' "$(json_escape "$HIVE_OPT")")"
       fi ;;
     incomplete)
-      emit_check existing_install ok "an incomplete Hive install with these exact options can resume" \
-        "$(install_identity_data)" ;;
+      if [ "${OPT_UPDATE:-0}" = 1 ]; then
+        emit_check existing_install fail \
+          "the existing Hive installation is incomplete; resume it without --update" \
+          "$(install_identity_data)" INSTALL_IDENTITY_MISMATCH
+      else
+        emit_check existing_install ok "an incomplete Hive install with these exact options can resume" \
+          "$(install_identity_data)"
+      fi ;;
     complete)
-      emit_check existing_install fail \
-        "Hive is already installed; updates are unsupported, so uninstall it before installing again" \
-        "$(install_identity_data)" ALREADY_INSTALLED ;;
+      if [ "${OPT_UPDATE:-0}" = 1 ]; then
+        if install_identity_matches_request; then
+          emit_check existing_install ok \
+            "Hive $(current_release_version) can update to ${HIVE_VERSION:-unknown} with its existing identity" \
+            "$(install_identity_data)"
+        else
+          emit_check existing_install fail \
+            "Hive can update only with its existing identity: $(install_identity_detail)" \
+            "$(install_identity_data)" INSTALL_IDENTITY_MISMATCH
+        fi
+      else
+        emit_check existing_install fail \
+          "Hive is already installed; re-run this release with --update" \
+          "$(install_identity_data)" ALREADY_INSTALLED
+      fi ;;
     mismatch)
       emit_check existing_install fail \
         "the incomplete Hive install has different options and cannot be resumed: $(install_identity_detail)" \

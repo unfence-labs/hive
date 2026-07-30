@@ -112,8 +112,9 @@ Before publishing the draft:
 6. confirm Gatekeeper shows only the normal downloaded-from-Internet confirmation;
 7. open Hive and complete a connection;
 8. install the backend on clean Linux x64 and arm64 servers;
-9. verify unauthenticated access is rejected and authenticated access succeeds;
-10. restart each server and confirm Hive reconnects.
+9. update a completed server from the previous release and confirm its token and data still work;
+10. verify unauthenticated access is rejected and authenticated access succeeds;
+11. restart each server and confirm Hive reconnects.
 
 For a prerelease test, use its direct tag URLs because `/releases/latest` resolves only to a stable
 release. Publish the draft only after the relevant smoke tests pass.
