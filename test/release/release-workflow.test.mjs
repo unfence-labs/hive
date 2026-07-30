@@ -47,6 +47,17 @@ test("release builds the frontend before Tauri", () => {
   assert.ok(frontendBuild < tauriBuild);
 });
 
+test("release signs and publishes the desktop updater artifacts", () => {
+  for (const expected of [
+    "TAURI_SIGNING_PRIVATE_KEY",
+    "macos-arm64.app.tar.gz.sig",
+    "macos-arm64.app.tar.gz.sha256",
+    "latest.json",
+  ]) {
+    assert.ok(workflow.includes(expected), `missing ${expected}`);
+  }
+});
+
 test("release notarizes and staples the DMG", () => {
   assert.match(workflow, /xcrun notarytool submit "\$dmg"[\s\S]*--wait/);
   assert.match(workflow, /xcrun stapler staple "\$dmg"/);

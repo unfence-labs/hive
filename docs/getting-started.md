@@ -44,7 +44,9 @@ server layout and systemd service. Choose whichever fits how you work.
 The distributed desktop app supports Apple Silicon Macs running macOS 14 or later. Intel builds are
 not published. Download the latest stable DMG, or an explicitly selected prerelease, from
 [GitHub Releases](https://github.com/unfence-labs/hive/releases), open it, and drag Hive to
-Applications. Desktop updates are manual in V1: install a newer DMG from the same page.
+Applications. The app then checks for new stable releases and offers to install them: accepting
+downloads the update and restarts Hive. Prerelease builds are not offered automatically; update
+those by installing a newer DMG from the same page.
 
 The desktop app installs Hive on a server itself, over SSH, with no terminal. With no server
 configured it opens on launch; otherwise it is under **Settings → Server → Install Hive on a

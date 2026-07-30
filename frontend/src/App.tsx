@@ -14,6 +14,7 @@ import { WorkspaceLiveDataProvider } from "@/contexts/WorkspaceLiveDataContext";
 import { useWsCacheInvalidation } from "@/hooks/useWsCacheInvalidation";
 import { useActiveSessionPrewarm } from "@/hooks/useActiveSessionPrewarm";
 import { useNotificationToasts } from "@/hooks/useNotificationToasts";
+import { useDesktopUpdate } from "@/hooks/useDesktopUpdate";
 import { wsTransport } from "@/lib/ws-transport";
 import { HiveToaster } from "@/components/ui/toaster";
 
@@ -37,6 +38,7 @@ const Installer = lazy(() => import("@/pages/installer/Installer"));
 
 function NotificationToastsBridge({ projects }: { projects: Project[] }) {
   useNotificationToasts(projects);
+  useDesktopUpdate();
   return null;
 }
 
