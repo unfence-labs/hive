@@ -103,7 +103,8 @@ async function loginWithToken(token: string): Promise<void> {
  */
 async function setupGitCredentials(): Promise<void> {
   try {
-    await gh(["auth", "setup-git"]);
+    await gh(["config", "set", "git_protocol", "https", "--host", "github.com"]);
+    await gh(["auth", "setup-git", "--hostname", "github.com"]);
   } catch (err: unknown) {
     const detail =
       (err as { stderr?: string }).stderr?.trim() || (err as Error).message;
