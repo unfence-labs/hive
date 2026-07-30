@@ -7,6 +7,7 @@ import {
   type JsonRpcRequest,
 } from "../agents/providers/json-rpc-stdio.js";
 import { getAllProviderInfo } from "../agents/providers/registry.js";
+import { getClaudeOAuthToken } from "./setup/auth/secrets.js";
 import { getKimiApiKey } from "../state/config.js";
 import { buildWorkspaceEnv } from "../utils/env.js";
 
@@ -147,6 +148,17 @@ export function stopProviderUsagePolling(): void {
   codexClient = null;
 }
 
+export function invalidateProviderUsage(providerId: "claude" | "codex"): void {
+  if (providerId === "claude") {
+    claudeUsageCache = null;
+    claudeBackoffUntil = 0;
+    return;
+  }
+
+  codexUsageCache = null;
+  stopProviderUsagePolling();
+}
+
 async function getCodexUsage(label: string, installed: boolean): Promise<ProviderUsageEntry> {
   if (!installed) {
     return unavailableProvider("codex", label, "Codex CLI is not installed.");
@@ -225,7 +237,10 @@ async function getClaudeUsage(label: string, installed: boolean, version: string
   }
 
   try {
-    const credentials = await readClaudeCredentials();
+    const managedToken = getClaudeOAuthToken();
+    const credentials = managedToken
+      ? { token: managedToken, expiresAt: null }
+      : await readClaudeCredentials();
     if (!credentials) {
       return {
         id: "claude",

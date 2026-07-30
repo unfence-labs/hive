@@ -26,6 +26,7 @@ import {
   makeToolOperationRunner,
   type ToolsServiceDeps,
 } from "../services/setup/tools-service.js";
+import { invalidateProviderUsage } from "../services/provider-usage.js";
 import { getDataDir } from "../state/state.js";
 
 export interface SetupRoutesOptions {
@@ -188,6 +189,7 @@ export async function setupRoutes(
     async (req, reply) => {
       try {
         await writeClaudeToken(req.body.token.trim());
+        invalidateProviderUsage("claude");
       } catch {
         // The message is fixed, never echoing the input: a rejected token is
         // still a credential and has no business in a response body or a log.

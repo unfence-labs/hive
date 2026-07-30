@@ -459,6 +459,28 @@ describe("POST /api/setup/auth/:tool/start", () => {
     expect(body.authSessions[0]).toMatchObject({ tool: "gh", state: "connected" });
   });
 
+  it("reports which tool connected so provider state can be refreshed", async () => {
+    const codex = scriptedFlow({
+      verificationUri: "https://auth.openai.com/codex/device",
+      userCode: "ABCD-1234",
+    });
+    const onConnected = vi.fn(async () => {});
+    await build(
+      {},
+      createToolAuthStore({
+        flows: { codex: { flow: codex.flow } },
+        onConnected,
+      }),
+    );
+    await app.inject({ method: "POST", url: "/api/setup/auth/codex/start" });
+
+    codex.finish("connected");
+    await authStore.whenIdle();
+
+    expect(onConnected).toHaveBeenCalledOnce();
+    expect(onConnected).toHaveBeenCalledWith("codex");
+  });
+
   it("rejects a sign-in for a tool the store has no flow for", async () => {
     await build();
     const res = await app.inject({ method: "POST", url: "/api/setup/auth/gh/start" });

@@ -26,9 +26,11 @@ export interface ProviderUsageResponse {
   generatedAt: string;
 }
 
+export const PROVIDER_USAGE_QUERY_KEY = ["provider-usage"] as const;
+
 export function useProviderUsage() {
   return useQuery({
-    queryKey: ["provider-usage"],
+    queryKey: PROVIDER_USAGE_QUERY_KEY,
     queryFn: () => api.get<ProviderUsageResponse>("/api/provider-usage"),
     refetchInterval: 120_000,
     staleTime: 120_000,
