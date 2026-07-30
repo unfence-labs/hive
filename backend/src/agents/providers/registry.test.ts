@@ -151,6 +151,16 @@ describe("getModelCatalog", () => {
     expect(providers.has("codex")).toBe(false);
   });
 
+  it("excludes explicitly disabled providers from models and the default", () => {
+    markProviderAvailable("claude");
+    markProviderAvailable("codex");
+
+    const catalog = getModelCatalog({ excludedProviderIds: new Set(["codex"]) });
+
+    expect(catalog.models.every((model) => model.provider === "claude")).toBe(true);
+    expect(catalog.defaultModelId).toMatch(/^claude:/);
+  });
+
   it("includes all claude models when claude is available", () => {
     markProviderAvailable("claude");
     const catalog = getModelCatalog();

@@ -148,12 +148,13 @@ export function useSetupTools(target?: SetupApiTarget) {
       actedOn.set(scope, watched);
     }
     let finished = false;
+    let catalogChanged = false;
     for (const operation of operations) {
       if (operation.status === "running") {
         watched.add(operation.id);
       } else if (watched.delete(operation.id)) {
         finished = true;
-        if (operation.status === "succeeded") void refreshModelCatalog();
+        if (operation.status === "succeeded") catalogChanged = true;
       }
     }
     for (const session of authSessions) {
@@ -162,8 +163,10 @@ export function useSetupTools(target?: SetupApiTarget) {
         watched.add(key);
       } else if (watched.delete(key)) {
         finished = true;
+        if (session.state === "connected") catalogChanged = true;
       }
     }
+    if (catalogChanged) void refreshModelCatalog();
     if (finished) void queryClient.invalidateQueries({ queryKey: toolsKey });
   }, [operations, authSessions, queryClient, toolsKey, scope]);
 

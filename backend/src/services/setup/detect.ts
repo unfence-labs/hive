@@ -40,9 +40,9 @@ async function probeVersion(
  * output shape reads as "not authenticated", which understates rather than
  * claiming a sign-in that is not there.
  */
-async function probeAuthenticated(
+export async function detectToolAuthentication(
   id: SetupToolId,
-  deps: DetectDeps,
+  deps: DetectDeps = defaultDetectDeps(),
 ): Promise<boolean> {
   switch (id) {
     case "claude": {
@@ -92,6 +92,6 @@ export async function detectTool(
     version,
     // Asking an absent binary whether it is signed in only produces a second
     // spawn failure.
-    authenticated: installed ? await probeAuthenticated(spec.id, deps) : false,
+    authenticated: installed ? await detectToolAuthentication(spec.id, deps) : false,
   };
 }
