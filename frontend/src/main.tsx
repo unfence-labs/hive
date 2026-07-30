@@ -5,8 +5,13 @@ import { queryClient } from "@/lib/query-client";
 import "./index.css";
 import { copyToClipboard } from "@/lib/clipboard";
 import { wsTransport } from "@/lib/ws-transport";
+import { initAccentColor } from "@/hooks/useAccentColor";
 import App from "./App";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
+
+// The stored theme mode is restored by the inline script in index.html; the
+// accent color is restored here.
+initAccentColor();
 
 // A hub WebSocket can stay readyState OPEN after the OS sleeps/wakes or the
 // network changes, never firing onclose — leaving the UI stuck on stale data.
