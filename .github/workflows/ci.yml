@@ -43,10 +43,46 @@ jobs:
       - name: Build frontend
         run: npm run build --workspace=frontend
 
+  desktop:
+    runs-on: ubuntu-24.04
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install Tauri system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            curl \
+            file \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libssl-dev \
+            libwebkit2gtk-4.1-dev \
+            libxdo-dev \
+            patchelf \
+            wget
+
+      - run: npm ci
+
+      - name: Build frontend
+        working-directory: frontend
+        run: npm run build
+
+      - name: Test Rust
+        run: cargo test --manifest-path frontend/src-tauri/Cargo.toml --locked
+
+      - name: Compile Tauri desktop
+        working-directory: frontend
+        run: npm run tauri -- build --debug --no-bundle
+
   ios:
-    # Temporarily disabled to avoid paid macOS runner usage on the private repository.
-    # Remove this condition to restore Swift tests and the iOS build.
-    if: ${{ false }}
     runs-on: macos-26
 
     steps:

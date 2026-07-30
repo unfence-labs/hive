@@ -17,7 +17,7 @@ ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 VERSION="${1:-0.0.0-dev}"
 ARCH="${2:-}"
 
-if [[ ! "$VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$ ]]; then
+if ! node "$ROOT/scripts/release/release-version.mjs" macos "$VERSION" >/dev/null 2>&1; then
   echo "invalid semantic version: $VERSION" >&2
   exit 2
 fi
@@ -89,6 +89,7 @@ pkg="$staging/pkg"
 mkdir -p "$pkg"
 cp -R "$ROOT/backend/dist" "$pkg/dist"
 cp -R "$install_root/node_modules" "$pkg/node_modules"
+cp "$ROOT/LICENSE" "$pkg/"
 
 # The manifest carries the release version and the build facts an installer
 # needs to reject a tarball its runtime cannot load.
@@ -134,6 +135,7 @@ unpacked="$staging/unpacked"
 mkdir -p "$unpacked"
 tar -xzf "$OUT_DIR/$NAME.tar.gz" -C "$unpacked"
 [ -f "$unpacked/dist/index.js" ] || { echo "archive has no dist/index.js" >&2; exit 1; }
+[ -f "$unpacked/LICENSE" ] || { echo "archive has no LICENSE" >&2; exit 1; }
 artifact_version="$(node -p 'require(process.argv[1]).version' "$unpacked/package.json")"
 [ "$artifact_version" = "$VERSION" ] || {
   echo "archive version mismatch: expected $VERSION, got $artifact_version" >&2

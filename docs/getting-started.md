@@ -41,6 +41,11 @@ server layout and systemd service. Choose whichever fits how you work.
 
 ### From the desktop app
 
+The distributed desktop app supports Apple Silicon Macs running macOS 14 or later. Intel builds are
+not published. Download the latest stable DMG, or an explicitly selected prerelease, from
+[GitHub Releases](https://github.com/unfence-labs/hive/releases), open it, and drag Hive to
+Applications. Desktop updates are manual in V1: install a newer DMG from the same page.
+
 The desktop app installs Hive on a server itself, over SSH, with no terminal. With no server
 configured it opens on launch; otherwise it is under **Settings → Server → Install Hive on a
 server**.
@@ -67,6 +72,9 @@ Ubuntu 22.04/24.04 or Debian 12/13 (x86-64 or arm64) with systemd:
 ```bash
 curl -fsSL https://github.com/unfence-labs/hive/releases/latest/download/provision.sh | bash
 ```
+
+The `latest` URL selects only stable releases. To test a prerelease, use its explicit tag instead,
+for example `releases/download/v0.1.0-beta.1/provision.sh`.
 
 It installs Hive's own pinned Node.js runtime and the agent CLIs inside `/opt/hive` and the `hive`
 service account, downloads the backend release, verifies it against its published checksum, and

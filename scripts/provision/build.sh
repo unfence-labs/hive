@@ -9,10 +9,11 @@
 set -Eeuo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
+ROOT="$(cd "$HERE/../.." && pwd)"
 OUT="$HERE/dist/provision.sh"
 VERSION="${1:-0.0.0-dev}"
 
-if [[ ! "$VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$ ]]; then
+if ! node "$ROOT/scripts/release/release-version.mjs" macos "$VERSION" >/dev/null 2>&1; then
   echo "invalid semantic version: $VERSION" >&2
   exit 2
 fi

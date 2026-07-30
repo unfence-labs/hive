@@ -4,10 +4,10 @@ This walks through running the real installer wizard against a local Ubuntu VM
 on your Mac: wizard → system `ssh` → `provision.sh` → a real Hive backend →
 connect.
 
-The repository is private, so there is no GitHub release to download. A **debug
-build** of the desktop app closes that gap itself: it looks for a locally built
-tarball, uploads it to the server over the same SSH connection, and installs
-from the uploaded copy (`--release-file`). Release builds never do this.
+A **debug build** deliberately tests the current checkout instead of downloading an older
+published release. It looks for a locally built tarball, uploads it to the server over the same SSH
+connection, and installs from that copy (`--release-file`). Release builds never sideload a local
+tarball.
 
 OrbStack is a local development exception. Its private VM address is suitable
 for this test, but it is not production transport guidance. A real server still

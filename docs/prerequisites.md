@@ -8,6 +8,18 @@ automatic installer connects over SSH, installs the backend as a systemd service
 back a running server and its access token. Setup instructions are in
 **[Getting Started](getting-started.md)**.
 
+## The desktop client
+
+| | |
+|---|---|
+| Operating system | macOS 14 or later |
+| Architecture | Apple Silicon (arm64) |
+| Distribution | Signed and notarized DMG from GitHub Releases |
+| Updates | Manual DMG download in V1 |
+
+Intel DMGs are not published. The web and iOS clients use the same backend but have their own
+runtime requirements.
+
 ## The server
 
 | | |

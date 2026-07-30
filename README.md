@@ -7,7 +7,7 @@
 **Orchestrate AI coding agents across isolated git workspaces — from your desktop, browser, or phone.**
 
 [![CI](https://github.com/unfence-labs/hive/actions/workflows/ci.yml/badge.svg)](https://github.com/unfence-labs/hive/actions/workflows/ci.yml)
-[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-FF7048.svg)](LICENSE)
+[![License: GPL v3 or later](https://img.shields.io/badge/License-GPLv3%2B-FF7048.svg)](LICENSE)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](#contributing)
 [![Node](https://img.shields.io/badge/node-%3E%3D20-5FA04E?logo=node.js&logoColor=white)](https://nodejs.org)
 
@@ -69,7 +69,8 @@ Hive separates the machine doing the work from the client controlling it. The ba
 > Tailscale or WireGuard. It does not terminate HTTPS in V1, so the backend port must never be
 > reachable from the public Internet. See **[Networking](docs/networking.md)**.
 
-1. **[Download the desktop app](https://github.com/unfence-labs/hive/releases/latest)** (macOS).
+1. **[Download the desktop app](https://github.com/unfence-labs/hive/releases)** for an
+   Apple Silicon Mac running macOS 14 or later.
 2. Point it at your server: the guided installer connects over SSH, runs a read-only preflight, and installs the complete backend as a systemd service. Check **[Prerequisites](docs/prerequisites.md)** for what it needs and what it changes.
 3. Connect from anywhere — the desktop app, a browser, or the iOS app share the same backend.
 
@@ -87,6 +88,7 @@ follow the **[Manual Installation guide](docs/manual-installation.md)**.
 | [Manual Installation](docs/manual-installation.md) | Building from source and managing the runtime yourself |
 | [Configuration](docs/configuration.md) | Backend and frontend environment variables |
 | [Architecture](docs/architecture.md) | Monorepo layout, core model, HTTP and WebSocket APIs, testing |
+| [Releasing](docs/releasing.md) | Maintainer checklist for beta and stable releases |
 
 ## Contributing
 
@@ -95,7 +97,10 @@ guidelines — and **[AGENTS.md](AGENTS.md)** for the commands, repository map, 
 (written for coding agents, works just as well for humans).
 
 Found a bug or have an idea? [Open an issue](https://github.com/unfence-labs/hive/issues).
+Support is best-effort. Report vulnerabilities privately as described in
+[SECURITY.md](SECURITY.md).
 
 ## License
 
-Released under the [GNU General Public License v3.0](LICENSE). Copyright (C) 2026 419Labs.
+Released under the [GNU General Public License v3.0 or later](LICENSE).
+Copyright (C) 2026 419Labs.

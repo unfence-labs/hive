@@ -125,16 +125,27 @@ HIVE_ALLOWED_ORIGINS=https://hive.example.internal
 
 Native clients do not send an `Origin` header and are unaffected.
 
-## Update
+## Update a manual installation
+
+This procedure applies only to a source checkout that you manage yourself. It does not update a
+backend installed by `provision.sh`; provisioned V1 installations deliberately reject in-place
+updates.
+
+Back up the configured data directory before changing versions. Build the new version before
+restarting the running process, and keep the previous tag available for rollback.
 
 ```bash
 cd hive
-git pull
-npm install
+git fetch --tags --prune
+git checkout v<version>
+npm ci
 cd backend
 npm run build
 pm2 restart hive-backend
 ```
+
+Repeat the authenticated and unauthenticated checks above after restart. If either check fails,
+check out the previous tag, run `npm ci` and `npm run build` again, then restart the process.
 
 ## Connect a client
 

@@ -1,8 +1,7 @@
 {
   "$schema": "../../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "Hive",
-  "version": "0.1.0",
-  "identifier": "com.hive.desktop",
+  "identifier": "io.419labs.hive",
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:5173"
@@ -28,6 +27,12 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "resources": {
+      "../../LICENSE": "LICENSE"
+    },
+    "macOS": {
+      "minimumSystemVersion": "14.0"
+    },
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
