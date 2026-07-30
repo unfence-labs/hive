@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import { basename } from "node:path";
+import { getClaudeOAuthToken } from "../services/setup/auth/secrets.js";
 import { git } from "../utils/git.js";
 import { buildWorkspaceEnv, DEBUG_AGENT_LOGS } from "../utils/env.js";
 
@@ -110,6 +111,7 @@ function extractJson(text: string): NamingResult {
 export async function generateNames(ctx: NamingContext): Promise<NamingResult> {
   const command = ctx.command ?? "claude";
   const prompt = buildNamingPrompt(ctx.userMessage);
+  const oauthToken = getClaudeOAuthToken();
 
   return new Promise<NamingResult>((resolve) => {
     const args = [
@@ -125,7 +127,9 @@ export async function generateNames(ctx: NamingContext): Promise<NamingResult> {
     const proc = spawn(command, args, {
       cwd: ctx.cwd,
       stdio: ["pipe", "pipe", "pipe"],
-      env: buildWorkspaceEnv(),
+      env: buildWorkspaceEnv(
+        oauthToken ? { CLAUDE_CODE_OAUTH_TOKEN: oauthToken } : undefined,
+      ),
     });
 
     proc.stdin?.end();
