@@ -623,7 +623,7 @@ describe("provider usage", () => {
     ]);
   });
 
-  it("reports an expired Claude sign-in without calling the usage endpoint", async () => {
+  it("reports an expired Claude token as self-refreshing without calling the usage endpoint", async () => {
     mocks.readFile.mockResolvedValue(JSON.stringify({
       claudeAiOauth: {
         accessToken: "expired-token",
@@ -637,7 +637,7 @@ describe("provider usage", () => {
       id: "claude",
       status: "unknown",
       buckets: [],
-      message: "Reconnect Claude in Settings.",
+      message: "Claude session token expired. It refreshes automatically on the next Claude run.",
     });
     expect(fetch).not.toHaveBeenCalled();
   });
@@ -756,6 +756,7 @@ describe("provider usage", () => {
       id: "claude",
       status: "unknown",
       buckets: [],
+      message: "Reconnect Claude in Settings.",
     });
     expect(fetch).not.toHaveBeenCalled();
   });

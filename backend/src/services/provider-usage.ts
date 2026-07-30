@@ -94,6 +94,8 @@ const CLAUDE_OAUTH_BETA_HEADER = "oauth-2025-04-20";
 const CLAUDE_SIGN_IN_MESSAGE = "Reconnect Claude in Settings.";
 const CLAUDE_USAGE_SCOPE_MESSAGE =
   "Reconnect Claude in Settings to grant account usage access.";
+const CLAUDE_TOKEN_EXPIRED_MESSAGE =
+  "Claude session token expired. It refreshes automatically on the next Claude run.";
 const KIMI_USAGE_CACHE_TTL_MS = 180_000;
 const KIMI_REQUEST_TIMEOUT_MS = 5_000;
 const KIMI_USAGE_URL = "https://api.kimi.com/coding/v1/usages";
@@ -264,7 +266,7 @@ async function getClaudeUsage(label: string, installed: boolean, version: string
         status: "unknown",
         buckets: [],
         lastUpdatedAt: null,
-        message: CLAUDE_SIGN_IN_MESSAGE,
+        message: CLAUDE_TOKEN_EXPIRED_MESSAGE,
       };
     }
 
