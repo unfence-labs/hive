@@ -13,7 +13,6 @@ import { claudeAuthFlow } from "./claude.js";
 import { codexAuthFlow, recoverCodexCredential } from "./codex.js";
 import { githubAuthFlow } from "./github.js";
 import { ToolAuthError, type AuthFlow, type AuthFlowHandle } from "./flow.js";
-import { makeClaudeTokenWriter } from "./secrets.js";
 
 /** How long a finished sign-in stays on the panel before it is forgotten. */
 const DEFAULT_RETENTION_MS = 10 * 60_000;
@@ -196,7 +195,6 @@ export function createToolAuthStore(options: ToolAuthStoreOptions): ToolAuthStor
  * any way but connected.
  */
 export function defaultToolAuthStore(
-  dataDir: string,
   onUnexpectedError?: (tool: SetupToolId, error: unknown) => void,
 ): ToolAuthStore {
   const detectDeps: DetectDeps = defaultDetectDeps();
@@ -220,7 +218,6 @@ export function defaultToolAuthStore(
       claude: {
         flow: claudeAuthFlow({
           detect: () => detect("claude"),
-          writeToken: makeClaudeTokenWriter(dataDir),
         }),
       },
       codex: {

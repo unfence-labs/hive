@@ -11,7 +11,6 @@ import {
 } from "@hive/shared/setup-types";
 import { findToolSpec, isManaged } from "../services/setup/catalog.js";
 import { ToolAuthError } from "../services/setup/auth/flow.js";
-import { makeClaudeTokenWriter } from "../services/setup/auth/secrets.js";
 import {
   defaultToolAuthStore,
   type ToolAuthStore,
@@ -26,7 +25,6 @@ import {
   makeToolOperationRunner,
   type ToolsServiceDeps,
 } from "../services/setup/tools-service.js";
-import { invalidateProviderUsage } from "../services/provider-usage.js";
 import { getDataDir } from "../state/state.js";
 
 export interface SetupRoutesOptions {
@@ -71,10 +69,9 @@ export async function setupRoutes(
     }));
   const authStore =
     opts.authStore ??
-    defaultToolAuthStore(dataDir, (tool, error) => {
+    defaultToolAuthStore((tool, error) => {
       app.log.error({ err: error }, `setup auth lifecycle for ${tool} encountered an unexpected error`);
     });
-  const writeClaudeToken = makeClaudeTokenWriter(dataDir);
 
   app.get("/api/setup/tools", async (): Promise<ToolsResponse> => ({
     tools: await getToolsStatus(deps),
@@ -166,36 +163,4 @@ export async function setupRoutes(
     },
   );
 
-  /**
-   * Paste a Claude token directly.
-   *
-   * The escape hatch for when the driven flow cannot run — an operator who
-   * already has a token from `claude setup-token` elsewhere should not be made
-   * to redo it through a terminal Hive is pretending to be. It goes through the
-   * same validation and the same owner-only atomic write as the driven flow.
-   */
-  app.post<{ Body: { token: string } }>(
-    "/api/setup/auth/claude/token",
-    {
-      schema: {
-        body: {
-          type: "object",
-          additionalProperties: false,
-          required: ["token"],
-          properties: { token: { type: "string", minLength: 1, maxLength: 4096 } },
-        },
-      },
-    },
-    async (req, reply) => {
-      try {
-        await writeClaudeToken(req.body.token.trim());
-        invalidateProviderUsage("claude");
-      } catch {
-        // The message is fixed, never echoing the input: a rejected token is
-        // still a credential and has no business in a response body or a log.
-        return reply.status(400).send({ error: "That is not a Claude authentication token." });
-      }
-      return { ok: true };
-    },
-  );
 }

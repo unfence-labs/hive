@@ -7,7 +7,6 @@ import {
   type JsonRpcRequest,
 } from "../agents/providers/json-rpc-stdio.js";
 import { getAllProviderInfo } from "../agents/providers/registry.js";
-import { getClaudeOAuthToken } from "./setup/auth/secrets.js";
 import { getKimiApiKey } from "../state/config.js";
 import { buildWorkspaceEnv } from "../utils/env.js";
 
@@ -65,14 +64,8 @@ interface ClaudeCredentials {
   claudeAiOauth?: {
     accessToken?: unknown;
     expiresAt?: unknown;
+    scopes?: unknown;
   };
-  accessToken?: unknown;
-  expiresAt?: unknown;
-}
-
-interface ClaudeUsageWindow {
-  utilization?: unknown;
-  resets_at?: unknown;
 }
 
 interface ClaudeUsageLimit {
@@ -98,6 +91,10 @@ const CLAUDE_USAGE_CACHE_TTL_MS = 180_000;
 const CLAUDE_REQUEST_TIMEOUT_MS = 5_000;
 const CLAUDE_USAGE_URL = "https://api.anthropic.com/api/oauth/usage";
 const CLAUDE_OAUTH_BETA_HEADER = "oauth-2025-04-20";
+const CLAUDE_USAGE_SCOPE_MESSAGE =
+  "Reconnect Claude in Settings to grant account usage access.";
+const CLAUDE_TOKEN_EXPIRED_MESSAGE =
+  "Claude session token expired. It refreshes automatically on the next Claude run.";
 const KIMI_USAGE_CACHE_TTL_MS = 180_000;
 const KIMI_REQUEST_TIMEOUT_MS = 5_000;
 const KIMI_USAGE_URL = "https://api.kimi.com/coding/v1/usages";
@@ -237,18 +234,19 @@ async function getClaudeUsage(label: string, installed: boolean, version: string
   }
 
   try {
-    const managedToken = getClaudeOAuthToken();
-    const credentials = managedToken
-      ? { token: managedToken, expiresAt: null }
-      : await readClaudeCredentials();
+    const credentials = await readClaudeCredentials();
     if (!credentials) {
+      return unavailableProvider("claude", label, "Claude is not signed in.");
+    }
+
+    if (credentials.scopes && !credentials.scopes.includes("user:profile")) {
       return {
         id: "claude",
         label,
         status: "unknown",
         buckets: [],
         lastUpdatedAt: null,
-        message: "Claude Code OAuth credentials were not found. Run `claude auth login`.",
+        message: CLAUDE_USAGE_SCOPE_MESSAGE,
       };
     }
 
@@ -260,7 +258,7 @@ async function getClaudeUsage(label: string, installed: boolean, version: string
         status: "unknown",
         buckets: [],
         lastUpdatedAt: null,
-        message: "Claude sign-in expired. Run `claude` to refresh the token.",
+        message: CLAUDE_TOKEN_EXPIRED_MESSAGE,
       };
     }
 
@@ -289,6 +287,20 @@ async function getClaudeUsage(label: string, installed: boolean, version: string
   } catch (err) {
     if (err instanceof UsageHttpError && err.status === 429) {
       claudeBackoffUntil = Date.now() + Math.max(err.retryAfterMs ?? 0, CLAUDE_USAGE_CACHE_TTL_MS);
+    }
+    if (
+      err instanceof UsageHttpError
+      && err.status === 403
+      && /scope requirement|user:profile/i.test(err.message)
+    ) {
+      return {
+        id: "claude",
+        label,
+        status: "unknown",
+        buckets: [],
+        lastUpdatedAt: null,
+        message: CLAUDE_USAGE_SCOPE_MESSAGE,
+      };
     }
     return {
       id: "claude",
@@ -397,7 +409,11 @@ function getCodexClient(): CodexUsageClient {
   return codexClient;
 }
 
-async function readClaudeCredentials(): Promise<{ token: string; expiresAt: number | null } | null> {
+async function readClaudeCredentials(): Promise<{
+  token: string;
+  expiresAt: number | null;
+  scopes: string[] | null;
+} | null> {
   const credentialsPath = join(process.env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude"), ".credentials.json");
   let parsed: ClaudeCredentials;
   try {
@@ -406,9 +422,13 @@ async function readClaudeCredentials(): Promise<{ token: string; expiresAt: numb
     return null;
   }
 
-  const oauth = asRecord(parsed.claudeAiOauth) ?? parsed;
+  const oauth = asRecord(parsed.claudeAiOauth);
+  if (!oauth) return null;
   const token = asString(oauth.accessToken);
-  return token ? { token, expiresAt: asNumber(oauth.expiresAt) } : null;
+  const scopes = Array.isArray(oauth.scopes)
+    ? oauth.scopes.filter((scope): scope is string => typeof scope === "string")
+    : null;
+  return token ? { token, expiresAt: asNumber(oauth.expiresAt), scopes } : null;
 }
 
 async function fetchClaudeUsage(token: string, version: string | null): Promise<unknown> {
@@ -491,21 +511,13 @@ async function fetchUsageJson(request: UsageFetchRequest): Promise<unknown> {
   }
 }
 
-// The usage API reports every window in `limits`, including the per-model weekly limits that the
-// legacy top-level `seven_day_*` keys now return as null. Those keys remain the fallback for
-// accounts whose response predates `limits`.
 function parseClaudeUsageBuckets(result: unknown): ProviderUsageBucket[] {
   const record = asRecord(result);
   if (!record) return [];
 
   const limits = Array.isArray(record.limits) ? record.limits : [];
-  const fromLimits = limits
+  return limits
     .map((limit) => parseClaudeUsageLimit(asRecord(limit) as ClaudeUsageLimit | null))
-    .filter((bucket): bucket is ProviderUsageBucket => bucket !== null);
-  if (fromLimits.length > 0) return fromLimits;
-
-  return Object.entries(CLAUDE_USAGE_BUCKETS)
-    .map(([id, config]) => parseClaudeUsageBucket(id, config, asRecord(record[id]) as ClaudeUsageWindow | null))
     .filter((bucket): bucket is ProviderUsageBucket => bucket !== null);
 }
 
@@ -531,33 +543,6 @@ function parseClaudeUsageLimit(limit: ClaudeUsageLimit | null): ProviderUsageBuc
     usedPercent,
     windowDurationMins: config.windowDurationMins,
     resetsAt: parseResetTimestamp(limit.resets_at),
-  };
-}
-
-const CLAUDE_USAGE_BUCKETS: Record<string, { label: string; windowDurationMins: number | null }> = {
-  five_hour: { label: "5h", windowDurationMins: 300 },
-  seven_day: { label: "7d", windowDurationMins: 10_080 },
-  seven_day_sonnet: { label: "7d Sonnet", windowDurationMins: 10_080 },
-  seven_day_opus: { label: "7d Opus", windowDurationMins: 10_080 },
-  seven_day_oauth_apps: { label: "7d OAuth apps", windowDurationMins: 10_080 },
-  seven_day_cowork: { label: "7d cowork", windowDurationMins: 10_080 },
-  seven_day_omelette: { label: "7d omelette", windowDurationMins: 10_080 },
-};
-
-function parseClaudeUsageBucket(
-  id: string,
-  config: { label: string; windowDurationMins: number | null },
-  window: ClaudeUsageWindow | null,
-): ProviderUsageBucket | null {
-  if (!window) return null;
-  const usedPercent = normalizeClaudePercent(window.utilization);
-  if (usedPercent === null) return null;
-  return {
-    id,
-    label: config.label,
-    usedPercent,
-    windowDurationMins: config.windowDurationMins,
-    resetsAt: parseResetTimestamp(window.resets_at),
   };
 }
 

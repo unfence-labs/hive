@@ -12,14 +12,11 @@ function fail(stderr = "not found"): CommandResult {
 }
 
 /** Route a probe to a canned result keyed by "<command> <args…>". */
-function deps(
-  responses: Record<string, CommandResult>,
-  env: NodeJS.ProcessEnv = {},
-) {
+function deps(responses: Record<string, CommandResult>) {
   const run = vi.fn<RunCommand>(
     async (command, args) => responses[[command, ...args].join(" ")] ?? fail(),
   );
-  return { run, env } satisfies DetectDeps;
+  return { run } satisfies DetectDeps;
 }
 
 const claude = findToolSpec("claude");
@@ -54,13 +51,19 @@ describe("detectTool", () => {
     expect(detection).toMatchObject({ installed: true, version: null });
   });
 
-  it("treats a Claude OAuth token in the environment as authenticated", async () => {
-    const d = deps({ "claude --version": ok("1.0.0") }, { CLAUDE_CODE_OAUTH_TOKEN: "sk-ant-oat01-x" });
+  it("does not treat an inherited OAuth token as a saved sign-in", async () => {
+    const d = deps({
+      "claude --version": ok("1.0.0"),
+      "claude auth status": ok('{"loggedIn":false}'),
+    });
     const detection = await detectTool(claude, d);
 
-    expect(detection.authenticated).toBe(true);
-    // The env token short-circuits the sign-in probe entirely.
-    expect(d.run).toHaveBeenCalledTimes(1);
+    expect(detection.authenticated).toBe(false);
+    expect(d.run).toHaveBeenCalledWith(
+      "claude",
+      ["auth", "status"],
+      expect.objectContaining({ env: expect.any(Object) }),
+    );
   });
 
   it("fails closed when the Claude auth probe returns something unparseable", async () => {

@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import Fastify, { type FastifyInstance } from "fastify";
@@ -27,8 +27,6 @@ import {
 } from "../services/setup/operations.js";
 import type { ToolsServiceDeps } from "../services/setup/tools-service.js";
 import { setupRoutes } from "./setup.js";
-
-const VALID_CLAUDE_TOKEN = "sk-ant-oat01-AbC123_dEf456-GhI789jklMNO";
 
 let app: FastifyInstance;
 let dataDir: string;
@@ -61,7 +59,7 @@ function makeDeps(probes: Record<string, CommandResult>): ToolsServiceDeps {
   return {
     prefix: "/home/hive/.local",
     run,
-    detect: { env: {}, run },
+    detect: { run },
     fetchLatestVersion: async () => null,
     onToolsChanged: async () => {},
   };
@@ -246,7 +244,7 @@ describe("operation visibility", () => {
       }
       return missing();
     };
-    deps.detect = { env: {}, run: deps.run };
+    deps.detect = { run: deps.run };
     store = await createToolOperationStore({ dataDir });
     await app.register((instance: FastifyInstance) =>
       setupRoutes(instance, { dataDir, deps, store }),
@@ -688,36 +686,5 @@ describe("a sign-in that fails", () => {
     const body = (await app.inject({ method: "GET", url: "/api/setup/tools" })).json<ToolsResponse>();
     expect(body.authSessions[0]).toMatchObject({ state: "expired" });
     expect(body.authSessions[0].failure).toBeUndefined();
-  });
-});
-
-describe("POST /api/setup/auth/claude/token", () => {
-  it("stores a token pasted directly", async () => {
-    await build();
-
-    const res = await app.inject({
-      method: "POST",
-      url: "/api/setup/auth/claude/token",
-      payload: { token: `  ${VALID_CLAUDE_TOKEN}  ` },
-    });
-
-    expect(res.statusCode).toBe(200);
-    const stored = JSON.parse(
-      await readFile(join(dataDir, "config.json"), "utf-8"),
-    ) as { claudeCodeOAuthToken: string };
-    expect(stored.claudeCodeOAuthToken).toBe(VALID_CLAUDE_TOKEN);
-  });
-
-  it("rejects something that is not a token without echoing it back", async () => {
-    await build();
-
-    const res = await app.inject({
-      method: "POST",
-      url: "/api/setup/auth/claude/token",
-      payload: { token: "sk-ant-oat01-nearly-but-not" },
-    });
-
-    expect(res.statusCode).toBe(400);
-    expect(res.json().error).not.toContain("sk-ant");
   });
 });

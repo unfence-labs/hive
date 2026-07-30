@@ -298,6 +298,10 @@ describe("ClaudeProvider", () => {
     expect(env.CLAUDE_CODE_ENABLE_TASKS).toBe("true");
   });
 
+  it("does not override Claude Code's saved login", () => {
+    expect(provider.buildEnv({})).not.toHaveProperty("CLAUDE_CODE_OAUTH_TOKEN");
+  });
+
   it("disables harness-only cron and background tasks the print model can't honor", () => {
     const env = provider.buildEnv({});
     expect(env.CLAUDE_CODE_DISABLE_CRON).toBe("1");

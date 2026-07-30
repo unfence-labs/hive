@@ -1,5 +1,6 @@
 import type { SetupToolId } from "@hive/shared/setup-types";
 import { parseVersionFromOutput } from "../../agents/providers/registry.js";
+import { buildWorkspaceEnv } from "../../utils/env.js";
 import type { SetupToolSpec } from "./catalog.js";
 import { runCommand, type RunCommand } from "./command.js";
 
@@ -14,11 +15,10 @@ export interface ToolDetection {
 
 export interface DetectDeps {
   run: RunCommand;
-  env: NodeJS.ProcessEnv;
 }
 
 export function defaultDetectDeps(): DetectDeps {
-  return { run: runCommand, env: process.env };
+  return { run: runCommand };
 }
 
 async function probeVersion(
@@ -46,11 +46,11 @@ export async function detectToolAuthentication(
 ): Promise<boolean> {
   switch (id) {
     case "claude": {
-      // A token in the environment authenticates the CLI without any on-disk
-      // credential, so the command probe below would wrongly report a miss.
-      if (deps.env.CLAUDE_CODE_OAUTH_TOKEN?.trim()) return true;
       const result = await deps.run("claude", ["auth", "status"], {
         timeoutMs: PROBE_TIMEOUT_MS,
+        // Authentication belongs to Claude Code's credential store. Ignore
+        // tokens inherited by the Hive service so detection matches agent runs.
+        env: buildWorkspaceEnv(),
       });
       if (result.exitCode !== 0) return false;
       try {

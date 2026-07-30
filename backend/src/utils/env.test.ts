@@ -12,6 +12,9 @@ describe("buildWorkspaceEnv()", () => {
     "TELEGRAM_CHAT_ID",
     "GITHUB_CLIENT_ID",
     "CLAUDECODE",
+    "ANTHROPIC_API_KEY",
+    "ANTHROPIC_AUTH_TOKEN",
+    "ANTHROPIC_BASE_URL",
     "NODE_APP_INSTANCE",
     "GIT_EDITOR",
     "HIVE_AUTH_TOKEN",
@@ -39,6 +42,9 @@ describe("buildWorkspaceEnv()", () => {
     process.env.TELEGRAM_CHAT_ID = "12345";
     process.env.GITHUB_CLIENT_ID = "gh-client-id";
     process.env.CLAUDECODE = "1";
+    process.env.ANTHROPIC_API_KEY = "inherited-api-key";
+    process.env.ANTHROPIC_AUTH_TOKEN = "inherited-auth-token";
+    process.env.ANTHROPIC_BASE_URL = "https://inherited.invalid";
     process.env.NODE_APP_INSTANCE = "0";
     process.env.GIT_EDITOR = "true";
     process.env.HIVE_AUTH_TOKEN = "secret-auth";
@@ -73,6 +79,9 @@ describe("buildWorkspaceEnv()", () => {
     expect(env.TELEGRAM_CHAT_ID).toBeUndefined();
     expect(env.GITHUB_CLIENT_ID).toBeUndefined();
     expect(env.CLAUDECODE).toBeUndefined();
+    expect(env.ANTHROPIC_API_KEY).toBeUndefined();
+    expect(env.ANTHROPIC_AUTH_TOKEN).toBeUndefined();
+    expect(env.ANTHROPIC_BASE_URL).toBeUndefined();
     expect(env.NODE_APP_INSTANCE).toBeUndefined();
     expect(env.GIT_EDITOR).toBeUndefined();
   });
@@ -113,8 +122,14 @@ describe("buildWorkspaceEnv()", () => {
   });
 
   it("allows extra to re-inject a stripped var", () => {
-    const env = buildWorkspaceEnv({ NODE_ENV: "test" });
+    const env = buildWorkspaceEnv({
+      NODE_ENV: "test",
+      ANTHROPIC_API_KEY: "provider-key",
+      ANTHROPIC_BASE_URL: "https://provider.example",
+    });
     expect(env.NODE_ENV).toBe("test");
+    expect(env.ANTHROPIC_API_KEY).toBe("provider-key");
+    expect(env.ANTHROPIC_BASE_URL).toBe("https://provider.example");
   });
 
   it("returns a new object (does not mutate process.env)", () => {

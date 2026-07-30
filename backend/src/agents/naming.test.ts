@@ -143,6 +143,32 @@ describe("generateNames", () => {
     expect(proc._stdinEnd).toHaveBeenCalledTimes(1);
   });
 
+  it("does not forward inherited Claude OAuth tokens", async () => {
+    const previousToken = process.env.CLAUDE_CODE_OAUTH_TOKEN;
+    process.env.CLAUDE_CODE_OAUTH_TOKEN = "synthetic-oauth-token";
+    const proc = createMockProcess();
+    mockSpawn.mockReturnValue(proc);
+
+    try {
+      queueMicrotask(() => {
+        proc._stdout.emit("data", Buffer.from("{}"));
+        proc.emit("close", 0);
+      });
+
+      await generateNames(baseContext("claude"));
+
+      const options = mockSpawn.mock.calls[0]?.[2];
+      expect(options?.env).not.toHaveProperty("CLAUDE_CODE_OAUTH_TOKEN");
+      expect(options?.env).toHaveProperty("HOME");
+    } finally {
+      if (previousToken === undefined) {
+        delete process.env.CLAUDE_CODE_OAUTH_TOKEN;
+      } else {
+        process.env.CLAUDE_CODE_OAUTH_TOKEN = previousToken;
+      }
+    }
+  });
+
   it("accepts fenced JSON output", async () => {
     const proc = createMockProcess();
     mockSpawn.mockReturnValue(proc);
