@@ -459,12 +459,23 @@ describe("POST /api/setup/auth/:tool/start", () => {
     expect(body.authSessions[0]).toMatchObject({ tool: "gh", state: "connected" });
   });
 
-  it("reports which tool connected so provider state can be refreshed", async () => {
+  it("reports a tool as connected only after provider state is refreshed", async () => {
     const codex = scriptedFlow({
       verificationUri: "https://auth.openai.com/codex/device",
       userCode: "ABCD-1234",
     });
-    const onConnected = vi.fn(async () => {});
+    let finishRefresh!: () => void;
+    const refresh = new Promise<void>((resolve) => {
+      finishRefresh = resolve;
+    });
+    let markRefreshStarted!: () => void;
+    const refreshStarted = new Promise<void>((resolve) => {
+      markRefreshStarted = resolve;
+    });
+    const onConnected = vi.fn(async () => {
+      markRefreshStarted();
+      await refresh;
+    });
     await build(
       {},
       createToolAuthStore({
@@ -475,10 +486,54 @@ describe("POST /api/setup/auth/:tool/start", () => {
     await app.inject({ method: "POST", url: "/api/setup/auth/codex/start" });
 
     codex.finish("connected");
-    await authStore.whenIdle();
+    await refreshStarted;
 
     expect(onConnected).toHaveBeenCalledOnce();
+    const refreshing = (await app.inject({ method: "GET", url: "/api/setup/status" }))
+      .json<SetupStatusResponse>();
+    expect(refreshing.authSessions[0]).toMatchObject({
+      tool: "codex",
+      state: "awaiting_authorization",
+    });
+
+    finishRefresh();
+    await authStore.whenIdle();
+
     expect(onConnected).toHaveBeenCalledWith("codex");
+    const refreshed = (await app.inject({ method: "GET", url: "/api/setup/status" }))
+      .json<SetupStatusResponse>();
+    expect(refreshed.authSessions[0]).toMatchObject({ tool: "codex", state: "connected" });
+  });
+
+  it("keeps a successful sign-in connected when provider refresh fails", async () => {
+    const codex = scriptedFlow({
+      verificationUri: "https://auth.openai.com/codex/device",
+      userCode: "ABCD-1234",
+    });
+    const refreshError = new Error("refresh failed");
+    const onUnexpectedError = vi.fn();
+    await build(
+      {},
+      createToolAuthStore({
+        flows: { codex: { flow: codex.flow } },
+        onConnected: async () => { throw refreshError; },
+        onUnexpectedError,
+      }),
+    );
+    await app.inject({ method: "POST", url: "/api/setup/auth/codex/start" });
+
+    codex.finish("connected");
+    await authStore.whenIdle();
+
+    const status = (await app.inject({ method: "GET", url: "/api/setup/status" }))
+      .json<SetupStatusResponse>();
+    expect(status.authSessions[0]).toMatchObject({ tool: "codex", state: "connected" });
+    const reportedError = onUnexpectedError.mock.calls[0]?.[1];
+    expect(reportedError).toBeInstanceOf(Error);
+    expect(reportedError).toMatchObject({
+      message: "Provider refresh after codex sign-in failed.",
+      cause: refreshError,
+    });
   });
 
   it("rejects a sign-in for a tool the store has no flow for", async () => {

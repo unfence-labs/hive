@@ -3,7 +3,9 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import ModelsSettings from "@/pages/settings/ModelsSettings";
 import { __resetModelCatalogCacheForTests } from "@/hooks/useModels";
+import { PROVIDER_USAGE_QUERY_KEY } from "@/hooks/useProviderUsage";
 import type { ModelCatalogResponse } from "@/types";
+import { createWrapper } from "../test-utils";
 
 const mocks = vi.hoisted(() => ({
   get: vi.fn(),
@@ -43,6 +45,12 @@ function mockApiGet(catalog: unknown, kimi: { apiKey: string } = { apiKey: "" })
   );
 }
 
+function renderModelsSettings() {
+  const { queryClient, wrapper } = createWrapper();
+  render(<ModelsSettings />, { wrapper });
+  return queryClient;
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   __resetModelCatalogCacheForTests();
@@ -51,7 +59,7 @@ beforeEach(() => {
 describe("ModelsSettings", () => {
   it("renders models grouped by provider with the current default checked", async () => {
     mockApiGet(MOCK_CATALOG);
-    render(<ModelsSettings />);
+    renderModelsSettings();
 
     expect(await screen.findByText("Claude Code")).toBeInTheDocument();
     expect(screen.getByText("Codex")).toBeInTheDocument();
@@ -62,7 +70,7 @@ describe("ModelsSettings", () => {
   it("saves the clicked model as the new default", async () => {
     mockApiGet(MOCK_CATALOG);
     mocks.put.mockResolvedValue({ defaultModelId: "claude:sonnet-5" });
-    render(<ModelsSettings />);
+    renderModelsSettings();
 
     await userEvent.click(await screen.findByRole("radio", { name: "Sonnet 5" }));
 
@@ -75,7 +83,7 @@ describe("ModelsSettings", () => {
   it("reverts the selection and shows an error when saving fails", async () => {
     mockApiGet(MOCK_CATALOG);
     mocks.put.mockRejectedValue(new Error("boom"));
-    render(<ModelsSettings />);
+    renderModelsSettings();
 
     await userEvent.click(await screen.findByRole("radio", { name: "Sonnet 5" }));
 
@@ -86,14 +94,14 @@ describe("ModelsSettings", () => {
 
   it("shows an empty state when no provider CLI is available", async () => {
     mockApiGet({ models: [], defaultModelId: "" });
-    render(<ModelsSettings />);
+    renderModelsSettings();
 
     expect(await screen.findByText(/No agent CLI detected/)).toBeInTheDocument();
   });
 
   it("loads the saved Kimi API key into the input", async () => {
     mockApiGet(MOCK_CATALOG, { apiKey: "sk-kimi-key" });
-    render(<ModelsSettings />);
+    renderModelsSettings();
 
     await waitFor(() =>
       expect(screen.getByLabelText("Kimi API key")).toHaveValue("sk-kimi-key"),
@@ -103,13 +111,15 @@ describe("ModelsSettings", () => {
   it("saves the Kimi API key and shows confirmation", async () => {
     mockApiGet(MOCK_CATALOG);
     mocks.put.mockResolvedValue({ apiKey: "sk-new-key" });
-    render(<ModelsSettings />);
+    const queryClient = renderModelsSettings();
+    const invalidateQueries = vi.spyOn(queryClient, "invalidateQueries");
 
     await userEvent.type(await screen.findByLabelText("Kimi API key"), "sk-new-key");
     await userEvent.click(screen.getByRole("button", { name: "Save" }));
 
     expect(mocks.put).toHaveBeenCalledWith("/api/settings/kimi", { apiKey: "sk-new-key" });
     expect(await screen.findByText("Saved")).toBeInTheDocument();
+    expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: PROVIDER_USAGE_QUERY_KEY });
   });
 
   it("refetches the model catalog after saving the Kimi key", async () => {
@@ -128,7 +138,7 @@ describe("ModelsSettings", () => {
       };
       return { apiKey: "sk-new-key" };
     });
-    render(<ModelsSettings />);
+    renderModelsSettings();
 
     expect(await screen.findByText("Claude Code")).toBeInTheDocument();
     expect(screen.queryByRole("radio", { name: "K3" })).not.toBeInTheDocument();
@@ -144,7 +154,7 @@ describe("ModelsSettings", () => {
   it("shows an error when saving the Kimi API key fails", async () => {
     mockApiGet(MOCK_CATALOG);
     mocks.put.mockRejectedValue(new Error("boom"));
-    render(<ModelsSettings />);
+    renderModelsSettings();
 
     await userEvent.type(await screen.findByLabelText("Kimi API key"), "sk-new-key");
     await userEvent.click(screen.getByRole("button", { name: "Save" }));
@@ -159,7 +169,7 @@ describe("ModelsSettings", () => {
         ? new Promise<{ apiKey: string }>((resolve) => { resolveKimi = resolve; })
         : Promise.resolve(MOCK_CATALOG),
     );
-    render(<ModelsSettings />);
+    renderModelsSettings();
 
     expect(await screen.findByText("Loading saved key…")).toBeInTheDocument();
     expect(screen.queryByLabelText("Kimi API key")).not.toBeInTheDocument();
@@ -177,7 +187,7 @@ describe("ModelsSettings", () => {
         ? Promise.reject(new Error("boom"))
         : Promise.resolve(MOCK_CATALOG),
     );
-    render(<ModelsSettings />);
+    renderModelsSettings();
 
     expect(await screen.findByText(/Could not load the saved API key/)).toBeInTheDocument();
     expect(screen.queryByLabelText("Kimi API key")).not.toBeInTheDocument();

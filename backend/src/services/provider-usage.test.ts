@@ -109,18 +109,16 @@ function mockFetchJson(status: number, body: unknown, headers: Record<string, st
 }
 
 // Quota values and timestamps are synthetic. Field names, nesting, and scalar
-// types match the live /coding/v1/usages response captured on 2026-07-23.
+// types match the live /coding/v1/usages response captured on 2026-07-30.
 const SANITIZED_KIMI_LIVE_USAGE_RESPONSE = {
   usage: {
     limit: "100",
-    used: "5",
     remaining: "95",
     resetTime: "2026-07-29T12:00:00Z",
   },
   limits: [{
     detail: {
       limit: "100",
-      used: "20",
       remaining: "80",
       resetTime: "2026-07-23T17:00:00Z",
     },
@@ -826,6 +824,12 @@ describe("provider usage", () => {
         resetsAt: 1784826000,
       },
     ]);
+  });
+
+  it("drops a Kimi bucket when neither used nor remaining is present", () => {
+    expect(__providerUsageTestHooks.parseKimiUsageBuckets({
+      usage: { limit: "100", resetTime: "2026-07-29T12:00:00Z" },
+    })).toEqual([]);
   });
 
   it("accepts snake_case aliases for confirmed Kimi fields", () => {

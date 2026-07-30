@@ -125,8 +125,17 @@ export function createToolAuthStore(options: ToolAuthStoreOptions): ToolAuthStor
 
       const task = handle.done
         .then(async (outcome) => {
+          if (outcome === "connected") {
+            try {
+              await options.onConnected?.(tool);
+            } catch (error) {
+              options.onUnexpectedError?.(
+                tool,
+                new Error(`Provider refresh after ${tool} sign-in failed.`, { cause: error }),
+              );
+            }
+          }
           settle(session, outcome);
-          if (outcome === "connected") await options.onConnected?.(tool);
         })
         .catch((error: unknown) => {
           settle(session, "failed");

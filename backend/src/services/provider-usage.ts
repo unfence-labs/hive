@@ -607,7 +607,9 @@ function parseKimiUsageBucket(
   const limit = asNumericString(usage.limit);
   if (limit === null || limit <= 0) return null;
 
-  const used = asNumericString(usage.used);
+  const remaining = asNumericString(usage.remaining);
+  const used = asNumericString(usage.used)
+    ?? (remaining === null ? null : limit - remaining);
   if (used === null) return null;
 
   return {
