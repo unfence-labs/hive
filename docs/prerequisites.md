@@ -74,8 +74,8 @@ to a second one.
 ### Firewall handling
 
 There is no firewall question. If `ufw` is active, the installer opens only Hive's configured TCP
-port automatically. If no firewall is active, no rule is needed. An active `firewalld` or raw
-`nftables` ruleset blocks the install because Hive cannot configure its policy safely and must not
+port automatically. If no firewall is active, no rule is needed. An active `firewalld` or
+`nftables` service blocks the install because Hive cannot configure its policy safely and must not
 claim success while its port may be closed.
 
 ## What the installer changes
@@ -110,7 +110,7 @@ claim success while its port may be closed.
   checksum pinned in the script before anything is unpacked.
 - **Your firewall policy.** The installer never enables a firewall and never changes its default
   policy. If `ufw` is already active it opens only the configured TCP port. If no firewall is active
-  it does nothing and says so. An active `firewalld` or raw `nftables` ruleset blocks the install
+  it does nothing and says so. An active `firewalld` or `nftables` service blocks the install
   rather than being modified or silently ignored.
 - **Your SSH configuration.** `sshd` is not reconfigured. The only SSH file written on the server is
   `authorized_keys` on the service account the installer created. On your own machine, approving a
