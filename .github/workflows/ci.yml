@@ -83,8 +83,6 @@ jobs:
         run: npm run tauri -- build --debug --no-bundle
 
   ios:
-    # Standard macOS runners are free once the repository is public.
-    if: ${{ github.event.repository.private == false }}
     runs-on: macos-26
 
     steps:

@@ -100,9 +100,8 @@ Public backend surface exposed by route modules under `backend/src/api/`.
 
 - Backend/frontend tests use **Vitest**; iOS uses **Swift Testing**.
 - Tests live next to source: `backend/src/**/*.test.ts`, `frontend/tests/**`, `ios/Tests/**`.
-- CI runs Node lint, typecheck, build, tests, and Rust/Tauri compilation
-  on pushes and pull requests to `main`. Swift tests and the unsigned iOS simulator build run once
-  the repository is public, when standard GitHub-hosted macOS runners are free.
+- CI runs Node lint, typecheck, build, tests, Rust/Tauri compilation, Swift tests, and an unsigned
+  iOS simulator build on pushes and pull requests to `main`.
 - Provisioning has two lanes. `test/provision/contract.sh` (`npm run test:provision`, in CI) asserts the shell and TypeScript error taxonomies stay in sync, that the deliberate departures from the reference install flow stay departed, that the token never reaches a log file, and that shellcheck is clean. `test/provision/e2e-docker.sh` (`npm run test:provision:e2e`) is the Docker lane: it builds a real backend tarball, provisions a bare Ubuntu 24.04 systemd container from it, and proves the backend comes up healthy, rejects a request with no token, and accepts one with the right token. Its `neighbour` mode installs onto a server already running a web server on port 80 and a service on 5432 and proves an outside peer can still reach them afterwards — first with `ufw` installed but inactive, then with `ufw` active under the operator's own policy, where exactly one rule is added and the default policy is untouched. `preflight` compares a filesystem and service-table snapshot before and after, `paths` drives a non-default install and data directory end to end, and `uninstall` proves the generated script removes the install, keeps the data, and removes that too under `--purge`. All modes run on demand via `.github/workflows/provision-e2e.yml`.
 - A maintainer manually dispatches `.github/workflows/release.yml` from `main`. The requested
   version must match `frontend/src-tauri/Cargo.toml`. The workflow reruns release-critical checks,
