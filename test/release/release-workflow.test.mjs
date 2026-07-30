@@ -34,3 +34,15 @@ test("release requires native backends and an Apple Silicon DMG", () => {
     assert.ok(workflow.includes(expected), `missing ${expected}`);
   }
 });
+
+test("release builds the frontend before Tauri", () => {
+  const frontendBuild = workflow.indexOf("- name: Build frontend");
+  const tauriBuild = workflow.indexOf("- name: Build signed and notarized Apple Silicon DMG");
+  assert.match(
+    workflow,
+    /- name: Build frontend\n\s+working-directory: frontend\n\s+run: npm run build/
+  );
+  assert.notEqual(frontendBuild, -1);
+  assert.notEqual(tauriBuild, -1);
+  assert.ok(frontendBuild < tauriBuild);
+});
