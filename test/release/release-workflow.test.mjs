@@ -46,3 +46,9 @@ test("release builds the frontend before Tauri", () => {
   assert.notEqual(tauriBuild, -1);
   assert.ok(frontendBuild < tauriBuild);
 });
+
+test("release notarizes and staples the DMG", () => {
+  assert.match(workflow, /xcrun notarytool submit "\$dmg"[\s\S]*--wait/);
+  assert.match(workflow, /xcrun stapler staple "\$dmg"/);
+  assert.match(workflow, /xcrun stapler validate "\$dmg"/);
+});
