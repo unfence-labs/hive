@@ -208,17 +208,17 @@ firewalld_is_active() {
 
 nftables_is_active() {
   command -v nft >/dev/null 2>&1 &&
-    [ -n "$(nft list ruleset 2>/dev/null || true)" ]
+    systemctl is-active --quiet nftables 2>/dev/null
 }
 
 # Which firewall manager governs the server. Active managers win over merely
 # installed ones, so an inactive ufw package cannot hide an enforcing
-# firewalld or raw nftables ruleset.
+# firewalld or nftables service.
 firewall_backend() {
   if firewalld_is_active; then printf firewalld
   elif ufw_is_active; then printf ufw
   # ufw and firewalld commonly use nftables underneath, so only treat the
-  # ruleset as raw nftables after both managers have been ruled out.
+  # system nftables service as the manager after both have been ruled out.
   elif nftables_is_active; then printf nftables
   elif command -v ufw >/dev/null 2>&1; then printf ufw
   elif command -v firewall-cmd >/dev/null 2>&1; then printf firewalld
@@ -1084,7 +1084,7 @@ title_firewall_rule() { echo "Check the firewall"; }
 # session running the install, with no way back in. Hive only opens its own port
 # when ufw is already enforcing one.
 #
-# Only ufw is modified. An active firewalld or raw nftables ruleset blocks the
+# Only ufw is modified. An active firewalld or nftables service blocks the
 # install because their runtime/permanent and zone semantics cannot be guessed
 # safely, and succeeding with a closed port would leave Hive unusable.
 # Every rule this install added, one per line, appended and never rewritten.

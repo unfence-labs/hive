@@ -547,6 +547,31 @@ fw_open="$(HIVE_LOG_FILE="$WORK/preflight.log.ndjson" bash -c '
 expect "an active ufw reports the automatic port rule" \
   grep -q '"check":"firewall","status":"ok".*"ruleToApply":"ufw allow 9999/tcp"' <<<"$fw_open"
 
+nft_service_detection="$(bash -c '
+  # shellcheck disable=SC1090
+  source "$1"; source "$2"
+  mkdir -p "$3/bin"
+  LOG_FILE="$3/preflight.log"
+  printf "#!/bin/sh\nprintf \"table ip filter {}\\\\n\"\n" >"$3/bin/nft"
+  chmod +x "$3/bin/nft"
+  PATH="$3/bin:$PATH"
+  OPT_PORT=9420
+  firewalld_is_active() { return 1; }
+  ufw_is_active() { return 1; }
+  sudo_nopasswd() { return 0; }
+  systemctl() { return 1; }
+  nftables_is_active && echo inactive-ruleset-active || echo inactive-ruleset-ignored
+  preflight_firewall
+  systemctl() { [ "$1:$2:$3" = "is-active:--quiet:nftables" ]; }
+  nftables_is_active && echo active-service-detected
+' _ "$PROV/lib.sh" "$PROV/steps.sh" "$WORK/nft-service")"
+expect "generated nftables rules are ignored when the nftables service is inactive" \
+  grep -qx inactive-ruleset-ignored <<<"$nft_service_detection"
+expect "preflight accepts generated rules when the nftables service is inactive" \
+  grep -q '"check":"firewall","status":"ok".*"active":false' <<<"$nft_service_detection"
+expect "the active nftables system service is detected" \
+  grep -qx active-service-detected <<<"$nft_service_detection"
+
 raw_nft="$(bash -c '
   # shellcheck disable=SC1090
   source "$1"; source "$2"
@@ -555,7 +580,7 @@ raw_nft="$(bash -c '
   nftables_is_active() { return 0; }
   firewall_backend
 ' _ "$PROV/lib.sh" "$PROV/steps.sh")"
-expect "an inactive ufw installation cannot hide active raw nftables rules" \
+expect "an inactive ufw installation cannot hide the active nftables service" \
   [ "$raw_nft" = nftables ]
 
 fw_unsupported="$(HIVE_LOG_FILE="$WORK/preflight.log.ndjson" bash -c '
