@@ -2,7 +2,7 @@
   "scripts": {
     "setup": "npm install",
     "run": {
-      "backend": "cd backend && DATA_DIR=~/.hive-dev npm run dev",
+      "backend": "cd backend && DATA_DIR=~/.hive-dev HIVE_AUTH_TOKEN=dev npm run dev",
       "frontend": "cd frontend && npm run dev -- --host"
     }
   }
