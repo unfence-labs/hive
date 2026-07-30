@@ -145,6 +145,10 @@ jobs:
 
       - run: npm ci
 
+      - name: Build frontend
+        working-directory: frontend
+        run: npm run build
+
       - name: Build signed and notarized Apple Silicon DMG
         working-directory: frontend
         env:
