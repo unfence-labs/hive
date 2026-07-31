@@ -27,6 +27,7 @@ const mocks = vi.hoisted(() => ({
   disconnectAll: vi.fn(),
   onMessage: vi.fn(() => ({ unsubscribe: vi.fn(), hadBufferedMessages: false })),
   onGlobalMessage: vi.fn(() => vi.fn()),
+  useDesktopUpdate: vi.fn(),
   projects: [] as Array<{
     id: string;
     name: string;
@@ -70,6 +71,10 @@ vi.mock("@/hooks/useProjects", () => ({
     deleteProject: mocks.deleteProject,
     archiveWorkspace: mocks.archiveWorkspace,
   }),
+}));
+
+vi.mock("@/hooks/useDesktopUpdate", () => ({
+  useDesktopUpdate: mocks.useDesktopUpdate,
 }));
 
 vi.mock("@/lib/ws-transport", () => ({
@@ -394,6 +399,9 @@ describe("App", () => {
     expect(mocks.syncWorkspaces).not.toHaveBeenCalled();
     // With no server there is no way out but the welcome screen's own paths.
     expect(screen.queryByRole("button", { name: "cancel installer" })).not.toBeInTheDocument();
+    // The one exception to "nothing else mounts": update checks. A broken old
+    // build stranded on this gate must still be able to update itself.
+    expect(mocks.useDesktopUpdate).toHaveBeenCalled();
   });
 
   it("keeps the gate up once the install stores its connection", async () => {

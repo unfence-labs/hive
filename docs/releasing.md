@@ -34,11 +34,23 @@ Create a GitHub environment named `release`:
 | `APPLE_API_ISSUER` | App Store Connect team API issuer ID |
 | `APPLE_API_KEY` | App Store Connect team API key ID |
 | `APPLE_API_PRIVATE_KEY` | Complete contents of the matching `.p8` private key |
+| `TAURI_SIGNING_PRIVATE_KEY` | Contents of the updater signing private key generated with `npm run tauri -- signer generate`, protected with a password |
+| `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | Password protecting the updater signing private key |
 
 Use an App Store Connect **team** API key for notarization, not an individual API key. Keep local
 backups of the certificate and private keys in a secure credential store. Anyone who obtains the
 certificate and password can sign software as the certificate holder; revoke a compromised API key
 immediately and contact Apple about a compromised Developer ID certificate.
+
+Generate the desktop updater keypair once, from `frontend`, with `npm run tauri -- signer generate`
+writing to a path outside the repository, and choose a strong generated password. The private key
+becomes `TAURI_SIGNING_PRIVATE_KEY` and the password becomes `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`,
+both stored in the same `release` environment; the matching public key is committed as
+`plugins.updater.pubkey` in `frontend/src-tauri/tauri.conf.json` and the two must stay paired.
+Installed clients accept only updates signed by that key, so losing it breaks automatic updates for
+every shipped client and is recoverable only by publishing a build carrying a new public key. Keep a
+secure backup. The keypair can only be rotated safely before the first stable release; afterwards a
+rotation breaks auto-update for every installed client.
 
 The application identifier is permanently `io.419labs.hive`. The distributed desktop supports
 Apple Silicon and macOS 14 or later.
@@ -91,12 +103,21 @@ Expected draft assets:
 ```text
 Hive-<version>-macos-arm64.dmg
 Hive-<version>-macos-arm64.dmg.sha256
+Hive-<version>-macos-arm64.app.tar.gz
+Hive-<version>-macos-arm64.app.tar.gz.sig
+Hive-<version>-macos-arm64.app.tar.gz.sha256
+latest.json
 hive-backend-<version>-linux-x64.tar.gz
 hive-backend-<version>-linux-x64.tar.gz.sha256
 hive-backend-<version>-linux-arm64.tar.gz
 hive-backend-<version>-linux-arm64.tar.gz.sha256
 provision.sh
 ```
+
+The `.app.tar.gz` bundle, its `.sig` signature, and `latest.json` serve the desktop updater.
+Installed apps poll `releases/latest/download/latest.json`, which GitHub resolves only to the
+newest stable release, so prereleases are never offered as automatic updates even though they
+publish the same assets.
 
 GitHub also exposes source `.zip` and `.tar.gz` archives for the release tag.
 
@@ -106,7 +127,7 @@ Before publishing the draft:
 
 1. confirm the tag and target commit match the intended `main` commit;
 2. review the generated notes and labels;
-3. confirm all seven assets exist;
+3. confirm all eleven assets exist;
 4. compare the published checksums with locally calculated SHA-256 values;
 5. install the DMG on a clean Apple Silicon Mac;
 6. confirm Gatekeeper shows only the normal downloaded-from-Internet confirmation;

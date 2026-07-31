@@ -157,12 +157,17 @@ jobs:
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
           APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
           APPLE_API_PRIVATE_KEY: ${{ secrets.APPLE_API_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          # Decrypts the updater signing key. Empty is accepted while the key
+          # is still passwordless; the variable must always be set so the
+          # Tauri CLI never prompts.
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           RELEASE_VERSION: ${{ needs.validate.outputs.version }}
           MACOS_VERSION: ${{ needs.validate.outputs.macos-version }}
           MACOS_BUILD: ${{ needs.validate.outputs.macos-build }}
         shell: bash
         run: |
-          for name in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_API_ISSUER APPLE_API_KEY APPLE_API_PRIVATE_KEY; do
+          for name in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_API_ISSUER APPLE_API_KEY APPLE_API_PRIVATE_KEY TAURI_SIGNING_PRIVATE_KEY; do
             if [ -z "${!name:-}" ]; then
               echo "missing release environment secret: $name" >&2
               exit 1
@@ -196,7 +201,7 @@ jobs:
             '{version: $version, bundle: {macOS: {bundleVersion: $build}}}')"
           npm run tauri build -- \
             --target aarch64-apple-darwin \
-            --bundles dmg \
+            --bundles app,dmg \
             --config "$release_config"
 
           generated_dir="src-tauri/target/aarch64-apple-darwin/release/bundle/dmg"
@@ -230,9 +235,34 @@ jobs:
           xcrun stapler staple "$dmg"
           xcrun stapler validate "$dmg"
 
+          updater_dir="src-tauri/target/aarch64-apple-darwin/release/bundle/macos"
+          tarball_count="$(find "$updater_dir" -maxdepth 1 -type f -name '*.app.tar.gz' | wc -l | tr -d ' ')"
+          test "$tarball_count" = 1
+          signature_count="$(find "$updater_dir" -maxdepth 1 -type f -name '*.app.tar.gz.sig' | wc -l | tr -d ' ')"
+          test "$signature_count" = 1
+          generated_tarball="$(find "$updater_dir" -maxdepth 1 -type f -name '*.app.tar.gz' -print -quit)"
+          generated_signature="$(find "$updater_dir" -maxdepth 1 -type f -name '*.app.tar.gz.sig' -print -quit)"
+          tarball="../dist-release/Hive-$RELEASE_VERSION-macos-arm64.app.tar.gz"
+          cp "$generated_tarball" "$tarball"
+          cp "$generated_signature" "$tarball.sig"
+          node ../scripts/release/verify-updater-signature.mjs \
+            "$tarball" \
+            "$tarball.sig" \
+            src-tauri/tauri.conf.json
+
+          # The updater signature exists only in this job, so latest.json is written here.
+          jq -n \
+            --arg version "$RELEASE_VERSION" \
+            --arg pub_date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --arg signature "$(cat "$tarball.sig")" \
+            --arg url "https://github.com/unfence-labs/hive/releases/download/v$RELEASE_VERSION/Hive-$RELEASE_VERSION-macos-arm64.app.tar.gz" \
+            '{version: $version, pub_date: $pub_date, platforms: {"darwin-aarch64": {signature: $signature, url: $url}}}' \
+            > ../dist-release/latest.json
+
           (
             cd ../dist-release
             shasum -a 256 "$(basename "$dmg")" > "$(basename "$dmg").sha256"
+            shasum -a 256 "$(basename "$tarball")" > "$(basename "$tarball").sha256"
           )
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -241,6 +271,10 @@ jobs:
           path: |
             dist-release/Hive-${{ needs.validate.outputs.version }}-macos-arm64.dmg
             dist-release/Hive-${{ needs.validate.outputs.version }}-macos-arm64.dmg.sha256
+            dist-release/Hive-${{ needs.validate.outputs.version }}-macos-arm64.app.tar.gz
+            dist-release/Hive-${{ needs.validate.outputs.version }}-macos-arm64.app.tar.gz.sig
+            dist-release/Hive-${{ needs.validate.outputs.version }}-macos-arm64.app.tar.gz.sha256
+            dist-release/latest.json
           if-no-files-found: error
 
   draft-release:
@@ -270,13 +304,17 @@ jobs:
             "hive-backend-$VERSION-linux-arm64.tar.gz.sha256" \
             "Hive-$VERSION-macos-arm64.dmg" \
             "Hive-$VERSION-macos-arm64.dmg.sha256" \
+            "Hive-$VERSION-macos-arm64.app.tar.gz" \
+            "Hive-$VERSION-macos-arm64.app.tar.gz.sig" \
+            "Hive-$VERSION-macos-arm64.app.tar.gz.sha256" \
+            "latest.json" \
             "provision.sh"; do
             test -f "release/$asset" || {
               echo "missing release asset: $asset" >&2
               exit 1
             }
           done
-          test "$(find release -type f | wc -l)" = 7
+          test "$(find release -type f | wc -l)" = 11
 
       - name: Create draft GitHub release
         uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
