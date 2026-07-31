@@ -5,6 +5,7 @@ import {
   type ToolAuthState,
 } from "@hive/shared/setup-types";
 import { detectAvailableProviders } from "../../../agents/providers/registry.js";
+import { invalidateProviderUsage } from "../../provider-usage.js";
 import { runCommand } from "../command.js";
 import { defaultDetectDeps, detectTool, type DetectDeps, type ToolDetection } from "../detect.js";
 import { findToolSpec } from "../catalog.js";
@@ -12,7 +13,6 @@ import { claudeAuthFlow } from "./claude.js";
 import { codexAuthFlow, recoverCodexCredential } from "./codex.js";
 import { githubAuthFlow } from "./github.js";
 import { ToolAuthError, type AuthFlow, type AuthFlowHandle } from "./flow.js";
-import { makeClaudeTokenWriter } from "./secrets.js";
 
 /** How long a finished sign-in stays on the panel before it is forgotten. */
 const DEFAULT_RETENTION_MS = 10 * 60_000;
@@ -26,7 +26,7 @@ export type ToolAuthFlows = Partial<Record<SetupToolId, ToolAuthFlowSpec>>;
 export interface ToolAuthStoreOptions {
   flows: ToolAuthFlows;
   /** Called after a sign-in lands, so anything gated on providers re-reads. */
-  onConnected?: () => Promise<void>;
+  onConnected?: (tool: SetupToolId) => Promise<void>;
   onUnexpectedError?: (tool: SetupToolId, error: unknown) => void;
   now?: () => number;
   retentionMs?: number;
@@ -124,8 +124,17 @@ export function createToolAuthStore(options: ToolAuthStoreOptions): ToolAuthStor
 
       const task = handle.done
         .then(async (outcome) => {
+          if (outcome === "connected") {
+            try {
+              await options.onConnected?.(tool);
+            } catch (error) {
+              options.onUnexpectedError?.(
+                tool,
+                new Error(`Provider refresh after ${tool} sign-in failed.`, { cause: error }),
+              );
+            }
+          }
           settle(session, outcome);
-          if (outcome === "connected") await options.onConnected?.();
         })
         .catch((error: unknown) => {
           settle(session, "failed");
@@ -186,7 +195,6 @@ export function createToolAuthStore(options: ToolAuthStoreOptions): ToolAuthStor
  * any way but connected.
  */
 export function defaultToolAuthStore(
-  dataDir: string,
   onUnexpectedError?: (tool: SetupToolId, error: unknown) => void,
 ): ToolAuthStore {
   const detectDeps: DetectDeps = defaultDetectDeps();
@@ -199,13 +207,17 @@ export function defaultToolAuthStore(
   });
 
   return createToolAuthStore({
-    onConnected: detectAvailableProviders,
+    onConnected: async (tool) => {
+      if (tool === "claude" || tool === "codex") {
+        invalidateProviderUsage(tool);
+      }
+      await detectAvailableProviders();
+    },
     onUnexpectedError,
     flows: {
       claude: {
         flow: claudeAuthFlow({
           detect: () => detect("claude"),
-          writeToken: makeClaudeTokenWriter(dataDir),
         }),
       },
       codex: {

@@ -194,7 +194,7 @@ export const TOOL_AUTH_FAILURE_HINTS: Record<ToolAuthFailureReason, string> = {
     "The installed CLI is too old for this sign-in flow. Update it above, then try again.",
   command_failed: "The sign-in command ran and failed. The output below says why.",
   no_credential:
-    "The sign-in finished but left no usable credential. Start it again, or paste a token directly.",
+    "The sign-in finished but left no usable credential. Start it again.",
 };
 
 export interface ToolAuthFailure {

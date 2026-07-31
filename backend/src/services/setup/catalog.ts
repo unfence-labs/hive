@@ -10,6 +10,8 @@ export interface SetupToolSpec {
   command: string;
   /** npm package backing install and update; empty when Hive does not manage it. */
   npmPackage: string;
+  /** Model provider hidden from the catalog while this tool is signed out. */
+  authenticatedProviderId?: string;
 }
 
 /**
@@ -25,12 +27,14 @@ export const SETUP_TOOLS: readonly SetupToolSpec[] = [
     label: PROVIDER_LABELS.claude,
     command: "claude",
     npmPackage: NPM_PACKAGES.claude,
+    authenticatedProviderId: "claude",
   },
   {
     id: "codex",
     label: PROVIDER_LABELS.codex,
     command: "codex",
     npmPackage: NPM_PACKAGES.codex,
+    authenticatedProviderId: "codex",
   },
   { id: "gh", label: "GitHub CLI", command: "gh", npmPackage: "" },
 ];

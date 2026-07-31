@@ -5,6 +5,7 @@ import { git } from "../utils/git.js";
 import {
   createGitHubRepository,
   deleteGitHubRepository,
+  resolveGitHubCloneUrl,
   validateGitHubRepositoryName,
 } from "../utils/github.js";
 import { bareRepoPath } from "../utils/paths.js";
@@ -28,6 +29,7 @@ export async function createProject(
     // Tests use local fixture paths as clone sources.
     allowLocalPath: process.env.NODE_ENV === "test",
   });
+  const cloneUrl = await resolveGitHubCloneUrl(validatedUrl);
 
   const id = `proj-${nanoid(8)}`;
   const bare = bareRepoPath(dataDir, id);
@@ -35,14 +37,14 @@ export async function createProject(
   const logsDir = join(dataDir, id, "logs");
 
   await mkdir(join(dataDir, id), { recursive: true });
-  await git(["clone", "--bare", validatedUrl, bare]);
+  await git(["clone", "--bare", cloneUrl, bare]);
   await mkdir(wsDir, { recursive: true });
   await mkdir(logsDir, { recursive: true });
 
   const state: ProjectState = {
     id,
-    name: extractRepoName(validatedUrl),
-    url: validatedUrl,
+    name: extractRepoName(cloneUrl),
+    url: cloneUrl,
     createdAt: new Date().toISOString(),
     workspaces: [],
   };
@@ -62,9 +64,9 @@ async function createGitHubRepo(
   // Point the bare repo at the new remote and push the initial commit.
   // If any post-create step fails, delete the GitHub repo so we don't leave orphans.
   try {
-    await git(["remote", "add", "origin", repo.sshUrl], bare);
+    await git(["remote", "add", "origin", repo.url], bare);
     await git(["push", "--all", "origin"], bare);
-    return repo.sshUrl;
+    return repo.url;
   } catch (err) {
     await deleteGitHubRepository(repo.fullName).catch(() => {});
     throw err;

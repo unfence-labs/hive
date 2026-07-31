@@ -21,7 +21,7 @@ export interface CommandResult {
 export type RunCommand = (
   command: string,
   args: string[],
-  opts?: { timeoutMs?: number },
+  opts?: { timeoutMs?: number; env?: NodeJS.ProcessEnv },
 ) => Promise<CommandResult>;
 
 /**
@@ -34,6 +34,7 @@ export const runCommand: RunCommand = async (command, args, opts = {}) => {
     const { stdout, stderr } = await execFile(command, args, {
       timeout: opts.timeoutMs ?? DEFAULT_COMMAND_TIMEOUT_MS,
       maxBuffer: MAX_BUFFER_BYTES,
+      env: opts.env,
     });
     return { stdout, stderr, exitCode: 0, timedOut: false };
   } catch (error) {

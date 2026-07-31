@@ -127,9 +127,9 @@ Native clients do not send an `Origin` header and are unaffected.
 
 ## Update a manual installation
 
-This procedure applies only to a source checkout that you manage yourself. It does not update a
-backend installed by `provision.sh`; provisioned V1 installations deliberately reject in-place
-updates.
+This procedure applies only to a source checkout that you manage yourself. For a backend installed
+by `provision.sh`, use the target release's `provision.sh --update` flow documented in
+[Getting Started](getting-started.md#update-the-backend).
 
 Back up the configured data directory before changing versions. Build the new version before
 restarting the running process, and keep the previous tag available for rollback.

@@ -120,6 +120,7 @@ struct HiveApp: App {
                     if let bg = backgroundedAt {
                         let elapsed = Date().timeIntervalSince(bg)
                         projectStore.statusMonitor.appDidBecomeActive()
+                        Task { await modelCatalog.load() }
                         if elapsed > 30 {
                             Task { await projectStore.refresh(force: true) }
                         }

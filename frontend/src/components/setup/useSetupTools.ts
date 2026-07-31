@@ -10,6 +10,7 @@ import {
 import type { KnownProvider } from "@/components/chat/ProviderIcon";
 import { createSetupApi, type SetupApiTarget } from "@/lib/setup-api";
 import { refreshModelCatalog } from "@/hooks/useModels";
+import { PROVIDER_USAGE_QUERY_KEY } from "@/hooks/useProviderUsage";
 
 /** How often a running operation is re-read. Installs take minutes, not ms. */
 const POLL_INTERVAL_MS = 2_000;
@@ -148,12 +149,14 @@ export function useSetupTools(target?: SetupApiTarget) {
       actedOn.set(scope, watched);
     }
     let finished = false;
+    let catalogChanged = false;
+    let providerUsageChanged = false;
     for (const operation of operations) {
       if (operation.status === "running") {
         watched.add(operation.id);
       } else if (watched.delete(operation.id)) {
         finished = true;
-        if (operation.status === "succeeded") void refreshModelCatalog();
+        if (operation.status === "succeeded") catalogChanged = true;
       }
     }
     for (const session of authSessions) {
@@ -162,7 +165,17 @@ export function useSetupTools(target?: SetupApiTarget) {
         watched.add(key);
       } else if (watched.delete(key)) {
         finished = true;
+        if (session.state === "connected") {
+          catalogChanged = true;
+          if (TOOL_PROVIDERS[session.tool] !== undefined) {
+            providerUsageChanged = true;
+          }
+        }
       }
+    }
+    if (catalogChanged) void refreshModelCatalog();
+    if (providerUsageChanged) {
+      void queryClient.invalidateQueries({ queryKey: PROVIDER_USAGE_QUERY_KEY });
     }
     if (finished) void queryClient.invalidateQueries({ queryKey: toolsKey });
   }, [operations, authSessions, queryClient, toolsKey, scope]);

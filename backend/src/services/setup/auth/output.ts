@@ -118,27 +118,6 @@ export function parseOAuthError(input: string): string | undefined {
   return message || undefined;
 }
 
-/** Long-lived Claude tokens. Also the shape validated before anything is stored. */
-export const CLAUDE_TOKEN_RE = /sk-ant-oat01-[A-Za-z0-9_-]{16,}/;
-
-/**
- * Find the Claude token in terminal output.
- *
- * A second pass runs over the output with whitespace removed. The Claude CLI
- * positions words with cursor-column escapes rather than spaces, so a token it
- * prints can arrive split across what look like separate words; joining them
- * back up recovers it. The un-joined pass runs first so a normally-printed
- * token is never mangled by the fallback.
- */
-export function parseClaudeToken(input: string): string | undefined {
-  const clean = stripAnsi(input);
-  for (const text of [clean, clean.replace(/\s+/g, "")]) {
-    const match = text.match(CLAUDE_TOKEN_RE);
-    if (match) return match[0];
-  }
-  return undefined;
-}
-
 /**
  * Remove anything credential-shaped, so output can be shown and logged.
  *

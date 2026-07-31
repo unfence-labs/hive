@@ -134,7 +134,10 @@ describe("github sign-in", () => {
     );
     expect(stdin).toEqual(["gho_token_123\n"]);
     expect(mocks._resetGhState).toHaveBeenCalled();
-    expect(mocks.gh).toHaveBeenCalledWith(["auth", "setup-git"]);
+    expect(mocks.gh.mock.calls).toEqual([
+      [["config", "set", "git_protocol", "https", "--host", "github.com"]],
+      [["auth", "setup-git", "--hostname", "github.com"]],
+    ]);
   });
 
   it("polls at GitHub's pace and slows down when told to", async () => {

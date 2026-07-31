@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import Fastify, { type FastifyInstance } from "fastify";
@@ -27,8 +27,6 @@ import {
 } from "../services/setup/operations.js";
 import type { ToolsServiceDeps } from "../services/setup/tools-service.js";
 import { setupRoutes } from "./setup.js";
-
-const VALID_CLAUDE_TOKEN = "sk-ant-oat01-AbC123_dEf456-GhI789jklMNO";
 
 let app: FastifyInstance;
 let dataDir: string;
@@ -61,7 +59,7 @@ function makeDeps(probes: Record<string, CommandResult>): ToolsServiceDeps {
   return {
     prefix: "/home/hive/.local",
     run,
-    detect: { env: {}, run },
+    detect: { run },
     fetchLatestVersion: async () => null,
     onToolsChanged: async () => {},
   };
@@ -246,7 +244,7 @@ describe("operation visibility", () => {
       }
       return missing();
     };
-    deps.detect = { env: {}, run: deps.run };
+    deps.detect = { run: deps.run };
     store = await createToolOperationStore({ dataDir });
     await app.register((instance: FastifyInstance) =>
       setupRoutes(instance, { dataDir, deps, store }),
@@ -459,6 +457,83 @@ describe("POST /api/setup/auth/:tool/start", () => {
     expect(body.authSessions[0]).toMatchObject({ tool: "gh", state: "connected" });
   });
 
+  it("reports a tool as connected only after provider state is refreshed", async () => {
+    const codex = scriptedFlow({
+      verificationUri: "https://auth.openai.com/codex/device",
+      userCode: "ABCD-1234",
+    });
+    let finishRefresh!: () => void;
+    const refresh = new Promise<void>((resolve) => {
+      finishRefresh = resolve;
+    });
+    let markRefreshStarted!: () => void;
+    const refreshStarted = new Promise<void>((resolve) => {
+      markRefreshStarted = resolve;
+    });
+    const onConnected = vi.fn(async () => {
+      markRefreshStarted();
+      await refresh;
+    });
+    await build(
+      {},
+      createToolAuthStore({
+        flows: { codex: { flow: codex.flow } },
+        onConnected,
+      }),
+    );
+    await app.inject({ method: "POST", url: "/api/setup/auth/codex/start" });
+
+    codex.finish("connected");
+    await refreshStarted;
+
+    expect(onConnected).toHaveBeenCalledOnce();
+    const refreshing = (await app.inject({ method: "GET", url: "/api/setup/status" }))
+      .json<SetupStatusResponse>();
+    expect(refreshing.authSessions[0]).toMatchObject({
+      tool: "codex",
+      state: "awaiting_authorization",
+    });
+
+    finishRefresh();
+    await authStore.whenIdle();
+
+    expect(onConnected).toHaveBeenCalledWith("codex");
+    const refreshed = (await app.inject({ method: "GET", url: "/api/setup/status" }))
+      .json<SetupStatusResponse>();
+    expect(refreshed.authSessions[0]).toMatchObject({ tool: "codex", state: "connected" });
+  });
+
+  it("keeps a successful sign-in connected when provider refresh fails", async () => {
+    const codex = scriptedFlow({
+      verificationUri: "https://auth.openai.com/codex/device",
+      userCode: "ABCD-1234",
+    });
+    const refreshError = new Error("refresh failed");
+    const onUnexpectedError = vi.fn();
+    await build(
+      {},
+      createToolAuthStore({
+        flows: { codex: { flow: codex.flow } },
+        onConnected: async () => { throw refreshError; },
+        onUnexpectedError,
+      }),
+    );
+    await app.inject({ method: "POST", url: "/api/setup/auth/codex/start" });
+
+    codex.finish("connected");
+    await authStore.whenIdle();
+
+    const status = (await app.inject({ method: "GET", url: "/api/setup/status" }))
+      .json<SetupStatusResponse>();
+    expect(status.authSessions[0]).toMatchObject({ tool: "codex", state: "connected" });
+    const reportedError = onUnexpectedError.mock.calls[0]?.[1];
+    expect(reportedError).toBeInstanceOf(Error);
+    expect(reportedError).toMatchObject({
+      message: "Provider refresh after codex sign-in failed.",
+      cause: refreshError,
+    });
+  });
+
   it("rejects a sign-in for a tool the store has no flow for", async () => {
     await build();
     const res = await app.inject({ method: "POST", url: "/api/setup/auth/gh/start" });
@@ -611,36 +686,5 @@ describe("a sign-in that fails", () => {
     const body = (await app.inject({ method: "GET", url: "/api/setup/tools" })).json<ToolsResponse>();
     expect(body.authSessions[0]).toMatchObject({ state: "expired" });
     expect(body.authSessions[0].failure).toBeUndefined();
-  });
-});
-
-describe("POST /api/setup/auth/claude/token", () => {
-  it("stores a token pasted directly", async () => {
-    await build();
-
-    const res = await app.inject({
-      method: "POST",
-      url: "/api/setup/auth/claude/token",
-      payload: { token: `  ${VALID_CLAUDE_TOKEN}  ` },
-    });
-
-    expect(res.statusCode).toBe(200);
-    const stored = JSON.parse(
-      await readFile(join(dataDir, "config.json"), "utf-8"),
-    ) as { claudeCodeOAuthToken: string };
-    expect(stored.claudeCodeOAuthToken).toBe(VALID_CLAUDE_TOKEN);
-  });
-
-  it("rejects something that is not a token without echoing it back", async () => {
-    await build();
-
-    const res = await app.inject({
-      method: "POST",
-      url: "/api/setup/auth/claude/token",
-      payload: { token: "sk-ant-oat01-nearly-but-not" },
-    });
-
-    expect(res.statusCode).toBe(400);
-    expect(res.json().error).not.toContain("sk-ant");
   });
 });

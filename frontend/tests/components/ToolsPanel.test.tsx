@@ -76,8 +76,11 @@ function respond(response: Partial<ToolsResponse>): void {
 }
 
 function renderPanel() {
-  const { wrapper } = createWrapper();
-  return render(<ToolsPanel />, { wrapper });
+  const { queryClient, wrapper } = createWrapper();
+  return {
+    queryClient,
+    ...render(<ToolsPanel />, { wrapper }),
+  };
 }
 
 beforeEach(() => {
@@ -181,6 +184,56 @@ describe("ToolsPanel", () => {
     renderPanel();
 
     expect(await screen.findByRole("heading", { name: "Claude Code" })).toBeInTheDocument();
+    expect(mocks.refreshModelCatalog).not.toHaveBeenCalled();
+  });
+
+  it("refreshes the model catalog when a sign-in connects", async () => {
+    const connecting = session({
+      tool: "codex",
+      state: "awaiting_authorization",
+      verificationUri: "https://auth.openai.com/codex/device",
+    });
+    respond({
+      tools: [tool({ id: "codex", label: "Codex", installed: true })],
+      authSessions: [connecting],
+    });
+
+    const { queryClient } = renderPanel();
+    const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
+    expect(await screen.findByText("Waiting for authorization…")).toBeInTheDocument();
+    expect(mocks.refreshModelCatalog).not.toHaveBeenCalled();
+
+    respond({
+      tools: [tool({ id: "codex", label: "Codex", installed: true, authenticated: true })],
+      authSessions: [{ ...connecting, state: "connected" }],
+    });
+
+    await waitFor(() => expect(mocks.refreshModelCatalog).toHaveBeenCalledTimes(1), {
+      timeout: 5_000,
+    });
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["provider-usage"] });
+  });
+
+  it("does not refresh the model catalog when a sign-in expires", async () => {
+    const connecting = session({
+      tool: "codex",
+      state: "awaiting_authorization",
+      verificationUri: "https://auth.openai.com/codex/device",
+    });
+    respond({
+      tools: [tool({ id: "codex", label: "Codex", installed: true })],
+      authSessions: [connecting],
+    });
+
+    renderPanel();
+    expect(await screen.findByText("Waiting for authorization…")).toBeInTheDocument();
+
+    respond({
+      tools: [tool({ id: "codex", label: "Codex", installed: true })],
+      authSessions: [{ ...connecting, state: "expired" }],
+    });
+
+    await screen.findByText(/code expired before it was confirmed/i, {}, { timeout: 5_000 });
     expect(mocks.refreshModelCatalog).not.toHaveBeenCalled();
   });
 

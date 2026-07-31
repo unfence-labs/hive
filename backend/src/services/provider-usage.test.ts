@@ -28,6 +28,7 @@ vi.mock("node:fs/promises", () => ({
 import {
   __providerUsageTestHooks,
   getProviderUsageSnapshot,
+  invalidateProviderUsage,
 } from "./provider-usage.js";
 
 function createMockStream(): EventEmitter & { push(data: string): void } {
@@ -103,18 +104,16 @@ function mockFetchJson(status: number, body: unknown, headers: Record<string, st
 }
 
 // Quota values and timestamps are synthetic. Field names, nesting, and scalar
-// types match the live /coding/v1/usages response captured on 2026-07-23.
+// types match the live /coding/v1/usages response captured on 2026-07-30.
 const SANITIZED_KIMI_LIVE_USAGE_RESPONSE = {
   usage: {
     limit: "100",
-    used: "5",
     remaining: "95",
     resetTime: "2026-07-29T12:00:00Z",
   },
   limits: [{
     detail: {
       limit: "100",
-      used: "20",
       remaining: "80",
       resetTime: "2026-07-23T17:00:00Z",
     },
@@ -144,9 +143,11 @@ describe("provider usage", () => {
         version: "2.1.170",
       },
     ]);
+    mocks.readFile.mockReset();
     mocks.readFile.mockResolvedValue(JSON.stringify({
       claudeAiOauth: {
         accessToken: "test-token",
+        scopes: ["user:inference", "user:profile"],
       },
     }));
   });
@@ -318,6 +319,58 @@ describe("provider usage", () => {
       status: "unknown",
       buckets: [],
       message: "Codex sign-in expired. Run `codex login`.",
+    });
+  });
+
+  it("restarts the Codex usage client after the connected account changes", async () => {
+    const firstProc = createMockProcess();
+    const secondProc = createMockProcess();
+    mocks.spawn
+      .mockReturnValueOnce(firstProc)
+      .mockReturnValueOnce(secondProc);
+    mocks.getAllProviderInfo.mockReturnValue([
+      {
+        id: "codex",
+        label: "Codex",
+        npmPackage: "@openai/codex",
+        installed: true,
+        version: "1.0.0",
+      },
+    ]);
+
+    const firstResultPromise = getProviderUsageSnapshot();
+    const firstInit = findMethod(firstProc, "initialize");
+    firstProc._stdout.push(appServerResponse(firstInit.id, {}));
+    await flushPromises();
+    const firstRead = findMethod(firstProc, "account/rateLimits/read");
+    firstProc._stdout.push(JSON.stringify({
+      id: firstRead.id,
+      error: {
+        code: -32603,
+        message: "failed to fetch codex rate limits: 401 Unauthorized",
+      },
+    }) + "\n");
+    await firstResultPromise;
+
+    invalidateProviderUsage("codex");
+
+    expect(firstProc.kill).toHaveBeenCalledWith("SIGTERM");
+    const secondResultPromise = getProviderUsageSnapshot();
+    const secondInit = findMethod(secondProc, "initialize");
+    secondProc._stdout.push(appServerResponse(secondInit.id, {}));
+    await flushPromises();
+    const secondRead = findMethod(secondProc, "account/rateLimits/read");
+    secondProc._stdout.push(appServerResponse(secondRead.id, {
+      primary: { usedPercent: 14, windowDurationMins: 300 },
+    }));
+
+    const secondResult = await secondResultPromise;
+
+    expect(mocks.spawn).toHaveBeenCalledTimes(2);
+    expect(secondResult.providers[0]).toMatchObject({
+      id: "codex",
+      status: "available",
+      buckets: [{ id: "codex:primary", usedPercent: 14 }],
     });
   });
 
@@ -523,12 +576,8 @@ describe("provider usage", () => {
 
   // Field names, nesting, and null-vs-populated keys mirror the live /api/oauth/usage response
   // captured on 2026-07-28 (claude-code 2.1.217). Percentages are synthetic.
-  it("parses the per-model Claude limits that the legacy top-level keys no longer carry", () => {
+  it("parses Claude account-wide and per-model limits", () => {
     expect(__providerUsageTestHooks.parseClaudeUsageBuckets({
-      five_hour: { utilization: 2, resets_at: "2026-07-29T02:50:00Z" },
-      seven_day: { utilization: 34, resets_at: "2026-08-04T05:00:00Z" },
-      seven_day_opus: null,
-      seven_day_sonnet: null,
       limits: [
         {
           kind: "session",
@@ -574,16 +623,7 @@ describe("provider usage", () => {
     ]);
   });
 
-  it("falls back to the legacy Claude usage keys when the response carries no limits", () => {
-    expect(__providerUsageTestHooks.parseClaudeUsageBuckets({
-      five_hour: { utilization: 42, resets_at: "2026-06-10T17:00:00Z" },
-      limits: [],
-    })).toMatchObject([
-      { id: "five_hour", label: "5h", usedPercent: 42 },
-    ]);
-  });
-
-  it("reports an expired Claude sign-in without calling the usage endpoint", async () => {
+  it("reports an expired Claude token as self-refreshing without calling the usage endpoint", async () => {
     mocks.readFile.mockResolvedValue(JSON.stringify({
       claudeAiOauth: {
         accessToken: "expired-token",
@@ -597,54 +637,22 @@ describe("provider usage", () => {
       id: "claude",
       status: "unknown",
       buckets: [],
-      message: "Claude sign-in expired. Run `claude` to refresh the token.",
+      message: "Claude session token expired. It refreshes automatically on the next Claude run.",
     });
     expect(fetch).not.toHaveBeenCalled();
   });
 
-  it("parses Claude OAuth usage windows", () => {
-    expect(__providerUsageTestHooks.parseClaudeUsageBuckets({
-      five_hour: { utilization: 42, resets_at: "2026-06-10T17:00:00Z" },
-      seven_day: { utilization: 61, resets_at: "2026-06-15T17:00:00Z" },
-      seven_day_sonnet: { utilization: 1, resets_at: "2026-06-15T17:00:00Z" },
-      seven_day_opus: { utilization: 0.42, resets_at: "2026-06-15T17:00:00Z" },
-      extra_usage: { utilization: null },
-    })).toEqual([
-      {
-        id: "five_hour",
-        label: "5h",
-        usedPercent: 42,
-        windowDurationMins: 300,
-        resetsAt: 1781110800,
-      },
-      {
-        id: "seven_day",
-        label: "7d",
-        usedPercent: 61,
-        windowDurationMins: 10080,
-        resetsAt: 1781542800,
-      },
-      {
-        id: "seven_day_sonnet",
-        label: "7d Sonnet",
-        usedPercent: 1,
-        windowDurationMins: 10080,
-        resetsAt: 1781542800,
-      },
-      {
-        id: "seven_day_opus",
-        label: "7d Opus",
-        usedPercent: 0.4,
-        windowDurationMins: 10080,
-        resetsAt: 1781542800,
-      },
-    ]);
-  });
-
   it("reads Claude usage from the OAuth usage endpoint", async () => {
     mockFetchJson(200, {
-      five_hour: { utilization: 25, resets_at: "2026-06-10T17:00:00Z" },
-      seven_day_sonnet: { utilization: 4, resets_at: "2026-06-15T17:00:00Z" },
+      limits: [
+        { kind: "session", percent: 25, resets_at: "2026-06-10T17:00:00Z" },
+        {
+          kind: "weekly_scoped",
+          percent: 4,
+          resets_at: "2026-06-15T17:00:00Z",
+          scope: { model: { display_name: "Sonnet" } },
+        },
+      ],
     });
 
     const result = await getProviderUsageSnapshot();
@@ -654,8 +662,8 @@ describe("provider usage", () => {
       id: "claude",
       status: "available",
       buckets: [
-        { id: "five_hour", usedPercent: 25 },
-        { id: "seven_day_sonnet", usedPercent: 4 },
+        { id: "session", usedPercent: 25 },
+        { id: "weekly_scoped:sonnet", usedPercent: 4 },
       ],
     });
     expect(fetch).toHaveBeenCalledWith("https://api.anthropic.com/api/oauth/usage", expect.objectContaining({
@@ -667,8 +675,13 @@ describe("provider usage", () => {
     }));
   });
 
-  it("reports unknown Claude usage when OAuth credentials are missing", async () => {
-    mocks.readFile.mockRejectedValue(new Error("missing"));
+  it("does not call the usage endpoint when the saved sign-in lacks account access", async () => {
+    mocks.readFile.mockResolvedValue(JSON.stringify({
+      claudeAiOauth: {
+        accessToken: "inference-only-token",
+        scopes: ["user:inference"],
+      },
+    }));
 
     const result = await getProviderUsageSnapshot();
 
@@ -676,6 +689,74 @@ describe("provider usage", () => {
       id: "claude",
       status: "unknown",
       buckets: [],
+      message: "Reconnect Claude in Settings to grant account usage access.",
+    });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("drops cached Claude usage after the connected account changes", async () => {
+    mocks.readFile.mockResolvedValueOnce(JSON.stringify({
+      claudeAiOauth: {
+        accessToken: "first-token",
+        scopes: ["user:inference", "user:profile"],
+      },
+    }));
+    mockFetchJson(200, {
+      limits: [{ kind: "session", percent: 18, resets_at: "2026-06-10T17:00:00Z" }],
+    });
+    await getProviderUsageSnapshot();
+
+    invalidateProviderUsage("claude");
+    mocks.readFile.mockResolvedValueOnce(JSON.stringify({
+      claudeAiOauth: {
+        accessToken: "second-token",
+        scopes: ["user:inference", "user:profile"],
+      },
+    }));
+    mockFetchJson(200, {
+      limits: [{ kind: "session", percent: 7, resets_at: "2026-06-10T17:00:00Z" }],
+    });
+
+    const result = await getProviderUsageSnapshot();
+
+    expect(result.providers[0]).toMatchObject({
+      id: "claude",
+      status: "available",
+      buckets: [{ id: "session", usedPercent: 7 }],
+    });
+    expect(fetch).toHaveBeenCalledWith("https://api.anthropic.com/api/oauth/usage", expect.objectContaining({
+      headers: expect.objectContaining({
+        Authorization: "Bearer second-token",
+      }),
+    }));
+  });
+
+  it("turns a profile-scope rejection into a sign-in action", async () => {
+    mockFetchJson(403, {
+      type: "permission_error",
+      message: "OAuth token does not meet scope requirement user:profile",
+    });
+
+    const result = await getProviderUsageSnapshot();
+
+    expect(result.providers[0]).toMatchObject({
+      id: "claude",
+      status: "unknown",
+      buckets: [],
+      message: "Reconnect Claude in Settings to grant account usage access.",
+    });
+  });
+
+  it("reports unknown Claude usage when OAuth credentials are missing", async () => {
+    mocks.readFile.mockRejectedValue(new Error("missing"));
+
+    const result = await getProviderUsageSnapshot();
+
+    expect(result.providers[0]).toMatchObject({
+      id: "claude",
+      status: "unavailable",
+      buckets: [],
+      message: "Claude is not signed in.",
     });
     expect(fetch).not.toHaveBeenCalled();
   });
@@ -717,6 +798,12 @@ describe("provider usage", () => {
         resetsAt: 1784826000,
       },
     ]);
+  });
+
+  it("drops a Kimi bucket when neither used nor remaining is present", () => {
+    expect(__providerUsageTestHooks.parseKimiUsageBuckets({
+      usage: { limit: "100", resetTime: "2026-07-29T12:00:00Z" },
+    })).toEqual([]);
   });
 
   it("accepts snake_case aliases for confirmed Kimi fields", () => {

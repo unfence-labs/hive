@@ -21,7 +21,11 @@ const DEFAULT_ID = "violet";
 const listeners = new Set<() => void>();
 
 function getSnapshot(): string {
-  return localStorage.getItem(STORAGE_KEY) ?? DEFAULT_ID;
+  try {
+    return localStorage.getItem(STORAGE_KEY) ?? DEFAULT_ID;
+  } catch {
+    return DEFAULT_ID;
+  }
 }
 
 function getServerSnapshot(): string {
@@ -38,8 +42,13 @@ function applyAccent(id: string) {
   document.documentElement.style.setProperty("--hive-accent", option.color);
 }
 
-// Apply on module load so the accent is set before first render
-applyAccent(getSnapshot());
+// Called from main.tsx so the stored accent is applied before the first render.
+// This module is otherwise only imported by the lazily loaded Appearance page,
+// so relying on a module-load side effect would leave the accent at its CSS
+// fallback until that route is visited.
+export function initAccentColor() {
+  applyAccent(getSnapshot());
+}
 
 export function useAccentColor() {
   const accentId = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);

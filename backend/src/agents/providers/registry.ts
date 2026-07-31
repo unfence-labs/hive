@@ -58,7 +58,7 @@ export function parseVersionFromOutput(stdout: string): string | null {
 
 /**
  * Probe which provider CLIs are installed.
- * Called once at startup (from preflight or main).
+ * Callers must await completion before publishing state that triggers catalog or usage reads.
  */
 export async function detectAvailableProviders(): Promise<void> {
   availableProviderIds.clear();
@@ -155,12 +155,17 @@ export function isThinkingLevelSupportedForModel(
   return resolved ? modelThinkingLevels(resolved.provider, resolved.model).includes(thinkingLevel) : false;
 }
 
+export interface ModelCatalogOptions {
+  excludedProviderIds?: ReadonlySet<string>;
+}
+
 /** Build the model catalog for the frontend, only including available providers. */
-export function getModelCatalog(): ModelCatalogResponse {
+export function getModelCatalog(options: ModelCatalogOptions = {}): ModelCatalogResponse {
   const models: ModelCatalogEntry[] = [];
 
   for (const provider of ALL_PROVIDERS) {
     if (!availableProviderIds.has(provider.id)) continue;
+    if (options.excludedProviderIds?.has(provider.id)) continue;
     // Kimi needs a stored API key on top of the (claude) CLI: without one the
     // Moonshot endpoint can't authenticate, so hide it from the picker. Checked
     // at catalog build time so saving a key takes effect without a restart.
