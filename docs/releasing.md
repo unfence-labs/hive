@@ -140,6 +140,22 @@ Before publishing the draft:
 For a prerelease test, use its direct tag URLs because `/releases/latest` resolves only to a stable
 release. Publish the draft only after the relevant smoke tests pass.
 
+## Smoke-test a desktop update
+
+This workflow is an occasional validation tool, not part of every release. Use it before the first
+stable release or after changing the updater, its signing key, or the macOS packaging. For ordinary
+stable releases, test by updating an older installed version of Hive normally.
+
+After publishing a beta, run the `updater smoke test` workflow from `main`, enter its exact version,
+and approve the `release` environment. It uploads a signed and notarized test DMG as an Actions
+artifact retained for seven days; it does not create or modify a GitHub release.
+
+Install that DMG on a test Mac. Its embedded version is `0.0.0` and its updater points directly to
+the selected release, including a prerelease. Open Hive, accept the update notification, and confirm
+that the app downloads the update, restarts successfully, and does not offer the same update again.
+On a separate pass, dismiss the notification and confirm that release stays dismissed after an app
+restart; a newer release should still be offered.
+
 Creating the draft also creates its tag. If a draft is wrong, correct the code through another pull
 request and use a new prerelease version. If a published release is wrong, document the issue and
 publish a new version. Never replace assets or move an existing tag.

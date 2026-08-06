@@ -1,0 +1,159 @@
+name: updater smoke test
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_version:
+        description: Published version to test (for example 0.1.0-beta.5)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    outputs:
+      endpoint: ${{ steps.target.outputs.endpoint }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - id: target
+        name: Validate published updater target
+        env:
+          TARGET_VERSION: ${{ inputs.target_version }}
+        shell: bash
+        run: |
+          if [ "$GITHUB_REF" != "refs/heads/main" ]; then
+            echo "updater smoke tests must be dispatched from main, not $GITHUB_REF" >&2
+            exit 1
+          fi
+
+          node scripts/release/release-version.mjs macos "$TARGET_VERSION" >/dev/null
+          endpoint="https://github.com/unfence-labs/hive/releases/download/v$TARGET_VERSION/latest.json"
+          manifest="$(curl -fsSL "$endpoint")"
+          manifest_version="$(jq -r '.version // empty' <<< "$manifest")"
+          updater_url="$(jq -r '.platforms["darwin-aarch64"].url // empty' <<< "$manifest")"
+          signature="$(jq -r '.platforms["darwin-aarch64"].signature // empty' <<< "$manifest")"
+
+          if [ "$manifest_version" != "$TARGET_VERSION" ]; then
+            echo "updater manifest version is '$manifest_version', expected '$TARGET_VERSION'" >&2
+            exit 1
+          fi
+          if [ -z "$updater_url" ] || [ -z "$signature" ]; then
+            echo "updater manifest is missing the Apple Silicon URL or signature" >&2
+            exit 1
+          fi
+          curl -fsIL "$updater_url" >/dev/null
+          echo "endpoint=$endpoint" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: validate
+    runs-on: macos-26
+    timeout-minutes: 60
+    environment:
+      name: release
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+
+      - name: Build frontend
+        working-directory: frontend
+        run: npm run build
+
+      - name: Build signed and notarized smoke-test DMG
+        working-directory: frontend
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_PRIVATE_KEY: ${{ secrets.APPLE_API_PRIVATE_KEY }}
+          TARGET_VERSION: ${{ inputs.target_version }}
+          UPDATE_ENDPOINT: ${{ needs.validate.outputs.endpoint }}
+        shell: bash
+        run: |
+          for name in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_API_ISSUER APPLE_API_KEY APPLE_API_PRIVATE_KEY; do
+            if [ -z "${!name:-}" ]; then
+              echo "missing release environment secret: $name" >&2
+              exit 1
+            fi
+          done
+          case "$APPLE_API_KEY" in
+            *[!A-Za-z0-9]*)
+              echo "APPLE_API_KEY must contain only letters and digits" >&2
+              exit 1
+              ;;
+          esac
+
+          export APPLE_API_KEY_PATH="$RUNNER_TEMP/AuthKey_${APPLE_API_KEY}.p8"
+          mount_point=""
+          cleanup() {
+            if [ -n "$mount_point" ]; then
+              hdiutil detach "$mount_point" >/dev/null 2>&1 || true
+            fi
+            rm -f -- "$APPLE_API_KEY_PATH"
+          }
+          trap cleanup EXIT
+
+          umask 077
+          printf '%s' "$APPLE_API_PRIVATE_KEY" > "$APPLE_API_KEY_PATH"
+          unset APPLE_API_PRIVATE_KEY
+          test -s "$APPLE_API_KEY_PATH"
+
+          rustup target add aarch64-apple-darwin
+          macos_build="$(git rev-list --count HEAD)"
+          smoke_config="$(jq -cn \
+            --arg endpoint "$UPDATE_ENDPOINT" \
+            --arg build "$macos_build" \
+            '{version: "0.0.0", bundle: {createUpdaterArtifacts: false, macOS: {bundleVersion: $build}}, plugins: {updater: {endpoints: [$endpoint]}}}')"
+          npm run tauri build -- \
+            --target aarch64-apple-darwin \
+            --bundles dmg \
+            --config "$smoke_config"
+
+          generated_dir="src-tauri/target/aarch64-apple-darwin/release/bundle/dmg"
+          generated_count="$(find "$generated_dir" -maxdepth 1 -type f -name '*.dmg' | wc -l | tr -d ' ')"
+          test "$generated_count" = 1
+          generated_dmg="$(find "$generated_dir" -maxdepth 1 -type f -name '*.dmg' -print -quit)"
+          mkdir -p ../dist-smoke
+          dmg="../dist-smoke/Hive-updater-smoke-to-$TARGET_VERSION-macos-arm64.dmg"
+          cp "$generated_dmg" "$dmg"
+
+          mount_point="$RUNNER_TEMP/hive-updater-smoke-dmg"
+          mkdir -p "$mount_point"
+          hdiutil attach "$dmg" -readonly -nobrowse -mountpoint "$mount_point"
+          app="$mount_point/Hive.app"
+          test -d "$app"
+          test "$(lipo -archs "$app/Contents/MacOS/Hive")" = arm64
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Contents/Info.plist")" = io.419labs.hive
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app/Contents/Info.plist")" = 0.0.0
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$app/Contents/Info.plist")" = "$macos_build"
+          codesign --verify --deep --strict --verbose=2 "$app"
+          spctl --assess --type execute --verbose=2 "$app"
+          hdiutil detach "$mount_point"
+          mount_point=""
+
+          xcrun notarytool submit "$dmg" \
+            --key "$APPLE_API_KEY_PATH" \
+            --key-id "$APPLE_API_KEY" \
+            --issuer "$APPLE_API_ISSUER" \
+            --wait
+          xcrun stapler staple "$dmg"
+          xcrun stapler validate "$dmg"
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: updater-smoke-client-to-${{ inputs.target_version }}
+          path: dist-smoke/*.dmg
+          if-no-files-found: error
+          retention-days: 7
