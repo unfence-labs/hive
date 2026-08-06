@@ -60,7 +60,7 @@ function lastToast(): { props: HiveToastProps; options: ToastOptions } {
 }
 
 function makeUpdate(version: string, downloadAndInstall = defaultDownload()) {
-  return { version, downloadAndInstall };
+  return { version, downloadAndInstall, close: vi.fn(async () => {}) };
 }
 
 function defaultDownload() {
@@ -75,6 +75,7 @@ describe("useDesktopUpdate", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.useFakeTimers();
+    localStorage.clear();
     setDesktopShell(true);
     // The hook only checks release builds; vitest runs in dev mode.
     vi.stubEnv("PROD", true);
@@ -187,10 +188,13 @@ describe("useDesktopUpdate", () => {
   });
 
   it("does not re-show a dismissed version, but announces a newer one", async () => {
-    mocks.check.mockResolvedValue(makeUpdate("1.2.3"));
+    const dismissedUpdate = makeUpdate("1.2.3");
+    mocks.check.mockResolvedValue(dismissedUpdate);
     await renderUpdateHook();
 
-    act(() => lastToast().options.onDismiss?.());
+    act(() => lastToast().props.onClose());
+    expect(mocks.dismiss).toHaveBeenCalledWith("hive-app-update");
+    expect(dismissedUpdate.close).toHaveBeenCalledTimes(1);
     mocks.custom.mockClear();
 
     await act(async () => {
@@ -199,12 +203,55 @@ describe("useDesktopUpdate", () => {
     await settle();
     expect(mocks.custom).not.toHaveBeenCalled();
 
-    mocks.check.mockResolvedValue(makeUpdate("1.3.0"));
+    const newerUpdate = makeUpdate("1.3.0");
+    mocks.check.mockResolvedValue(newerUpdate);
     await act(async () => {
       vi.advanceTimersByTime(CHECK_INTERVAL_MS);
     });
     await settle();
     expect(lastToast().props.description).toBe("Version 1.3.0 is available");
+  });
+
+  it("remembers a dismissed version after remounting", async () => {
+    const firstUpdate = makeUpdate("1.2.3");
+    mocks.check.mockResolvedValue(firstUpdate);
+    const { unmount } = await renderUpdateHook();
+
+    act(() => lastToast().props.onClose());
+    unmount();
+    mocks.custom.mockClear();
+
+    const repeatedUpdate = makeUpdate("1.2.3");
+    mocks.check.mockResolvedValue(repeatedUpdate);
+    await renderUpdateHook();
+
+    expect(mocks.custom).not.toHaveBeenCalled();
+    expect(repeatedUpdate.close).toHaveBeenCalledTimes(1);
+  });
+
+  it("releases the active update when the hook unmounts", async () => {
+    const update = makeUpdate("1.2.3");
+    mocks.check.mockResolvedValue(update);
+    const { unmount } = await renderUpdateHook();
+
+    unmount();
+
+    expect(update.close).toHaveBeenCalledTimes(1);
+  });
+
+  it("releases the previous update when a later check replaces it", async () => {
+    const firstUpdate = makeUpdate("1.2.3");
+    const secondUpdate = makeUpdate("1.2.3");
+    mocks.check.mockResolvedValueOnce(firstUpdate).mockResolvedValueOnce(secondUpdate);
+    await renderUpdateHook();
+
+    await act(async () => {
+      vi.advanceTimersByTime(CHECK_INTERVAL_MS);
+    });
+    await settle();
+
+    expect(firstUpdate.close).toHaveBeenCalledTimes(1);
+    expect(secondUpdate.close).not.toHaveBeenCalled();
   });
 
   it("stops checking after unmount", async () => {

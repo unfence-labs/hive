@@ -9,6 +9,7 @@ type Update = NonNullable<Awaited<ReturnType<typeof import("@tauri-apps/plugin-u
 
 /** One toast for the whole flow: available → downloading → installing → failed. */
 const UPDATE_TOAST_ID = "hive-app-update";
+const DISMISSED_UPDATE_VERSION_KEY = "hive-dismissed-update-version";
 const CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000;
 
 /**
@@ -38,7 +39,10 @@ function showUpdateToast(args: {
         description={args.description}
         actionLabel={args.actionLabel}
         onAction={args.onAction}
-        onClose={() => toast.dismiss(id)}
+        onClose={() => {
+          args.onDismiss?.();
+          toast.dismiss(id);
+        }}
       />
     ),
     {
@@ -65,11 +69,18 @@ export function useDesktopUpdate(): void {
   const dismissedVersionRef = useRef<string | null>(null);
   const checkingRef = useRef(false);
   const installingRef = useRef(false);
+  const updateRef = useRef<Update | null>(null);
 
   useEffect(() => {
     if (!shouldCheckForUpdates()) return;
 
     let active = true;
+    dismissedVersionRef.current = window.localStorage.getItem(DISMISSED_UPDATE_VERSION_KEY);
+
+    const releaseUpdate = (update: Update) => {
+      if (updateRef.current === update) updateRef.current = null;
+      void update.close().catch((error) => console.warn("Failed to release update:", error));
+    };
 
     /** Re-renders the sticky toast in place; no action while it runs. */
     const showProgress = (description: string) => {
@@ -129,8 +140,13 @@ export function useDesktopUpdate(): void {
       try {
         const { check } = await import("@tauri-apps/plugin-updater");
         const update = await check();
-        if (!active || !update) return;
-        if (dismissedVersionRef.current === update.version) return;
+        if (!update) return;
+        if (!active || dismissedVersionRef.current === update.version) {
+          releaseUpdate(update);
+          return;
+        }
+        if (updateRef.current) releaseUpdate(updateRef.current);
+        updateRef.current = update;
         showUpdateToast({
           variant: "success",
           status: "UPDATE",
@@ -141,6 +157,8 @@ export function useDesktopUpdate(): void {
           // Closing it answers "not this version"; a later release asks again.
           onDismiss: () => {
             dismissedVersionRef.current = update.version;
+            window.localStorage.setItem(DISMISSED_UPDATE_VERSION_KEY, update.version);
+            releaseUpdate(update);
           },
         });
       } catch (error) {
@@ -156,6 +174,7 @@ export function useDesktopUpdate(): void {
     return () => {
       active = false;
       window.clearInterval(timer);
+      if (updateRef.current && !installingRef.current) releaseUpdate(updateRef.current);
     };
   }, []);
 }
