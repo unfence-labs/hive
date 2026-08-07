@@ -7,6 +7,7 @@ import {
   ChevronRight,
   CircleUser,
   Cpu,
+  Download,
   FileCode2,
   FileText,
   Folder,
@@ -98,6 +99,12 @@ export default function SettingsSidebar() {
               label="Notifications"
               icon={<Bell className="h-4 w-4" />}
               active={pathname === "/settings/notifications"}
+            />
+            <NavItem
+              to="/settings/updates"
+              label="Updates"
+              icon={<Download className="h-4 w-4" />}
+              active={pathname === "/settings/updates"}
             />
           </SidebarSection>
 
