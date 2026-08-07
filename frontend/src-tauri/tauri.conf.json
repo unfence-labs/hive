@@ -27,6 +27,7 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "createUpdaterArtifacts": true,
     "resources": {
       "../../LICENSE": "LICENSE"
     },
@@ -40,5 +41,13 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ]
+  },
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://github.com/unfence-labs/hive/releases/latest/download/latest.json"
+      ],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDc4OUNGRkFGRjFGOEEwNjgKUldSb29QanhyLytjZUk1WU45VE9XNThlVFRUV0MxMkh4empGRW5CaE1Ld244NmRqYUN1RndWLzEK"
+    }
   }
 }

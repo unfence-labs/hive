@@ -55,6 +55,7 @@ fn open_terminal_ssh(terminal_id: String, command: String) -> Result<(), String>
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_process::init())
         .invoke_handler(tauri::generate_handler![
             detect_terminals,
             open_terminal_ssh,
@@ -66,6 +67,10 @@ pub fn run() {
         ])
         .setup(|app| {
             app.manage(provision::ProvisionState::default());
+            // The updater ships installers, which only exist on desktop.
+            #[cfg(desktop)]
+            app.handle()
+                .plugin(tauri_plugin_updater::Builder::new().build())?;
             if cfg!(debug_assertions) {
                 app.handle().plugin(
                     tauri_plugin_log::Builder::default()

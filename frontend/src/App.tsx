@@ -14,6 +14,7 @@ import { WorkspaceLiveDataProvider } from "@/contexts/WorkspaceLiveDataContext";
 import { useWsCacheInvalidation } from "@/hooks/useWsCacheInvalidation";
 import { useActiveSessionPrewarm } from "@/hooks/useActiveSessionPrewarm";
 import { useNotificationToasts } from "@/hooks/useNotificationToasts";
+import { useDesktopUpdate } from "@/hooks/useDesktopUpdate";
 import { wsTransport } from "@/lib/ws-transport";
 import { HiveToaster } from "@/components/ui/toaster";
 
@@ -70,20 +71,26 @@ export default function App() {
   }, [requiresSetup]);
   const closeInstaller = useCallback(() => setInstaller(null), []);
 
-  if (installer === "gate") {
-    return (
-      <Suspense fallback={<BootScreen />}>
-        <Installer onClose={closeInstaller} />
-      </Suspense>
-    );
-  }
+  // App-level, not ConfiguredApp-level: an installed build stuck on the
+  // installer gate must still be offered updates — that gate is exactly where
+  // a broken old build would strand its user.
+  useDesktopUpdate();
 
   return (
-    <ConfiguredApp
-      installerOpen={installer === "overlay"}
-      onOpenInstaller={() => setInstaller("overlay")}
-      onCloseInstaller={closeInstaller}
-    />
+    <>
+      <HiveToaster />
+      {installer === "gate" ? (
+        <Suspense fallback={<BootScreen />}>
+          <Installer onClose={closeInstaller} />
+        </Suspense>
+      ) : (
+        <ConfiguredApp
+          installerOpen={installer === "overlay"}
+          onOpenInstaller={() => setInstaller("overlay")}
+          onCloseInstaller={closeInstaller}
+        />
+      )}
+    </>
   );
 }
 
@@ -132,7 +139,6 @@ function ConfiguredApp({
   return (
     <BrowserRouter>
       <WorkspaceLiveDataProvider workspaceIds={workspaceIds}>
-        <HiveToaster />
         <WorkspaceLauncher
           pickerOpen={workspaceFrom.open}
           pickerProjectId={workspaceFrom.projectId}

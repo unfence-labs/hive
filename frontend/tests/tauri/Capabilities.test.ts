@@ -54,6 +54,14 @@ describe("Tauri default capability", () => {
     expect(stringPermissions).toContain("opener:default");
   });
 
+  it("includes the permissions the auto-updater needs to install and relaunch", async () => {
+    await loadCapability();
+
+    const stringPermissions = capability.permissions.filter((p) => typeof p === "string");
+    expect(stringPermissions).toContain("updater:default");
+    expect(stringPermissions).toContain("process:default");
+  });
+
   it("includes core:window drag permissions", async () => {
     await loadCapability();
 

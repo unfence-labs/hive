@@ -6,6 +6,10 @@ const workflow = await readFile(
   new URL("../../.github/workflows/release.yml", import.meta.url),
   "utf8",
 );
+const updaterSmokeWorkflow = await readFile(
+  new URL("../../.github/workflows/updater-smoke.yml", import.meta.url),
+  "utf8",
+);
 
 test("release is a main-only manual workflow", () => {
   assert.match(workflow, /workflow_dispatch:/);
@@ -47,8 +51,37 @@ test("release builds the frontend before Tauri", () => {
   assert.ok(frontendBuild < tauriBuild);
 });
 
+test("release signs and publishes the desktop updater artifacts", () => {
+  for (const expected of [
+    "TAURI_SIGNING_PRIVATE_KEY",
+    "secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD",
+    "macos-arm64.app.tar.gz.sig",
+    "macos-arm64.app.tar.gz.sha256",
+    "latest.json",
+    "verify-updater-signature.mjs",
+  ]) {
+    assert.ok(workflow.includes(expected), `missing ${expected}`);
+  }
+});
+
 test("release notarizes and staples the DMG", () => {
   assert.match(workflow, /xcrun notarytool submit "\$dmg"[\s\S]*--wait/);
   assert.match(workflow, /xcrun stapler staple "\$dmg"/);
   assert.match(workflow, /xcrun stapler validate "\$dmg"/);
+});
+
+test("updater smoke test is manual, main-only, and cannot publish", () => {
+  assert.match(updaterSmokeWorkflow, /workflow_dispatch:/);
+  assert.match(updaterSmokeWorkflow, /GITHUB_REF.*refs\/heads\/main/);
+  assert.match(updaterSmokeWorkflow, /permissions:\s*\n\s+contents: read/);
+  assert.doesNotMatch(updaterSmokeWorkflow, /contents: write/);
+  assert.doesNotMatch(updaterSmokeWorkflow, /action-gh-release/);
+});
+
+test("updater smoke test builds a protected disposable baseline", () => {
+  assert.match(updaterSmokeWorkflow, /environment:\s*\n\s+name: release/);
+  assert.match(updaterSmokeWorkflow, /version: "0\.0\.0"/);
+  assert.match(updaterSmokeWorkflow, /createUpdaterArtifacts: false/);
+  assert.match(updaterSmokeWorkflow, /releases\/download\/v\$TARGET_VERSION\/latest\.json/);
+  assert.doesNotMatch(updaterSmokeWorkflow, /TAURI_SIGNING_PRIVATE_KEY/);
 });

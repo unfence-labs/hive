@@ -67,7 +67,7 @@ export function HiveToast({
             {status}
           </span>
         </div>
-        <p className="mt-0.5 truncate text-xs leading-5 text-muted-foreground">{description}</p>
+        <p className="mt-0.5 line-clamp-2 text-xs leading-5 text-muted-foreground">{description}</p>
       </div>
       {actionLabel ? (
         <button
