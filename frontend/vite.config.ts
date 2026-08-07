@@ -11,7 +11,7 @@ export default defineConfig({
   plugins: [react(), tailwindcss({ optimize: false })],
   resolve: {
     alias: {
-      "@": path.resolve(__dirname, "./src"),
+      "@": path.resolve(import.meta.dirname, "./src"),
     },
   },
   clearScreen: false,
@@ -42,18 +42,16 @@ export default defineConfig({
       process.env.TAURI_ENV_PLATFORM === "windows"
         ? "chrome105"
         : "safari13",
-    minify: !process.env.TAURI_ENV_DEBUG ? "esbuild" : false,
+    minify: !process.env.TAURI_ENV_DEBUG ? "oxc" : false,
     sourcemap: !!process.env.TAURI_ENV_DEBUG,
-    rollupOptions: {
+    rolldownOptions: {
       output: {
-        manualChunks: {
-          react: [
-            "react",
-            "react-dom",
-            "react-dom/client",
-            "react-router",
-            "react-router-dom",
-            "scheduler",
+        codeSplitting: {
+          groups: [
+            {
+              name: "react",
+              test: /node_modules\/(?:react|react-dom|react-router|react-router-dom|scheduler)\//,
+            },
           ],
         },
       },

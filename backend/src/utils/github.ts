@@ -121,8 +121,8 @@ export async function createGitHubRepository(
 
   const repoName = validateGitHubRepositoryName(name);
 
-  let owner = "";
-  let fullName = "";
+  let owner: string;
+  let fullName: string;
   try {
     const { stdout: login } = await ghClient(["api", "user", "--jq", ".login"]);
     owner = login.trim();
@@ -130,7 +130,7 @@ export async function createGitHubRepository(
     fullName = `${owner}/${repoName}`;
     await ghClient(["repo", "create", fullName, `--${visibility}`]);
   } catch (err) {
-    throw new Error(formatGhFailure(err));
+    throw new Error(formatGhFailure(err), { cause: err });
   }
 
   // The repo now exists. Any failure past this point must delete it so a
@@ -153,7 +153,7 @@ export async function createGitHubRepository(
     return { owner, name: repoName, fullName, url };
   } catch (err) {
     await deleteGitHubRepository(fullName, ghClient).catch(() => {});
-    throw new Error(formatGhFailure(err));
+    throw new Error(formatGhFailure(err), { cause: err });
   }
 }
 
@@ -403,8 +403,10 @@ async function ghJson<T>(args: string[], ghClient: GhClient): Promise<T> {
     const { stdout } = await ghClient(args, { timeoutMs: GH_LIST_TIMEOUT_MS });
     return JSON.parse(stdout) as T;
   } catch (err) {
-    if (err instanceof SyntaxError) throw new Error("GitHub CLI returned unexpected output");
-    throw new Error(formatGhFailure(err));
+    if (err instanceof SyntaxError) {
+      throw new Error("GitHub CLI returned unexpected output", { cause: err });
+    }
+    throw new Error(formatGhFailure(err), { cause: err });
   }
 }
 
