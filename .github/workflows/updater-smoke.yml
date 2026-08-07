@@ -111,6 +111,7 @@ jobs:
           test -s "$APPLE_API_KEY_PATH"
 
           rustup target add aarch64-apple-darwin
+          node ../scripts/release/release-version.mjs set 0.0.0
           macos_build="$(git rev-list --count HEAD)"
           smoke_config="$(jq -cn \
             --arg endpoint "$UPDATE_ENDPOINT" \

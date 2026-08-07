@@ -79,9 +79,17 @@ test("updater smoke test is manual, main-only, and cannot publish", () => {
 });
 
 test("updater smoke test builds a protected disposable baseline", () => {
+  const cargoVersionOverride = updaterSmokeWorkflow.indexOf(
+    "node ../scripts/release/release-version.mjs set 0.0.0",
+  );
+  const tauriBuild = updaterSmokeWorkflow.indexOf("npm run tauri build");
+
   assert.match(updaterSmokeWorkflow, /environment:\s*\n\s+name: release/);
   assert.match(updaterSmokeWorkflow, /version: "0\.0\.0"/);
   assert.match(updaterSmokeWorkflow, /createUpdaterArtifacts: false/);
   assert.match(updaterSmokeWorkflow, /releases\/download\/v\$TARGET_VERSION\/latest\.json/);
   assert.doesNotMatch(updaterSmokeWorkflow, /TAURI_SIGNING_PRIVATE_KEY/);
+  assert.notEqual(cargoVersionOverride, -1);
+  assert.notEqual(tauriBuild, -1);
+  assert.ok(cargoVersionOverride < tauriBuild);
 });

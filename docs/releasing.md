@@ -150,11 +150,11 @@ After publishing a beta, run the `updater smoke test` workflow from `main`, ente
 and approve the `release` environment. It uploads a signed and notarized test DMG as an Actions
 artifact retained for seven days; it does not create or modify a GitHub release.
 
-Install that DMG on a test Mac. Its embedded version is `0.0.0` and its updater points directly to
-the selected release, including a prerelease. Open Hive, accept the update notification, and confirm
-that the app downloads the update, restarts successfully, and does not offer the same update again.
-On a separate pass, dismiss the notification and confirm that release stays dismissed after an app
-restart; a newer release should still be offered.
+Install that DMG on a test Mac. The workflow sets its Cargo and macOS bundle versions to `0.0.0` and
+points its updater directly to the selected release, including a prerelease. Open Hive, accept the
+update notification, and confirm that the app downloads the update, restarts successfully, and does
+not offer the same update again. On a separate pass, dismiss the notification and confirm that
+release stays dismissed after an app restart; a newer release should still be offered.
 
 Creating the draft also creates its tag. If a draft is wrong, correct the code through another pull
 request and use a new prerelease version. If a published release is wrong, document the issue and
