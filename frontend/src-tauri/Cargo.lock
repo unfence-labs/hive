@@ -1570,6 +1570,7 @@ version = "0.1.0-beta.5"
 dependencies = [
  "dirs",
  "log",
+ "semver",
  "serde",
  "serde_json",
  "tauri",
