@@ -1,66 +1,15 @@
-import { memo, useCallback, useMemo, useSyncExternalStore, type ReactNode } from "react";
+import { memo, useCallback, useMemo, type ReactNode } from "react";
 import { FileTextIcon } from "lucide-react";
 import { FileDiff } from "@pierre/diffs/react";
-import {
-  getFiletypeFromFileName,
-  preloadHighlighter,
-  type DiffLineAnnotation,
-  type FileDiffMetadata,
-  type SelectedLineRange,
+import type {
+  DiffLineAnnotation,
+  FileDiffMetadata,
+  SelectedLineRange,
 } from "@pierre/diffs";
 import { cn } from "@/lib/utils";
 
 const UNSAFE_CSS =
   "pre { font-family: var(--font-mono, ui-monospace, monospace) !important; font-size: 13px !important; line-height: 1.5 !important; }";
-const DIFF_THEMES = { dark: "github-dark", light: "github-light" } as const;
-type HighlighterStatus = "loading" | "ready" | "error";
-interface HighlighterResource {
-  getSnapshot: () => HighlighterStatus;
-  subscribe: (listener: () => void) => () => void;
-}
-
-const highlighterResources = new Map<string, HighlighterResource>();
-
-function getHighlighterResource(fileName: string): HighlighterResource {
-  const language = getFiletypeFromFileName(fileName);
-  const cachedResource = highlighterResources.get(language);
-  if (cachedResource) return cachedResource;
-
-  let status: HighlighterStatus = "loading";
-  let started = false;
-  const listeners = new Set<() => void>();
-  const updateStatus = (nextStatus: HighlighterStatus) => {
-    status = nextStatus;
-    listeners.forEach((listener) => listener());
-  };
-  const start = () => {
-    if (started) return;
-    started = true;
-
-    preloadHighlighter({
-      themes: [DIFF_THEMES.dark, DIFF_THEMES.light],
-      langs: [language],
-    }).then(
-      () => updateStatus("ready"),
-      () => {
-        highlighterResources.delete(language);
-        updateStatus("error");
-      },
-    );
-  };
-
-  const resource: HighlighterResource = {
-    getSnapshot: () => status,
-    subscribe: (listener) => {
-      listeners.add(listener);
-      start();
-      return () => listeners.delete(listener);
-    },
-  };
-  highlighterResources.set(language, resource);
-
-  return resource;
-}
 
 function diffStatusColor(type: string): string {
   switch (type) {
@@ -106,16 +55,9 @@ function FileDiffCardComponent<TMeta>({
   onLineSelected,
   renderAnnotation,
 }: FileDiffCardProps<TMeta>) {
-  const highlighterResource = getHighlighterResource(fileName);
-  const highlighterStatus = useSyncExternalStore(
-    highlighterResource.subscribe,
-    highlighterResource.getSnapshot,
-    highlighterResource.getSnapshot,
-  );
-
   const options = useMemo(
     () => ({
-      theme: DIFF_THEMES,
+      theme: { dark: "github-dark" as const, light: "github-light" as const },
       themeType,
       diffStyle,
       enableLineSelection: Boolean(onLineSelected),
@@ -151,12 +93,6 @@ function FileDiffCardComponent<TMeta>({
       </div>
       {isEmpty ? (
         <div className="px-4 py-8 text-center text-sm text-muted-foreground">Empty file</div>
-      ) : highlighterStatus === "error" ? (
-        <div className="px-4 py-8 text-center text-sm text-destructive">
-          Unable to load syntax highlighting
-        </div>
-      ) : highlighterStatus === "loading" ? (
-        <div className="px-4 py-8 text-center text-sm text-muted-foreground">Loading diff...</div>
       ) : (
         <FileDiff
           fileDiff={fileDiff}
