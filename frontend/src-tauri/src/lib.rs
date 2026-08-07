@@ -18,6 +18,13 @@ pub struct TerminalApp {
     name: String,
 }
 
+/// The full Cargo SemVer. The macOS bundle version is numeric-only, so the
+/// JS-side `getVersion()` drops prerelease suffixes and cannot be used.
+#[tauri::command]
+fn app_version() -> &'static str {
+    env!("CARGO_PKG_VERSION")
+}
+
 #[tauri::command]
 fn detect_terminals() -> Vec<TerminalApp> {
     let mut terminals = vec![TerminalApp {
@@ -64,6 +71,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_process::init())
         .invoke_handler(tauri::generate_handler![
+            app_version,
             detect_terminals,
             open_terminal_ssh,
             provision::provision_list_keys,

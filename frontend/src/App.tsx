@@ -33,6 +33,7 @@ const PromptTemplatesSettings = lazy(() => import("@/pages/settings/PromptTempla
 const SkillsSettings = lazy(() => import("@/pages/settings/SkillsSettings"));
 const InstructionsSettings = lazy(() => import("@/pages/settings/InstructionsSettings"));
 const SubagentsSettings = lazy(() => import("@/pages/settings/SubagentsSettings"));
+const UpdatesSettings = lazy(() => import("@/pages/settings/UpdatesSettings"));
 const CreateAutomationDialog = lazy(() => import("@/components/CreateAutomationDialog"));
 const Installer = lazy(() => import("@/pages/installer/Installer"));
 
@@ -204,6 +205,7 @@ function ConfiguredApp({
                 />
               )}
               <Route path="settings/notifications" element={<NotificationSettings />} />
+              <Route path="settings/updates" element={<UpdatesSettings />} />
               <Route path="settings/cli" element={<AgentSettings />} />
               <Route path="settings/models" element={<ModelsSettings />} />
               <Route path="settings/instructions" element={<InstructionsSettings />} />
