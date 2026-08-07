@@ -5,6 +5,13 @@ use std::path::Path;
 use std::process::Command;
 use tauri::Manager;
 
+#[cfg(desktop)]
+fn update_is_newer_than(current_version: &str, update_version: &semver::Version) -> bool {
+    let current_version = semver::Version::parse(current_version)
+        .expect("Cargo package version must be valid SemVer");
+    update_version > &current_version
+}
+
 #[derive(Serialize)]
 pub struct TerminalApp {
     id: String,
@@ -69,8 +76,14 @@ pub fn run() {
             app.manage(provision::ProvisionState::default());
             // The updater ships installers, which only exist on desktop.
             #[cfg(desktop)]
-            app.handle()
-                .plugin(tauri_plugin_updater::Builder::new().build())?;
+            app.handle().plugin(
+                tauri_plugin_updater::Builder::new()
+                    .default_version_comparator(|_, update| {
+                        // The macOS bundle uses a numeric version; Cargo keeps the full SemVer.
+                        update_is_newer_than(env!("CARGO_PKG_VERSION"), &update.version)
+                    })
+                    .build(),
+            )?;
             if cfg!(debug_assertions) {
                 app.handle().plugin(
                     tauri_plugin_log::Builder::default()
@@ -82,4 +95,23 @@ pub fn run() {
         })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(all(test, desktop))]
+mod tests {
+    use super::update_is_newer_than;
+    use semver::Version;
+
+    #[test]
+    fn compares_updates_against_the_cargo_prerelease_version() {
+        let stable = Version::parse("0.1.0").unwrap();
+        let newer_prerelease = Version::parse("0.1.0-beta.6").unwrap();
+        let current_prerelease = Version::parse("0.1.0-beta.5").unwrap();
+        let older_prerelease = Version::parse("0.1.0-beta.4").unwrap();
+
+        assert!(update_is_newer_than("0.1.0-beta.5", &stable));
+        assert!(update_is_newer_than("0.1.0-beta.5", &newer_prerelease));
+        assert!(!update_is_newer_than("0.1.0-beta.5", &current_prerelease));
+        assert!(!update_is_newer_than("0.1.0-beta.5", &older_prerelease));
+    }
 }

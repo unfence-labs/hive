@@ -16,7 +16,7 @@ GitHub marks versions containing a prerelease suffix as prereleases. They do not
 
 Cargo is the canonical source of the full release version. Private npm workspace versions are not
 product versions. The macOS bundle uses the numeric core version required by Apple while the app's
-embedded provisioning code retains the full Cargo version.
+embedded provisioning and updater comparison retain the full Cargo version.
 
 ## One-time GitHub and Apple setup
 
