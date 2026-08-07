@@ -131,7 +131,7 @@ interface ToolDisplay {
 }
 
 function getToolDisplay(tool: ToolCall): ToolDisplay {
-  let input: Record<string, unknown> = {};
+  let input: Record<string, unknown>;
   try {
     input = JSON.parse(tool.input);
   } catch {
@@ -386,7 +386,7 @@ function parseDiffStats(diff: string): { added: number; removed: number } {
 }
 
 function getToolStats(tool: ToolCall): ToolStats | null {
-  let input: Record<string, unknown> = {};
+  let input: Record<string, unknown>;
   try { input = JSON.parse(tool.input); } catch { return null; }
 
   switch (tool.name) {

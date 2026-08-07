@@ -22,12 +22,17 @@
     "test": "npm run test --workspace @hive/backend --workspace @hive/frontend"
   },
   "devDependencies": {
-    "@eslint/js": "^9.21.0",
-    "eslint": "^9.21.0",
-    "eslint-plugin-react-hooks": "^5.2.0",
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.8.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
     "globals": "^16.0.0",
-    "knip": "^6.29.0",
+    "knip": "^6.31.0",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.65.0"
+  },
+  "overrides": {
+    "@pierre/theming": {
+      "@shikijs/themes": "^4.4.2"
+    }
   }
 }

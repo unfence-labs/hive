@@ -503,7 +503,7 @@ async function fetchUsageJson(request: UsageFetchRequest): Promise<unknown> {
   } catch (err) {
     if (err instanceof UsageHttpError) throw err;
     if (err instanceof Error && err.name === "AbortError") {
-      throw new Error(`${request.providerLabel} usage API timed out.`);
+      throw new Error(`${request.providerLabel} usage API timed out.`, { cause: err });
     }
     throw err;
   } finally {
