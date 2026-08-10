@@ -11,15 +11,15 @@ export type HiveToastVariant = "success" | "error" | "warning";
 const VARIANT_COLORS: Record<HiveToastVariant, { accent: string; statusText: string }> = {
   success: {
     accent: "var(--success)",
-    statusText: "color-mix(in oklch, var(--success) 50%, var(--background))",
+    statusText: "var(--success-foreground)",
   },
   error: {
     accent: "var(--destructive)",
-    statusText: "color-mix(in oklch, var(--destructive) 50%, var(--background))",
+    statusText: "var(--destructive)",
   },
   warning: {
     accent: "var(--warning)",
-    statusText: "color-mix(in oklch, var(--warning) 50%, var(--background))",
+    statusText: "var(--warning-foreground)",
   },
 };
 
