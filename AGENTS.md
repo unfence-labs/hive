@@ -6,54 +6,20 @@ For the product overview, read `README.md`. Architecture notes and the API surfa
 
 ## Commands
 
-From the repository root:
+- Root: `npm install`, `npm run lint`, `npm run typecheck`, `npm run test` (covers backend + frontend; never iOS).
+- Each package (`backend/`, `frontend/`) has its own `dev`, `build`, `lint`, `typecheck`, `test` scripts; frontend adds `npm run tauri dev` / `npm run tauri build`.
+- iOS: `cd ios && swift test` — run for Swift changes when the toolchain is available.
 
-```bash
-npm install
-npm run lint
-npm run typecheck
-npm run test
-```
+## Tech Stack
 
-Package-level commands:
-
-```bash
-cd backend
-npm run dev
-npm run build
-npm run lint
-npm run typecheck
-npm test
-
-cd ../frontend
-npm run dev
-npm run build
-npm run lint
-npm run typecheck
-npm test
-npm run tauri dev
-npm run tauri build
-
-cd ../ios
-swift test
-```
-
-Root checks do not run the iOS suite. Run `cd ios && swift test` for Swift changes when the toolchain is available.
-
-## Repository Map
-
-- `backend/`: Fastify REST API, WebSocket hub, agent runners, git/worktree orchestration, notifications, automation scheduler, and file-backed state.
-- `frontend/`: React 19 plus Vite web UI and Tauri v2 desktop shell.
-- `ios/`: SwiftUI mobile client that shares the same REST and hub protocols.
-- `shared/`: TypeScript helpers shared by backend and frontend.
+Fastify backend (`backend/`), React 19 + Vite web UI with Tauri v2 desktop shell (`frontend/`), SwiftUI iOS client (`ios/`) sharing the same REST and hub protocols, shared TypeScript helpers (`shared/`).
 
 Core model: Project -> Workspace -> Session. Projects are bare repositories; workspaces are git worktrees and branches; sessions are persisted agent conversations. The Brain uses the synthetic workspace id `brain` for shared session and hub plumbing.
 
 ## Coding Rules
 
 - Use English for code, comments, UI copy, docs, variables, and commit text.
-- Prefer simple, explicit code. Do not add abstractions unless they remove real duplication or match an existing local pattern.
-- Read nearby code before editing and follow local style.
+- Do not add abstractions unless they remove real duplication or match an existing local pattern.
 - Use `rg` / `rg --files` for repository searches.
 - Do not commit unless explicitly asked.
 - Do not revert unrelated user changes in a dirty worktree.
@@ -61,8 +27,7 @@ Core model: Project -> Workspace -> Session. Projects are bare repositories; wor
 
 ## Architecture Guardrails
 
-- V1 client traffic assumes an operator-managed encrypted private network; never document direct
-  public HTTP as supported.
+- V1 client traffic assumes an operator-managed encrypted private network; never document direct public HTTP as supported.
 - Provisioning resumes only an exact incomplete install identity and rejects completed installs.
 - `ServerConnection.setupPending` gates the ordinary app until Accounts setup finishes.
 - Use `git(args, cwd)` from `backend/src/utils/git.ts`; do not execute raw shell git strings in backend code.
@@ -84,7 +49,5 @@ Core model: Project -> Workspace -> Session. Projects are bare repositories; wor
 
 - For backend or frontend changes, run the relevant package `lint`, `typecheck`, and targeted tests. For cross-cutting TypeScript changes, run the root checks.
 - For iOS changes, run `cd ios && swift test` and mention if Swift/Xcode is unavailable.
-- Backend tests live next to source under `backend/src/**/*.test.ts`.
-- Frontend tests live under `frontend/tests/**`.
-- iOS Swift tests live under `ios/Tests/**`.
+- Backend tests live next to source under `backend/src/**/*.test.ts`; frontend tests under `frontend/tests/**`; iOS tests under `ios/Tests/**`.
 - WS tests should use Fastify `injectWS()` patterns already present in the suite.
