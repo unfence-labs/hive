@@ -246,4 +246,41 @@ describe("UpdatesSettings", () => {
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Update server/ })).toBeInTheDocument();
   });
+
+  it("keeps the failure visible when the password prompt is dismissed", async () => {
+    seedMismatch();
+    mocks.install.mockRejectedValue({ code: "SSH_PASSWORD_REQUIRED", detail: "password needed" });
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(await screen.findByRole("button", { name: /Update server/ }));
+    await user.click(await screen.findByRole("button", { name: "Cancel" }));
+
+    // Dismissing the dialog used to leave the page identical to a run that
+    // never happened, so the failure was invisible.
+    expect(await screen.findByText("Update failed: password needed")).toBeInTheDocument();
+    // A password prompt is retryable in the app, so no shell detour.
+    expect(screen.queryByText("Fallback, from a server shell:")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Update server/ })).toBeInTheDocument();
+  });
+
+  it("withdraws the check button once an app update is available", async () => {
+    setDesktopShell(true);
+    seedConnection();
+    vi.stubEnv("PROD", true);
+    mocks.check.mockResolvedValue({
+      version: "1.4.0",
+      downloadAndInstall: vi.fn(),
+      close: vi.fn(async () => {}),
+    });
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(await screen.findByRole("button", { name: "Check for updates" }));
+
+    // Re-checking cannot answer anything new, and it would stack a secondary
+    // button above the primary one that replaces it.
+    expect(await screen.findByRole("button", { name: "Restart & update" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Check for updates" })).not.toBeInTheDocument();
+  });
 });

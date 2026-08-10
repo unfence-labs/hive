@@ -83,7 +83,11 @@ function AppSection({ appVersion }: { appVersion: string | null }) {
       title="Application"
       description={`Version ${appVersion ?? "—"}`}
       action={
-        canCheck && (
+        // Withdrawn once an update is found: re-checking cannot answer
+        // anything new, and it would stack a secondary button above the
+        // primary "Restart & update" that replaces it below.
+        canCheck &&
+        update.phase !== "available" && (
           <Button size="sm" variant="outline" onClick={checkForUpdatesNow} disabled={busy}>
             {update.phase === "checking" ? (
               <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
@@ -315,13 +319,23 @@ function ServerUpdateStatus({
           </Button>
         </div>
       )}
-      {state.phase === "failed" && !state.passwordRequired && (
+      {state.phase === "failed" && (
         <>
+          {/*
+            Shown even when a password is required: that opens a dialog, and
+            dismissing it would otherwise leave the page identical to a run
+            that never happened. The prompt above is the way back in.
+          */}
           <p className="mt-2 text-xs text-destructive">Update failed: {state.error}</p>
-          <p className="mt-2 text-xs text-muted-foreground">
-            Fallback, from a server shell:
-          </p>
-          <UpdateCommand version={targetVersion} />
+          {/* A password prompt is retryable in the app, so no shell detour. */}
+          {!state.passwordRequired && (
+            <>
+              <p className="mt-2 text-xs text-muted-foreground">
+                Fallback, from a server shell:
+              </p>
+              <UpdateCommand version={targetVersion} />
+            </>
+          )}
         </>
       )}
     </>
