@@ -1,6 +1,7 @@
 import { Check, Monitor, Moon, Sun } from "lucide-react";
 import { useAccentColor } from "@/hooks/useAccentColor";
 import { useThemeMode, type ThemeMode } from "@/hooks/useThemeMode";
+import { TOAST_POSITIONS, useToastPosition } from "@/hooks/useToastPosition";
 import { SettingsHeader } from "@/components/AppLayout";
 import { CenterCard } from "@/components/CenterCard";
 import { cn } from "@/lib/utils";
@@ -14,6 +15,7 @@ const THEME_OPTIONS: { id: ThemeMode; label: string; Icon: typeof Sun }[] = [
 export default function AppearanceSettings() {
   const { accentId, setAccent, options } = useAccentColor();
   const { mode, setMode } = useThemeMode();
+  const { position, setPosition } = useToastPosition();
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden">
@@ -113,6 +115,47 @@ export default function AppearanceSettings() {
                   </button>
                 );
               })}
+            </div>
+          </div>
+        </section>
+
+        <section>
+          <div className="rounded-lg border border-border/50 bg-card/50 p-5">
+            <h2 className="text-sm font-medium text-foreground">Toast position</h2>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Choose where notifications appear in the app.
+            </p>
+            <div
+              role="radiogroup"
+              aria-label="Toast position"
+              className="mt-5 grid h-28 w-48 grid-cols-3 grid-rows-2 overflow-hidden rounded-lg border border-border bg-background shadow-inner"
+            >
+              {TOAST_POSITIONS.map((option) => (
+                <label
+                  key={option.id}
+                  title={option.label}
+                  className="group relative flex min-h-11 cursor-pointer items-center justify-center border-border transition-colors has-checked:bg-primary/8 has-focus-visible:z-10 has-focus-visible:ring-[3px] has-focus-visible:ring-inset has-focus-visible:ring-ring/50 [&:nth-child(-n+3)]:border-b [&:not(:nth-child(3n))]:border-r"
+                >
+                  <input
+                    type="radio"
+                    name="toast-position"
+                    value={option.id}
+                    checked={position === option.id}
+                    onChange={() => setPosition(option.id)}
+                    className="sr-only"
+                  />
+                  <span
+                    aria-hidden="true"
+                    className={cn(
+                      "h-2 w-8 rounded-sm border transition-colors",
+                      position === option.id
+                        ? "border-primary bg-primary"
+                        : "border-muted-foreground/40 bg-muted group-hover:border-muted-foreground/70",
+                    )}
+                  />
+                  <span className="sr-only">{option.label}</span>
+                </label>
+              ))}
             </div>
           </div>
         </section>

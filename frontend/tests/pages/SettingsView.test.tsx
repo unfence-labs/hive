@@ -9,9 +9,11 @@ import { getConnection, replaceConnection } from "@/hooks/useConnection";
 const mocks = vi.hoisted(() => ({
   setAccent: vi.fn(),
   setThemeMode: vi.fn(),
+  setToastPosition: vi.fn(),
   useConnectionStatus: vi.fn(),
   useAccentColor: vi.fn(),
   useThemeMode: vi.fn(),
+  useToastPosition: vi.fn(),
 }));
 
 vi.mock("@/hooks/useConnectionStatus", () => ({
@@ -25,6 +27,18 @@ vi.mock("@/hooks/useAccentColor", () => ({
 vi.mock("@/hooks/useThemeMode", () => ({
   useThemeMode: mocks.useThemeMode,
   THEME_MODES: ["system", "light", "dark"],
+}));
+
+vi.mock("@/hooks/useToastPosition", () => ({
+  TOAST_POSITIONS: [
+    { id: "top-left", label: "Top left" },
+    { id: "top-center", label: "Top center" },
+    { id: "top-right", label: "Top right" },
+    { id: "bottom-left", label: "Bottom left" },
+    { id: "bottom-center", label: "Bottom center" },
+    { id: "bottom-right", label: "Bottom right" },
+  ],
+  useToastPosition: mocks.useToastPosition,
 }));
 
 const TRANSPORT_SECURITY_WARNING =
@@ -349,6 +363,13 @@ describe("AppearanceSettings", () => {
       setMode: mocks.setThemeMode,
       options: ["system", "light", "dark"],
     });
+
+    mocks.setToastPosition.mockReset();
+    mocks.useToastPosition.mockReset();
+    mocks.useToastPosition.mockReturnValue({
+      position: "bottom-left",
+      setPosition: mocks.setToastPosition,
+    });
   });
 
   it("updates accent color from accent option buttons", async () => {
@@ -383,5 +404,15 @@ describe("AppearanceSettings", () => {
     expect(screen.getByRole("radio", { name: "Dark" })).toHaveAttribute("aria-checked", "true");
     expect(screen.getByRole("radio", { name: "Light" })).toHaveAttribute("aria-checked", "false");
     expect(screen.getByRole("radio", { name: "System" })).toHaveAttribute("aria-checked", "false");
+  });
+
+  it("changes the toast position from the spatial selector", async () => {
+    const user = userEvent.setup();
+    render(<AppearanceSettings />);
+
+    expect(screen.getByRole("radio", { name: "Bottom left" })).toBeChecked();
+    await user.click(screen.getByRole("radio", { name: "Top right" }));
+
+    expect(mocks.setToastPosition).toHaveBeenCalledWith("top-right");
   });
 });

@@ -289,7 +289,7 @@ describe("useNotificationToasts", () => {
     expect(mocks.dismiss).not.toHaveBeenCalled();
   });
 
-  it("keeps sticky action toasts when their CTA is clicked", () => {
+  it("dismisses sticky action toasts when their CTA is clicked", () => {
     renderHook(() => useNotificationToasts(makeProjects()));
 
     emit("ws-1", {
@@ -306,7 +306,7 @@ describe("useNotificationToasts", () => {
 
     expect(mocks.setSavedSession).toHaveBeenCalledWith("ws-1", "sess-9");
     expect(mocks.navigate).toHaveBeenCalledWith("/workspaces/ws-1");
-    expect(mocks.dismiss).not.toHaveBeenCalled();
+    expect(mocks.dismiss).toHaveBeenCalledWith("hive-action-toast:ws-1:sess-9");
   });
 
   it("shows sticky action toasts even while viewing the workspace", () => {

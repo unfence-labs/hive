@@ -1,23 +1,25 @@
 import { X } from "lucide-react";
+import type { PointerEvent } from "react";
 import { Toaster } from "sonner";
 import "sonner/dist/styles.css";
 
 import { useThemeType } from "@/hooks/useThemeType";
+import { useToastPosition } from "@/hooks/useToastPosition";
 
 export type HiveToastVariant = "success" | "error" | "warning";
 
 const VARIANT_COLORS: Record<HiveToastVariant, { accent: string; statusText: string }> = {
   success: {
-    accent: "var(--success)",
-    statusText: "var(--success-foreground)",
+    accent: "var(--toast-success)",
+    statusText: "var(--toast-success)",
   },
   error: {
-    accent: "var(--destructive)",
-    statusText: "var(--destructive)",
+    accent: "var(--toast-error)",
+    statusText: "var(--toast-error)",
   },
   warning: {
-    accent: "var(--warning)",
-    statusText: "var(--warning-foreground)",
+    accent: "var(--toast-warning)",
+    statusText: "var(--toast-warning)",
   },
 };
 
@@ -33,9 +35,15 @@ export interface HiveToastProps {
   onClose: () => void;
 }
 
+function stopSwipeGesture(event: PointerEvent<HTMLButtonElement>) {
+  // Sonner guards direct button targets, but nested elements such as the
+  // close icon bypass that check and can start a swipe gesture.
+  event.stopPropagation();
+}
+
 /**
  * Refined Minimal toast — flat surface, status dot with a soft ring, a mono
- * status word, a quiet ghost action, and a hover/focus-revealed close button.
+ * status word, a quiet ghost action, and a discreet close button.
  */
 export function HiveToast({
   variant,
@@ -49,7 +57,7 @@ export function HiveToast({
   const colors = VARIANT_COLORS[variant];
 
   return (
-    <div className="group pointer-events-auto relative flex w-[min(380px,calc(100vw-2rem))] items-start gap-3 rounded-lg border border-border bg-popover px-4 py-3.5 text-popover-foreground shadow-[var(--center-card-shadow)]">
+    <div className="pointer-events-auto flex w-[min(380px,calc(100vw-2rem))] items-start gap-3 rounded-lg border border-background/15 bg-foreground px-4 py-3.5 text-background shadow-xl transition-colors duration-200">
       <span
         className="mt-1.5 size-2 shrink-0 rounded-full"
         style={{
@@ -57,9 +65,9 @@ export function HiveToast({
           boxShadow: `0 0 0 3px color-mix(in oklch, ${colors.accent} 18%, transparent)`,
         }}
       />
-      <div className="min-w-0 flex-1 pr-5">
+      <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
-          <span className="truncate text-sm font-medium leading-5 text-foreground">{title}</span>
+          <span className="truncate text-sm font-medium leading-5 text-background">{title}</span>
           <span
             className="shrink-0 font-mono text-[10px] font-medium uppercase tracking-wider"
             style={{ color: colors.statusText }}
@@ -67,31 +75,36 @@ export function HiveToast({
             {status}
           </span>
         </div>
-        <p className="mt-0.5 line-clamp-2 text-xs leading-5 text-muted-foreground">{description}</p>
+        <p className="mt-0.5 line-clamp-2 text-xs leading-5 text-background/70">{description}</p>
       </div>
-      {actionLabel ? (
+      <div className="flex shrink-0 items-center gap-1">
+        {actionLabel ? (
+          <button
+            type="button"
+            onPointerDown={stopSwipeGesture}
+            onClick={onAction}
+            className="cursor-pointer rounded-md px-2 py-1 text-xs font-medium text-background/70 transition-colors hover:bg-background/10 hover:text-background focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-background/40"
+          >
+            {actionLabel}
+          </button>
+        ) : null}
         <button
           type="button"
-          onClick={onAction}
-          className="shrink-0 cursor-pointer rounded-md px-2 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
+          onPointerDown={stopSwipeGesture}
+          onClick={onClose}
+          aria-label="Dismiss"
+          className="flex size-7 cursor-pointer items-center justify-center rounded text-background opacity-60 transition-[color,background-color,opacity] hover:bg-background/10 hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-background/40"
         >
-          {actionLabel}
+          <X className="size-3" />
         </button>
-      ) : null}
-      <button
-        type="button"
-        onClick={onClose}
-        aria-label="Dismiss"
-        className="absolute right-1.5 top-1.5 flex size-5 cursor-pointer items-center justify-center rounded text-muted-foreground opacity-0 transition-opacity pointer-events-none hover:bg-accent hover:text-foreground focus-visible:pointer-events-auto focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 group-hover:pointer-events-auto group-hover:opacity-100"
-      >
-        <X className="size-3" />
-      </button>
+      </div>
     </div>
   );
 }
 
 export function HiveToaster() {
   const theme = useThemeType();
+  const { position } = useToastPosition();
 
   return (
     <Toaster
@@ -99,10 +112,9 @@ export function HiveToaster() {
       gap={10}
       mobileOffset={16}
       offset={18}
-      position="top-left"
+      position={position}
       theme={theme}
       visibleToasts={3}
-      swipeDirections={["left"]}
       // Toasts are rendered as fully custom <HiveToast> nodes, so the sonner
       // wrapper must stay bare (no default card chrome around our component).
       toastOptions={{ unstyled: true }}
