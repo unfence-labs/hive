@@ -11,15 +11,15 @@ export type HiveToastVariant = "success" | "error" | "warning";
 const VARIANT_COLORS: Record<HiveToastVariant, { accent: string; statusText: string }> = {
   success: {
     accent: "var(--success)",
-    statusText: "var(--success-foreground)",
+    statusText: "color-mix(in oklch, var(--success) 50%, var(--background))",
   },
   error: {
     accent: "var(--destructive)",
-    statusText: "var(--destructive)",
+    statusText: "color-mix(in oklch, var(--destructive) 50%, var(--background))",
   },
   warning: {
     accent: "var(--warning)",
-    statusText: "var(--warning-foreground)",
+    statusText: "color-mix(in oklch, var(--warning) 50%, var(--background))",
   },
 };
 
@@ -55,7 +55,7 @@ export function HiveToast({
   const colors = VARIANT_COLORS[variant];
 
   return (
-    <div className="pointer-events-auto flex w-[min(380px,calc(100vw-2rem))] items-start gap-3 rounded-lg border border-border bg-popover px-4 py-3.5 text-popover-foreground shadow-[var(--center-card-shadow)]">
+    <div className="pointer-events-auto flex w-[min(380px,calc(100vw-2rem))] items-start gap-3 rounded-lg border border-background/15 bg-foreground px-4 py-3.5 text-background shadow-xl transition-colors duration-200">
       <span
         className="mt-1.5 size-2 shrink-0 rounded-full"
         style={{
@@ -65,7 +65,7 @@ export function HiveToast({
       />
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
-          <span className="truncate text-sm font-medium leading-5 text-foreground">{title}</span>
+          <span className="truncate text-sm font-medium leading-5 text-background">{title}</span>
           <span
             className="shrink-0 font-mono text-[10px] font-medium uppercase tracking-wider"
             style={{ color: colors.statusText }}
@@ -73,7 +73,7 @@ export function HiveToast({
             {status}
           </span>
         </div>
-        <p className="mt-0.5 line-clamp-2 text-xs leading-5 text-muted-foreground">{description}</p>
+        <p className="mt-0.5 line-clamp-2 text-xs leading-5 text-background/70">{description}</p>
       </div>
       <div className="flex shrink-0 items-center gap-1">
         {actionLabel ? (
@@ -81,7 +81,7 @@ export function HiveToast({
             type="button"
             onPointerDown={stopSwipeGesture}
             onClick={onAction}
-            className="cursor-pointer rounded-md px-2 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
+            className="cursor-pointer rounded-md px-2 py-1 text-xs font-medium text-background/70 transition-colors hover:bg-background/10 hover:text-background focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-background/40"
           >
             {actionLabel}
           </button>
@@ -91,7 +91,7 @@ export function HiveToast({
           onPointerDown={stopSwipeGesture}
           onClick={onClose}
           aria-label="Dismiss"
-          className="flex size-7 cursor-pointer items-center justify-center rounded text-muted-foreground opacity-60 transition-[color,background-color,opacity] hover:bg-accent hover:text-foreground hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
+          className="flex size-7 cursor-pointer items-center justify-center rounded text-background opacity-60 transition-[color,background-color,opacity] hover:bg-background/10 hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-background/40"
         >
           <X className="size-3" />
         </button>
