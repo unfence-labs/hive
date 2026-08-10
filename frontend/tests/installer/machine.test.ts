@@ -185,11 +185,12 @@ describe("installer machine", () => {
   it("refuses addresses and directories the sidecar would refuse", () => {
     expect(isUsableAddress("203.0.113.10")).toBe(true);
     expect(isUsableAddress("ops_2@server.example.com")).toBe(true);
+    expect(isUsableAddress("2root@server.example.com")).toBe(true);
     expect(isUsableAddress("root@[2001:db8::1]")).toBe(true);
     expect(isUsableAddress("")).toBe(false);
     expect(isUsableAddress("-oProxyCommand=bad")).toBe(false);
     expect(isUsableAddress("host name")).toBe(false);
-    expect(isUsableAddress("2root@host")).toBe(false);
+    expect(isUsableAddress("-root@host")).toBe(false);
 
     expect(isUsableDirectory("/opt/hive")).toBe(true);
     expect(isUsableDirectory("opt/hive")).toBe(false);

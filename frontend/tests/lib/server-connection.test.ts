@@ -71,6 +71,12 @@ describe("switchServer", () => {
     expect(getConnection()).toBeNull();
   });
 
+  it("accepts SSH users that start with a digit", async () => {
+    await switchServer({ host: "server.example.com", port: 3000, sshUser: "2root" });
+
+    expect(getConnection()).toMatchObject({ sshUser: "2root" });
+  });
+
   it("clears the connection and tears down live transports", async () => {
     await switchServer({ host: "old.example.com", port: 3000 });
     const disconnect = vi.spyOn(wsTransport, "disconnectAll");
