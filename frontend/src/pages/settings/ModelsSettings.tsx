@@ -3,6 +3,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Check, Eye, EyeOff, Loader2, Save } from "lucide-react";
 import { SettingsHeader } from "@/components/AppLayout";
 import { CenterCard } from "@/components/CenterCard";
+import { SettingsPanel, SettingsSection } from "@/components/settings/SettingsSection";
 import { ProviderIcon } from "@/components/chat/ProviderIcon";
 import { groupModelsByProvider } from "@/components/chat/ModelSelector";
 import { Input } from "@/components/ui/input";
@@ -40,15 +41,11 @@ export default function ModelsSettings() {
       </SettingsHeader>
 
       <CenterCard scroll>
-      <div className="max-w-2xl space-y-5 px-4 py-5">
-        <section>
-          <div className="rounded-lg border border-border/50 bg-card/50 p-5">
-            <h2 className="text-sm font-medium text-foreground">Default model</h2>
-            <p className="mt-1 text-xs text-muted-foreground">
-              Used when starting a new conversation. You can still switch models
-              from the composer at any time.
-            </p>
-
+        <SettingsPanel>
+          <SettingsSection
+            title="Default model"
+            description="Used when starting a new conversation. You can still switch models from the composer at any time."
+          >
             {isLoading && (
               <div className="flex items-center gap-2 py-6 text-xs text-muted-foreground">
                 <Loader2 className="h-4 w-4 animate-spin" />
@@ -103,11 +100,10 @@ export default function ModelsSettings() {
                 Could not save the default model. Please try again.
               </p>
             )}
-          </div>
-        </section>
+          </SettingsSection>
 
-        <KimiSection />
-      </div>
+          <KimiSection />
+        </SettingsPanel>
       </CenterCard>
     </div>
   );
@@ -154,10 +150,10 @@ function KimiSection() {
   };
 
   return (
-    <section>
-      <div className="rounded-lg border border-border/50 bg-card/50 p-5">
-        <h2 className="text-sm font-medium text-foreground">Kimi</h2>
-        <p className="mt-1 text-xs text-muted-foreground">
+    <SettingsSection
+      title="Kimi"
+      description={
+        <>
           API key from the{" "}
           <a
             href="https://www.kimi.com/code/console"
@@ -168,76 +164,76 @@ function KimiSection() {
             Kimi Code console
           </a>
           , used to enable the Kimi provider.
+        </>
+      }
+    >
+      {loadState === "loading" && (
+        <div className="flex items-center gap-2 py-4 text-xs text-muted-foreground">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          Loading saved key…
+        </div>
+      )}
+
+      {loadState === "error" && (
+        <p className="py-4 text-xs text-destructive">
+          Could not load the saved API key. Reload the page to try again.
         </p>
+      )}
 
-        {loadState === "loading" && (
-          <div className="flex items-center gap-2 py-4 text-xs text-muted-foreground">
-            <Loader2 className="h-4 w-4 animate-spin" />
-            Loading saved key…
-          </div>
-        )}
-
-        {loadState === "error" && (
-          <p className="py-4 text-xs text-destructive">
-            Could not load the saved API key. Reload the page to try again.
-          </p>
-        )}
-
-        {loadState === "loaded" && (
-          <>
-            <div className="mt-4">
-              <label htmlFor="kimi-api-key" className="mb-1.5 block text-xs font-medium text-muted-foreground">
-                Kimi API key
-              </label>
-              <div className="relative">
-                <Input
-                  id="kimi-api-key"
-                  type={showKey ? "text" : "password"}
-                  value={apiKey}
-                  onChange={(e) => { setApiKey(e.target.value); setFeedback(null); }}
-                  placeholder="sk-..."
-                  className="pr-9 font-mono text-xs"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowKey(!showKey)}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground transition-colors hover:text-foreground"
-                >
-                  {showKey
-                    ? <EyeOff className="h-3.5 w-3.5" />
-                    : <Eye className="h-3.5 w-3.5" />}
-                </button>
-              </div>
-            </div>
-
-            <div className="mt-4 flex items-center gap-2">
+      {loadState === "loaded" && (
+        <>
+          <div className="mt-4">
+            <label htmlFor="kimi-api-key" className="mb-1.5 block text-xs font-medium text-muted-foreground">
+              Kimi API key
+            </label>
+            <div className="relative">
+              <Input
+                id="kimi-api-key"
+                type={showKey ? "text" : "password"}
+                value={apiKey}
+                onChange={(e) => { setApiKey(e.target.value); setFeedback(null); }}
+                placeholder="sk-..."
+                className="pr-9 font-mono text-xs"
+              />
               <button
                 type="button"
-                onClick={() => void save()}
-                disabled={saving}
-                className={cn(
-                  "inline-flex cursor-pointer items-center gap-2 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90",
-                  saving && "pointer-events-none opacity-60",
-                )}
+                onClick={() => setShowKey(!showKey)}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground transition-colors hover:text-foreground"
               >
-                {saving
-                  ? <Loader2 className="h-3 w-3 animate-spin" />
-                  : <Save className="h-3 w-3" />}
-                Save
+                {showKey
+                  ? <EyeOff className="h-3.5 w-3.5" />
+                  : <Eye className="h-3.5 w-3.5" />}
               </button>
-
-              {feedback && (
-                <span className={cn(
-                  "text-xs font-medium",
-                  feedback === "saved" ? "text-success-foreground" : "text-destructive",
-                )}>
-                  {feedback === "saved" ? "Saved" : "Failed to save"}
-                </span>
-              )}
             </div>
-          </>
-        )}
-      </div>
-    </section>
+          </div>
+
+          <div className="mt-4 flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => void save()}
+              disabled={saving}
+              className={cn(
+                "inline-flex cursor-pointer items-center gap-2 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90",
+                saving && "pointer-events-none opacity-60",
+              )}
+            >
+              {saving
+                ? <Loader2 className="h-3 w-3 animate-spin" />
+                : <Save className="h-3 w-3" />}
+              Save
+            </button>
+
+            {feedback && (
+              <span className={cn(
+                "text-xs font-medium",
+                feedback === "saved" ? "text-success-foreground" : "text-destructive",
+              )}>
+                {feedback === "saved" ? "Saved" : "Failed to save"}
+              </span>
+            )}
+          </div>
+        </>
+      )}
+    </SettingsSection>
   );
 }
