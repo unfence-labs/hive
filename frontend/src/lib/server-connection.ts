@@ -1,6 +1,7 @@
 import type { ServerConnection } from "@/hooks/useConnection";
 import { replaceConnection, serverUrlFor } from "@/hooks/useConnection";
 import { queryClient } from "@/lib/query-client";
+import { resetServerUpdate, serverUpdateInProgress } from "@/lib/server-update";
 import { wsTransport } from "@/lib/ws-transport";
 
 /**
@@ -104,6 +105,16 @@ export async function switchServer(
   connection: ServerConnection | null,
   options: { verify?: boolean } = {},
 ): Promise<void> {
+  // The client talks to exactly one server, and a provisioning run belongs to
+  // it. The sidecar cannot be cancelled, so switching mid-run would leave a
+  // run whose progress and terminal state describe a server this client no
+  // longer points at. Refusing is the whole answer.
+  if (serverUpdateInProgress()) {
+    throw new ServerConnectionError(
+      "invalid",
+      "A server update is running. Wait for it to finish before switching servers.",
+    );
+  }
   if (connection) {
     validateServerConnection(connection);
     if (options.verify) await probeServerConnection(connection);
@@ -111,6 +122,8 @@ export async function switchServer(
 
   replaceConnection(connection);
   wsTransport.disconnectAll();
+  // A done or failed run describes the server this client is leaving.
+  resetServerUpdate();
   // Not clear(): mounted observers (e.g. the health badge) are not refetched
   // after a cache teardown and would freeze on their pending state.
   await queryClient.resetQueries();

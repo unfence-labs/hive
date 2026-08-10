@@ -132,12 +132,13 @@ export default function Installer({
         authToken: result.accessToken,
         sshUser: result.serviceUser,
         adminUser: user ?? "root",
+        ...(inputs.sshKeyPath ? { sshKeyPath: inputs.sshKeyPath } : {}),
         setupPending: true,
       });
       clearInstallRuns();
       advance();
     },
-    [inputs.address, inputs.port, advance],
+    [inputs.address, inputs.port, inputs.sshKeyPath, advance],
   );
 
   let screen: React.ReactNode = null;

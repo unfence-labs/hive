@@ -8,6 +8,7 @@ import {
   useDesktopUpdate,
   useDesktopUpdateState,
 } from "@/hooks/useDesktopUpdate";
+import { resetServerUpdate } from "@/lib/server-update";
 import type { HiveToastProps } from "@/components/ui/toaster";
 
 type CustomRender = (id: string | number) => ReactElement<HiveToastProps>;
@@ -83,6 +84,7 @@ describe("useDesktopUpdate", () => {
     vi.useFakeTimers();
     localStorage.clear();
     resetDesktopUpdateForTests();
+    resetServerUpdate();
     setDesktopShell(true);
     // The hook only checks release builds; vitest runs in dev mode.
     vi.stubEnv("PROD", true);
@@ -276,6 +278,29 @@ describe("useDesktopUpdate", () => {
     expect(mocks.check).toHaveBeenCalledTimes(1);
   });
 
+  it("refuses to install while a server update is provisioning", async () => {
+    const { runServerUpdate } = await import("@/lib/server-update");
+    const update = makeUpdate("1.2.3");
+    mocks.check.mockResolvedValue(update);
+    await renderUpdateHook();
+
+    // A provisioning run holds the SSH sidecar; relaunch() would kill it.
+    const client = {
+      listKeys: vi.fn(),
+      testConnection: vi.fn(),
+      trustHost: vi.fn(),
+      preflight: vi.fn(),
+      install: vi.fn(() => new Promise<void>(() => {})),
+    };
+    void runServerUpdate(client, { host: "203.0.113.10", keyPath: "/k" });
+
+    act(() => lastToast().props.onAction?.());
+    await settle();
+
+    expect(update.downloadAndInstall).not.toHaveBeenCalled();
+    expect(mocks.relaunch).not.toHaveBeenCalled();
+  });
+
   it("dismissing the toast keeps the update available to the Updates page", async () => {
     mocks.check.mockResolvedValue(makeUpdate("1.2.3"));
     const { result } = renderHook(() => {
@@ -355,6 +380,7 @@ describe("manual checks from the Updates page", () => {
     vi.clearAllMocks();
     localStorage.clear();
     resetDesktopUpdateForTests();
+    resetServerUpdate();
     setDesktopShell(true);
     vi.stubEnv("PROD", true);
     vi.spyOn(console, "warn").mockImplementation(() => {});

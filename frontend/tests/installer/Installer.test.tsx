@@ -755,6 +755,8 @@ describe("Installer", () => {
       sshUser: "hive",
       // …and the install login is kept only for a future reinstall.
       adminUser: "ops",
+      // The key path (never the key) is kept for the in-app server update.
+      sshKeyPath: "/home/lenny/.ssh/id_ed25519",
     });
     // Storing the connection is not the end of the flow: the accounts screen
     // still has to run, so the installer is still up.
@@ -1046,6 +1048,7 @@ describe("Installer", () => {
       authToken: ACCESS_TOKEN,
       sshUser: "hive",
       adminUser: "root",
+      sshKeyPath: "/home/lenny/.ssh/id_ed25519",
     });
     // Nothing of the run survives to be resumed.
     expect(localStorage.getItem(INSTALLER_STORAGE_KEY)).toBe(

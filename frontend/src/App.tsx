@@ -15,6 +15,7 @@ import { useWsCacheInvalidation } from "@/hooks/useWsCacheInvalidation";
 import { useActiveSessionPrewarm } from "@/hooks/useActiveSessionPrewarm";
 import { useNotificationToasts } from "@/hooks/useNotificationToasts";
 import { useDesktopUpdate } from "@/hooks/useDesktopUpdate";
+import { ServerUpdatePrompt } from "@/components/ServerUpdatePrompt";
 import { wsTransport } from "@/lib/ws-transport";
 import { HiveToaster } from "@/components/ui/toaster";
 
@@ -148,6 +149,7 @@ function ConfiguredApp({
           }
         />
         <NotificationToastsBridge projects={projects} />
+        <ServerUpdatePrompt />
         <AddProjectDialog
           open={showAddProject}
           onOpenChange={setShowAddProject}
