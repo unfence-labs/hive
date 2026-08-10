@@ -47,7 +47,7 @@ export function isValidPort(port: number): boolean {
 }
 
 export function isValidUserName(user: string): boolean {
-  return /^[A-Za-z_][A-Za-z0-9._-]*$/.test(user);
+  return /^[A-Za-z0-9_][A-Za-z0-9._-]*$/.test(user);
 }
 
 export function validateServerConnection(connection: ServerConnection): void {

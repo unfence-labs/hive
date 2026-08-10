@@ -233,7 +233,7 @@ fn validate_user(user: &str) -> Result<(), ProvisionError> {
     let mut bytes = user.bytes();
     let first_ok = bytes
         .next()
-        .is_some_and(|c| c.is_ascii_alphabetic() || c == b'_');
+        .is_some_and(|c| c.is_ascii_alphanumeric() || c == b'_');
     let rest_ok = bytes.all(|c| c.is_ascii_alphanumeric() || matches!(c, b'.' | b'_' | b'-'));
     if first_ok && rest_ok {
         Ok(())
@@ -1607,10 +1607,10 @@ mod tests {
             assert!(validate_host(host).is_err(), "{host}");
         }
 
-        for user in ["root", "_service", "hive.admin-2"] {
+        for user in ["root", "_service", "hive.admin-2", "2root"] {
             assert!(validate_user(user).is_ok(), "{user}");
         }
-        for user in ["", "-root", "2root", "root name", "root@host", "a$b"] {
+        for user in ["", "-root", "root name", "root@host", "a$b"] {
             assert!(validate_user(user).is_err(), "{user}");
         }
 
