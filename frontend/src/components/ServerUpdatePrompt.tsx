@@ -8,14 +8,18 @@ import { api } from "@/hooks/useApi";
 import { useAppVersion } from "@/hooks/useAppVersion";
 import { useConnection } from "@/hooks/useConnection";
 import { isDesktopShell } from "@/lib/is-desktop";
-import { markServerUpdatePrompted, shouldPromptServerUpdate } from "@/lib/server-update";
+import {
+  markServerUpdatePrompted,
+  serverVersionDiffersFromApp,
+  shouldPromptServerUpdate,
+} from "@/lib/server-update";
 
 const SERVER_UPDATE_TOAST_ID = "hive-server-update";
 
 /**
- * Nudges once per launch when the server lags the app — the ordinary state
- * right after a desktop auto-update, since the app must update first (its
- * bundled provisioner installs its own version). The action only navigates:
+ * Nudges once per launch when the server is not on the app's version — the
+ * ordinary state right after a desktop auto-update, since the app must update
+ * first (its bundled provisioner installs its own version). The action only navigates:
  * the update itself runs from Settings > Updates, which can host the dialogs
  * the run may need.
  */
@@ -32,8 +36,7 @@ export function ServerUpdatePrompt() {
   const backendVersion = serverQuery.data?.version ?? null;
 
   useEffect(() => {
-    if (!enabled || !appVersion || !backendVersion) return;
-    if (backendVersion === "dev" || backendVersion === appVersion) return;
+    if (!enabled || !serverVersionDiffersFromApp(appVersion, backendVersion)) return;
     if (!shouldPromptServerUpdate()) return;
     markServerUpdatePrompted();
     toast.custom(

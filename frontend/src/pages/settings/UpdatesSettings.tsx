@@ -26,11 +26,11 @@ import {
 import { api } from "@/hooks/useApi";
 import { useAppVersion } from "@/hooks/useAppVersion";
 import { replaceConnection, useConnection } from "@/hooks/useConnection";
-import { useProjects } from "@/hooks/useProjects";
+import { useWorkspaceLiveDataContext } from "@/contexts/WorkspaceLiveDataContext";
 import { isDesktopShell } from "@/lib/is-desktop";
 import { copyToClipboard } from "@/lib/clipboard";
 import { createTauriProvisionClient, type SshKey } from "@/lib/provision-client";
-import { runServerUpdate, useServerUpdateState } from "@/lib/server-update";
+import { runServerUpdate, serverVersionDiffersFromApp, useServerUpdateState } from "@/lib/server-update";
 import {
   checkForUpdatesNow,
   installCurrentUpdate,
@@ -150,13 +150,8 @@ function ServerSection({
   backendVersion: string | null;
   unreachable: boolean;
 }) {
-  // The desktop version is the reference: releases version both artifacts
-  // together, so a differing backend is one an operator has not updated yet.
-  const outdated =
-    appVersion !== null &&
-    backendVersion !== null &&
-    backendVersion !== "dev" &&
-    backendVersion !== appVersion;
+  // The null re-check narrows appVersion for the JSX below.
+  const outdated = appVersion !== null && serverVersionDiffersFromApp(appVersion, backendVersion);
 
   return (
     <section className="rounded-lg border border-border/50 bg-card/50 p-5">
@@ -179,7 +174,7 @@ function ServerUpdateFlow({ targetVersion }: { targetVersion: string }) {
   const desktopUpdate = useDesktopUpdateState();
   const updateState = useServerUpdateState();
   const { connection } = useConnection();
-  const { projects } = useProjects();
+  const liveData = useWorkspaceLiveDataContext();
   const queryClient = useQueryClient();
   const client = useMemo(() => createTauriProvisionClient(), []);
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -200,9 +195,11 @@ function ServerUpdateFlow({ targetVersion }: { targetVersion: string }) {
   if (!connection) return null;
   if (appUpdatePending && updateState.phase !== "running") return null;
 
-  const busyWorkspaces = projects
-    .flatMap((project) => project.workspaces ?? [])
-    .filter((workspace) => workspace.status === "busy").length;
+  // Live WS state, not the projects query: status transitions do not
+  // invalidate the projects list, whose snapshot can miss a running agent.
+  const busyWorkspaces = Object.values(liveData).filter(
+    (workspace) => workspace.status === "busy",
+  ).length;
 
   const launch = async (keyPath: string, escalationPassword?: string) => {
     const result = await runServerUpdate(client, {

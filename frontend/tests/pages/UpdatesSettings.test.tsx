@@ -14,13 +14,15 @@ const mocks = vi.hoisted(() => ({
   check: vi.fn(),
   install: vi.fn(),
   listKeys: vi.fn(),
-  projects: [] as unknown[],
+  liveData: {} as Record<string, { status?: "idle" | "busy" }>,
 }));
 
 vi.mock("@/hooks/useApi", () => ({ api: { get: mocks.get } }));
 vi.mock("@tauri-apps/api/core", () => ({ invoke: mocks.invoke }));
 vi.mock("@tauri-apps/plugin-updater", () => ({ check: mocks.check }));
-vi.mock("@/hooks/useProjects", () => ({ useProjects: () => ({ projects: mocks.projects }) }));
+vi.mock("@/contexts/WorkspaceLiveDataContext", () => ({
+  useWorkspaceLiveDataContext: () => mocks.liveData,
+}));
 vi.mock("@/lib/provision-client", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/provision-client")>()),
   createTauriProvisionClient: (): ProvisionClient => ({
@@ -72,7 +74,7 @@ beforeEach(() => {
   localStorage.clear();
   resetDesktopUpdateForTests();
   resetServerUpdate();
-  mocks.projects = [];
+  mocks.liveData = {};
   mocks.get.mockResolvedValue({ version: "1.2.3" });
   mocks.invoke.mockResolvedValue("1.2.3");
   mocks.check.mockResolvedValue(null);
@@ -134,7 +136,7 @@ describe("UpdatesSettings", () => {
     expect(await screen.findByText("You're on the latest version.")).toBeInTheDocument();
   });
 
-  it("updates the server in place when the backend lags the app", async () => {
+  it("updates the server in place when the backend differs from the app", async () => {
     seedMismatch();
     const user = userEvent.setup();
     renderPage();
@@ -176,9 +178,8 @@ describe("UpdatesSettings", () => {
 
   it("warns before restarting a server with busy workspaces", async () => {
     seedMismatch();
-    mocks.projects = [
-      { id: "p1", workspaces: [{ id: "w1", status: "busy" }, { id: "w2", status: "idle" }] },
-    ];
+    // Live WS state, not the projects query — the query snapshot can be stale.
+    mocks.liveData = { w1: { status: "busy" }, w2: { status: "idle" } };
     const user = userEvent.setup();
     renderPage();
 

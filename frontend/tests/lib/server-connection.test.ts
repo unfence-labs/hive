@@ -3,11 +3,30 @@ import { getConnection } from "@/hooks/useConnection";
 import { queryClient } from "@/lib/query-client";
 import { wsTransport } from "@/lib/ws-transport";
 import { ServerConnectionError, switchServer } from "@/lib/server-connection";
+import {
+  markServerUpdatePrompted,
+  resetServerUpdate,
+  runServerUpdate,
+  serverUpdateInProgress,
+  shouldPromptServerUpdate,
+} from "@/lib/server-update";
+import type { ProvisionClient } from "@/lib/provision-client";
+
+function provisionClientWith(install: ProvisionClient["install"]): ProvisionClient {
+  return {
+    listKeys: vi.fn(),
+    testConnection: vi.fn(),
+    trustHost: vi.fn(),
+    preflight: vi.fn(),
+    install,
+  };
+}
 
 describe("switchServer", () => {
   beforeEach(() => {
     localStorage.clear();
     vi.restoreAllMocks();
+    resetServerUpdate();
   });
 
   it("probes with the proposed token before replacing the connection", async () => {
@@ -41,6 +60,31 @@ describe("switchServer", () => {
     await expect(
       switchServer({ host: "server.example.com", port: 3000 }, { verify: true }),
     ).rejects.toMatchObject<Partial<ServerConnectionError>>({ reason: "unreachable" });
+  });
+
+  it("clears a finished server-update run and refuses to switch during one", async () => {
+    // A terminal state describes the server being left: switching resets it.
+    // The prompt flag only flips back through resetServerUpdate, so it proves
+    // the reset ran (a failed phase alone would also read as "not running").
+    await runServerUpdate(
+      provisionClientWith(vi.fn(() => Promise.reject({ code: "HEALTH_TIMEOUT", detail: "x" }))),
+      { host: "203.0.113.10", keyPath: "/k" },
+    );
+    markServerUpdatePrompted();
+    await switchServer({ host: "new.example.com", port: 3000, authToken: "token" });
+    expect(shouldPromptServerUpdate()).toBe(true);
+
+    // A run in flight owns the connection: the sidecar cannot be cancelled,
+    // and its terminal state must never describe a different server.
+    void runServerUpdate(
+      provisionClientWith(vi.fn(() => new Promise<void>(() => {}))),
+      { host: "new.example.com", keyPath: "/k" },
+    );
+    await expect(
+      switchServer({ host: "other.example.com", port: 3000, authToken: "token" }),
+    ).rejects.toMatchObject<Partial<ServerConnectionError>>({ reason: "invalid" });
+    expect(serverUpdateInProgress()).toBe(true);
+    expect(getConnection()).toMatchObject({ host: "new.example.com" });
   });
 
   it("keeps the current connection when the proposed one is rejected", async () => {

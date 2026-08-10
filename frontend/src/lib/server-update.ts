@@ -55,6 +55,24 @@ export function serverUpdateInProgress(): boolean {
   return state.phase === "running";
 }
 
+/**
+ * The one mismatch rule, shared by the Updates page and the boot prompt: any
+ * comparable difference — behind OR ahead — offers convergence to the app's
+ * version, which is the authority (the button names its target, so a downgrade
+ * is a visible, supported choice). A "dev" backend is never comparable.
+ */
+export function serverVersionDiffersFromApp(
+  appVersion: string | null,
+  backendVersion: string | null,
+): boolean {
+  return (
+    appVersion !== null &&
+    backendVersion !== null &&
+    backendVersion !== "dev" &&
+    backendVersion !== appVersion
+  );
+}
+
 /** `probe_os` -> `Probe os`, for a step the script has not titled yet. */
 function humanize(id: string): string {
   const words = id.replace(/[_-]+/g, " ");

@@ -6,7 +6,12 @@ import { TransportSecurityWarning } from "@/components/setup/TransportSecurityWa
 import { useConnection } from "@/hooks/useConnection";
 import type { ConnectionStatus } from "@/hooks/useConnectionStatus";
 import { useConnectionStatus } from "@/hooks/useConnectionStatus";
-import { DEFAULT_BACKEND_PORT, isValidPort, switchServer } from "@/lib/server-connection";
+import {
+  DEFAULT_BACKEND_PORT,
+  isValidPort,
+  normalizeHost,
+  switchServer,
+} from "@/lib/server-connection";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -101,10 +106,12 @@ export default function ConnectionSettings({ onRefreshConnection }: ConnectionSe
           // would silently disconnect a client whose token was never shown.
           authToken: tokenDraft.trim() || connection?.authToken,
           sshUser: sshUserDraft.trim() || undefined,
-          // Install-owned; the operator never edits them here, but replacing
-          // the record must not silently drop them.
-          adminUser: connection?.adminUser,
-          sshKeyPath: connection?.sshKeyPath,
+          // Install-owned; a reconnect to the same server must not silently
+          // drop them, but they describe that server only — pointing the app
+          // at a different host must not carry the old identity along.
+          ...(normalizeHost(hostDraft.trim()) === connection?.host
+            ? { adminUser: connection?.adminUser, sshKeyPath: connection?.sshKeyPath }
+            : {}),
         },
         { verify: true },
       );

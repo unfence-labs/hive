@@ -52,7 +52,7 @@ afterEach(() => {
 });
 
 describe("ServerUpdatePrompt", () => {
-  it("prompts once per launch when the server lags the app", async () => {
+  it("prompts once per launch when the server differs from the app", async () => {
     const first = renderPrompt();
     await waitFor(() => expect(mocks.custom).toHaveBeenCalledTimes(1));
 

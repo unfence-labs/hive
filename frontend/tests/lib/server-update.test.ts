@@ -4,6 +4,7 @@ import {
   markServerUpdatePrompted,
   resetServerUpdate,
   runServerUpdate,
+  serverVersionDiffersFromApp,
   shouldPromptServerUpdate,
   useServerUpdateState,
   type ServerUpdateState,
@@ -100,6 +101,20 @@ describe("runServerUpdate", () => {
     expect(install).toHaveBeenCalledTimes(1);
     finish();
     await first;
+  });
+});
+
+describe("serverVersionDiffersFromApp", () => {
+  it("flags only a comparable, differing backend", () => {
+    expect(serverVersionDiffersFromApp("1.3.0", "1.2.3")).toBe(true);
+    // A newer backend also differs: the button converges to the app's version
+    // and names its target, so the downgrade is a visible choice.
+    expect(serverVersionDiffersFromApp("1.2.3", "1.3.0")).toBe(true);
+    expect(serverVersionDiffersFromApp("1.3.0", "1.3.0")).toBe(false);
+    // A source checkout has no comparable version.
+    expect(serverVersionDiffersFromApp("1.3.0", "dev")).toBe(false);
+    expect(serverVersionDiffersFromApp(null, "1.2.3")).toBe(false);
+    expect(serverVersionDiffersFromApp("1.3.0", null)).toBe(false);
   });
 });
 

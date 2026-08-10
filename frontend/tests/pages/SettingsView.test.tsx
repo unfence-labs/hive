@@ -185,6 +185,29 @@ describe("ConnectionSettings", () => {
     );
   });
 
+  it("drops the install-owned identity when pointing at a different host", async () => {
+    replaceConnection({
+      host: "100.64.0.10",
+      port: 3000,
+      authToken: "good",
+      adminUser: "ops",
+      sshKeyPath: "/home/lenny/.ssh/id_ed25519",
+    });
+    mockProbe(new Response("[]", { status: 200 }));
+    const user = userEvent.setup();
+    render(<ConnectionSettings />);
+
+    const host = screen.getByPlaceholderText("203.0.113.10");
+    await user.clear(host);
+    await user.type(host, "100.64.0.20");
+    await user.click(screen.getByRole("button", { name: "Connect" }));
+
+    await waitFor(() => expect(getConnection()?.host).toBe("100.64.0.20"));
+    // The key and admin login describe the old server, not the new one.
+    expect(getConnection()?.sshKeyPath).toBeUndefined();
+    expect(getConnection()?.adminUser).toBeUndefined();
+  });
+
   it("keeps the working connection when a new attempt is rejected", async () => {
     replaceConnection({ host: "old.example.com", port: 3000, authToken: "good" });
     mockProbe(new Response("", { status: 401 }));
