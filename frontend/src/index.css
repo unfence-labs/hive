@@ -141,6 +141,11 @@
   --warning-border: color-mix(in oklch, var(--warning) 30%, transparent);
   --warning-contrast: #000000;
 
+  /* Semantic colors tuned for the inverted toast surface. */
+  --toast-success: #34d399;
+  --toast-error: #f87171;
+  --toast-warning: #facc15;
+
   /* PR status — GitHub Primer state palette (light) */
   --pr-open: #1a7f37;
   --pr-draft: #6e7781;
@@ -230,6 +235,11 @@
   --warning-muted: color-mix(in oklch, var(--warning) 10%, transparent);
   --warning-border: color-mix(in oklch, var(--warning) 25%, transparent);
   --warning-contrast: #000000;
+
+  /* Dark mode uses a light toast surface, so status colors need deeper tones. */
+  --toast-success: #166534;
+  --toast-error: #b91c1c;
+  --toast-warning: #854d0e;
 
   /* PR status — GitHub Primer state palette (dark) */
   --pr-open: #3fb950;

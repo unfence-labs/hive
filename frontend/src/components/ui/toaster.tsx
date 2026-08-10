@@ -10,16 +10,16 @@ export type HiveToastVariant = "success" | "error" | "warning";
 
 const VARIANT_COLORS: Record<HiveToastVariant, { accent: string; statusText: string }> = {
   success: {
-    accent: "var(--success)",
-    statusText: "var(--success-foreground)",
+    accent: "var(--toast-success)",
+    statusText: "var(--toast-success)",
   },
   error: {
-    accent: "var(--destructive)",
-    statusText: "var(--destructive)",
+    accent: "var(--toast-error)",
+    statusText: "var(--toast-error)",
   },
   warning: {
-    accent: "var(--warning)",
-    statusText: "var(--warning-foreground)",
+    accent: "var(--toast-warning)",
+    statusText: "var(--toast-warning)",
   },
 };
 
@@ -36,6 +36,8 @@ export interface HiveToastProps {
 }
 
 function stopSwipeGesture(event: PointerEvent<HTMLButtonElement>) {
+  // Sonner guards direct button targets, but nested elements such as the
+  // close icon bypass that check and can start a swipe gesture.
   event.stopPropagation();
 }
 
