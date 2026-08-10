@@ -1,7 +1,13 @@
 import { act, renderHook } from "@testing-library/react";
 import type { ReactElement } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { useDesktopUpdate } from "@/hooks/useDesktopUpdate";
+import {
+  checkForUpdatesNow,
+  installCurrentUpdate,
+  resetDesktopUpdateForTests,
+  useDesktopUpdate,
+  useDesktopUpdateState,
+} from "@/hooks/useDesktopUpdate";
 import type { HiveToastProps } from "@/components/ui/toaster";
 
 type CustomRender = (id: string | number) => ReactElement<HiveToastProps>;
@@ -76,6 +82,7 @@ describe("useDesktopUpdate", () => {
     vi.clearAllMocks();
     vi.useFakeTimers();
     localStorage.clear();
+    resetDesktopUpdateForTests();
     setDesktopShell(true);
     // The hook only checks release builds; vitest runs in dev mode.
     vi.stubEnv("PROD", true);
@@ -194,7 +201,8 @@ describe("useDesktopUpdate", () => {
 
     act(() => lastToast().props.onClose());
     expect(mocks.dismiss).toHaveBeenCalledWith("hive-app-update");
-    expect(dismissedUpdate.close).toHaveBeenCalledTimes(1);
+    // The handle stays open: the Updates page can still install a dismissed version.
+    expect(dismissedUpdate.close).not.toHaveBeenCalled();
     mocks.custom.mockClear();
 
     await act(async () => {
@@ -210,6 +218,7 @@ describe("useDesktopUpdate", () => {
     });
     await settle();
     expect(lastToast().props.description).toBe("Version 1.3.0 is available");
+    expect(dismissedUpdate.close).toHaveBeenCalledTimes(1);
   });
 
   it("remembers a dismissed version after remounting", async () => {
@@ -226,7 +235,8 @@ describe("useDesktopUpdate", () => {
     await renderUpdateHook();
 
     expect(mocks.custom).not.toHaveBeenCalled();
-    expect(repeatedUpdate.close).toHaveBeenCalledTimes(1);
+    // Kept open so the Updates page can still offer the dismissed install.
+    expect(repeatedUpdate.close).not.toHaveBeenCalled();
   });
 
   it("releases the active update when the hook unmounts", async () => {
@@ -264,5 +274,150 @@ describe("useDesktopUpdate", () => {
     await settle();
 
     expect(mocks.check).toHaveBeenCalledTimes(1);
+  });
+
+  it("dismissing the toast keeps the update available to the Updates page", async () => {
+    mocks.check.mockResolvedValue(makeUpdate("1.2.3"));
+    const { result } = renderHook(() => {
+      useDesktopUpdate();
+      return useDesktopUpdateState();
+    });
+    await settle();
+
+    act(() => lastToast().props.onClose());
+
+    expect(result.current).toEqual({ phase: "available", version: "1.2.3" });
+  });
+
+  it("does not clobber an install started while a check was in flight", async () => {
+    const installedUpdate = makeUpdate(
+      "1.2.3",
+      vi.fn(() => new Promise<void>(() => {})), // download never settles
+    );
+    mocks.check.mockResolvedValue(installedUpdate);
+    const { result } = renderHook(() => {
+      useDesktopUpdate();
+      return useDesktopUpdateState();
+    });
+    await settle();
+
+    let resolveCheck: (update: unknown) => void = () => {};
+    mocks.check.mockReturnValue(new Promise((resolve) => (resolveCheck = resolve)));
+    await act(async () => {
+      vi.advanceTimersByTime(CHECK_INTERVAL_MS);
+    });
+    act(() => lastToast().props.onAction?.());
+    await settle();
+
+    const lateUpdate = makeUpdate("1.2.4");
+    act(() => resolveCheck(lateUpdate));
+    await settle();
+
+    expect(result.current).toEqual({ phase: "downloading", version: "1.2.3", percent: null });
+    expect(installedUpdate.close).not.toHaveBeenCalled();
+    expect(lateUpdate.close).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps an offered update available when a later check fails", async () => {
+    mocks.check.mockResolvedValue(makeUpdate("1.2.3"));
+    const { result } = renderHook(() => {
+      useDesktopUpdate();
+      return useDesktopUpdateState();
+    });
+    await settle();
+
+    mocks.check.mockRejectedValue(new Error("offline"));
+    await act(async () => {
+      vi.advanceTimersByTime(CHECK_INTERVAL_MS);
+    });
+    await settle();
+
+    expect(result.current).toEqual({ phase: "available", version: "1.2.3" });
+  });
+
+  it("reflects a toast-driven install in the shared state", async () => {
+    mocks.check.mockResolvedValue(makeUpdate("1.2.3"));
+    const { result } = renderHook(() => {
+      useDesktopUpdate();
+      return useDesktopUpdateState();
+    });
+    await settle();
+
+    act(() => lastToast().props.onAction?.());
+    await settle();
+
+    expect(result.current).toEqual({ phase: "installing", version: "1.2.3" });
+  });
+});
+
+describe("manual checks from the Updates page", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    localStorage.clear();
+    resetDesktopUpdateForTests();
+    setDesktopShell(true);
+    vi.stubEnv("PROD", true);
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    mocks.custom.mockImplementation((_render, options) => options?.id ?? "toast-custom");
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    setDesktopShell(false);
+  });
+
+  it("surfaces a dismissed version without a toast", async () => {
+    localStorage.setItem("hive-dismissed-update-version", "1.2.3");
+    mocks.check.mockResolvedValue(makeUpdate("1.2.3"));
+    const { result } = renderHook(() => useDesktopUpdateState());
+
+    act(() => checkForUpdatesNow());
+    await settle();
+
+    expect(result.current).toEqual({ phase: "available", version: "1.2.3" });
+    expect(mocks.custom).not.toHaveBeenCalled();
+  });
+
+  it("reports up to date when there is no update", async () => {
+    mocks.check.mockResolvedValue(null);
+    const { result } = renderHook(() => useDesktopUpdateState());
+
+    act(() => checkForUpdatesNow());
+    await settle();
+
+    expect(result.current).toEqual({ phase: "upToDate" });
+  });
+
+  it("reports a failed check", async () => {
+    mocks.check.mockRejectedValue(new Error("no latest.json"));
+    const { result } = renderHook(() => useDesktopUpdateState());
+
+    act(() => checkForUpdatesNow());
+    await settle();
+
+    expect(result.current).toEqual({ phase: "checkFailed", error: "no latest.json" });
+  });
+
+  it("does not check outside installed desktop builds", async () => {
+    vi.stubEnv("PROD", false);
+
+    act(() => checkForUpdatesNow());
+    await settle();
+
+    expect(mocks.check).not.toHaveBeenCalled();
+  });
+
+  it("installs the update found by a manual check", async () => {
+    const update = makeUpdate("1.2.3");
+    mocks.check.mockResolvedValue(update);
+    renderHook(() => useDesktopUpdateState());
+
+    act(() => checkForUpdatesNow());
+    await settle();
+    act(() => installCurrentUpdate());
+    await settle();
+
+    expect(update.downloadAndInstall).toHaveBeenCalledTimes(1);
+    expect(mocks.relaunch).toHaveBeenCalledTimes(1);
   });
 });

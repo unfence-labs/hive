@@ -90,6 +90,9 @@ mkdir -p "$pkg"
 cp -R "$ROOT/backend/dist" "$pkg/dist"
 cp -R "$install_root/node_modules" "$pkg/node_modules"
 cp "$ROOT/LICENSE" "$pkg/"
+# The runtime reads this file to answer GET /api/server/version; a checkout
+# without it reports "dev".
+printf '%s\n' "$VERSION" >"$pkg/VERSION"
 
 # The manifest carries the release version and the build facts an installer
 # needs to reject a tarball its runtime cannot load.
@@ -136,6 +139,10 @@ mkdir -p "$unpacked"
 tar -xzf "$OUT_DIR/$NAME.tar.gz" -C "$unpacked"
 [ -f "$unpacked/dist/index.js" ] || { echo "archive has no dist/index.js" >&2; exit 1; }
 [ -f "$unpacked/LICENSE" ] || { echo "archive has no LICENSE" >&2; exit 1; }
+[ "$(cat "$unpacked/VERSION" 2>/dev/null)" = "$VERSION" ] || {
+  echo "archive VERSION mismatch: expected $VERSION" >&2
+  exit 1
+}
 artifact_version="$(node -p 'require(process.argv[1]).version' "$unpacked/package.json")"
 [ "$artifact_version" = "$VERSION" ] || {
   echo "archive version mismatch: expected $VERSION, got $artifact_version" >&2
