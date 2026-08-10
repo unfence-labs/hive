@@ -54,8 +54,6 @@ function showWorkspaceToast(args: {
   actionLabel: string;
   duration: number;
   id?: ToastId;
-  /** Sticky action toasts must outlive their CTA click (default true). */
-  dismissOnAction?: boolean;
   onAction: () => void;
   onDismiss?: ExternalToast["onDismiss"];
 }): ToastId {
@@ -69,7 +67,7 @@ function showWorkspaceToast(args: {
         actionLabel={args.actionLabel}
         onAction={() => {
           args.onAction();
-          if (args.dismissOnAction !== false) toast.dismiss(id);
+          toast.dismiss(id);
         }}
         onClose={() => toast.dismiss(id)}
       />
@@ -201,7 +199,6 @@ export function useNotificationToasts(projects: Project[]): void {
           description: isPlan ? "Plan ready for review" : "Agent needs input",
           actionLabel: isPlan ? "Review" : "Respond",
           duration: TOAST_DURATIONS.actionRequired,
-          dismissOnAction: false,
           onAction: () => go(sid),
           onDismiss: () => {
             if (actionToastsRef.current.get(actionToastKey) === toastId) {
