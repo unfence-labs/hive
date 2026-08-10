@@ -74,6 +74,12 @@ export interface ProvisionOptions {
   dataDir?: string;
   /** Authorized on the hive service account by the install. */
   sshPublicKey?: string;
+  /**
+   * Update an existing completed install to the app's version instead of
+   * installing. The script reads everything else from the server's install
+   * manifest, so no other option applies.
+   */
+  update?: boolean;
 }
 
 /** The sidecar's rejection shape: a taxonomy code plus a raw diagnostic. */

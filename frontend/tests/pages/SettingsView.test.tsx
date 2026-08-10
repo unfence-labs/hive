@@ -157,7 +157,12 @@ describe("ConnectionSettings", () => {
   });
 
   it("keeps the stored token when reconnecting with the field left blank", async () => {
-    replaceConnection({ host: "100.64.0.10", port: 3000, authToken: "good" });
+    replaceConnection({
+      host: "100.64.0.10",
+      port: 3000,
+      authToken: "good",
+      sshKeyPath: "/home/lenny/.ssh/id_ed25519",
+    });
     const fetchMock = mockProbe(new Response("[]", { status: 200 }));
     const user = userEvent.setup();
     render(<ConnectionSettings />);
@@ -165,7 +170,13 @@ describe("ConnectionSettings", () => {
     await user.click(screen.getByRole("button", { name: "Connect" }));
 
     await waitFor(() =>
-      expect(getConnection()).toMatchObject({ host: "100.64.0.10", authToken: "good" }),
+      expect(getConnection()).toMatchObject({
+        host: "100.64.0.10",
+        authToken: "good",
+        // Install-owned like adminUser: a reconnect must not drop the key
+        // path the in-app server update depends on.
+        sshKeyPath: "/home/lenny/.ssh/id_ed25519",
+      }),
     );
     // The probe authenticated with the stored token, not with an empty one.
     expect(fetchMock).toHaveBeenCalledWith(

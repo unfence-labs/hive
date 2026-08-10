@@ -109,8 +109,10 @@ the generated uninstall script are all covered in **[Prerequisites](prerequisite
 
 ### Update the backend
 
-Wait for active agents, terminals, and automations to finish, then run the provisioner from the
-exact release you want:
+The desktop app offers this flow from Settings > Updates once the app itself is current: it runs
+the same update over SSH, warns when agents are still running, and asks for the escalation
+password only when the server requires one. To run it by hand instead, wait for active agents,
+terminals, and automations to finish, then run the provisioner from the exact release you want:
 
 ```bash
 curl -fsSL https://github.com/unfence-labs/hive/releases/download/v0.1.0-beta.2/provision.sh \

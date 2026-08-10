@@ -1,6 +1,7 @@
 import { useEffect, useSyncExternalStore } from "react";
 import { toast } from "sonner";
 import { isDesktopShell } from "@/lib/is-desktop";
+import { serverUpdateInProgress } from "@/lib/server-update";
 import { TOAST_DURATIONS } from "@/lib/toast-config";
 import { HiveToast, type HiveToastVariant } from "@/components/ui/toaster";
 
@@ -120,7 +121,9 @@ function releaseUpdate(update: Update): void {
 }
 
 async function install(update: Update): Promise<void> {
-  if (installInProgress()) return;
+  // The install ends in relaunch(), which kills the SSH sidecar — never under
+  // a provisioning run that is updating the server through it.
+  if (installInProgress() || serverUpdateInProgress()) return;
   setState({ phase: "downloading", version: update.version, percent: null });
   showProgressToast("Downloading update…");
 

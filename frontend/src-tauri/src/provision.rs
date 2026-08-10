@@ -345,6 +345,10 @@ pub struct ProvisionOptions {
     /// Authorized on the hive service account, so an editor or terminal session
     /// connects as hive rather than as the install account.
     ssh_public_key: Option<String>,
+    /// Update an existing completed install to this build's version. The script
+    /// reads port and directories from the server's install manifest, and
+    /// rejects `--allowed-host` and `--ssh-public-key` in this mode.
+    update: bool,
 }
 
 impl ProvisionOptions {
@@ -374,6 +378,10 @@ impl ProvisionOptions {
         let mut args = Vec::new();
         if preflight {
             args.push("--preflight".to_string());
+        }
+        if self.update {
+            args.push("--update".into());
+            return Ok(args);
         }
         args.push("--allowed-host".into());
         args.push(allowed_host.to_string());
@@ -1654,6 +1662,7 @@ mod tests {
             install_dir: Some("/opt/hive".into()),
             data_dir: Some("/srv/hive".into()),
             ssh_public_key: Some(format!("ssh-ed25519 {ED25519_BLOB} lenny@box")),
+            update: false,
         };
         let command = remote_command(PrivilegeMode::Root, &args(&options, false));
         assert!(command.contains(&format!("'--ssh-public-key' 'ssh-ed25519 {ED25519_BLOB}'")));
@@ -1663,6 +1672,18 @@ mod tests {
 
         let preflight = args(&options, true);
         assert_eq!(preflight.first().map(String::as_str), Some("--preflight"));
+    }
+
+    #[test]
+    fn update_mode_sends_only_the_update_flag() {
+        // The script rejects --allowed-host and --ssh-public-key during an
+        // update, and reads everything else from the install manifest.
+        let options = ProvisionOptions {
+            update: true,
+            ..ProvisionOptions::default()
+        };
+        assert_eq!(args(&options, false), vec!["--update"]);
+        assert_eq!(args(&options, true), vec!["--preflight", "--update"]);
     }
 
     // ── dev release upload ───────────────────────────────────────────────────

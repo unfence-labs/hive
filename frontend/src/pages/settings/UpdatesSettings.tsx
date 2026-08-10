@@ -1,12 +1,36 @@
-import { useEffect, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { Check, Copy, Loader2, RefreshCw } from "lucide-react";
+import { useMemo, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { Check, Copy, KeyRound, Loader2, RefreshCw } from "lucide-react";
 import { SettingsHeader } from "@/components/AppLayout";
 import { CenterCard } from "@/components/CenterCard";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { api } from "@/hooks/useApi";
+import { useAppVersion } from "@/hooks/useAppVersion";
+import { replaceConnection, useConnection } from "@/hooks/useConnection";
+import { useProjects } from "@/hooks/useProjects";
 import { isDesktopShell } from "@/lib/is-desktop";
 import { copyToClipboard } from "@/lib/clipboard";
+import { createTauriProvisionClient, type SshKey } from "@/lib/provision-client";
+import { runServerUpdate, useServerUpdateState } from "@/lib/server-update";
 import {
   checkForUpdatesNow,
   installCurrentUpdate,
@@ -14,29 +38,6 @@ import {
   useDesktopUpdateState,
   type DesktopUpdateState,
 } from "@/hooks/useDesktopUpdate";
-
-/**
- * The desktop build's own version; the web app has none of its own. Asked from
- * Rust because the JS-side `getVersion()` reports the numeric macOS bundle
- * version, which drops prerelease suffixes like `-beta.5`.
- */
-function useAppVersion(): string | null {
-  const [version, setVersion] = useState<string | null>(null);
-  useEffect(() => {
-    if (!isDesktopShell()) return;
-    let active = true;
-    void import("@tauri-apps/api/core")
-      .then(({ invoke }) => invoke<string>("app_version"))
-      .then((v) => {
-        if (active) setVersion(v);
-      })
-      .catch(() => {});
-    return () => {
-      active = false;
-    };
-  }, []);
-  return version;
-}
 
 export default function UpdatesSettings() {
   const appVersion = useAppVersion();
@@ -100,6 +101,8 @@ function AppSection({ appVersion }: { appVersion: string | null }) {
 }
 
 function UpdateStatus({ update }: { update: DesktopUpdateState }) {
+  // Installing ends in relaunch(), which would kill a provisioning run's SSH.
+  const serverBusy = useServerUpdateState().phase === "running";
   switch (update.phase) {
     case "upToDate":
       return <p className="mt-2 text-xs text-muted-foreground">You're on the latest version.</p>;
@@ -111,7 +114,7 @@ function UpdateStatus({ update }: { update: DesktopUpdateState }) {
       return (
         <div className="mt-3 flex items-center justify-between gap-3 rounded-md border border-border/50 bg-muted/40 px-3 py-2">
           <p className="text-xs text-foreground">Version {update.version} is available.</p>
-          <Button size="sm" onClick={installCurrentUpdate}>
+          <Button size="sm" onClick={installCurrentUpdate} disabled={serverBusy}>
             Restart & update
           </Button>
         </div>
@@ -128,7 +131,7 @@ function UpdateStatus({ update }: { update: DesktopUpdateState }) {
       return (
         <div className="mt-3 flex items-center justify-between gap-3">
           <p className="text-xs text-destructive">Update failed: {update.error}</p>
-          <Button size="sm" variant="outline" onClick={installCurrentUpdate}>
+          <Button size="sm" variant="outline" onClick={installCurrentUpdate} disabled={serverBusy}>
             Retry
           </Button>
         </div>
@@ -161,15 +164,205 @@ function ServerSection({
       <p className="mt-1 text-xs text-muted-foreground">
         Version {unreachable ? "unavailable" : (backendVersion ?? "—")}
       </p>
-      {outdated && (
-        <>
-          <p className="mt-2 text-xs text-muted-foreground">
-            The server is not on the app's version. Update it from a server shell:
+      {/* `outdated` needs the app version, so this is desktop-only by construction. */}
+      {outdated && <ServerUpdateFlow targetVersion={appVersion} />}
+    </section>
+  );
+}
+
+/**
+ * The in-app path: `provision.sh --update` over the SSH sidecar, using the key
+ * the install stored (or asking for it once on older connections) and asking
+ * for the escalation password only when the server's sudo mode requires it.
+ */
+function ServerUpdateFlow({ targetVersion }: { targetVersion: string }) {
+  const desktopUpdate = useDesktopUpdateState();
+  const updateState = useServerUpdateState();
+  const { connection } = useConnection();
+  const { projects } = useProjects();
+  const queryClient = useQueryClient();
+  const client = useMemo(() => createTauriProvisionClient(), []);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [keyPicker, setKeyPicker] = useState<{ open: boolean; keys: SshKey[] }>({
+    open: false,
+    keys: [],
+  });
+  const [passwordOpen, setPasswordOpen] = useState(false);
+  const [password, setPassword] = useState("");
+
+  // The app update comes first: the bundled provisioner installs the app's own
+  // version, so updating the server before the app would converge on the old
+  // one. A run already in flight keeps its progress visible regardless.
+  const appUpdatePending =
+    desktopUpdate.phase === "available" ||
+    desktopUpdate.phase === "downloading" ||
+    desktopUpdate.phase === "installing";
+  if (!connection) return null;
+  if (appUpdatePending && updateState.phase !== "running") return null;
+
+  const busyWorkspaces = projects
+    .flatMap((project) => project.workspaces ?? [])
+    .filter((workspace) => workspace.status === "busy").length;
+
+  const launch = async (keyPath: string, escalationPassword?: string) => {
+    const result = await runServerUpdate(client, {
+      host: connection.host,
+      user: connection.adminUser,
+      keyPath,
+      password: escalationPassword,
+    });
+    if (result.phase === "failed" && result.passwordRequired) {
+      setPasswordOpen(true);
+      return;
+    }
+    if (result.phase === "done") {
+      void queryClient.invalidateQueries({ queryKey: ["server", "version"] });
+    }
+  };
+
+  const begin = async (escalationPassword?: string) => {
+    if (connection.sshKeyPath) {
+      void launch(connection.sshKeyPath, escalationPassword);
+      return;
+    }
+    // Connections stored before the key path existed: ask once, then keep it.
+    // No password can reach this branch: the password prompt only follows a
+    // launch, and a launch requires a key — which pickKey persists first.
+    const keys = (await client.listKeys().catch(() => [])).filter((key) => key.usable);
+    setKeyPicker({ open: true, keys });
+  };
+
+  const requestUpdate = () => {
+    if (busyWorkspaces > 0) setConfirmOpen(true);
+    else void begin();
+  };
+
+  const pickKey = (key: SshKey) => {
+    setKeyPicker({ open: false, keys: [] });
+    replaceConnection({ ...connection, sshKeyPath: key.path });
+    void launch(key.path);
+  };
+
+  const submitPassword = () => {
+    setPasswordOpen(false);
+    const submitted = password;
+    setPassword("");
+    void begin(submitted);
+  };
+
+  return (
+    <>
+      {updateState.phase === "running" ? (
+        <p className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">
+          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          {updateState.step}
+        </p>
+      ) : updateState.phase === "done" ? (
+        <p className="mt-2 text-xs text-muted-foreground">Server updated.</p>
+      ) : (
+        <div className="mt-3 flex items-center justify-between gap-3">
+          <p className="text-xs text-muted-foreground">
+            The server is not on the app's version.
           </p>
-          <UpdateCommand version={appVersion} />
+          <Button size="sm" onClick={requestUpdate}>
+            Update server to {targetVersion}
+          </Button>
+        </div>
+      )}
+      {updateState.phase === "failed" && !updateState.passwordRequired && (
+        <>
+          <p className="mt-2 text-xs text-destructive">Update failed: {updateState.error}</p>
+          <p className="mt-2 text-xs text-muted-foreground">
+            Fallback, from a server shell:
+          </p>
+          <UpdateCommand version={targetVersion} />
         </>
       )}
-    </section>
+
+      <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Agents are running</AlertDialogTitle>
+            <AlertDialogDescription>
+              {busyWorkspaces} workspace{busyWorkspaces === 1 ? " has" : "s have"} agents running.
+              Updating restarts the server and stops them.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={() => void begin()}>Update anyway</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <Dialog
+        open={keyPicker.open}
+        onOpenChange={(open) => !open && setKeyPicker({ open: false, keys: [] })}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Select an SSH key</DialogTitle>
+            <DialogDescription>
+              The key used to install this server. It is remembered for future updates.
+            </DialogDescription>
+          </DialogHeader>
+          {keyPicker.keys.length === 0 ? (
+            <p className="text-xs text-muted-foreground">No usable SSH key found in ~/.ssh.</p>
+          ) : (
+            <div className="space-y-1">
+              {keyPicker.keys.map((key) => (
+                <button
+                  key={key.path}
+                  type="button"
+                  onClick={() => pickKey(key)}
+                  className="flex w-full items-center gap-2 rounded-md border border-border/50 px-3 py-2 text-left text-sm transition-colors hover:bg-accent"
+                >
+                  <KeyRound className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  <span className="min-w-0 flex-1 truncate">{key.label}</span>
+                  {key.keyType && (
+                    <span className="text-xs text-muted-foreground">{key.keyType}</span>
+                  )}
+                </button>
+              ))}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={passwordOpen} onOpenChange={setPasswordOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Escalation password</DialogTitle>
+            <DialogDescription>
+              {connection.adminUser ?? "root"} needs a password to escalate on the server. It is
+              used for this run only and never stored.
+            </DialogDescription>
+          </DialogHeader>
+          <form
+            onSubmit={(event) => {
+              event.preventDefault();
+              submitPassword();
+            }}
+          >
+            <Input
+              type="password"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              autoFocus
+              aria-label="Password"
+            />
+            <DialogFooter className="mt-4">
+              <Button type="button" variant="outline" onClick={() => setPasswordOpen(false)}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={!password}>
+                Update server
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
 

@@ -101,9 +101,10 @@ export default function ConnectionSettings({ onRefreshConnection }: ConnectionSe
           // would silently disconnect a client whose token was never shown.
           authToken: tokenDraft.trim() || connection?.authToken,
           sshUser: sshUserDraft.trim() || undefined,
-          // Install-owned; the operator never edits it here, but replacing the
-          // record must not silently drop it.
+          // Install-owned; the operator never edits them here, but replacing
+          // the record must not silently drop them.
           adminUser: connection?.adminUser,
+          sshKeyPath: connection?.sshKeyPath,
         },
         { verify: true },
       );

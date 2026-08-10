@@ -24,6 +24,12 @@ export interface ServerConnection {
   sshUser?: string;
   /** Admin account used to log in over SSH and run the install. */
   adminUser?: string;
+  /**
+   * Path of the private key the install authenticated with — the path only,
+   * never key material. Lets the in-app server update reconnect without
+   * re-asking; absent for connections stored before it existed.
+   */
+  sshKeyPath?: string;
 }
 
 export const CONNECTION_STORAGE_KEY = "hive-connection";
@@ -59,6 +65,7 @@ function normalizeConnection(value: unknown): ServerConnection | null {
   const authToken = trimmedString(candidate.authToken);
   const sshUser = trimmedString(candidate.sshUser);
   const adminUser = trimmedString(candidate.adminUser);
+  const sshKeyPath = trimmedString(candidate.sshKeyPath);
   return {
     host,
     port,
@@ -67,6 +74,7 @@ function normalizeConnection(value: unknown): ServerConnection | null {
     ...(authToken ? { authToken } : {}),
     ...(sshUser ? { sshUser } : {}),
     ...(adminUser ? { adminUser } : {}),
+    ...(sshKeyPath ? { sshKeyPath } : {}),
   };
 }
 

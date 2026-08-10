@@ -1,6 +1,7 @@
 import type { ServerConnection } from "@/hooks/useConnection";
 import { replaceConnection, serverUrlFor } from "@/hooks/useConnection";
 import { queryClient } from "@/lib/query-client";
+import { resetServerUpdate } from "@/lib/server-update";
 import { wsTransport } from "@/lib/ws-transport";
 
 /**
@@ -111,6 +112,8 @@ export async function switchServer(
 
   replaceConnection(connection);
   wsTransport.disconnectAll();
+  // A done or failed server-update run describes the previous server.
+  resetServerUpdate();
   // Not clear(): mounted observers (e.g. the health badge) are not refetched
   // after a cache teardown and would freeze on their pending state.
   await queryClient.resetQueries();
