@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Eye, EyeOff, Send, Save, Loader2 } from "lucide-react";
 import { SettingsHeader } from "@/components/AppLayout";
 import { CenterCard } from "@/components/CenterCard";
+import { SettingsPanel, SettingsSection } from "@/components/settings/SettingsSection";
 
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
@@ -39,10 +40,10 @@ export default function NotificationSettings() {
       </SettingsHeader>
 
       <CenterCard scroll>
-      <div className="max-w-2xl space-y-6 px-4 py-5">
-        <LocalToastsSection />
-        <TelegramForm initial={telegram} />
-      </div>
+        <SettingsPanel>
+          <LocalToastsSection />
+          <TelegramForm initial={telegram} />
+        </SettingsPanel>
       </CenterCard>
     </div>
   );
@@ -153,14 +154,12 @@ function LocalToastsSection() {
       description="Show toast notifications when agents finish in background workspaces."
       enabled={enabled}
       onToggle={setLocalToastsEnabled}
-    >
-      <div />
-    </NotificationSection>
+    />
   );
 }
 
 // ---------------------------------------------------------------------------
-// Shared section wrapper (toggle header + card chrome)
+// Shared section wrapper (toggle header)
 // ---------------------------------------------------------------------------
 
 function NotificationSection({ id, title, description, enabled, onToggle, children }: {
@@ -169,19 +168,20 @@ function NotificationSection({ id, title, description, enabled, onToggle, childr
   description: string;
   enabled: boolean;
   onToggle: (v: boolean) => void;
-  children: ReactNode;
+  children?: ReactNode;
 }) {
   return (
-    <section className="rounded-lg border border-border/50 bg-card/50 p-5">
-      <div className="flex items-start justify-between">
-        <div>
-          <h2 id={`${id}-toggle-label`} className="text-sm font-medium text-foreground">{title}</h2>
-          <p className="mt-1 text-xs text-muted-foreground">{description}</p>
-        </div>
-        <Toggle id={`${id}-toggle-label`} enabled={enabled} onChange={onToggle} />
-      </div>
+    <SettingsSection
+      // Rendered here rather than passed as a string so the toggle can point at
+      // the heading it controls.
+      title={
+        <h2 id={`${id}-toggle-label`} className="text-sm font-medium text-foreground">{title}</h2>
+      }
+      description={description}
+      action={<Toggle id={`${id}-toggle-label`} enabled={enabled} onChange={onToggle} />}
+    >
       {children}
-    </section>
+    </SettingsSection>
   );
 }
 
@@ -239,7 +239,7 @@ function TelegramForm({ initial }: { initial: TelegramConfig }) {
       enabled={channel.enabled}
       onToggle={channel.handleToggle}
     >
-      <div className={cn("mt-5 space-y-4 transition-opacity", !channel.enabled && "pointer-events-none opacity-50")}>
+      <div className={cn("mt-4 space-y-4 transition-opacity", !channel.enabled && "pointer-events-none opacity-50")}>
         <div>
           <label htmlFor="tg-token" className="mb-1.5 block text-xs font-medium text-muted-foreground">
             Bot Token

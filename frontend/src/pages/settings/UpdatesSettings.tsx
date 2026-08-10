@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, Copy, KeyRound, Loader2, RefreshCw } from "lucide-react";
 import { SettingsHeader } from "@/components/AppLayout";
 import { CenterCard } from "@/components/CenterCard";
+import { SettingsPanel, SettingsSection } from "@/components/settings/SettingsSection";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -30,7 +31,12 @@ import { useWorkspaceLiveDataContext } from "@/contexts/WorkspaceLiveDataContext
 import { isDesktopShell } from "@/lib/is-desktop";
 import { copyToClipboard } from "@/lib/clipboard";
 import { createTauriProvisionClient, type SshKey } from "@/lib/provision-client";
-import { runServerUpdate, serverVersionDiffersFromApp, useServerUpdateState } from "@/lib/server-update";
+import {
+  runServerUpdate,
+  serverVersionDiffersFromApp,
+  useServerUpdateState,
+  type ServerUpdateState,
+} from "@/lib/server-update";
 import {
   checkForUpdatesNow,
   installCurrentUpdate,
@@ -53,14 +59,14 @@ export default function UpdatesSettings() {
       </SettingsHeader>
 
       <CenterCard scroll>
-        <div className="max-w-2xl space-y-6 px-4 py-5">
+        <SettingsPanel>
           {isDesktopShell() && <AppSection appVersion={appVersion} />}
           <ServerSection
             appVersion={appVersion}
             backendVersion={backendQuery.data?.version ?? null}
             unreachable={backendQuery.isError}
           />
-        </div>
+        </SettingsPanel>
       </CenterCard>
     </div>
   );
@@ -68,17 +74,16 @@ export default function UpdatesSettings() {
 
 function AppSection({ appVersion }: { appVersion: string | null }) {
   const update = useDesktopUpdateState();
+  const canCheck = shouldCheckForUpdates();
   const busy =
     update.phase === "checking" || update.phase === "downloading" || update.phase === "installing";
 
   return (
-    <section className="rounded-lg border border-border/50 bg-card/50 p-5">
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <h2 className="text-sm font-medium text-foreground">Application</h2>
-          <p className="mt-1 text-xs text-muted-foreground">Version {appVersion ?? "—"}</p>
-        </div>
-        {shouldCheckForUpdates() && (
+    <SettingsSection
+      title="Application"
+      description={`Version ${appVersion ?? "—"}`}
+      action={
+        canCheck && (
           <Button size="sm" variant="outline" onClick={checkForUpdatesNow} disabled={busy}>
             {update.phase === "checking" ? (
               <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
@@ -87,16 +92,17 @@ function AppSection({ appVersion }: { appVersion: string | null }) {
             )}
             Check for updates
           </Button>
-        )}
-      </div>
-      {shouldCheckForUpdates() ? (
+        )
+      }
+    >
+      {canCheck ? (
         <UpdateStatus update={update} />
       ) : (
-        <p className="mt-2 text-xs text-muted-foreground">
+        <p className="mt-3 text-xs text-muted-foreground">
           Update checks run in installed builds only.
         </p>
       )}
-    </section>
+    </SettingsSection>
   );
 }
 
@@ -105,14 +111,14 @@ function UpdateStatus({ update }: { update: DesktopUpdateState }) {
   const serverBusy = useServerUpdateState().phase === "running";
   switch (update.phase) {
     case "upToDate":
-      return <p className="mt-2 text-xs text-muted-foreground">You're on the latest version.</p>;
+      return <p className="mt-3 text-xs text-muted-foreground">You're on the latest version.</p>;
     case "checkFailed":
       return (
-        <p className="mt-2 text-xs text-destructive">Update check failed: {update.error}</p>
+        <p className="mt-3 text-xs text-destructive">Update check failed: {update.error}</p>
       );
     case "available":
       return (
-        <div className="mt-3 flex items-center justify-between gap-3 rounded-md border border-border/50 bg-muted/40 px-3 py-2">
+        <div className="mt-3 flex items-center justify-between gap-3">
           <p className="text-xs text-foreground">Version {update.version} is available.</p>
           <Button size="sm" onClick={installCurrentUpdate} disabled={serverBusy}>
             Restart & update
@@ -121,12 +127,12 @@ function UpdateStatus({ update }: { update: DesktopUpdateState }) {
       );
     case "downloading":
       return (
-        <p className="mt-2 text-xs text-muted-foreground">
+        <p className="mt-3 text-xs text-muted-foreground">
           Downloading {update.version}…{update.percent !== null ? ` ${update.percent}%` : ""}
         </p>
       );
     case "installing":
-      return <p className="mt-2 text-xs text-muted-foreground">Installing {update.version}…</p>;
+      return <p className="mt-3 text-xs text-muted-foreground">Installing {update.version}…</p>;
     case "failed":
       return (
         <div className="mt-3 flex items-center justify-between gap-3">
@@ -154,14 +160,13 @@ function ServerSection({
   const outdated = appVersion !== null && serverVersionDiffersFromApp(appVersion, backendVersion);
 
   return (
-    <section className="rounded-lg border border-border/50 bg-card/50 p-5">
-      <h2 className="text-sm font-medium text-foreground">Server</h2>
-      <p className="mt-1 text-xs text-muted-foreground">
-        Version {unreachable ? "unavailable" : (backendVersion ?? "—")}
-      </p>
+    <SettingsSection
+      title="Server"
+      description={`Version ${unreachable ? "unavailable" : (backendVersion ?? "—")}`}
+    >
       {/* `outdated` needs the app version, so this is desktop-only by construction. */}
       {outdated && <ServerUpdateFlow targetVersion={appVersion} />}
-    </section>
+    </SettingsSection>
   );
 }
 
@@ -249,117 +254,204 @@ function ServerUpdateFlow({ targetVersion }: { targetVersion: string }) {
 
   return (
     <>
-      {updateState.phase === "running" ? (
+      <ServerUpdateStatus
+        targetVersion={targetVersion}
+        state={updateState}
+        onUpdate={requestUpdate}
+      />
+
+      <AgentsRunningDialog
+        open={confirmOpen}
+        onOpenChange={setConfirmOpen}
+        busyWorkspaces={busyWorkspaces}
+        onConfirm={() => void begin()}
+      />
+
+      <SshKeyPickerDialog
+        open={keyPicker.open}
+        onOpenChange={(open) => !open && setKeyPicker({ open: false, keys: [] })}
+        keys={keyPicker.keys}
+        onPick={pickKey}
+      />
+
+      <EscalationPasswordDialog
+        open={passwordOpen}
+        onOpenChange={setPasswordOpen}
+        adminUser={connection.adminUser}
+        password={password}
+        onPasswordChange={setPassword}
+        onSubmit={submitPassword}
+      />
+    </>
+  );
+}
+
+/** Presentation only: the run itself stays in {@link ServerUpdateFlow} above. */
+function ServerUpdateStatus({
+  targetVersion,
+  state,
+  onUpdate,
+}: {
+  targetVersion: string;
+  state: ServerUpdateState;
+  onUpdate: () => void;
+}) {
+  return (
+    <>
+      {state.phase === "running" ? (
         <p className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">
           <Loader2 className="h-3.5 w-3.5 animate-spin" />
-          {updateState.step}
+          {state.step}
         </p>
-      ) : updateState.phase === "done" ? (
-        <p className="mt-2 text-xs text-muted-foreground">Server updated.</p>
+      ) : state.phase === "done" ? (
+        <p className="mt-3 text-xs text-muted-foreground">Server updated.</p>
       ) : (
         <div className="mt-3 flex items-center justify-between gap-3">
           <p className="text-xs text-muted-foreground">
             The server is not on the app's version.
           </p>
-          <Button size="sm" onClick={requestUpdate}>
+          <Button size="sm" onClick={onUpdate}>
             Update server to {targetVersion}
           </Button>
         </div>
       )}
-      {updateState.phase === "failed" && !updateState.passwordRequired && (
+      {state.phase === "failed" && !state.passwordRequired && (
         <>
-          <p className="mt-2 text-xs text-destructive">Update failed: {updateState.error}</p>
+          <p className="mt-2 text-xs text-destructive">Update failed: {state.error}</p>
           <p className="mt-2 text-xs text-muted-foreground">
             Fallback, from a server shell:
           </p>
           <UpdateCommand version={targetVersion} />
         </>
       )}
-
-      <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Agents are running</AlertDialogTitle>
-            <AlertDialogDescription>
-              {busyWorkspaces} workspace{busyWorkspaces === 1 ? " has" : "s have"} agents running.
-              Updating restarts the server and stops them.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={() => void begin()}>Update anyway</AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-      <Dialog
-        open={keyPicker.open}
-        onOpenChange={(open) => !open && setKeyPicker({ open: false, keys: [] })}
-      >
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Select an SSH key</DialogTitle>
-            <DialogDescription>
-              The key used to install this server. It is remembered for future updates.
-            </DialogDescription>
-          </DialogHeader>
-          {keyPicker.keys.length === 0 ? (
-            <p className="text-xs text-muted-foreground">No usable SSH key found in ~/.ssh.</p>
-          ) : (
-            <div className="space-y-1">
-              {keyPicker.keys.map((key) => (
-                <button
-                  key={key.path}
-                  type="button"
-                  onClick={() => pickKey(key)}
-                  className="flex w-full items-center gap-2 rounded-md border border-border/50 px-3 py-2 text-left text-sm transition-colors hover:bg-accent"
-                >
-                  <KeyRound className="h-4 w-4 shrink-0 text-muted-foreground" />
-                  <span className="min-w-0 flex-1 truncate">{key.label}</span>
-                  {key.keyType && (
-                    <span className="text-xs text-muted-foreground">{key.keyType}</span>
-                  )}
-                </button>
-              ))}
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={passwordOpen} onOpenChange={setPasswordOpen}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Escalation password</DialogTitle>
-            <DialogDescription>
-              {connection.adminUser ?? "root"} needs a password to escalate on the server. It is
-              used for this run only and never stored.
-            </DialogDescription>
-          </DialogHeader>
-          <form
-            onSubmit={(event) => {
-              event.preventDefault();
-              submitPassword();
-            }}
-          >
-            <Input
-              type="password"
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              autoFocus
-              aria-label="Password"
-            />
-            <DialogFooter className="mt-4">
-              <Button type="button" variant="outline" onClick={() => setPasswordOpen(false)}>
-                Cancel
-              </Button>
-              <Button type="submit" disabled={!password}>
-                Update server
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
     </>
+  );
+}
+
+function AgentsRunningDialog({
+  open,
+  onOpenChange,
+  busyWorkspaces,
+  onConfirm,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  busyWorkspaces: number;
+  onConfirm: () => void;
+}) {
+  return (
+    <AlertDialog open={open} onOpenChange={onOpenChange}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Agents are running</AlertDialogTitle>
+          <AlertDialogDescription>
+            {busyWorkspaces} workspace{busyWorkspaces === 1 ? " has" : "s have"} agents running.
+            Updating restarts the server and stops them.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogAction onClick={onConfirm}>Update anyway</AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+}
+
+function SshKeyPickerDialog({
+  open,
+  onOpenChange,
+  keys,
+  onPick,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  keys: SshKey[];
+  onPick: (key: SshKey) => void;
+}) {
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Select an SSH key</DialogTitle>
+          <DialogDescription>
+            The key used to install this server. It is remembered for future updates.
+          </DialogDescription>
+        </DialogHeader>
+        {keys.length === 0 ? (
+          <p className="text-xs text-muted-foreground">No usable SSH key found in ~/.ssh.</p>
+        ) : (
+          <div className="space-y-1">
+            {keys.map((key) => (
+              <button
+                key={key.path}
+                type="button"
+                onClick={() => onPick(key)}
+                className="flex w-full items-center gap-2 rounded-md border border-border/50 px-3 py-2 text-left text-sm transition-colors hover:bg-accent"
+              >
+                <KeyRound className="h-4 w-4 shrink-0 text-muted-foreground" />
+                <span className="min-w-0 flex-1 truncate">{key.label}</span>
+                {key.keyType && (
+                  <span className="text-xs text-muted-foreground">{key.keyType}</span>
+                )}
+              </button>
+            ))}
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function EscalationPasswordDialog({
+  open,
+  onOpenChange,
+  adminUser,
+  password,
+  onPasswordChange,
+  onSubmit,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  adminUser: string | undefined;
+  password: string;
+  onPasswordChange: (value: string) => void;
+  onSubmit: () => void;
+}) {
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Escalation password</DialogTitle>
+          <DialogDescription>
+            {adminUser ?? "root"} needs a password to escalate on the server. It is used for this
+            run only and never stored.
+          </DialogDescription>
+        </DialogHeader>
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            onSubmit();
+          }}
+        >
+          <Input
+            type="password"
+            value={password}
+            onChange={(event) => onPasswordChange(event.target.value)}
+            autoFocus
+            aria-label="Password"
+          />
+          <DialogFooter className="mt-4">
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled={!password}>
+              Update server
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }
 

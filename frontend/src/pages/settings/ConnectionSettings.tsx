@@ -2,6 +2,7 @@ import { useState } from "react";
 import { RefreshCw } from "lucide-react";
 import { SettingsHeader } from "@/components/AppLayout";
 import { CenterCard } from "@/components/CenterCard";
+import { SettingsPanel, SettingsSection } from "@/components/settings/SettingsSection";
 import { TransportSecurityWarning } from "@/components/setup/TransportSecurityWarning";
 import { useConnection } from "@/hooks/useConnection";
 import type { ConnectionStatus } from "@/hooks/useConnectionStatus";
@@ -143,17 +144,13 @@ export default function ConnectionSettings({ onRefreshConnection }: ConnectionSe
       </SettingsHeader>
 
       <CenterCard scroll>
-        <div className="max-w-2xl space-y-6 px-4 py-5">
-          <section className="rounded-lg border border-border/50 bg-card/50 p-5">
-            <div className="flex items-start justify-between">
-              <div>
-                <h2 className="text-sm font-medium text-foreground">Server</h2>
-                {!connection && (
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    Enter the address and access token of your Hive server.
-                  </p>
-                )}
-              </div>
+        <SettingsPanel>
+          <SettingsSection
+            title="Server"
+            description={
+              !connection ? "Enter the address and access token of your Hive server." : undefined
+            }
+            action={
               <span
                 className={cn(
                   "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[11px] font-medium",
@@ -163,15 +160,15 @@ export default function ConnectionSettings({ onRefreshConnection }: ConnectionSe
                 <span className={cn("h-1.5 w-1.5 rounded-full", cfg.dot)} />
                 {cfg.label}
               </span>
-            </div>
-
+            }
+          >
             {cfg.hint && connection && (
               <p role="status" className="mt-3 text-xs text-destructive">
                 {cfg.hint}
               </p>
             )}
 
-            <div className="mt-5 space-y-4">
+            <div className="mt-4 space-y-4">
               <TransportSecurityWarning />
               <div className="grid grid-cols-[1fr_120px] gap-3">
                 <div>
@@ -274,8 +271,8 @@ export default function ConnectionSettings({ onRefreshConnection }: ConnectionSe
                 )}
               </div>
             </div>
-          </section>
-        </div>
+          </SettingsSection>
+        </SettingsPanel>
       </CenterCard>
     </div>
   );

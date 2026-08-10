@@ -1,5 +1,6 @@
 import { SettingsHeader } from "@/components/AppLayout";
 import { CenterCard } from "@/components/CenterCard";
+import { SettingsPanel } from "@/components/settings/SettingsSection";
 import { ToolsPanel } from "@/components/setup/ToolsPanel";
 
 /**
@@ -15,7 +16,7 @@ export default function AgentSettings() {
       </SettingsHeader>
 
       <CenterCard scroll>
-        <div className="max-w-2xl space-y-4 px-4 py-5">
+        <SettingsPanel className="space-y-4 py-6">
           <ToolsPanel />
           {/*
             The note lives here, not in ToolsPanel: the installer reuses that
@@ -24,7 +25,7 @@ export default function AgentSettings() {
             disabled for want of the second harness.
           */}
           <p className="text-xs text-muted-foreground">At least one harness needed to run Hive</p>
-        </div>
+        </SettingsPanel>
       </CenterCard>
     </div>
   );

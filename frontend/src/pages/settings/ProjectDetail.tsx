@@ -3,6 +3,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import { Trash2, ExternalLink, Save, Pencil, Plus, X, Eye } from "lucide-react";
 import { SettingsHeader } from "@/components/AppLayout";
 import { CenterCard } from "@/components/CenterCard";
+import { SettingsPanel, SettingsSection } from "@/components/settings/SettingsSection";
 import { EnvEditor } from "@/components/EnvEditor";
 import { ProjectEnvStructuredEditor } from "@/components/ProjectEnvStructuredEditor";
 import {
@@ -83,103 +84,107 @@ export default function ProjectDetail() {
       </SettingsHeader>
 
       <CenterCard scroll>
-      <div className="max-w-4xl space-y-4 px-4 py-5">
-        <section className="rounded-lg border border-border/50 bg-card/50 p-5">
-          <div className="mb-4 flex items-center justify-between gap-3">
-            <h2 className="text-sm font-medium text-foreground">Overview</h2>
-            <span className="rounded-md bg-primary/10 px-2 py-0.5 text-[11px] font-medium tabular-nums text-primary">
-              {workspaceCount} workspace{workspaceCount !== 1 ? "s" : ""}
-            </span>
-          </div>
-
-          <div className="space-y-3">
-            <InfoRow label="Repository" mono>
-              {project.url ? (
-                <span className="inline-flex max-w-full items-center gap-1.5">
-                  <span className="truncate">{project.url}</span>
-                  <a
-                    href={project.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="shrink-0 text-muted-foreground transition-colors hover:text-foreground"
-                    aria-label="Open repository URL"
-                  >
-                    <ExternalLink className="h-3 w-3" />
-                  </a>
-                </span>
-              ) : (
-                <span className="text-muted-foreground">Local only</span>
-              )}
-            </InfoRow>
-            <InfoRow label="Bare repo" mono>
-              {project.repoPath ?? "\u2014"}
-            </InfoRow>
-            <InfoRow label="Workspaces" mono>
-              {project.workspacesPath ?? "\u2014"}
-            </InfoRow>
-            {envConfigured && envPath && (
-              <InfoRow label="Env config" mono>
-                {envPath}
+        <SettingsPanel wide>
+          <SettingsSection
+            title="Overview"
+            action={
+              <span className="rounded-md bg-primary/10 px-2 py-0.5 text-[11px] font-medium tabular-nums text-primary">
+                {workspaceCount} workspace{workspaceCount !== 1 ? "s" : ""}
+              </span>
+            }
+          >
+            <div className="mt-4 space-y-3">
+              <InfoRow label="Repository" mono>
+                {project.url ? (
+                  <span className="inline-flex max-w-full items-center gap-1.5">
+                    <span className="truncate">{project.url}</span>
+                    <a
+                      href={project.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="shrink-0 text-muted-foreground transition-colors hover:text-foreground"
+                      aria-label="Open repository URL"
+                    >
+                      <ExternalLink className="h-3 w-3" />
+                    </a>
+                  </span>
+                ) : (
+                  <span className="text-muted-foreground">Local only</span>
+                )}
               </InfoRow>
-            )}
-          </div>
-        </section>
-
-        <ProjectEnvSection
-          project={project}
-          envConfigured={envConfigured}
-          envConfig={envConfig}
-          envRevision={envRevision}
-          envLoading={envQuery.isLoading}
-          editorOpen={envEditorOpen}
-          onOpenEditor={() => setEditingEnvProjectId(project.id)}
-          onCloseEditor={() => setEditingEnvProjectId(null)}
-        />
-
-        <section className="rounded-lg border border-destructive/20 bg-destructive/5 p-5">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <h2 className="text-sm font-medium text-destructive">Danger zone</h2>
-              <p className="mt-1 text-xs text-muted-foreground">
-                {hasWorkspaces
-                  ? "Cannot delete a project with active workspaces. Archive all workspaces first."
-                  : "This will permanently delete the bare repository and all associated data."}
-              </p>
-            </div>
-            <button
-              type="button"
-              disabled={hasWorkspaces}
-              onClick={() => setShowDeleteConfirm(true)}
-              className={cn(
-                "inline-flex cursor-pointer items-center gap-2 rounded-md border px-3 py-1.5 text-xs font-medium transition-colors",
-                hasWorkspaces
-                  ? "cursor-not-allowed border-border/30 text-muted-foreground/50"
-                  : "border-destructive/40 text-destructive hover:bg-destructive/10",
+              <InfoRow label="Bare repo" mono>
+                {project.repoPath ?? "\u2014"}
+              </InfoRow>
+              <InfoRow label="Workspaces" mono>
+                {project.workspacesPath ?? "\u2014"}
+              </InfoRow>
+              {envConfigured && envPath && (
+                <InfoRow label="Env config" mono>
+                  {envPath}
+                </InfoRow>
               )}
-            >
-              <Trash2 className="h-3.5 w-3.5" />
-              Delete project
-            </button>
-          </div>
-        </section>
-      </div>
+            </div>
+          </SettingsSection>
 
-      <AlertDialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete project</AlertDialogTitle>
-            <AlertDialogDescription>
-              This will permanently delete <strong>{project.name}</strong> and all its data. This action cannot be undone.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={() => void handleDelete()}>
-              Delete
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+          <ProjectEnvSection
+            project={project}
+            envConfigured={envConfigured}
+            envConfig={envConfig}
+            envRevision={envRevision}
+            envLoading={envQuery.isLoading}
+            editorOpen={envEditorOpen}
+            onOpenEditor={() => setEditingEnvProjectId(project.id)}
+            onCloseEditor={() => setEditingEnvProjectId(null)}
+          />
+
+          {/*
+            The one place that keeps a box of its own: the tint is the warning,
+            not decoration, and it only reads as one against flat siblings.
+          */}
+          <section className="my-6 rounded-lg border border-destructive/20 bg-destructive/5 p-5">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <h2 className="text-sm font-medium text-destructive">Danger zone</h2>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {hasWorkspaces
+                    ? "Cannot delete a project with active workspaces. Archive all workspaces first."
+                    : "This will permanently delete the bare repository and all associated data."}
+                </p>
+              </div>
+              <button
+                type="button"
+                disabled={hasWorkspaces}
+                onClick={() => setShowDeleteConfirm(true)}
+                className={cn(
+                  "inline-flex cursor-pointer items-center gap-2 rounded-md border px-3 py-1.5 text-xs font-medium transition-colors",
+                  hasWorkspaces
+                    ? "cursor-not-allowed border-border/30 text-muted-foreground/50"
+                    : "border-destructive/40 text-destructive hover:bg-destructive/10",
+                )}
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+                Delete project
+              </button>
+            </div>
+          </section>
+        </SettingsPanel>
+
+        <AlertDialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Delete project</AlertDialogTitle>
+              <AlertDialogDescription>
+                This will permanently delete <strong>{project.name}</strong> and all its data. This action cannot be undone.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction onClick={() => void handleDelete()}>
+                Delete
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </CenterCard>
     </div>
   );
@@ -216,66 +221,64 @@ function ProjectEnvSection({
   };
 
   return (
-    <section className="rounded-lg border border-border/50 bg-card/50 p-5">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div className="min-w-0">
-          <div className="flex items-center gap-2">
-            <h2 className="text-sm font-medium text-foreground">Environment</h2>
-            {envConfigured && !envLoading ? (
-              <Button
-                type="button"
-                variant="ghost"
-                size="xs"
-                onClick={() => setViewerOpen(true)}
-                className="h-6 border border-primary/20 bg-primary/10 px-2 text-[11px] text-primary hover:bg-primary/15 hover:text-primary"
-                aria-label="View generated .env"
-                title="View generated .env"
-              >
-                {envStatusLabel}
-                <Eye className="h-3 w-3" aria-hidden="true" />
-              </Button>
-            ) : (
-              <Badge variant="secondary" className="h-6 rounded-md px-2 text-[11px] text-muted-foreground">
-                {envStatusLabel}
-              </Badge>
-            )}
-          </div>
-          <p className="mt-1 text-xs text-muted-foreground">
-            {envDescription}
-          </p>
+    <SettingsSection
+      title={
+        <div className="flex items-center gap-2">
+          <h2 className="text-sm font-medium text-foreground">Environment</h2>
+          {envConfigured && !envLoading ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="xs"
+              onClick={() => setViewerOpen(true)}
+              className="h-6 border border-primary/20 bg-primary/10 px-2 text-[11px] text-primary hover:bg-primary/15 hover:text-primary"
+              aria-label="View generated .env"
+              title="View generated .env"
+            >
+              {envStatusLabel}
+              <Eye className="h-3 w-3" aria-hidden="true" />
+            </Button>
+          ) : (
+            <Badge variant="secondary" className="h-6 rounded-md px-2 text-[11px] text-muted-foreground">
+              {envStatusLabel}
+            </Badge>
+          )}
         </div>
-        <div className="flex shrink-0 items-center gap-2">
-          <Button
-            type="button"
-            variant="outline"
-            size="icon-sm"
-            disabled={envLoading}
-            onClick={editorOpen ? onCloseEditor : onOpenEditor}
-            title={getEnvToggleTitle(envLoading, editorOpen, envConfigured)}
-            aria-label={getEnvToggleTitle(envLoading, editorOpen, envConfigured)}
-            className="border-border/50 text-muted-foreground hover:bg-muted/40 hover:text-foreground"
-          >
-            {envLoading ? (
-              <span className="h-3.5 w-3.5" />
-            ) : editorOpen ? (
-              <X className="h-3.5 w-3.5" />
-            ) : envConfigured ? (
-              <Pencil className="h-3.5 w-3.5" />
-            ) : (
-              <Plus className="h-3.5 w-3.5" />
-            )}
-          </Button>
-        </div>
-      </div>
-
+      }
+      description={envDescription}
+      action={
+        <Button
+          type="button"
+          variant="outline"
+          size="icon-sm"
+          disabled={envLoading}
+          onClick={editorOpen ? onCloseEditor : onOpenEditor}
+          title={getEnvToggleTitle(envLoading, editorOpen, envConfigured)}
+          aria-label={getEnvToggleTitle(envLoading, editorOpen, envConfigured)}
+          className="border-border/50 text-muted-foreground hover:bg-muted/40 hover:text-foreground"
+        >
+          {envLoading ? (
+            <span className="h-3.5 w-3.5" />
+          ) : editorOpen ? (
+            <X className="h-3.5 w-3.5" />
+          ) : envConfigured ? (
+            <Pencil className="h-3.5 w-3.5" />
+          ) : (
+            <Plus className="h-3.5 w-3.5" />
+          )}
+        </Button>
+      }
+    >
       {editorOpen && (
-        <ProjectEnvEditor
-          key={`${project.id}:${envRevision}`}
-          initialConfig={envConfig}
-          loading={envLoading}
-          saving={updateEnv.isPending}
-          onSave={(config) => void handleSaveEnv(config)}
-        />
+        <div className="mt-4">
+          <ProjectEnvEditor
+            key={`${project.id}:${envRevision}`}
+            initialConfig={envConfig}
+            loading={envLoading}
+            saving={updateEnv.isPending}
+            onSave={(config) => void handleSaveEnv(config)}
+          />
+        </div>
       )}
 
       <ProjectEnvViewer
@@ -283,7 +286,7 @@ function ProjectEnvSection({
         onOpenChange={setViewerOpen}
         config={envConfig}
       />
-    </section>
+    </SettingsSection>
   );
 }
 

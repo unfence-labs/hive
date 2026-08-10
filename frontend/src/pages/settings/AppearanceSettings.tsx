@@ -4,6 +4,7 @@ import { useThemeMode, type ThemeMode } from "@/hooks/useThemeMode";
 import { TOAST_POSITIONS, useToastPosition } from "@/hooks/useToastPosition";
 import { SettingsHeader } from "@/components/AppLayout";
 import { CenterCard } from "@/components/CenterCard";
+import { SettingsPanel, SettingsSection } from "@/components/settings/SettingsSection";
 import { cn } from "@/lib/utils";
 
 const THEME_OPTIONS: { id: ThemeMode; label: string; Icon: typeof Sun }[] = [
@@ -24,17 +25,15 @@ export default function AppearanceSettings() {
       </SettingsHeader>
 
       <CenterCard scroll>
-      <div className="max-w-2xl space-y-5 px-4 py-5">
-        <section>
-          <div className="rounded-lg border border-border/50 bg-card/50 p-5">
-            <h2 className="text-sm font-medium text-foreground">Theme</h2>
-            <p className="mt-1 text-xs text-muted-foreground">
-              Choose how Hive looks. System follows your OS preference.
-            </p>
+        <SettingsPanel>
+          <SettingsSection
+            title="Theme"
+            description="Choose how Hive looks. System follows your OS preference."
+          >
             <div
               role="radiogroup"
               aria-label="Theme mode"
-              className="mt-5 grid grid-cols-3 gap-2"
+              className="mt-4 grid grid-cols-3 gap-2"
             >
               {THEME_OPTIONS.map(({ id, label, Icon }) => {
                 const isActive = id === mode;
@@ -64,16 +63,13 @@ export default function AppearanceSettings() {
                 );
               })}
             </div>
-          </div>
-        </section>
+          </SettingsSection>
 
-        <section>
-          <div className="rounded-lg border border-border/50 bg-card/50 p-5">
-            <h2 className="text-sm font-medium text-foreground">Accent color</h2>
-            <p className="mt-1 text-xs text-muted-foreground">
-              Applies to active states, badges, focus rings, and highlights.
-            </p>
-            <div className="mt-5 flex flex-wrap gap-2">
+          <SettingsSection
+            title="Accent color"
+            description="Applies to active states, badges, focus rings, and highlights."
+          >
+            <div className="mt-4 flex flex-wrap gap-2">
               {options.map((option) => {
                 const isActive = option.id === accentId;
                 return (
@@ -116,19 +112,16 @@ export default function AppearanceSettings() {
                 );
               })}
             </div>
-          </div>
-        </section>
+          </SettingsSection>
 
-        <section>
-          <div className="rounded-lg border border-border/50 bg-card/50 p-5">
-            <h2 className="text-sm font-medium text-foreground">Toast position</h2>
-            <p className="mt-1 text-xs text-muted-foreground">
-              Choose where notifications appear in the app.
-            </p>
+          <SettingsSection
+            title="Toast position"
+            description="Choose where notifications appear in the app."
+          >
             <div
               role="radiogroup"
               aria-label="Toast position"
-              className="mt-5 grid h-28 w-48 grid-cols-3 grid-rows-2 overflow-hidden rounded-lg border border-border bg-background shadow-inner"
+              className="mt-4 grid h-28 w-48 grid-cols-3 grid-rows-2 overflow-hidden rounded-lg border border-border bg-background shadow-inner"
             >
               {TOAST_POSITIONS.map((option) => (
                 <label
@@ -157,9 +150,8 @@ export default function AppearanceSettings() {
                 </label>
               ))}
             </div>
-          </div>
-        </section>
-      </div>
+          </SettingsSection>
+        </SettingsPanel>
       </CenterCard>
     </div>
   );
