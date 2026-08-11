@@ -43,7 +43,7 @@ beforeEach(() => {
   resetServerUpdate();
   setDesktopShell(true);
   replaceConnection({ host: "203.0.113.10", port: 9420, authToken: "token" });
-  mocks.get.mockResolvedValue({ version: "1.2.3" });
+  mocks.get.mockResolvedValue({ version: "1.2.3", updateMethod: "provisioner" });
   mocks.invoke.mockResolvedValue("1.3.0");
 });
 
@@ -63,13 +63,13 @@ describe("ServerUpdatePrompt", () => {
     expect(mocks.custom).toHaveBeenCalledTimes(1);
   });
 
-  it("stays silent when versions match, on dev backends, and on the web", async () => {
+  it("stays silent when versions match, on manual installations, and on the web", async () => {
     mocks.invoke.mockResolvedValue("1.2.3");
     renderPrompt();
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(mocks.custom).not.toHaveBeenCalled();
 
-    mocks.get.mockResolvedValue({ version: "dev" });
+    mocks.get.mockResolvedValue({ version: "1.2.3", updateMethod: "manual" });
     mocks.invoke.mockResolvedValue("1.3.0");
     renderPrompt();
     await new Promise((resolve) => setTimeout(resolve, 0));

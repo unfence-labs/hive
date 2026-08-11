@@ -80,7 +80,9 @@ pm2 logs hive-backend
 `pm2 startup` prints a command that must be run with root privileges to start PM2 after a reboot.
 
 The production configuration binds `0.0.0.0:9420` and stores data under `~/.hive`. The development
-configuration binds `127.0.0.1:3000` and stores data under `~/.hive-dev`.
+configuration binds `127.0.0.1:3000` and stores data under `~/.hive-dev`. Both report the canonical
+version of the checked-out source and `manual` as their update method. Do not set the update method
+to `provisioner`: that value is reserved for installations owned by `provision.sh`.
 
 ## Verify authentication
 
@@ -131,6 +133,10 @@ This procedure applies only to a source checkout that you manage yourself. For a
 by `provision.sh`, use the target release's `provision.sh --update` flow documented in
 [Getting Started](getting-started.md#update-the-backend).
 
+Hive reports a source checkout as manually managed, so the desktop app does not run
+`provision.sh --update` against it. Version differences remain visible, but you update and roll back
+the checkout with the commands below.
+
 Back up the configured data directory before changing versions. Build the new version before
 restarting the running process, and keep the previous tag available for rollback.
 
@@ -141,11 +147,13 @@ git checkout v<version>
 npm ci
 cd backend
 npm run build
-pm2 restart hive-backend
+pm2 restart ecosystem.config.cjs --env production --update-env
+pm2 save
 ```
 
 Repeat the authenticated and unauthenticated checks above after restart. If either check fails,
-check out the previous tag, run `npm ci` and `npm run build` again, then restart the process.
+check out the previous tag, run `npm ci` and `npm run build` again, then repeat the restart and
+`pm2 save` commands.
 
 ## Connect a client
 

@@ -321,14 +321,15 @@ paths_out="$(bash -c '
   echo "--uninstall--"; hive_uninstall_script
 ' _ "$PROV/lib.sh" "$PROV/steps.sh")"
 
-# Updates preserve hive.env byte-for-byte. Pinning the managed key names makes
-# a future addition stop here until its author chooses a backend default or an
-# explicit config migration. Values and ordering remain free to change.
+# Pinning the managed key names makes a future addition stop here until its
+# author chooses a backend default or an explicit config migration. Values and
+# ordering remain free to change.
 managed_env_keys="$(sed -n '/^--env--$/,/^--uninstall--$/p' <<<"$paths_out" \
   | sed '1d;$d' | sed -n 's/^\([A-Z][A-Z0-9_]*\)=.*/\1/p' | sort)"
 expected_managed_env_keys="$(printf '%s\n' \
   AGENT_BROWSER_ARGS DATA_DIR HIVE_ALLOWED_HOSTS HIVE_ALLOWED_ORIGINS \
-  HIVE_AUTH_TOKEN_SHA256 HIVE_AUTOMATION_TIMEOUT_SEC HOME HOST NODE_ENV PATH PORT)"
+  HIVE_AUTH_TOKEN_SHA256 HIVE_AUTOMATION_TIMEOUT_SEC HIVE_UPDATE_METHOD \
+  HOME HOST NODE_ENV PATH PORT)"
 expect "managed hive.env key changes require an explicit update decision" \
   test "$managed_env_keys" = "$expected_managed_env_keys"
 

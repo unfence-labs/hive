@@ -1,3 +1,16 @@
+const { execFileSync } = require("node:child_process");
+const path = require("node:path");
+
+const backendVersion = execFileSync(
+  process.execPath,
+  [path.resolve(__dirname, "../scripts/release/release-version.mjs"), "get"],
+  { encoding: "utf8" },
+).trim();
+const manualVersionEnv = {
+  HIVE_BACKEND_VERSION: backendVersion,
+  HIVE_UPDATE_METHOD: "manual",
+};
+
 module.exports = {
   apps: [{
     name: "hive-backend",
@@ -12,6 +25,7 @@ module.exports = {
       PORT: 9420,
       DATA_DIR: "~/.hive",
       HIVE_AUTOMATION_TIMEOUT_SEC: 1800,
+      ...manualVersionEnv,
     },
     env_development: {
       NODE_ENV: "development",
@@ -19,6 +33,7 @@ module.exports = {
       PORT: 3000,
       DATA_DIR: "~/.hive-dev",
       HIVE_AUTOMATION_TIMEOUT_SEC: 1800,
+      ...manualVersionEnv,
     },
   }],
 };

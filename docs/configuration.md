@@ -10,6 +10,8 @@ point at it rather than repeating it.
 | `HOST` | `127.0.0.1` | Backend bind address |
 | `PORT` | `3000` | Backend HTTP port |
 | `DATA_DIR` | `~/.hive` | Root storage for projects, workspaces, sessions, prompts, Brain, config, and automations |
+| `HIVE_BACKEND_VERSION` | release artifact's `VERSION`, otherwise `dev` | Explicit backend version. The manual PM2 configuration derives it from the canonical version of the checked-out source; provisioned releases deliberately use the artifact instead |
+| `HIVE_UPDATE_METHOD` | `manual` | Server update ownership. Only the exact value `provisioner` enables the app's provisioner-driven update flow; missing and other values remain manual |
 | `HIVE_AUTH_TOKEN` | unset | Access token in plaintext. Requires bearer/token auth for API and WS when set; `/health` stays public |
 | `HIVE_AUTH_TOKEN_SHA256` | unset | The same token as a lowercase hex SHA-256 digest, so the plaintext never lands on the server. What `provision.sh` writes. A request authorizes if it matches either form |
 | `HIVE_ALLOWED_HOSTS` | unset | Extra hostnames accepted by the `Host` guard, comma-separated. IP literals and `localhost` are always accepted; anything else gets `403` until listed. The guided installer adds its selected address automatically |
@@ -47,10 +49,10 @@ code back. Connecting either Claude or Codex is enough to run sessions; nothing 
 
 The backend ships `backend/ecosystem.config.cjs` for pm2:
 
-| Environment | Host | Port | Data dir |
-|---|---:|---:|---|
-| `production` | `0.0.0.0` | `9420` | `~/.hive` |
-| `development` | `127.0.0.1` | `3000` | `~/.hive-dev` |
+| Environment | Host | Port | Data dir | Update method |
+|---|---:|---:|---|---|
+| `production` | `0.0.0.0` | `9420` | `~/.hive` | `manual` |
+| `development` | `127.0.0.1` | `3000` | `~/.hive-dev` | `manual` |
 
 ```bash
 cd backend
@@ -58,6 +60,9 @@ npm run build
 pm2 start ecosystem.config.cjs --env production
 pm2 logs hive-backend
 ```
+
+The PM2 configuration reports the canonical release version of the checked-out source and marks
+the backend as manually managed. It never offers the provisioner update flow.
 
 The full manual setup, including token configuration and auth verification, is in
 **[Manual Installation](manual-installation.md)**.

@@ -75,7 +75,7 @@ beforeEach(() => {
   resetDesktopUpdateForTests();
   resetServerUpdate();
   mocks.liveData = {};
-  mocks.get.mockResolvedValue({ version: "1.2.3" });
+  mocks.get.mockResolvedValue({ version: "1.2.3", updateMethod: "provisioner" });
   mocks.invoke.mockResolvedValue("1.2.3");
   mocks.check.mockResolvedValue(null);
   mocks.install.mockResolvedValue(undefined);
@@ -112,14 +112,34 @@ describe("UpdatesSettings", () => {
     expect(screen.queryByRole("button", { name: /Update server/ })).not.toBeInTheDocument();
   });
 
-  it("never suggests updating a dev backend", async () => {
+  it("highlights a manual version mismatch without offering an automatic action", async () => {
     setDesktopShell(true);
     seedConnection();
-    mocks.get.mockResolvedValue({ version: "dev" });
+    mocks.get.mockResolvedValue({ version: "1.2.3", updateMethod: "manual" });
     mocks.invoke.mockResolvedValue("1.3.0");
     renderPage();
 
-    expect(await screen.findByText("Version dev")).toBeInTheDocument();
+    expect(await screen.findByText("Version 1.2.3")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Server version 1.2.3 doesn't match app version 1.3.0. Update manually to 1.3.0.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Update server/ })).not.toBeInTheDocument();
+    expect(mocks.install).not.toHaveBeenCalled();
+  });
+
+  it("explains manual updates when versions match", async () => {
+    setDesktopShell(true);
+    seedConnection();
+    mocks.get.mockResolvedValue({ version: "1.2.3", updateMethod: "manual" });
+    renderPage();
+
+    expect(
+      await screen.findByText(
+        "Automatic server updates aren't available for manual installations.",
+      ),
+    ).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Update server/ })).not.toBeInTheDocument();
   });
 
