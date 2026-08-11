@@ -148,10 +148,12 @@ npm ci
 cd backend
 npm run build
 pm2 restart ecosystem.config.cjs --env production --update-env
+pm2 save
 ```
 
 Repeat the authenticated and unauthenticated checks above after restart. If either check fails,
-check out the previous tag, run `npm ci` and `npm run build` again, then restart the process.
+check out the previous tag, run `npm ci` and `npm run build` again, then repeat the restart and
+`pm2 save` commands.
 
 ## Connect a client
 
