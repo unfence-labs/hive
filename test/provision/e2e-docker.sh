@@ -115,6 +115,7 @@ publish_derived_release() {
       p.version = process.argv[1];
       fs.writeFileSync("package.json", JSON.stringify(p, null, 2));
     ' "$version" )
+  printf '%s\n' "$version" >"$source/VERSION"
   if [ "$broken" = true ]; then
     printf 'process.exit(1);\n' >"$source/dist/index.js"
   fi
@@ -184,6 +185,18 @@ assert_run_ok() {
     || { tail -30 "$1" >&2; die "the run did not finish ok"; }
 }
 
+assert_server_metadata() {
+  local token="$1" port="$2" expected_version="$3" payload actual
+  payload="$(sh_server "curl -sS -H 'x-hive-token: $token' http://127.0.0.1:$port/api/server/version")"
+  actual="$(SERVER_METADATA="$payload" node -e '
+    const metadata = JSON.parse(process.env.SERVER_METADATA);
+    const keys = Object.keys(metadata).sort().join(",");
+    process.stdout.write(`${keys}|${metadata.version}|${metadata.updateMethod}`);
+  ')" || die "the server version endpoint did not return JSON"
+  [ "$actual" = "updateMethod,version|$expected_version|provisioner" ] \
+    || die "server metadata was '$actual', expected version $expected_version with the provisioner method"
+}
+
 # Every acceptance criterion that can be observed from outside the script.
 assert_provisioned() {
   local stream="$1" token digest expected
@@ -243,6 +256,10 @@ assert_provisioned() {
     || die "the access token was reported more than once"
   [ "$(sh_server 'stat -c "%U:%G %a" /etc/hive/hive.env')" = "root:root 600" ] \
     || die "hive.env is not root-owned mode 600"
+  [ "$(sh_server 'grep -c "^HIVE_UPDATE_METHOD=provisioner$" /etc/hive/hive.env')" = 1 ] \
+    || die "hive.env does not carry exactly one provisioner update method"
+  sh_server 'grep -q "^HIVE_BACKEND_VERSION=" /etc/hive/hive.env' \
+    && die "hive.env stores a backend version instead of using the release artifact"
   digest="$(sh_server 'sed -n "s/^HIVE_AUTH_TOKEN_SHA256=//p" /etc/hive/hive.env')"
   [[ "$digest" =~ ^[0-9a-f]{64}$ ]] || die "hive.env carries no valid token digest: '$digest'"
   expected="$(printf '%s' "$token" | sha256sum | cut -d' ' -f1)"
@@ -264,6 +281,7 @@ assert_provisioned() {
     || die "a request with the right token was not accepted"
   [ "$(sh_server "curl -s -o /dev/null -w '%{http_code}' -H 'authorization: Bearer $token' http://127.0.0.1:$PORT/api/projects")" = 200 ] \
     || die "a bearer request with the right token was not accepted"
+  assert_server_metadata "$token" "$PORT" "$VERSION"
   echo "OK: no token -> 401, wrong token -> 401, right token -> 200"
 }
 
@@ -476,6 +494,8 @@ mode_update() {
   log "The update preserved the credential, configuration, identity, and operator data"
   [ "$(sh_server 'sed -n "s/^HIVE_AUTH_TOKEN_SHA256=//p" /etc/hive/hive.env')" = "$digest_before" ] \
     || die "the update changed the token digest"
+  [ "$(sh_server 'grep -c "^HIVE_UPDATE_METHOD=provisioner$" /etc/hive/hive.env')" = 1 ] \
+    || die "the update did not preserve the provisioner update method"
   [ "$(sh_server 'sha256sum /etc/hive/hive.env')" = "$env_before" ] \
     || die "the update rewrote hive.env"
   [ "$(sh_server 'sha256sum /etc/hive/.hive-install')" = "$identity_before" ] \
@@ -484,6 +504,7 @@ mode_update() {
     || die "the update changed operator data"
   [ "$(sh_server "curl -s -o /dev/null -w '%{http_code}' -H 'x-hive-token: $token' http://127.0.0.1:$update_port/api/projects")" = 200 ] \
     || die "the original access token no longer works"
+  assert_server_metadata "$token" "$update_port" "$target"
   in_server systemctl is-active --quiet hive || die "hive.service is not active after the update"
   echo "OK: release B is healthy with the original token, configuration, paths, and data"
 
@@ -682,6 +703,7 @@ mode_rollback() {
     || die "the failed update rewrote hive.env"
   [ "$(sh_server "curl -s -o /dev/null -w '%{http_code}' -H 'x-hive-token: $token' http://127.0.0.1:$PORT/api/projects")" = 200 ] \
     || die "the restored release does not accept the original token"
+  assert_server_metadata "$token" "$PORT" "$VERSION"
   echo "OK: rolled back to $previous and the service is healthy again"
   log "PASS (an unhealthy update is rolled back from a completed installation)"
 }

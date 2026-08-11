@@ -13,6 +13,11 @@ export type ServerUpdateState =
   | { phase: "failed"; error: string; passwordRequired: boolean }
   | { phase: "done" };
 
+export interface ServerVersionResponse {
+  version: string;
+  updateMethod: "manual" | "provisioner";
+}
+
 let state: ServerUpdateState = { phase: "idle" };
 const listeners = new Set<() => void>();
 
@@ -55,21 +60,16 @@ export function serverUpdateInProgress(): boolean {
   return state.phase === "running";
 }
 
-/**
- * The one mismatch rule, shared by the Updates page and the boot prompt: any
- * comparable difference — behind OR ahead — offers convergence to the app's
- * version, which is the authority (the button names its target, so a downgrade
- * is a visible, supported choice). A "dev" backend is never comparable.
- */
-export function serverVersionDiffersFromApp(
+/** The provisioner can converge a differing backend to the app's version. */
+export function shouldOfferServerUpdate(
   appVersion: string | null,
-  backendVersion: string | null,
+  server: ServerVersionResponse | null,
 ): boolean {
   return (
     appVersion !== null &&
-    backendVersion !== null &&
-    backendVersion !== "dev" &&
-    backendVersion !== appVersion
+    server !== null &&
+    server.updateMethod === "provisioner" &&
+    server.version !== appVersion
   );
 }
 

@@ -33,8 +33,9 @@ import { copyToClipboard } from "@/lib/clipboard";
 import { createTauriProvisionClient, type SshKey } from "@/lib/provision-client";
 import {
   runServerUpdate,
-  serverVersionDiffersFromApp,
+  shouldOfferServerUpdate,
   useServerUpdateState,
+  type ServerVersionResponse,
   type ServerUpdateState,
 } from "@/lib/server-update";
 import {
@@ -49,7 +50,7 @@ export default function UpdatesSettings() {
   const appVersion = useAppVersion();
   const backendQuery = useQuery({
     queryKey: ["server", "version"],
-    queryFn: () => api.get<{ version: string }>("/api/server/version"),
+    queryFn: () => api.get<ServerVersionResponse>("/api/server/version"),
   });
 
   return (
@@ -63,7 +64,7 @@ export default function UpdatesSettings() {
           {isDesktopShell() && <AppSection appVersion={appVersion} />}
           <ServerSection
             appVersion={appVersion}
-            backendVersion={backendQuery.data?.version ?? null}
+            server={backendQuery.data ?? null}
             unreachable={backendQuery.isError}
           />
         </SettingsPanel>
@@ -153,23 +154,27 @@ function UpdateStatus({ update }: { update: DesktopUpdateState }) {
 
 function ServerSection({
   appVersion,
-  backendVersion,
+  server,
   unreachable,
 }: {
   appVersion: string | null;
-  backendVersion: string | null;
+  server: ServerVersionResponse | null;
   unreachable: boolean;
 }) {
-  // The null re-check narrows appVersion for the JSX below.
-  const outdated = appVersion !== null && serverVersionDiffersFromApp(appVersion, backendVersion);
+  const updateAvailable = shouldOfferServerUpdate(appVersion, server);
 
   return (
     <SettingsSection
       title="Server"
-      description={`Version ${unreachable ? "unavailable" : (backendVersion ?? "—")}`}
+      description={`Version ${unreachable ? "unavailable" : (server?.version ?? "—")}`}
     >
-      {/* `outdated` needs the app version, so this is desktop-only by construction. */}
-      {outdated && <ServerUpdateFlow targetVersion={appVersion} />}
+      {!unreachable && server?.updateMethod === "manual" && (
+        <p className="mt-3 text-xs text-muted-foreground">
+          Automatic server updates aren't available for manual installations. Update the source
+          checkout, rebuild the backend, and restart the process.
+        </p>
+      )}
+      {updateAvailable && appVersion !== null && <ServerUpdateFlow targetVersion={appVersion} />}
     </SettingsSection>
   );
 }

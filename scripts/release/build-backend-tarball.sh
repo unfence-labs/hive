@@ -90,8 +90,8 @@ mkdir -p "$pkg"
 cp -R "$ROOT/backend/dist" "$pkg/dist"
 cp -R "$install_root/node_modules" "$pkg/node_modules"
 cp "$ROOT/LICENSE" "$pkg/"
-# The runtime reads this file to answer GET /api/server/version; a checkout
-# without it reports "dev".
+# The runtime reads this file to answer GET /api/server/version when no
+# explicit version is configured (manual PM2 installations configure one).
 printf '%s\n' "$VERSION" >"$pkg/VERSION"
 
 # The manifest carries the release version and the build facts an installer

@@ -4,7 +4,7 @@ import {
   markServerUpdatePrompted,
   resetServerUpdate,
   runServerUpdate,
-  serverVersionDiffersFromApp,
+  shouldOfferServerUpdate,
   shouldPromptServerUpdate,
   useServerUpdateState,
   type ServerUpdateState,
@@ -104,17 +104,26 @@ describe("runServerUpdate", () => {
   });
 });
 
-describe("serverVersionDiffersFromApp", () => {
-  it("flags only a comparable, differing backend", () => {
-    expect(serverVersionDiffersFromApp("1.3.0", "1.2.3")).toBe(true);
+describe("shouldOfferServerUpdate", () => {
+  it("offers updates only for a provisioner-managed version mismatch", () => {
+    expect(
+      shouldOfferServerUpdate("1.3.0", { version: "1.2.3", updateMethod: "provisioner" }),
+    ).toBe(true);
     // A newer backend also differs: the button converges to the app's version
     // and names its target, so the downgrade is a visible choice.
-    expect(serverVersionDiffersFromApp("1.2.3", "1.3.0")).toBe(true);
-    expect(serverVersionDiffersFromApp("1.3.0", "1.3.0")).toBe(false);
-    // A source checkout has no comparable version.
-    expect(serverVersionDiffersFromApp("1.3.0", "dev")).toBe(false);
-    expect(serverVersionDiffersFromApp(null, "1.2.3")).toBe(false);
-    expect(serverVersionDiffersFromApp("1.3.0", null)).toBe(false);
+    expect(
+      shouldOfferServerUpdate("1.2.3", { version: "1.3.0", updateMethod: "provisioner" }),
+    ).toBe(true);
+    expect(
+      shouldOfferServerUpdate("1.3.0", { version: "1.3.0", updateMethod: "provisioner" }),
+    ).toBe(false);
+    expect(
+      shouldOfferServerUpdate("1.3.0", { version: "1.2.3", updateMethod: "manual" }),
+    ).toBe(false);
+    expect(
+      shouldOfferServerUpdate(null, { version: "1.2.3", updateMethod: "provisioner" }),
+    ).toBe(false);
+    expect(shouldOfferServerUpdate("1.3.0", null)).toBe(false);
   });
 });
 

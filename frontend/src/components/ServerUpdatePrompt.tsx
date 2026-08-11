@@ -10,8 +10,9 @@ import { useConnection } from "@/hooks/useConnection";
 import { isDesktopShell } from "@/lib/is-desktop";
 import {
   markServerUpdatePrompted,
-  serverVersionDiffersFromApp,
+  shouldOfferServerUpdate,
   shouldPromptServerUpdate,
+  type ServerVersionResponse,
 } from "@/lib/server-update";
 
 const SERVER_UPDATE_TOAST_ID = "hive-server-update";
@@ -30,13 +31,13 @@ export function ServerUpdatePrompt() {
   const enabled = isDesktopShell() && Boolean(connection);
   const serverQuery = useQuery({
     queryKey: ["server", "version"],
-    queryFn: () => api.get<{ version: string }>("/api/server/version"),
+    queryFn: () => api.get<ServerVersionResponse>("/api/server/version"),
     enabled,
   });
-  const backendVersion = serverQuery.data?.version ?? null;
+  const server = serverQuery.data ?? null;
 
   useEffect(() => {
-    if (!enabled || !serverVersionDiffersFromApp(appVersion, backendVersion)) return;
+    if (!enabled || server === null || !shouldOfferServerUpdate(appVersion, server)) return;
     if (!shouldPromptServerUpdate()) return;
     markServerUpdatePrompted();
     toast.custom(
@@ -45,7 +46,7 @@ export function ServerUpdatePrompt() {
           variant="success"
           title="Hive"
           status="SERVER"
-          description={`The server is on ${backendVersion}; the app is on ${appVersion}`}
+          description={`The server is on ${server.version}; the app is on ${appVersion}`}
           actionLabel="Review"
           onAction={() => {
             toast.dismiss(id);
@@ -56,7 +57,7 @@ export function ServerUpdatePrompt() {
       ),
       { id: SERVER_UPDATE_TOAST_ID, duration: TOAST_DURATIONS.actionRequired },
     );
-  }, [enabled, appVersion, backendVersion, navigate]);
+  }, [enabled, appVersion, server, navigate]);
 
   return null;
 }
