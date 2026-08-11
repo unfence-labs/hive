@@ -147,7 +147,7 @@ git checkout v<version>
 npm ci
 cd backend
 npm run build
-pm2 restart hive-backend
+pm2 restart ecosystem.config.cjs --env production --update-env
 ```
 
 Repeat the authenticated and unauthenticated checks above after restart. If either check fails,

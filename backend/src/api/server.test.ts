@@ -46,7 +46,7 @@ describe("readBackendVersion", () => {
     const file = join(tempDir, "VERSION");
     await writeFile(file, "0.1.0-beta.6\n");
 
-    expect(await readBackendVersion(pathToFileURL(file))).toBe("0.1.0-beta.6");
+    expect(await readBackendVersion(pathToFileURL(file), "")).toBe("0.1.0-beta.6");
   });
 
   it("prefers the configured version over the VERSION file", async () => {
@@ -59,11 +59,11 @@ describe("readBackendVersion", () => {
   });
 
   it("falls back to dev when the file is missing or empty", async () => {
-    expect(await readBackendVersion(pathToFileURL(join(tempDir, "VERSION")))).toBe("dev");
+    expect(await readBackendVersion(pathToFileURL(join(tempDir, "VERSION")), "")).toBe("dev");
 
     const empty = join(tempDir, "VERSION");
     await writeFile(empty, "\n");
-    expect(await readBackendVersion(pathToFileURL(empty))).toBe("dev");
+    expect(await readBackendVersion(pathToFileURL(empty), "")).toBe("dev");
   });
 });
 
@@ -73,6 +73,8 @@ describe("readUpdateMethod", () => {
   });
 
   it("defaults missing and invalid methods to manual", () => {
+    vi.stubEnv("HIVE_UPDATE_METHOD", undefined);
+
     expect(readUpdateMethod(undefined)).toBe("manual");
     expect(readUpdateMethod("manual")).toBe("manual");
     expect(readUpdateMethod("automatic")).toBe("manual");
