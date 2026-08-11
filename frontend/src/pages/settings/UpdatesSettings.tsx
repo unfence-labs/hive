@@ -170,8 +170,9 @@ function ServerSection({
     >
       {!unreachable && server?.updateMethod === "manual" && (
         <p className="mt-3 text-xs text-muted-foreground">
-          Automatic server updates aren't available for manual installations. Update the source
-          checkout, rebuild the backend, and restart the process.
+          {appVersion !== null && server.version !== appVersion
+            ? `Server version ${server.version} doesn't match app version ${appVersion}. Update manually to ${appVersion}.`
+            : "Automatic server updates aren't available for manual installations."}
         </p>
       )}
       {updateAvailable && appVersion !== null && <ServerUpdateFlow targetVersion={appVersion} />}
