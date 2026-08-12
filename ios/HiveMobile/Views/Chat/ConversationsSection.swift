@@ -203,8 +203,8 @@ struct ConversationsSection<Header: View>: View {
     }
 
     private func markWorkspaceVisible() {
-        guard !isBrainWorkspaceId(workspace.id) else { return }
         projectStore.statusMonitor.setViewingWorkspace(workspace.id, sessionId: nil)
+        guard !isBrainWorkspaceId(workspace.id) else { return }
         projectStore.statusMonitor.clearCompleted(workspace.id)
     }
 
