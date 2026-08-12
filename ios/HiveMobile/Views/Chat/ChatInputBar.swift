@@ -414,7 +414,7 @@ private struct EffortMenu: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 1) {
-            ForEach(levels, id: \.self) { level in
+            ForEach(levels.reversed(), id: \.self) { level in
                 Button {
                     onSelect(level)
                 } label: {

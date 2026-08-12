@@ -158,9 +158,14 @@ struct ConversationsSection<Header: View>: View {
                 .listRowBackground(WhisperColor.appBackground)
                 .listRowSeparator(.hidden)
                 .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                    Button("Delete", role: .destructive) {
+                    Button {
                         sessionToDelete = session
+                    } label: {
+                        Image(systemName: "trash")
+                            .imageScale(.small)
                     }
+                    .tint(WhisperColor.danger)
+                    .accessibilityLabel("Delete conversation")
                 }
             }
         }

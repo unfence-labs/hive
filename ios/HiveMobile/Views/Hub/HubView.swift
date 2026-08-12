@@ -29,23 +29,32 @@ struct HubView: View {
             WhisperColor.appBackground
                 .ignoresSafeArea()
 
-            ScrollView {
-                VStack(alignment: .leading, spacing: HiveSpacing.md) {
+            List {
+                Group {
                     if store.projects.isEmpty {
                         emptyState
                     } else if !searchText.isEmpty, displayedSections.isEmpty {
                         ContentUnavailableView.search(text: searchText)
                             .padding(.top, 40)
                     } else {
-                        denseHubContent(sections: displayedSections)
+                        ForEach(displayedSections) { section in
+                            sectionView(section)
+                        }
                     }
                 }
-                .padding(.horizontal, HiveSpacing.lg)
-                .padding(.vertical, HiveSpacing.md)
+                .listRowInsets(EdgeInsets(
+                    top: HiveSpacing.md,
+                    leading: HiveSpacing.lg,
+                    bottom: 0,
+                    trailing: HiveSpacing.lg
+                ))
+                .listRowBackground(WhisperColor.appBackground)
+                .listRowSeparator(.hidden)
             }
+            .listStyle(.plain)
             .scrollBounceBehavior(.always)
             .scrollContentBackground(.hidden)
-            .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .automatic))
+            .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always))
             .refreshable {
                 // Unstructured Task shields refresh from SwiftUI prematurely
                 // cancelling the .refreshable task on ScrollView (known iOS 26 regression).
@@ -194,14 +203,6 @@ struct HubView: View {
     }
 
     // MARK: - Dense Hub
-
-    private func denseHubContent(sections: [HubSection]) -> some View {
-        LazyVStack(alignment: .leading, spacing: HiveSpacing.md) {
-            ForEach(sections) { section in
-                sectionView(section)
-            }
-        }
-    }
 
     private var baseSections: [HubSection] {
         HubOrganization.sections(
