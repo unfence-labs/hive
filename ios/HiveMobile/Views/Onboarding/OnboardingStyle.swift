@@ -13,8 +13,17 @@ enum OnboardingStyle {
             : UIColor(red: 17.0 / 255.0, green: 17.0 / 255.0, blue: 17.0 / 255.0, alpha: 1)
     })
 
-    static let cursorSize = CGSize(width: 11, height: 20)
-    static let cursorCornerRadius: CGFloat = 3.5
+    /// Block cursor metrics derived from the text line height, so the cursor
+    /// tracks Dynamic Type along with the tagline. At the default size
+    /// (19pt text, ~22.7pt line) this yields the designed 11x20 block.
+    static func cursorSize(forLineHeight lineHeight: CGFloat) -> CGSize {
+        let height = lineHeight * 0.88
+        return CGSize(width: height * 0.55, height: height)
+    }
+
+    static func cursorCornerRadius(forHeight height: CGFloat) -> CGFloat {
+        height * 0.175
+    }
 }
 
 extension View {

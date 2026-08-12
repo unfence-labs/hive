@@ -27,7 +27,7 @@ struct ConnectServerView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 Text("Connect")
-                    .font(.system(size: 34, weight: .heavy))
+                    .font(.system(.largeTitle, weight: .heavy))
                     .tracking(-0.5)
                     .foregroundStyle(WhisperColor.text)
                 Text("Your device must be connected to the server’s private network.")

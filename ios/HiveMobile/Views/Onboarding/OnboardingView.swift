@@ -17,6 +17,9 @@ struct OnboardingView: View {
     }
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// Scales the tagline (and everything derived from its line height, the
+    /// cursor metrics and the flight target) with Dynamic Type.
+    @ScaledMetric(relativeTo: .title3) private var taglineFontSize: CGFloat = 19
     @State private var phase: IntroPhase = .splash
     @State private var markLanded = false
     @State private var dashSwollen = false
@@ -26,7 +29,6 @@ struct OnboardingView: View {
     @State private var showConnect = false
 
     private static let tagline = "Your coding agents, running on your own server, now in your pocket."
-    private static let taglineFontSize: CGFloat = 19
     /// Geometry of the full logo (H plus dash), measured from the 276pt launch
     /// mark asset. `markCenterOffset` is relative to the mark box center, so
     /// the native recreation overlays the static launch image seamlessly.
@@ -86,7 +88,7 @@ struct OnboardingView: View {
             TypewriterText(text: Self.tagline, mode: typewriterMode) {
                 settle()
             }
-            .font(.system(size: Self.taglineFontSize))
+            .font(.system(size: taglineFontSize))
             .foregroundStyle(WhisperColor.textSecondary)
             .lineSpacing(4)
             .onGeometryChange(for: CGRect.self) { proxy in
@@ -140,9 +142,12 @@ struct OnboardingView: View {
     @ViewBuilder
     private var duplicateCursor: some View {
         if markLanded && phase == .arriving {
-            let size = cursorFlown ? OnboardingStyle.cursorSize : Self.dashSize.scaled(by: Self.parkedScale)
+            let restSize = OnboardingStyle.cursorSize(forLineHeight: taglineLineHeight)
+            let size = cursorFlown ? restSize : Self.dashSize.scaled(by: Self.parkedScale)
             RoundedRectangle(
-                cornerRadius: cursorFlown ? OnboardingStyle.cursorCornerRadius : size.height / 2,
+                cornerRadius: cursorFlown
+                    ? OnboardingStyle.cursorCornerRadius(forHeight: restSize.height)
+                    : size.height / 2,
                 style: .continuous
             )
             .fill(OnboardingStyle.brandOrange)
@@ -175,13 +180,17 @@ struct OnboardingView: View {
         )
     }
 
+    private var taglineLineHeight: CGFloat {
+        UIFont.systemFont(ofSize: taglineFontSize).lineHeight
+    }
+
     /// Where the typewriter cursor rests before the first character: the
     /// leading edge of the tagline's first line.
     private var cursorRestPosition: CGPoint {
-        let lineHeight = UIFont.systemFont(ofSize: Self.taglineFontSize).lineHeight
+        let cursorWidth = OnboardingStyle.cursorSize(forLineHeight: taglineLineHeight).width
         return CGPoint(
-            x: taglineFrame.minX + 3 + OnboardingStyle.cursorSize.width / 2,
-            y: taglineFrame.minY + lineHeight / 2
+            x: taglineFrame.minX + 3 + cursorWidth / 2,
+            y: taglineFrame.minY + taglineLineHeight / 2
         )
     }
 
@@ -199,42 +208,50 @@ struct OnboardingView: View {
         .opacity(phase == .settled ? 1 : 0)
         .offset(y: phase == .settled ? 0 : 10)
         .allowsHitTesting(phase == .settled)
+        .accessibilityHidden(phase != .settled)
         .padding(.horizontal, 20)
         .padding(.bottom, 14)
     }
 
+    /// `Task.sleep` throws when the hosting task is cancelled (the view was
+    /// removed, e.g. by the locked-launch activation path): bail out through
+    /// the catch instead of bursting through the remaining steps and firing
+    /// haptics on a screen that is gone. The phase guards handle the other
+    /// early exit, a tap-to-skip changing state while this task sleeps.
     private func runIntro() async {
         guard phase == .splash else { return }
-        if reduceMotion {
-            try? await Task.sleep(for: .milliseconds(600))
+        do {
+            if reduceMotion {
+                try await Task.sleep(for: .milliseconds(600))
+                guard phase == .splash else { return }
+                markLanded = true
+                cursorFlown = true
+                phase = .settled
+                Haptics.impact(.light)
+                return
+            }
+            try await Task.sleep(for: .milliseconds(900))
             guard phase == .splash else { return }
+            withAnimation(.easeInOut(duration: 0.65)) { phase = .arriving }
+            try await Task.sleep(for: .milliseconds(650))
+            guard phase == .arriving else { return }
             markLanded = true
-            cursorFlown = true
-            phase = .settled
             Haptics.impact(.light)
-            return
-        }
-        try? await Task.sleep(for: .milliseconds(900))
-        guard phase == .splash else { return }
-        withAnimation(.easeInOut(duration: 0.65)) { phase = .arriving }
-        try? await Task.sleep(for: .milliseconds(650))
-        guard phase == .arriving else { return }
-        markLanded = true
-        Haptics.impact(.light)
-        try? await Task.sleep(for: .milliseconds(100))
-        guard phase == .arriving else { return }
-        // The dash inflates...
-        withAnimation(.easeOut(duration: 0.12)) { dashSwollen = true }
-        try? await Task.sleep(for: .milliseconds(110))
-        guard phase == .arriving else { return }
-        // ...expels the duplicate at peak swell, then recoils with a wobble.
-        // The duplicate's own `.animation(value:)` modifiers drive its flight.
-        cursorFlown = true
-        withAnimation(.spring(duration: 0.35, bounce: 0.45)) { dashSwollen = false }
-        Haptics.selection()  // the cursor announces itself
-        try? await Task.sleep(for: .milliseconds(590))
-        guard phase == .arriving else { return }
-        phase = .typing
+            try await Task.sleep(for: .milliseconds(100))
+            guard phase == .arriving else { return }
+            // The dash inflates...
+            withAnimation(.easeOut(duration: 0.12)) { dashSwollen = true }
+            try await Task.sleep(for: .milliseconds(110))
+            guard phase == .arriving else { return }
+            // ...expels the duplicate at peak swell, then recoils with a wobble.
+            // The duplicate's own `.animation(value:)` modifiers drive its flight.
+            cursorFlown = true
+            withAnimation(.spring(duration: 0.35, bounce: 0.45)) { dashSwollen = false }
+            Haptics.selection()  // the cursor announces itself
+            try await Task.sleep(for: .milliseconds(590))
+            guard phase == .arriving else { return }
+            phase = .typing
+        } catch {}
     }
 
     /// A tap anywhere completes the intro instantly.

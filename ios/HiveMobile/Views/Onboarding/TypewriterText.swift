@@ -103,9 +103,12 @@ private struct TrailingCursorRenderer: TextRenderer {
     var cursorOpacity: Double
 
     /// Room for the cursor past the last glyph so it never gets clipped when
-    /// the last line is the widest one.
+    /// the last line is the widest one. Generous fixed value: the cursor
+    /// width depends on the line height, which is unknown here, and extra
+    /// drawable padding is harmless. 44 covers line heights up to ~85pt,
+    /// well past the largest accessibility text size.
     var displayPadding: EdgeInsets {
-        EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: OnboardingStyle.cursorSize.width + 3)
+        EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 44)
     }
 
     func draw(layout: Text.Layout, in context: inout GraphicsContext) {
@@ -130,7 +133,9 @@ private struct TrailingCursorRenderer: TextRenderer {
                 return CGRect(x: rect.minX, y: rect.minY, width: 0, height: rect.height)
             }
         guard let anchor else { return }
-        let size = OnboardingStyle.cursorSize
+        // Sizing off the line height keeps the cursor proportional under
+        // Dynamic Type without knowing the font here.
+        let size = OnboardingStyle.cursorSize(forLineHeight: anchor.height)
         let rect = CGRect(
             x: anchor.maxX + 3,
             y: anchor.midY - size.height / 2,
@@ -138,7 +143,7 @@ private struct TrailingCursorRenderer: TextRenderer {
             height: size.height
         )
         context.fill(
-            Path(roundedRect: rect, cornerRadius: OnboardingStyle.cursorCornerRadius),
+            Path(roundedRect: rect, cornerRadius: OnboardingStyle.cursorCornerRadius(forHeight: size.height)),
             with: .color(OnboardingStyle.brandOrange.opacity(cursorOpacity))
         )
     }
