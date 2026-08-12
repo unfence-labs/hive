@@ -321,6 +321,20 @@ struct ContentLineEdgeTests {
 
 struct DiffReviewStoreTests {
     @Test
+    func clearRemovesAllReviews() {
+        let store = DiffReviewStore()
+        store.save(
+            workspaceId: "ws-1",
+            scope: "uncommitted",
+            comments: [DiffComment(file: "a.swift", lineID: 0, line: "line", text: "comment")]
+        )
+
+        store.clear()
+
+        #expect(store.restore(workspaceId: "ws-1", scope: "uncommitted").isEmpty)
+    }
+
+    @Test
     func savedCommentsRestoreByWorkspaceAndScope() {
         let store = DiffReviewStore()
         let comment = DiffComment(file: "f", lineID: 0, line: "x", snippet: nil, text: "note")

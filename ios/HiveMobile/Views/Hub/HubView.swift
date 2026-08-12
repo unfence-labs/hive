@@ -421,6 +421,11 @@ struct HubView: View {
     private static let sectionExpansionKey = "hub_section_expansion_overrides"
     private static let projectExpansionKey = "hub_project_expansion_overrides"
 
+    static func clearExpansionOverrides() {
+        UserDefaults.standard.removeObject(forKey: sectionExpansionKey)
+        UserDefaults.standard.removeObject(forKey: projectExpansionKey)
+    }
+
     private static func loadExpansionOverrides(key: String) -> [String: Bool] {
         guard let data = UserDefaults.standard.data(forKey: key),
               let value = try? JSONDecoder().decode([String: Bool].self, from: data) else {

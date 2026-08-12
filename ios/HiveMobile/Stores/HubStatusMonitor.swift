@@ -340,6 +340,10 @@ final class HubStatusMonitor {
         workspaceScriptStatus.removeAll()
         workspacePrStatus.removeAll()
         completedWorkspaces.removeAll()
+        lastViewedSessionByWorkspace.removeAll()
+        viewingSessionId = nil
+        streamingBeforeBackground.removeAll()
+        needsResubscribe = true
     }
 
     // MARK: - Called by HubConnection

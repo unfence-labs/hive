@@ -11,8 +11,8 @@ struct HiveApp: App {
     @State private var hubPath = NavigationPath()
     @State private var brainPath = NavigationPath()
     @State private var backgroundedAt: Date?
-    @State private var showOnboarding = (UserDefaults.standard.string(forKey: "serverHost") ?? "")
-        .trimmingCharacters(in: .whitespaces).isEmpty
+    @State private var hasServerConnection = ServerConnectionStore.shared.hasConfiguration
+    @State private var serverGeneration = 0
     @AppStorage("hiveAccent") private var accentId = AccentOption.defaultId
     @AppStorage("hiveThemeMode") private var themeModeId = HiveThemeMode.system.rawValue
 
@@ -52,84 +52,156 @@ struct HiveApp: App {
 
     var body: some Scene {
         WindowGroup {
-            TabView(selection: tabSelection) {
-                Tab("Brain", systemImage: "brain", value: .brain) {
-                    NavigationStack(path: $brainPath) {
-                        BrainConversationsView(
-                            store: storeCache.getOrCreate(BRAIN_WORKSPACE_ID),
-                            navigationPath: $brainPath
-                        )
-                    }
-                    .hiveScreenBackground()
-                    .toolbar(brainPath.isEmpty ? .automatic : .hidden, for: .tabBar)
-                }
-                Tab("Hub", systemImage: "square.grid.2x2.fill", value: .hub) {
-                    NavigationStack(path: $hubPath) {
-                        HubView(openSettings: { switchTab(to: .settings) })
-                            .navigationDestination(for: Workspace.self) { workspace in
-                                WorkspaceConversationsView(
-                                    workspace: workspace,
-                                    store: storeCache.getOrCreate(workspace.id),
-                                    navigationPath: $hubPath
-                                )
-                            }
-                    }
-                    .hiveScreenBackground()
-                    .toolbar(hubPath.isEmpty ? .automatic : .hidden, for: .tabBar)
-                }
-                .badge(projectStore.statusMonitor.hubBadgeCount)
-                Tab("Settings", systemImage: "gearshape.fill", value: .settings) {
-                    NavigationStack {
-                        SettingsView()
-                    }
-                    .hiveScreenBackground()
-                }
-            }
-            .hiveScreenBackground()
-            .tint(accent)
-            .safeAreaInset(edge: .top, spacing: 0) {
-                ConnectionBanner(monitor: projectStore.statusMonitor)
-            }
-            .environment(projectStore)
-            .environment(storeCache)
-            .environment(modelCatalog)
-            .overlay {
-                if showOnboarding {
-                    OnboardingView(onDone: {
-                        withAnimation { showOnboarding = false }
-                        Task { await projectStore.refresh(force: true) }
-                    })
-                    .background(WhisperColor.appBackground)
-                    .transition(.opacity)
+            Group {
+                if hasServerConnection {
+                    mainApp.id(serverGeneration)
+                } else {
+                    OnboardingView(onConnect: connect)
                 }
             }
             .preferredColorScheme(themeMode.preferredColorScheme)
-            .task { await modelCatalog.loadIfNeeded() }
-            .onChange(of: projectStore.pendingNavigation) { _, workspace in
-                guard let workspace else { return }
-                switchTab(to: .hub)
-                // Deferred one tick so navigation animates after UIKit animations re-enable.
-                DispatchQueue.main.async { hubPath.append(workspace) }
-                projectStore.pendingNavigation = nil
-            }
             .onChange(of: scenePhase) { _, newPhase in
-                switch newPhase {
-                case .background:
-                    backgroundedAt = Date()
-                case .active:
-                    if let bg = backgroundedAt {
-                        let elapsed = Date().timeIntervalSince(bg)
-                        projectStore.statusMonitor.appDidBecomeActive()
-                        Task { await modelCatalog.load() }
-                        if elapsed > 30 {
-                            Task { await projectStore.refresh(force: true) }
+                guard newPhase == .active, !hasServerConnection else { return }
+                // A launch while the device was locked reads the keychain as
+                // "not configured"; once it becomes readable, the stores built
+                // against that empty state hold dead API clients — rebuild
+                // them rather than just revealing the main app.
+                guard ServerConnectionStore.shared.hasConfiguration else { return }
+                activateServerConnection()
+            }
+        }
+    }
+
+    private var mainApp: some View {
+        TabView(selection: tabSelection) {
+            Tab("Brain", systemImage: "brain", value: .brain) {
+                NavigationStack(path: $brainPath) {
+                    BrainConversationsView(
+                        store: storeCache.getOrCreate(BRAIN_WORKSPACE_ID),
+                        navigationPath: $brainPath
+                    )
+                }
+                .hiveScreenBackground()
+                .toolbar(brainPath.isEmpty ? .automatic : .hidden, for: .tabBar)
+            }
+            Tab("Hub", systemImage: "square.grid.2x2.fill", value: .hub) {
+                NavigationStack(path: $hubPath) {
+                    HubView(openSettings: { switchTab(to: .settings) })
+                        .navigationDestination(for: Workspace.self) { workspace in
+                            WorkspaceConversationsView(
+                                workspace: workspace,
+                                store: storeCache.getOrCreate(workspace.id),
+                                navigationPath: $hubPath
+                            )
                         }
+                }
+                .hiveScreenBackground()
+                .toolbar(hubPath.isEmpty ? .automatic : .hidden, for: .tabBar)
+            }
+            .badge(projectStore.statusMonitor.hubBadgeCount)
+            Tab("Settings", systemImage: "gearshape.fill", value: .settings) {
+                NavigationStack {
+                    SettingsView(onConnect: connect)
+                }
+                .hiveScreenBackground()
+            }
+        }
+        .hiveScreenBackground()
+        .tint(accent)
+        .safeAreaInset(edge: .top, spacing: 0) {
+            ConnectionBanner(monitor: projectStore.statusMonitor)
+        }
+        .environment(projectStore)
+        .environment(storeCache)
+        .environment(modelCatalog)
+        .task { await modelCatalog.loadIfNeeded() }
+        .onChange(of: projectStore.pendingNavigation) { _, workspace in
+            guard let workspace else { return }
+            switchTab(to: .hub)
+            // Deferred one tick so navigation animates after UIKit animations re-enable.
+            DispatchQueue.main.async { hubPath.append(workspace) }
+            projectStore.pendingNavigation = nil
+        }
+        .onChange(of: scenePhase) { _, newPhase in
+            switch newPhase {
+            case .background:
+                backgroundedAt = Date()
+            case .active:
+                if let bg = backgroundedAt {
+                    let elapsed = Date().timeIntervalSince(bg)
+                    projectStore.statusMonitor.appDidBecomeActive()
+                    Task { await modelCatalog.load() }
+                    if elapsed > 30 {
+                        Task { await projectStore.refresh(force: true) }
                     }
-                    backgroundedAt = nil
-                default:
-                    break
+                }
+                backgroundedAt = nil
+            default:
+                break
+            }
+        }
+    }
+
+    @MainActor
+    private func connect(_ candidate: ServerConnection) async -> Bool {
+        let isReachable = await withTaskGroup(of: Bool.self, returning: Bool.self) { group in
+            group.addTask {
+                do {
+                    _ = try await APIClient(connection: candidate).fetchProjects()
+                    return true
+                } catch {
+                    return false
                 }
             }
+            group.addTask {
+                try? await Task.sleep(for: .seconds(5))
+                return false
+            }
+            let result = await group.next() ?? false
+            group.cancelAll()
+            return result
+        }
+        guard isReachable else { return false }
+
+        do {
+            try ServerConnectionStore.shared.replace(with: candidate)
+        } catch {
+            return false
+        }
+
+        activateServerConnection()
+        return true
+    }
+
+    /// Tears down all per-server state and rebuilds the stores against the
+    /// currently stored connection. Stores capture their API client at init,
+    /// so any store created before the connection was readable must be
+    /// replaced, never reused.
+    @MainActor
+    private func activateServerConnection() {
+        hubPath = NavigationPath()
+        brainPath = NavigationPath()
+        projectStore.statusMonitor.disconnectAll()
+        storeCache.clear()
+        ImageCache.shared.clear()
+        ChatDraftStore.shared.clear()
+        DiffReviewStore.shared.clear()
+        HubView.clearExpansionOverrides()
+        HiveHTTP.clearCache()
+
+        let newStoreCache = ConversationStoreCache()
+        let newProjectStore = ProjectStore(storeCache: newStoreCache)
+        let newModelCatalog = ModelCatalog()
+        storeCache = newStoreCache
+        projectStore = newProjectStore
+        modelCatalog = newModelCatalog
+        hasServerConnection = true
+        serverGeneration += 1
+
+        Task {
+            async let projects: Void = newProjectStore.refresh(force: true)
+            async let models: Void = newModelCatalog.load()
+            _ = await (projects, models)
         }
     }
 }

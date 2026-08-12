@@ -29,6 +29,8 @@ let package = Package(
                 "Models/WebSocketTypes.swift",
                 "Services/APIClient.swift",
                 "Services/HiveHTTP.swift",
+                "Services/KeychainTokenStore.swift",
+                "Services/ServerConnection.swift",
                 "Services/ServerEndpoint.swift",
                 "Stores/AnsiLogParser.swift",
                 "Stores/AutomationFormatting.swift",

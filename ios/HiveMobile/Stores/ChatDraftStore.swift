@@ -50,4 +50,8 @@ final class ChatDraftStore {
             store[workspaceId] = nil
         }
     }
+
+    func clear() {
+        store.removeAll()
+    }
 }
