@@ -55,36 +55,18 @@ struct OnboardingView: View {
                     }
                     .listRowBackground(WhisperColor.surfaceRaised)
                 }
+
+                Section {
+                    connectButton
+                }
+                .listRowInsets(EdgeInsets())
+                .listRowBackground(Color.clear)
             }
             .scrollContentBackground(.hidden)
             .hiveScreenBackground()
             .scrollDismissesKeyboard(.interactively)
             .navigationTitle("Connect to Hive")
             .navigationBarTitleDisplayMode(.inline)
-            .safeAreaInset(edge: .bottom) {
-                Button {
-                    connect()
-                } label: {
-                    HStack(spacing: HiveSpacing.sm) {
-                        if isConnecting {
-                            ProgressView()
-                                .controlSize(.small)
-                                .tint(.white)
-                        }
-                        Text(isConnecting ? "Connecting…" : "Connect")
-                    }
-                    .font(.headline)
-                    .foregroundStyle(.white)
-                    .frame(maxWidth: .infinity, minHeight: 52)
-                    .background(Color.accentColor)
-                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                }
-                .buttonStyle(.plain)
-                .disabled(candidate == nil || isConnecting)
-                .opacity(candidate == nil || isConnecting ? 0.4 : 1)
-                .padding(HiveSpacing.lg)
-                .background(WhisperColor.appBackground)
-            }
             .toolbar {
                 ToolbarItemGroup(placement: .keyboard) {
                     Spacer()
@@ -92,6 +74,29 @@ struct OnboardingView: View {
                 }
             }
         }
+    }
+
+    private var connectButton: some View {
+        Button {
+            connect()
+        } label: {
+            HStack(spacing: HiveSpacing.sm) {
+                if isConnecting {
+                    ProgressView()
+                        .controlSize(.small)
+                        .tint(.white)
+                }
+                Text(isConnecting ? "Connecting…" : "Connect")
+            }
+            .font(.headline)
+            .foregroundStyle(.white)
+            .frame(maxWidth: .infinity, minHeight: 52)
+            .background(Color.accentColor)
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .disabled(candidate == nil || isConnecting)
+        .opacity(candidate == nil || isConnecting ? 0.4 : 1)
     }
 
     private func connect() {
