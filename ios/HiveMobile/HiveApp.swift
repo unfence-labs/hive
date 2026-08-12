@@ -88,6 +88,7 @@ struct HiveApp: App {
                     )
                 }
                 .hiveScreenBackground()
+                .toolbar(brainPath.isEmpty ? .automatic : .hidden, for: .tabBar)
             }
             Tab("Hub", systemImage: "square.grid.2x2.fill", value: .hub) {
                 NavigationStack(path: $hubPath) {
