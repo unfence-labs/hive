@@ -60,6 +60,15 @@ struct HiveApp: App {
                 }
             }
             .preferredColorScheme(themeMode.preferredColorScheme)
+            .onChange(of: scenePhase) { _, newPhase in
+                guard newPhase == .active, !hasServerConnection else { return }
+                // A launch while the device was locked reads the keychain as
+                // "not configured"; once it becomes readable, the stores built
+                // against that empty state hold dead API clients — rebuild
+                // them rather than just revealing the main app.
+                guard ServerConnectionStore.shared.hasConfiguration else { return }
+                activateServerConnection()
+            }
         }
     }
 
@@ -160,6 +169,16 @@ struct HiveApp: App {
             return false
         }
 
+        activateServerConnection()
+        return true
+    }
+
+    /// Tears down all per-server state and rebuilds the stores against the
+    /// currently stored connection. Stores capture their API client at init,
+    /// so any store created before the connection was readable must be
+    /// replaced, never reused.
+    @MainActor
+    private func activateServerConnection() {
         hubPath = NavigationPath()
         brainPath = NavigationPath()
         projectStore.statusMonitor.disconnectAll()
@@ -184,7 +203,6 @@ struct HiveApp: App {
             async let models: Void = newModelCatalog.load()
             _ = await (projects, models)
         }
-        return true
     }
 }
 
