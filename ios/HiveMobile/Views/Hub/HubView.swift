@@ -31,6 +31,8 @@ struct HubView: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: HiveSpacing.md) {
+                    searchField
+
                     if store.projects.isEmpty {
                         emptyState
                     } else if !searchText.isEmpty, displayedSections.isEmpty {
@@ -45,7 +47,6 @@ struct HubView: View {
             }
             .scrollBounceBehavior(.always)
             .scrollContentBackground(.hidden)
-            .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .automatic))
             .refreshable {
                 // Unstructured Task shields refresh from SwiftUI prematurely
                 // cancelling the .refreshable task on ScrollView (known iOS 26 regression).
@@ -131,6 +132,38 @@ struct HubView: View {
         } message: { ws in
             Text("\"\(ws.name)\" will be archived and removed from this list. Archived workspaces can be restored from the desktop app.")
         }
+    }
+
+    private var searchField: some View {
+        HStack(spacing: HiveSpacing.sm) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 15, weight: .medium))
+                .foregroundStyle(WhisperColor.textMuted)
+
+            TextField("Search", text: $searchText)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .submitLabel(.search)
+                .font(.body)
+                .foregroundStyle(WhisperColor.text)
+                .accessibilityLabel("Search projects and workspaces")
+                .accessibilityHint("Filters by project, workspace, or branch name")
+
+            if !searchText.isEmpty {
+                Button {
+                    searchText = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 16))
+                        .foregroundStyle(WhisperColor.textMuted)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Clear search")
+            }
+        }
+        .padding(.horizontal, 14)
+        .frame(height: 44)
+        .glassPill()
     }
 
     private var loadingState: some View {
