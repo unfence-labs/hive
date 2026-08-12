@@ -21,7 +21,7 @@ struct OnboardingView: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("Connect to Hive") {
+                Section {
                     LabeledContent("Host") {
                         TextField("hostname or IP", text: $host)
                             .focused($focusedField, equals: .host)
@@ -41,6 +41,8 @@ struct OnboardingView: View {
                             .focused($focusedField, equals: .token)
                             .multilineTextAlignment(.trailing)
                     }
+                } header: {
+                    Text("Connect to Hive")
                 } footer: {
                     Text("Your device must be connected to the server’s private network.")
                 }
