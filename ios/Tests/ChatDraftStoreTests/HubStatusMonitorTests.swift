@@ -1,4 +1,5 @@
 import Foundation
+import Observation
 import Testing
 @testable import HiveMobileStoresCore
 
@@ -326,5 +327,22 @@ struct HubStatusMonitorTests {
         monitor.clearCompleted("ws-a")
         monitor.clearUnread(workspaceId: "ws-a", sessionId: "s1")
         #expect(monitor.hubBadgeCount == 1)
+    }
+
+    @Test
+    func clearingMissingCompletedWorkspaceDoesNotNotifyObservers() {
+        let (monitor, _, _) = makeMonitor()
+        let workspaceId = "ws-missing-\(UUID())"
+        var changed = false
+
+        withObservationTracking {
+            _ = monitor.isCompleted(workspaceId)
+        } onChange: {
+            changed = true
+        }
+
+        monitor.clearCompleted(workspaceId)
+
+        #expect(!changed)
     }
 }

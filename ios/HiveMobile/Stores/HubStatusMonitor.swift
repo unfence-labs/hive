@@ -246,6 +246,7 @@ final class HubStatusMonitor {
     }
 
     func clearCompleted(_ workspaceId: String) {
+        guard completedWorkspaces.contains(workspaceId) else { return }
         completedWorkspaces.remove(workspaceId)
     }
 
