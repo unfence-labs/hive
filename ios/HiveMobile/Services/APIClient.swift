@@ -15,43 +15,27 @@ enum APIError: Error, LocalizedError {
         }
     }
 
-    /// A rejected-credentials failure (wrong or expired token) rather than a
-    /// transport problem.
-    var isAuthFailure: Bool {
-        if case .httpError(let code, _) = self { return code == 401 || code == 403 }
-        return false
-    }
-}
-
-/// Classified outcome of a connection health probe, so a wrong token can be
-/// surfaced distinctly from an unreachable server.
-enum ConnectionHealth: Equatable {
-    case connected
-    case unreachable
-    case invalidToken
-
-    /// Map a failed probe to a health state: a 401/403 means the token is
-    /// invalid; anything else is treated as unreachable.
-    static func classify(error: Error) -> ConnectionHealth {
-        if let apiError = error as? APIError, apiError.isAuthFailure {
-            return .invalidToken
-        }
-        return .unreachable
-    }
 }
 
 final class APIClient {
     private let session = HiveHTTP.session
     private let decoder = JSONDecoder()
+    private let connection: ServerConnection?
 
-    private var baseURL: String {
-        let host = UserDefaults.standard.string(forKey: "serverHost") ?? "localhost"
-        let port = UserDefaults.standard.string(forKey: "serverPort") ?? ServerEndpoint.defaultPort
-        return "http://\(host):\(port)"
+    init() {
+        connection = ServerConnectionStore.shared.snapshot()
     }
 
-    private var authToken: String {
-        UserDefaults.standard.string(forKey: "authToken") ?? ""
+    init(connection: ServerConnection) {
+        self.connection = connection
+    }
+
+    private func requestURL(connection: ServerConnection, path: String) -> URL? {
+        guard var components = URLComponents(string: path) else { return nil }
+        components.scheme = "http"
+        components.host = connection.host
+        components.port = connection.port
+        return components.url
     }
 
     private func pathSegment(_ value: String) -> String {
@@ -71,16 +55,15 @@ final class APIClient {
     // MARK: - Generic request methods
 
     private func request<T: Decodable>(_ method: String, path: String, body: Data? = nil) async throws -> T {
-        guard let url = URL(string: "\(baseURL)\(path)") else {
+        guard let connection,
+              let url = requestURL(connection: connection, path: path) else {
             throw APIError.invalidURL
         }
 
         var req = URLRequest(url: url)
         req.httpMethod = method
         req.cachePolicy = method == "GET" ? .reloadRevalidatingCacheData : .reloadIgnoringLocalCacheData
-        if !authToken.isEmpty {
-            req.setValue("Bearer \(authToken)", forHTTPHeaderField: "Authorization")
-        }
+        req.setValue("Bearer \(connection.authToken)", forHTTPHeaderField: "Authorization")
         if let body {
             req.setValue("application/json", forHTTPHeaderField: "Content-Type")
             req.httpBody = body
@@ -116,16 +99,15 @@ final class APIClient {
 
     /// Fire-and-forget variant for endpoints that return no body (e.g. 204).
     private func requestVoid(_ method: String, path: String, body: Data? = nil) async throws {
-        guard let url = URL(string: "\(baseURL)\(path)") else {
+        guard let connection,
+              let url = requestURL(connection: connection, path: path) else {
             throw APIError.invalidURL
         }
 
         var req = URLRequest(url: url)
         req.httpMethod = method
         req.cachePolicy = .reloadIgnoringLocalCacheData
-        if !authToken.isEmpty {
-            req.setValue("Bearer \(authToken)", forHTTPHeaderField: "Authorization")
-        }
+        req.setValue("Bearer \(connection.authToken)", forHTTPHeaderField: "Authorization")
         if let body {
             req.setValue("application/json", forHTTPHeaderField: "Content-Type")
             req.httpBody = body
@@ -159,12 +141,6 @@ final class APIClient {
     }
 
     // MARK: - Typed endpoints
-
-    func checkHealth() async throws -> Bool {
-        struct HealthResponse: Decodable { let status: String }
-        let resp: HealthResponse = try await get(path: "/health")
-        return resp.status == "ok"
-    }
 
     func fetchProjects() async throws -> [Project] {
         try await get(path: "/api/projects")

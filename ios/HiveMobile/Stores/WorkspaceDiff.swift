@@ -249,6 +249,10 @@ final class DiffReviewStore {
     func restore(workspaceId: String, scope: String) -> [DiffComment] {
         store[workspaceId]?[scope] ?? []
     }
+
+    func clear() {
+        store.removeAll()
+    }
 }
 
 func anchoredComments(_ comments: [DiffComment], linesByFile: [String: [DiffLine]]) -> [DiffComment] {

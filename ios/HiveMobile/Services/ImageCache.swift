@@ -22,6 +22,10 @@ final class ImageCache {
         cache.setObject(image, forKey: key as NSString, cost: cost)
     }
 
+    func clear() {
+        cache.removeAllObjects()
+    }
+
     /// Stores a downscaled copy of the image, capped to `maxSize` in points.
     /// Keeps memory per entry tiny so the cache rarely evicts.
     func storeThumbnail(_ image: UIImage, forKey key: String, maxSize: CGSize) {

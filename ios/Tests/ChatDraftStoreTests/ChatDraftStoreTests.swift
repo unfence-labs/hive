@@ -2,6 +2,7 @@ import Foundation
 import Testing
 @testable import HiveMobileStoresCore
 
+@Suite(.serialized)
 struct ChatDraftStoreTests {
     @Test @MainActor
     func saveAndRestoreDraftWithAttachments() {
@@ -86,5 +87,24 @@ struct ChatDraftStoreTests {
 
         ChatDraftStore.shared.remove(workspaceId: workspaceId, sessionId: sessionId)
         #expect(ChatDraftStore.shared.restore(workspaceId: workspaceId, sessionId: sessionId) == nil)
+    }
+
+    @Test @MainActor
+    func clearRemovesAllDrafts() {
+        ChatDraftStore.shared.save(
+            workspaceId: "ws-clear-a",
+            sessionId: "session-a",
+            draft: .init(text: "first", attachments: [])
+        )
+        ChatDraftStore.shared.save(
+            workspaceId: "ws-clear-b",
+            sessionId: "session-b",
+            draft: .init(text: "second", attachments: [])
+        )
+
+        ChatDraftStore.shared.clear()
+
+        #expect(ChatDraftStore.shared.restore(workspaceId: "ws-clear-a", sessionId: "session-a") == nil)
+        #expect(ChatDraftStore.shared.restore(workspaceId: "ws-clear-b", sessionId: "session-b") == nil)
     }
 }

@@ -37,4 +37,18 @@ final class ServerEndpointTests: XCTestCase {
     func testNonNumericPortReturnsNil() {
         XCTAssertNil(ServerEndpoint.webSocketURL(host: "h", port: "abc", token: "t", path: "/ws/hub"))
     }
+
+    func testRejectsPortsOutsideValidRange() {
+        XCTAssertNil(ServerEndpoint.webSocketURL(host: "h", port: "0", token: "t", path: "/ws/hub"))
+        XCTAssertNil(ServerEndpoint.webSocketURL(host: "h", port: "65536", token: "t", path: "/ws/hub"))
+    }
+
+    func testConnectionTrimsAndValidatesInput() {
+        let connection = ServerConnection(host: "  hive.local  ", port: " 9420 ", authToken: " token ")
+
+        XCTAssertEqual(connection, ServerConnection(host: "hive.local", port: 9420, authToken: "token"))
+        XCTAssertNil(ServerConnection(host: "  ", port: "9420", authToken: "token"))
+        XCTAssertNil(ServerConnection(host: "hive.local", port: "9420", authToken: "  "))
+        XCTAssertNil(ServerConnection(host: "hive.local", port: "65536", authToken: "token"))
+    }
 }

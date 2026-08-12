@@ -7,8 +7,7 @@ struct ConnectionBanner: View {
     /// Only surface the disconnect banner once a server has been configured, so a
     /// never-configured first launch (handled by onboarding) stays clean.
     private var isServerConfigured: Bool {
-        !(UserDefaults.standard.string(forKey: "serverHost") ?? "")
-            .trimmingCharacters(in: .whitespaces).isEmpty
+        ServerConnectionStore.shared.hasConfiguration
     }
 
     var body: some View {

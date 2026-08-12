@@ -1,19 +1,52 @@
 import SwiftUI
 
 struct SettingsView: View {
-    @AppStorage("serverHost") private var host = "localhost"
-    @AppStorage("serverPort") private var port = ServerEndpoint.defaultPort
-    @AppStorage("authToken") private var token = ""
+    let onConnect: (ServerConnection) async -> Bool
+
+    @State private var host: String
+    @State private var port: String
+    @State private var token: String
     @AppStorage("hiveAccent") private var accentId = AccentOption.defaultId
     @AppStorage("hiveThemeMode") private var themeModeId = HiveThemeMode.system.rawValue
 
     @FocusState private var focusedField: Field?
     @State private var showAutomations = false
-    @State private var healthStatus: ConnectionHealth = .unreachable
+    @State private var healthStatus: ConnectionHealth = .connected
+    @State private var isConnecting = false
+    @State private var connectionFailed = false
     @State private var pollingTask: Task<Void, Never>?
-    @State private var debouncedCheckTask: Task<Void, Never>?
     private enum Field: Hashable {
         case host, port, token
+    }
+
+    private enum ConnectionHealth {
+        case connected, unreachable
+
+        var color: Color {
+            switch self {
+            case .connected: WhisperColor.success
+            case .unreachable: WhisperColor.danger
+            }
+        }
+
+        var label: String {
+            switch self {
+            case .connected: "Connected"
+            case .unreachable: "Disconnected"
+            }
+        }
+    }
+
+    init(onConnect: @escaping (ServerConnection) async -> Bool) {
+        self.onConnect = onConnect
+        let connection = ServerConnectionStore.shared.snapshot()
+        _host = State(initialValue: connection?.host ?? "")
+        _port = State(initialValue: String(connection?.port ?? ServerConnectionStore.defaultPort))
+        _token = State(initialValue: connection?.authToken ?? "")
+    }
+
+    private var candidate: ServerConnection? {
+        ServerConnection(host: host, port: port, authToken: token)
     }
 
     private var selectedAccent: Color {
@@ -35,9 +68,6 @@ struct SettingsView: View {
         .simultaneousGesture(TapGesture().onEnded { focusedField = nil })
         .onAppear { startConnectionPolling() }
         .onDisappear { stopConnectionPolling() }
-        .onChange(of: host) { _, _ in scheduleConnectionCheck() }
-        .onChange(of: port) { _, _ in scheduleConnectionCheck() }
-        .onChange(of: token) { _, _ in scheduleConnectionCheck() }
         .navigationTitle("Settings")
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(WhisperColor.appBackground, for: .navigationBar)
@@ -188,7 +218,6 @@ struct SettingsView: View {
 
     private var connectionSection: some View {
         Section {
-            transportSecurityWarning
             LabeledContent("Host") {
                 TextField("hostname or IP", text: $host)
                     .focused($focusedField, equals: .host)
@@ -208,37 +237,41 @@ struct SettingsView: View {
                     .focused($focusedField, equals: .token)
                     .multilineTextAlignment(.trailing)
             }
+            Button {
+                connect()
+            } label: {
+                HStack {
+                    if isConnecting {
+                        ProgressView()
+                            .controlSize(.small)
+                    }
+                    Text(isConnecting ? "Connecting…" : "Connect")
+                    Spacer()
+                }
+            }
+            .disabled(candidate == nil || isConnecting)
+
+            if connectionFailed {
+                Text("Connection failed")
+                    .foregroundStyle(WhisperColor.danger)
+            }
         } header: {
             connectionHeader
         } footer: {
-            Text("Enter your server's hostname or IP and port, plus the auth token shown when the backend starts.")
+            Text("Your device must be connected to the server’s private network.")
         }
         .listRowBackground(WhisperColor.surfaceRaised)
-    }
-
-    private var transportSecurityWarning: some View {
-        VStack(alignment: .leading, spacing: HiveSpacing.xs) {
-            Text("Private network required")
-                .font(.footnote.weight(.medium))
-                .foregroundStyle(WhisperColor.danger)
-            Text(
-                "HTTPS is not supported yet. Connect through an encrypted private network such as Tailscale, WireGuard, or another VPN. Never use a public address."
-            )
-            .font(.caption)
-            .foregroundStyle(WhisperColor.textSecondary)
-        }
-        .accessibilityElement(children: .combine)
     }
 
     private var connectionHeader: some View {
         HStack {
             Text("Connection")
             Spacer()
-            Text(healthStatus.label)
+            Text("Current server: \(healthStatus.label)")
                 .font(.caption2)
                 .foregroundStyle(healthStatus.color)
                 .accessibilityLabel("Connection status")
-                .accessibilityValue(healthStatus.accessibilityValue)
+                .accessibilityValue(healthStatus.label)
         }
     }
 
@@ -255,18 +288,6 @@ struct SettingsView: View {
     private func stopConnectionPolling() {
         pollingTask?.cancel()
         pollingTask = nil
-        debouncedCheckTask?.cancel()
-        debouncedCheckTask = nil
-    }
-
-    private func scheduleConnectionCheck() {
-        HiveHTTP.clearCache()
-        debouncedCheckTask?.cancel()
-        debouncedCheckTask = Task {
-            try? await Task.sleep(for: .milliseconds(400))
-            guard !Task.isCancelled else { return }
-            await checkHealth()
-        }
     }
 
     @MainActor
@@ -280,9 +301,10 @@ struct SettingsView: View {
         await withTaskGroup(of: ConnectionHealth.self, returning: ConnectionHealth.self) { group in
             group.addTask {
                 do {
-                    return try await APIClient().checkHealth() ? .connected : .unreachable
+                    _ = try await APIClient().fetchProjects()
+                    return .connected
                 } catch {
-                    return ConnectionHealth.classify(error: error)
+                    return .unreachable
                 }
             }
             group.addTask {
@@ -295,33 +317,29 @@ struct SettingsView: View {
             return result
         }
     }
-}
 
-// MARK: - Health Status Presentation
-
-private extension ConnectionHealth {
-    var color: Color {
-        switch self {
-        case .connected: WhisperColor.success
-        case .unreachable: .red
-        case .invalidToken: .orange
+    private func connect() {
+        guard let candidate else { return }
+        focusedField = nil
+        connectionFailed = false
+        isConnecting = true
+        stopConnectionPolling()
+        Task {
+            let connected = await onConnect(candidate)
+            isConnecting = false
+            connectionFailed = !connected
+            if connected {
+                healthStatus = .connected
+            } else {
+                startConnectionPolling()
+            }
         }
     }
-
-    var label: String {
-        switch self {
-        case .connected: "Connected"
-        case .unreachable: "Disconnected"
-        case .invalidToken: "Invalid token"
-        }
-    }
-
-    var accessibilityValue: String { label }
 }
 
 #Preview {
     NavigationStack {
-        SettingsView()
+        SettingsView(onConnect: { _ in false })
     }
     .preferredColorScheme(.dark)
 }

@@ -46,4 +46,12 @@ final class ConversationStoreCache {
     func evict(_ workspaceId: String) {
         stores.removeValue(forKey: workspaceId)
     }
+
+    /// Removes every conversation associated with the current server.
+    func clear() {
+        for store in stores.values {
+            store.send = nil
+        }
+        stores.removeAll()
+    }
 }

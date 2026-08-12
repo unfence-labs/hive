@@ -14,22 +14,22 @@ enum ChatImageResolver {
 
     static func apiURL(for source: String) -> URL? {
         guard source.hasPrefix("/api/") else { return nil }
-        let host = UserDefaults.standard.string(forKey: "serverHost") ?? "localhost"
-        let port = UserDefaults.standard.string(forKey: "serverPort") ?? ServerEndpoint.defaultPort
-        let token = UserDefaults.standard.string(forKey: "authToken") ?? ""
-        guard var components = URLComponents(string: "http://\(host):\(port)\(source)") else {
+        guard let connection = ServerConnectionStore.shared.snapshot() else { return nil }
+        guard var components = URLComponents(string: source) else { return nil }
+        components.scheme = "http"
+        components.host = connection.host
+        components.port = connection.port
+        guard components.url != nil else {
             return nil
         }
-        if !token.isEmpty {
-            guard let encodedToken = token.addingPercentEncoding(withAllowedCharacters: tokenQueryAllowed) else {
-                return nil
-            }
-            let tokenItem = "token=\(encodedToken)"
-            if let query = components.percentEncodedQuery, !query.isEmpty {
-                components.percentEncodedQuery = "\(query)&\(tokenItem)"
-            } else {
-                components.percentEncodedQuery = tokenItem
-            }
+        guard let encodedToken = connection.authToken.addingPercentEncoding(withAllowedCharacters: tokenQueryAllowed) else {
+            return nil
+        }
+        let tokenItem = "token=\(encodedToken)"
+        if let query = components.percentEncodedQuery, !query.isEmpty {
+            components.percentEncodedQuery = "\(query)&\(tokenItem)"
+        } else {
+            components.percentEncodedQuery = tokenItem
         }
         return components.url
     }

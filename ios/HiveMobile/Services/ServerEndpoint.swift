@@ -1,23 +1,25 @@
 import Foundation
 
 enum ServerEndpoint {
-    static let defaultPort = "9420"
+    static let defaultPort = String(ServerConnectionStore.defaultPort)
 
     static func webSocketURL(path: String, queryItems: [URLQueryItem] = []) -> URL? {
-        webSocketURL(
-            host: UserDefaults.standard.string(forKey: "serverHost") ?? "localhost",
-            port: UserDefaults.standard.string(forKey: "serverPort") ?? defaultPort,
-            token: UserDefaults.standard.string(forKey: "authToken") ?? "",
-            path: path,
-            queryItems: queryItems
-        )
+        guard let connection = ServerConnectionStore.shared.snapshot() else { return nil }
+        return webSocketURL(connection: connection, path: path, queryItems: queryItems)
+    }
+
+    static func webSocketURL(connection: ServerConnection, path: String, queryItems: [URLQueryItem] = []) -> URL? {
+        webSocketURL(host: connection.host, port: String(connection.port), token: connection.authToken, path: path, queryItems: queryItems)
     }
 
     static func webSocketURL(host: String, port: String, token: String, path: String, queryItems: [URLQueryItem] = []) -> URL? {
-        guard !host.isEmpty, let portInt = Int(port) else { return nil }
+        let normalizedHost = host.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedHost.isEmpty,
+              let portInt = Int(port.trimmingCharacters(in: .whitespacesAndNewlines)),
+              (1...65_535).contains(portInt) else { return nil }
         var components = URLComponents()
         components.scheme = "ws"
-        components.host = host
+        components.host = normalizedHost
         components.port = portInt
         components.path = path
         var query = queryItems

@@ -197,6 +197,32 @@ struct HubStatusMonitorTests {
     }
 
     @Test
+    func disconnectAllClearsViewedSessionState() {
+        let (monitor, _, _) = makeMonitor()
+        monitor.sync(workspaceIds: ["ws-1"])
+        monitor.setViewingWorkspace("ws-1", sessionId: "session-1")
+
+        monitor.disconnectAll()
+
+        #expect(monitor.viewingWorkspaceId == nil)
+        #expect(monitor.viewingSessionId == nil)
+        #expect(monitor.lastViewedSession(for: "ws-1") == nil)
+    }
+
+    @Test
+    func conversationCacheClearRemovesStoresAndDisablesOldSendClosures() {
+        let (monitor, cache, _) = makeMonitor()
+        monitor.sync(workspaceIds: ["ws-1"])
+        let oldStore = cache.getOrCreate("ws-1")
+        #expect(oldStore.send != nil)
+
+        cache.clear()
+
+        #expect(cache.stores.isEmpty)
+        #expect(oldStore.send == nil)
+    }
+
+    @Test
     func firstSendResubscribesBeforeEventThenNot() async {
         let (monitor, cache, connection) = makeMonitor()
         monitor.sync(workspaceIds: ["ws-1"])
