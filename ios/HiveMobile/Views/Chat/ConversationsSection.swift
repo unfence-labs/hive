@@ -104,13 +104,12 @@ struct ConversationsSection<Header: View>: View {
                 Text(actionErrorMessage)
             }
         }
-        .confirmationDialog(
+        .alert(
             "Delete conversation?",
             isPresented: Binding(
                 get: { sessionToDelete != nil },
                 set: { if !$0 { sessionToDelete = nil } }
             ),
-            titleVisibility: .visible,
             presenting: sessionToDelete
         ) { session in
             Button("Delete", role: .destructive) {
@@ -159,11 +158,8 @@ struct ConversationsSection<Header: View>: View {
                 .listRowBackground(WhisperColor.appBackground)
                 .listRowSeparator(.hidden)
                 .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                    Button(role: .destructive) {
-                        // Let the swipe close before presenting the confirmation dialog.
-                        DispatchQueue.main.async {
-                            sessionToDelete = session
-                        }
+                    Button {
+                        sessionToDelete = session
                     } label: {
                         Image(systemName: "trash")
                             .imageScale(.small)
