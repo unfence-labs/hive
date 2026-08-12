@@ -2,9 +2,11 @@ import SwiftUI
 import UIKit
 
 /// Types its text one character at a time with a per-letter haptic tick and a
-/// trailing block cursor. The cursor is drawn by a `TextRenderer` so it tracks
-/// the last glyph across wrapped lines; it stays steady while typing and
-/// blinks once the text has settled.
+/// trailing block cursor. The full text is laid out from the start and only
+/// revealed glyph by glyph, so line wrapping is final from the first frame
+/// and words never jump between lines mid-typing. The cursor is drawn by the
+/// same `TextRenderer`, tracking the last revealed glyph across lines; it
+/// stays steady while typing and blinks once the text has settled.
 struct TypewriterText: View {
     enum Mode: Equatable {
         /// Nothing shown yet (the flying dash owns the cursor spot).
@@ -28,11 +30,11 @@ struct TypewriterText: View {
     private static let commaPauseMs = 140.0
     private static let blinkInterval = 0.53
 
-    private var displayed: String {
+    private var visibleCount: Int {
         switch mode {
-        case .hidden: ""
-        case .typing: String(text.prefix(typedCount))
-        case .full: text
+        case .hidden: 0
+        case .typing: typedCount
+        case .full: text.count
         }
     }
 
@@ -42,8 +44,11 @@ struct TypewriterText: View {
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: isSettled ? Self.blinkInterval : 3600)) { context in
-            Text(displayed)
-                .textRenderer(TrailingCursorRenderer(cursorOpacity: cursorOpacity(at: context.date)))
+            Text(text)
+                .textRenderer(TrailingCursorRenderer(
+                    visibleCount: visibleCount,
+                    cursorOpacity: cursorOpacity(at: context.date)
+                ))
         }
         .onAppear { if mode == .typing { startTyping() } }
         .onChange(of: mode) { _, newMode in
@@ -91,8 +96,10 @@ struct TypewriterText: View {
     }
 }
 
-/// Draws the text normally, then a rounded block cursor after the last glyph.
+/// Draws only the first `visibleCount` glyphs of the (fully laid out) text,
+/// then a rounded block cursor after the last one drawn.
 private struct TrailingCursorRenderer: TextRenderer {
+    var visibleCount: Int
     var cursorOpacity: Double
 
     /// Room for the cursor past the last glyph so it never gets clipped when
@@ -102,15 +109,31 @@ private struct TrailingCursorRenderer: TextRenderer {
     }
 
     func draw(layout: Text.Layout, in context: inout GraphicsContext) {
-        for line in layout {
-            context.draw(line)
+        var remaining = visibleCount
+        var lastGlyph: CGRect?
+        outer: for line in layout {
+            for run in line {
+                for slice in run {
+                    if remaining <= 0 { break outer }
+                    context.draw(slice)
+                    lastGlyph = slice.typographicBounds.rect
+                    remaining -= 1
+                }
+            }
         }
-        guard cursorOpacity > 0, let lastLine = layout.last else { return }
-        let bounds = lastLine.typographicBounds.rect
+        guard cursorOpacity > 0 else { return }
+        // Anchor after the last revealed glyph, or at the first line's origin
+        // before anything is revealed.
+        let anchor = lastGlyph
+            ?? layout.first.map { line in
+                let rect = line.typographicBounds.rect
+                return CGRect(x: rect.minX, y: rect.minY, width: 0, height: rect.height)
+            }
+        guard let anchor else { return }
         let size = OnboardingStyle.cursorSize
         let rect = CGRect(
-            x: bounds.maxX + 3,
-            y: bounds.midY - size.height / 2,
+            x: anchor.maxX + 3,
+            y: anchor.midY - size.height / 2,
             width: size.width,
             height: size.height
         )
