@@ -59,8 +59,6 @@ struct BrainConversationsView: View {
         Group {
             if stateLoadFailed && brainState == nil {
                 errorState
-            } else if brainState == nil {
-                loadingPlaceholder
             } else if brainState?.exists == false {
                 emptyState
             } else {
@@ -93,6 +91,7 @@ struct BrainConversationsView: View {
             store: store,
             navigationPath: $navigationPath,
             labels: .brain,
+            isEnabled: brainState?.exists == true,
             onExtraRefresh: loadStatus
         ) {
             BrainDashboardPanel(
@@ -110,14 +109,6 @@ struct BrainConversationsView: View {
                 onSave: { Task { await save() } }
             )
         }
-    }
-
-    private var loadingPlaceholder: some View {
-        ListLoadingSkeleton()
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .hiveScreenBackground()
-            .navigationTitle("Brain")
-            .navigationBarTitleDisplayMode(.inline)
     }
 
     private var errorState: some View {
