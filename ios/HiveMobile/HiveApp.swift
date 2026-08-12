@@ -81,10 +81,14 @@ struct HiveApp: App {
     private var mainApp: some View {
         TabView(selection: tabSelection) {
             Tab("Brain", systemImage: "brain", value: .brain) {
-                NavigationStack {
-                    SettingsView(onConnect: connect)
+                NavigationStack(path: $brainPath) {
+                    BrainConversationsView(
+                        store: storeCache.getOrCreate(BRAIN_WORKSPACE_ID),
+                        navigationPath: $brainPath
+                    )
                 }
                 .hiveScreenBackground()
+                .toolbar(brainPath.isEmpty ? .automatic : .hidden, for: .tabBar)
             }
             Tab("Hub", systemImage: "square.grid.2x2.fill", value: .hub) {
                 NavigationStack(path: $hubPath) {
@@ -102,14 +106,10 @@ struct HiveApp: App {
             }
             .badge(projectStore.statusMonitor.hubBadgeCount)
             Tab("Settings", systemImage: "gearshape.fill", value: .settings) {
-                NavigationStack(path: $brainPath) {
-                    BrainConversationsView(
-                        store: storeCache.getOrCreate(BRAIN_WORKSPACE_ID),
-                        navigationPath: $brainPath
-                    )
+                NavigationStack {
+                    SettingsView(onConnect: connect)
                 }
                 .hiveScreenBackground()
-                .toolbar(brainPath.isEmpty ? .automatic : .hidden, for: .tabBar)
             }
         }
         .hiveScreenBackground()
