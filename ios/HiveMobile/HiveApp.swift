@@ -52,11 +52,17 @@ struct HiveApp: App {
 
     var body: some Scene {
         WindowGroup {
-            Group {
+            ZStack {
                 if hasServerConnection {
                     mainApp.id(serverGeneration)
-                } else {
-                    OnboardingView(onConnect: connect)
+                }
+                if !hasServerConnection {
+                    OnboardingView(onConnect: establishConnection, onComplete: completeOnboarding)
+                        .zIndex(1)
+                        .transition(.asymmetric(
+                            insertion: .identity,
+                            removal: .opacity.combined(with: .scale(scale: 0.96))
+                        ))
                 }
             }
             .preferredColorScheme(themeMode.preferredColorScheme)
@@ -142,8 +148,19 @@ struct HiveApp: App {
         }
     }
 
+    /// Settings path: validate, persist, and activate in one step.
     @MainActor
     private func connect(_ candidate: ServerConnection) async -> Bool {
+        guard await establishConnection(candidate) else { return false }
+        activateServerConnection()
+        return true
+    }
+
+    /// Validates the candidate against the server and persists it on success.
+    /// Activation is separate so onboarding can play its success beat before
+    /// the main app is revealed.
+    @MainActor
+    private func establishConnection(_ candidate: ServerConnection) async -> Bool {
         let isReachable = await withTaskGroup(of: Bool.self, returning: Bool.self) { group in
             group.addTask {
                 do {
@@ -169,8 +186,21 @@ struct HiveApp: App {
             return false
         }
 
-        activateServerConnection()
         return true
+    }
+
+    /// Called by onboarding after its success animation: reveal the main app
+    /// with a fade-and-settle transition.
+    @MainActor
+    private func completeOnboarding() {
+        // The locked-launch scenePhase handler may have activated already if
+        // the app was backgrounded during the success beat.
+        guard !hasServerConnection else { return }
+        if UIAccessibility.isReduceMotionEnabled {
+            activateServerConnection()
+        } else {
+            withAnimation(.easeOut(duration: 0.45)) { activateServerConnection() }
+        }
     }
 
     /// Tears down all per-server state and rebuilds the stores against the
