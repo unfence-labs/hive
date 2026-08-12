@@ -29,7 +29,7 @@ struct HubView: View {
             WhisperColor.appBackground
                 .ignoresSafeArea()
 
-            ScrollView {
+            List {
                 VStack(alignment: .leading, spacing: HiveSpacing.md) {
                     if store.projects.isEmpty {
                         emptyState
@@ -40,9 +40,16 @@ struct HubView: View {
                         denseHubContent(sections: displayedSections)
                     }
                 }
-                .padding(.horizontal, HiveSpacing.lg)
-                .padding(.vertical, HiveSpacing.md)
+                .listRowInsets(EdgeInsets(
+                    top: HiveSpacing.md,
+                    leading: HiveSpacing.lg,
+                    bottom: HiveSpacing.md,
+                    trailing: HiveSpacing.lg
+                ))
+                .listRowBackground(WhisperColor.appBackground)
+                .listRowSeparator(.hidden)
             }
+            .listStyle(.plain)
             .scrollBounceBehavior(.always)
             .scrollContentBackground(.hidden)
             .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .automatic))
