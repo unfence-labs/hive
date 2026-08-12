@@ -56,8 +56,6 @@ struct ConnectServerView: View {
                 .padding(.horizontal, 20)
                 .padding(.bottom, 14)
         }
-        .navigationBarTitleDisplayMode(.inline)
-        .navigationBarBackButtonHidden(state != .idle)
         .toolbar {
             ToolbarItemGroup(placement: .keyboard) {
                 Spacer()
