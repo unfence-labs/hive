@@ -54,7 +54,7 @@ struct HubView: View {
             .listStyle(.plain)
             .scrollBounceBehavior(.always)
             .scrollContentBackground(.hidden)
-            .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .automatic))
+            .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always))
             .refreshable {
                 // Unstructured Task shields refresh from SwiftUI prematurely
                 // cancelling the .refreshable task on ScrollView (known iOS 26 regression).
