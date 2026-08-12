@@ -283,6 +283,7 @@ struct ChatView: View {
         .navigationTitle(navigationTitle)
         .navigationSubtitle(Text(navigationSubtitle))
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar(.hidden, for: .tabBar)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button(action: openFind) {
