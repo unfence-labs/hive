@@ -47,7 +47,12 @@ struct HiveApp: App {
         var transaction = Transaction()
         transaction.disablesAnimations = true
         withTransaction(transaction) { selectedTab = tab }
-        DispatchQueue.main.async { UIView.setAnimationsEnabled(true) }
+        DispatchQueue.main.async {
+            for scene in UIApplication.shared.connectedScenes {
+                (scene as? UIWindowScene)?.keyWindow?.layoutIfNeeded()
+            }
+            UIView.setAnimationsEnabled(true)
+        }
     }
 
     var body: some Scene {
