@@ -17,7 +17,6 @@ struct StreamingDot: View {
     let size: CGFloat
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var pinging = false
     private let color = Color.accentColor
 
     init(size: CGFloat = 8) {
@@ -25,23 +24,49 @@ struct StreamingDot: View {
     }
 
     var body: some View {
-        ZStack {
-            Circle()
-                .fill(color)
-                .frame(width: size, height: size)
-                .scaleEffect(reduceMotion ? 1.6 : (pinging ? 2 : 1))
-                .opacity(reduceMotion ? 0.28 : (pinging ? 0 : 0.7))
-                .animation(
-                    reduceMotion ? nil : .easeOut(duration: 1).repeatForever(autoreverses: false),
-                    value: pinging
-                )
-            Circle()
-                .fill(color)
-                .frame(width: size, height: size)
+        Group {
+            if reduceMotion {
+                dot(haloScale: 1.6, haloOpacity: 0.28)
+            } else {
+                TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { timeline in
+                    let progress = timeline.date.timeIntervalSinceReferenceDate
+                        .truncatingRemainder(dividingBy: 1)
+                    dot(
+                        haloScale: 1 + progress,
+                        haloOpacity: 0.7 * (1 - progress)
+                    )
+                }
+            }
         }
         .frame(width: size, height: size)
-        .onAppear { pinging = true }
-        .onDisappear { pinging = false }
+        .transaction { transaction in
+            transaction.animation = nil
+            transaction.disablesAnimations = true
+        }
+    }
+
+    private func dot(haloScale: Double, haloOpacity: Double) -> some View {
+        Canvas { context, canvasSize in
+            let center = CGPoint(x: canvasSize.width / 2, y: canvasSize.height / 2)
+            let haloDiameter = size * CGFloat(haloScale)
+            let haloRect = CGRect(
+                x: center.x - haloDiameter / 2,
+                y: center.y - haloDiameter / 2,
+                width: haloDiameter,
+                height: haloDiameter
+            )
+            let dotRect = CGRect(
+                x: center.x - size / 2,
+                y: center.y - size / 2,
+                width: size,
+                height: size
+            )
+
+            context.fill(Path(ellipseIn: haloRect), with: .color(color.opacity(haloOpacity)))
+            context.fill(Path(ellipseIn: dotRect), with: .color(color))
+        }
+        .frame(width: size * 2, height: size * 2)
+        .frame(width: size, height: size)
     }
 }
 
