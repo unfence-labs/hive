@@ -30,20 +30,22 @@ struct HubView: View {
                 .ignoresSafeArea()
 
             List {
-                VStack(alignment: .leading, spacing: HiveSpacing.md) {
+                Group {
                     if store.projects.isEmpty {
                         emptyState
                     } else if !searchText.isEmpty, displayedSections.isEmpty {
                         ContentUnavailableView.search(text: searchText)
                             .padding(.top, 40)
                     } else {
-                        denseHubContent(sections: displayedSections)
+                        ForEach(displayedSections) { section in
+                            sectionView(section)
+                        }
                     }
                 }
                 .listRowInsets(EdgeInsets(
                     top: HiveSpacing.md,
                     leading: HiveSpacing.lg,
-                    bottom: HiveSpacing.md,
+                    bottom: 0,
                     trailing: HiveSpacing.lg
                 ))
                 .listRowBackground(WhisperColor.appBackground)
@@ -201,14 +203,6 @@ struct HubView: View {
     }
 
     // MARK: - Dense Hub
-
-    private func denseHubContent(sections: [HubSection]) -> some View {
-        LazyVStack(alignment: .leading, spacing: HiveSpacing.md) {
-            ForEach(sections) { section in
-                sectionView(section)
-            }
-        }
-    }
 
     private var baseSections: [HubSection] {
         HubOrganization.sections(
