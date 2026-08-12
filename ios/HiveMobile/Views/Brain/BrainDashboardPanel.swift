@@ -67,13 +67,13 @@ struct BrainDashboardPanel: View {
                     .foregroundStyle(WhisperColor.text)
                     .lineLimit(1)
 
-                Text(repoUrl.flatMap { $0.isEmpty ? nil : $0 } ?? "Repository")
-                    .font(.caption.monospacedDigit())
-                    .foregroundStyle(WhisperColor.textMuted)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    .opacity(repoUrl?.isEmpty == false ? 1 : 0)
-                    .accessibilityHidden(repoUrl?.isEmpty != false)
+                if let repoUrl, !repoUrl.isEmpty {
+                    Text(repoUrl)
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(WhisperColor.textMuted)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
             }
 
             Spacer(minLength: HiveSpacing.sm)

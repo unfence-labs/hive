@@ -14,7 +14,6 @@ struct ConversationsSection<Header: View>: View {
     let store: ConversationStore
     @Binding var navigationPath: NavigationPath
     let labels: ConversationsSectionLabels
-    let isEnabled: Bool
     let onExtraRefresh: (() async -> Void)?
     let header: Header
 
@@ -23,7 +22,6 @@ struct ConversationsSection<Header: View>: View {
         store: ConversationStore,
         navigationPath: Binding<NavigationPath>,
         labels: ConversationsSectionLabels = .workspace,
-        isEnabled: Bool = true,
         onExtraRefresh: (() async -> Void)? = nil,
         @ViewBuilder header: () -> Header
     ) {
@@ -31,7 +29,6 @@ struct ConversationsSection<Header: View>: View {
         self.store = store
         self._navigationPath = navigationPath
         self.labels = labels
-        self.isEnabled = isEnabled
         self.onExtraRefresh = onExtraRefresh
         self.header = header()
     }
@@ -74,16 +71,14 @@ struct ConversationsSection<Header: View>: View {
                 ) {
                     createSession()
                 }
-                .disabled(!isEnabled || sessions.count >= maxSessions || isCreatingSession)
+                .disabled(sessions.count >= maxSessions || isCreatingSession)
             }
         }
-        .task(id: isEnabled) {
-            guard isEnabled else { return }
+        .task {
             markWorkspaceVisible()
             await refreshContent()
         }
         .onAppear {
-            guard isEnabled else { return }
             markWorkspaceVisible()
             if !isLoading {
                 Task { await refreshContent() }
@@ -213,7 +208,6 @@ struct ConversationsSection<Header: View>: View {
     }
 
     private func refreshContent(force: Bool = false) async {
-        guard isEnabled else { return }
         if !force, Date().timeIntervalSince(lastRefreshAt) < 0.5 { return }
         lastRefreshAt = Date()
         await loadSessions()
@@ -235,7 +229,7 @@ struct ConversationsSection<Header: View>: View {
     }
 
     private func createSession() {
-        guard isEnabled, sessions.count < maxSessions, !isCreatingSession else { return }
+        guard sessions.count < maxSessions, !isCreatingSession else { return }
 
         isCreatingSession = true
         Task {
