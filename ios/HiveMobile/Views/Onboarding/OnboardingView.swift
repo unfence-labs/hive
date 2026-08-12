@@ -59,7 +59,6 @@ struct OnboardingView: View {
             .scrollContentBackground(.hidden)
             .hiveScreenBackground()
             .scrollDismissesKeyboard(.interactively)
-            .simultaneousGesture(TapGesture().onEnded { focusedField = nil })
             .navigationTitle("Connect to Hive")
             .navigationBarTitleDisplayMode(.inline)
             .safeAreaInset(edge: .bottom) {

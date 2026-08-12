@@ -65,7 +65,6 @@ struct SettingsView: View {
         }
         .hiveScreenBackground()
         .scrollDismissesKeyboard(.interactively)
-        .simultaneousGesture(TapGesture().onEnded { focusedField = nil })
         .onAppear { startConnectionPolling() }
         .onDisappear { stopConnectionPolling() }
         .navigationTitle("Settings")
