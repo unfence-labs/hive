@@ -162,6 +162,7 @@ struct ConversationsSection<Header: View>: View {
                         sessionToDelete = session
                     } label: {
                         Image(systemName: "trash")
+                            .imageScale(.small)
                     }
                     .tint(WhisperColor.danger)
                     .accessibilityLabel("Delete conversation")
