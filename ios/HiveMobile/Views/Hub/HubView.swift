@@ -98,9 +98,23 @@ struct HubView: View {
                             store.acknowledgeRefreshFailure()
                         }
                     }
+            } else if store.archiveFailed {
+                archiveFailedNotice
+                    .task {
+                        try? await Task.sleep(for: .seconds(3))
+                        if !Task.isCancelled {
+                            store.acknowledgeArchiveFailure()
+                        }
+                    }
             }
         }
         .animation(.default, value: store.refreshFailedWithCachedData)
+        .animation(.default, value: store.archiveFailed)
+        .onChange(of: store.archiveFailed) { _, failed in
+            if failed {
+                Haptics.notify(.error)
+            }
+        }
         .safeAreaInset(edge: .top, spacing: 0) {
             if let repoName = store.cloningRepoName {
                 HStack(spacing: HiveSpacing.sm) {
@@ -138,7 +152,7 @@ struct HubView: View {
             }
             Button("Cancel", role: .cancel) {}
         } message: { ws in
-            Text("\"\(ws.name)\" will be archived and removed from this list. Archived workspaces can be restored from the desktop app.")
+            Text("\"\(ws.name)\" will be archived and removed from this list. Any uncommitted changes will be lost.")
         }
     }
 
@@ -175,9 +189,17 @@ struct HubView: View {
     }
 
     private var refreshFailedNotice: some View {
+        transientNotice(icon: "exclamationmark.triangle", message: "Couldn't refresh. Showing cached data.")
+    }
+
+    private var archiveFailedNotice: some View {
+        transientNotice(icon: "exclamationmark.triangle", message: "Failed to archive workspace")
+    }
+
+    private func transientNotice(icon: String, message: String) -> some View {
         HStack(spacing: HiveSpacing.sm) {
-            Image(systemName: "exclamationmark.triangle")
-            Text("Couldn't refresh. Showing cached data.")
+            Image(systemName: icon)
+            Text(message)
                 .font(.footnote)
         }
         .foregroundStyle(WhisperColor.textSecondary)

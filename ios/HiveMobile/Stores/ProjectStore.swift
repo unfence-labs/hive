@@ -23,6 +23,8 @@ final class ProjectStore {
     private(set) var fetchFailure: FetchFailure?
     private(set) var refreshFailedWithCachedData = false
     private(set) var creatingWorkspaceProjectIds: Set<String> = []
+    private(set) var pendingArchiveIds: Set<String> = []
+    private(set) var archiveFailed = false
     private(set) var isCreatingProject = false
     private(set) var cloningRepoName: String?
     private(set) var uiPreferences: UiPreferencesPayload = .empty
@@ -35,6 +37,7 @@ final class ProjectStore {
     private let api: APIClient
     private let fetchProjectsClosure: @MainActor () async throws -> [Project]
     private let fetchPreferencesClosure: @MainActor () async throws -> UiPreferencesPayload
+    private let archiveWorkspaceClosure: @MainActor (String) async throws -> Void
     private var hasFetchedOnce = false
     private var lastRefreshedAt = Date.distantPast
 
@@ -42,13 +45,15 @@ final class ProjectStore {
         storeCache: ConversationStoreCache,
         statusMonitor: HubStatusMonitor? = nil,
         fetchProjects: (@MainActor () async throws -> [Project])? = nil,
-        fetchPreferences: (@MainActor () async throws -> UiPreferencesPayload)? = nil
+        fetchPreferences: (@MainActor () async throws -> UiPreferencesPayload)? = nil,
+        archiveWorkspace: (@MainActor (String) async throws -> Void)? = nil
     ) {
         let client = APIClient()
         self.api = client
         self.statusMonitor = statusMonitor ?? HubStatusMonitor(storeCache: storeCache)
         self.fetchProjectsClosure = fetchProjects ?? { try await client.fetchProjects() }
         self.fetchPreferencesClosure = fetchPreferences ?? { try await client.fetchUiPreferences() }
+        self.archiveWorkspaceClosure = archiveWorkspace ?? { try await client.archiveWorkspace(workspaceId: $0) }
     }
 
     /// Whether the store has never successfully loaded data yet.
@@ -60,9 +65,10 @@ final class ProjectStore {
 
     /// Sync the hub monitor with every workspace plus the synthetic Brain id, so
     /// the Brain always stays subscribed (streaming/done events, send wiring) and
-    /// is never evicted by `sync`.
+    /// is never evicted by `sync`. Workspaces with an in-flight archive stay
+    /// subscribed so their ConversationStore survives until the outcome is known.
     private func syncMonitoredWorkspaces() {
-        let ids = projects.flatMap(\.workspaces).map(\.id) + [BRAIN_WORKSPACE_ID]
+        let ids = projects.flatMap(\.workspaces).map(\.id) + pendingArchiveIds + [BRAIN_WORKSPACE_ID]
         statusMonitor.sync(workspaceIds: ids)
     }
 
@@ -170,17 +176,72 @@ final class ProjectStore {
     }
 
     func archiveWorkspace(id: String) async {
+        guard !pendingArchiveIds.contains(id) else { return }
+        guard
+            let projectIndex = projects.firstIndex(where: { project in
+                project.workspaces.contains(where: { $0.id == id })
+            }),
+            let workspaceIndex = projects[projectIndex].workspaces.firstIndex(where: { $0.id == id })
+        else { return }
+
+        // Capture removal context, then remove optimistically before the request.
+        let projectId = projects[projectIndex].id
+        let siblings = projects[projectIndex].workspaces
+        let workspace = siblings[workspaceIndex]
+        let previousId = workspaceIndex > 0 ? siblings[workspaceIndex - 1].id : nil
+        let nextId = workspaceIndex < siblings.count - 1 ? siblings[workspaceIndex + 1].id : nil
+
+        projects[projectIndex].workspaces.remove(at: workspaceIndex)
+        pendingArchiveIds.insert(id)
+        archiveFailed = false
+
         do {
-            try await api.archiveWorkspace(workspaceId: id)
-            for i in projects.indices {
-                projects[i].workspaces.removeAll { $0.id == id }
-            }
+            try await archiveWorkspaceClosure(id)
+            pendingArchiveIds.remove(id)
             syncMonitoredWorkspaces()
-        } catch is CancellationError {
-            // Ignore
         } catch {
-            errorMessage = error.localizedDescription
+            pendingArchiveIds.remove(id)
+            restoreWorkspace(
+                workspace,
+                inProject: projectId,
+                previousId: previousId,
+                nextId: nextId,
+                originalIndex: workspaceIndex
+            )
+            if !(error is CancellationError) {
+                archiveFailed = true
+            }
         }
+    }
+
+    /// Re-insert a workspace after a failed archive. Anchoring on siblings
+    /// (rather than a raw index) keeps concurrent failed archives converging
+    /// to the original order.
+    private func restoreWorkspace(
+        _ workspace: Workspace,
+        inProject projectId: String,
+        previousId: String?,
+        nextId: String?,
+        originalIndex: Int
+    ) {
+        guard let projectIndex = projects.firstIndex(where: { $0.id == projectId }) else { return }
+        guard !projects[projectIndex].workspaces.contains(where: { $0.id == workspace.id }) else { return }
+
+        let workspaces = projects[projectIndex].workspaces
+        let insertionIndex: Int
+        if let nextId, let nextIndex = workspaces.firstIndex(where: { $0.id == nextId }) {
+            insertionIndex = nextIndex
+        } else if let previousId, let previousIndex = workspaces.firstIndex(where: { $0.id == previousId }) {
+            insertionIndex = previousIndex + 1
+        } else {
+            insertionIndex = min(originalIndex, workspaces.count)
+        }
+        projects[projectIndex].workspaces.insert(workspace, at: insertionIndex)
+    }
+
+    /// Dismiss the transient archive failure notice.
+    func acknowledgeArchiveFailure() {
+        archiveFailed = false
     }
 
     /// Refresh projects from the API. Shows existing data while loading.
@@ -203,6 +264,13 @@ final class ProjectStore {
                 for j in fresh[i].workspaces.indices {
                     fresh[i].workspaces[j].projectId = fresh[i].id
                     fresh[i].workspaces[j].hasFavicon = fresh[i].hasFavicon
+                }
+            }
+            // A refresh landing mid-archive must not resurrect an optimistically
+            // removed workspace.
+            if !pendingArchiveIds.isEmpty {
+                for i in fresh.indices {
+                    fresh[i].workspaces.removeAll { pendingArchiveIds.contains($0.id) }
                 }
             }
             statusMonitor.seedLastActivityDates(from: fresh.flatMap(\.workspaces))
