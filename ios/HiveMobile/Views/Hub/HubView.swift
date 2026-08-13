@@ -26,45 +26,44 @@ struct HubView: View {
         let displayedSections = filteredSections(sections)
         let prIds = visiblePrWorkspaceIds(in: displayedSections)
 
-        ZStack {
-            WhisperColor.appBackground
-                .ignoresSafeArea()
-
-            List {
-                Group {
-                    if store.projects.isEmpty {
-                        emptyState
-                    } else if !searchText.isEmpty, displayedSections.isEmpty {
-                        ContentUnavailableView.search(text: searchText)
-                            .padding(.top, 40)
-                    } else {
-                        ForEach(displayedSections) { section in
-                            sectionView(section)
-                        }
+        List {
+            Group {
+                if store.projects.isEmpty {
+                    emptyState
+                } else if !searchText.isEmpty, displayedSections.isEmpty {
+                    ContentUnavailableView.search(text: searchText)
+                        .padding(.top, 40)
+                } else {
+                    ForEach(displayedSections) { section in
+                        sectionView(section)
                     }
                 }
-                .listRowInsets(EdgeInsets(
-                    top: HiveSpacing.md,
-                    leading: HiveSpacing.lg,
-                    bottom: 0,
-                    trailing: HiveSpacing.lg
-                ))
-                .listRowBackground(WhisperColor.appBackground)
-                .listRowSeparator(.hidden)
             }
-            .listStyle(.plain)
-            .scrollBounceBehavior(.always)
-            .scrollContentBackground(.hidden)
-            .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always))
-            .refreshable {
-                // Unstructured Task shields refresh from SwiftUI prematurely
-                // cancelling the .refreshable task on ScrollView (known iOS 26 regression).
-                await Task { @MainActor in
-                    store.statusMonitor.forceRefresh()
-                    await store.refresh(force: true, userInitiated: true)
-                }.value
-            }
+            .listRowInsets(EdgeInsets(
+                top: HiveSpacing.md,
+                leading: HiveSpacing.lg,
+                bottom: 0,
+                trailing: HiveSpacing.lg
+            ))
+            .listRowBackground(WhisperColor.appBackground)
+            .listRowSeparator(.hidden)
         }
+        .listStyle(.plain)
+        .scrollBounceBehavior(.always)
+        .scrollContentBackground(.hidden)
+        // Drawer must hide when scrolling: a pinned search bar lives in the shared
+        // navigation bar, so it lingers unstyled over the pushed workspace during
+        // the transition instead of sliding away with the list.
+        .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .automatic))
+        .refreshable {
+            // Unstructured Task shields refresh from SwiftUI prematurely
+            // cancelling the .refreshable task on ScrollView (known iOS 26 regression).
+            await Task { @MainActor in
+                store.statusMonitor.forceRefresh()
+                await store.refresh(force: true, userInitiated: true)
+            }.value
+        }
+        .hiveScreenBackground()
         .navigationTitle("Hub")
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(WhisperColor.appBackground, for: .navigationBar)
