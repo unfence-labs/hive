@@ -184,7 +184,6 @@ export default function Sidebar({ onAddProject, onAddAutomation, onNewWorkspaceF
   const [expandedProjects, setExpandedProjects] = useState<Record<string, boolean>>({});
   const [creatingProjectId, setCreatingProjectId] = useState<string | null>(null);
   const [archiveTarget, setArchiveTarget] = useState<string | null>(null);
-  const [archivingWsId, setArchivingWsId] = useState<string | null>(null);
   const [isCreatingFolder, setIsCreatingFolder] = useState(false);
   const [newFolderName, setNewFolderName] = useState("");
   const [renamingFolderId, setRenamingFolderId] = useState<string | null>(null);
@@ -319,19 +318,13 @@ export default function Sidebar({ onAddProject, onAddAutomation, onNewWorkspaceF
     if (uncommittedCount > 0) {
       setArchiveTarget(wsId);
     } else {
-      await doArchive(wsId);
+      doArchive(wsId);
     }
   };
 
-  const doArchive = async (wsId: string) => {
-    setArchivingWsId(wsId);
-    try {
-      const wasActive = activeWsId === wsId;
-      await archiveWorkspace(wsId);
-      if (wasActive) navigate("/home");
-    } finally {
-      setArchivingWsId(null);
-    }
+  const doArchive = (wsId: string) => {
+    if (activeWsId === wsId) navigate("/home");
+    archiveWorkspace(wsId);
   };
 
   const handleProjectDragStart = (
@@ -517,7 +510,6 @@ export default function Sidebar({ onAddProject, onAddAutomation, onNewWorkspaceF
         liveData={liveData}
         prStatuses={prStatuses}
         creatingProjectId={creatingProjectId}
-        archivingWsId={archivingWsId}
         canReorder={hasInitialHydration}
         draggingProjectId={draggingProjectId}
         projectInsertIndicator={projectInsertIndicator}
@@ -835,7 +827,7 @@ export default function Sidebar({ onAddProject, onAddAutomation, onNewWorkspaceF
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
               onClick={() => {
-                if (archiveTarget) void doArchive(archiveTarget);
+                if (archiveTarget) doArchive(archiveTarget);
                 setArchiveTarget(null);
               }}
             >
