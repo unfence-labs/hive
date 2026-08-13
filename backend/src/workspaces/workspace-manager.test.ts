@@ -16,6 +16,7 @@ import {
   mergeWorkspace,
 } from "./workspace-manager.js";
 import { git } from "../utils/git.js";
+import { CITIES } from "../utils/city-names.js";
 import { _resetDefaultBranchRefreshCache } from "../utils/git-default-branch.js";
 import { loadProject, saveProject } from "../state/state.js";
 import * as stateStore from "../state/state.js";
@@ -114,6 +115,49 @@ describe("createWorkspace", () => {
     const ws1 = await createWorkspace(projectId, dataDir);
     const ws2 = await createWorkspace(projectId, dataDir);
     expect(ws1.name).not.toBe(ws2.name);
+  });
+
+  it("skips city names whose branches survive from archived workspaces", async () => {
+    const first = await createWorkspace(projectId, dataDir);
+    await archiveWorkspace(first.id, dataDir);
+
+    // Occupy every city except the archived one and a single free one, so the
+    // picker can only succeed by excluding the archived branch.
+    const bare = bareRepoPath(dataDir, projectId);
+    const free = CITIES.find((city) => city !== first.name);
+    for (const city of CITIES) {
+      if (city === first.name || city === free) continue;
+      await git(["update-ref", `refs/heads/workspace/${city}`, "HEAD"], bare);
+    }
+
+    const second = await createWorkspace(projectId, dataDir);
+    expect(second.name).toBe(free);
+  });
+
+  it("reserves cities despite same-named tags and nested workspace refs", async () => {
+    const bare = bareRepoPath(dataDir, projectId);
+    // A tag sharing the branch name makes %(refname:short) ambiguous, and a
+    // nested ref blocks its whole workspace/<city> namespace: both cities
+    // must stay excluded from the pick.
+    const [taggedCity, nestedCity, free] = CITIES;
+    await git(["update-ref", `refs/heads/workspace/${taggedCity}`, "HEAD"], bare);
+    await git(["update-ref", `refs/tags/workspace/${taggedCity}`, "HEAD"], bare);
+    await git(["update-ref", `refs/heads/workspace/${nestedCity}/topic`, "HEAD"], bare);
+    for (const city of CITIES) {
+      if (city === taggedCity || city === nestedCity || city === free) continue;
+      await git(["update-ref", `refs/heads/workspace/${city}`, "HEAD"], bare);
+    }
+
+    // Pin the pick to the first available city: broken parsing leaves
+    // taggedCity and nestedCity as candidates ahead of free, so any
+    // regression fails deterministically instead of one run in three.
+    const randomSpy = vi.spyOn(Math, "random").mockReturnValue(0);
+    try {
+      const ws = await createWorkspace(projectId, dataDir);
+      expect(ws.name).toBe(free);
+    } finally {
+      randomSpy.mockRestore();
+    }
   });
 
   it("throws for non-existent project", async () => {
