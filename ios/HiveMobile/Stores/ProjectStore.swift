@@ -40,6 +40,11 @@ final class ProjectStore {
     private let archiveWorkspaceClosure: @MainActor (String) async throws -> Void
     private var hasFetchedOnce = false
     private var lastRefreshedAt = Date.distantPast
+    /// Session-lifetime tombstones for successfully archived workspaces. There
+    /// is no restore path and ids are never reused, so an archived id can never
+    /// legitimately reappear; stripping these from refresh results guards
+    /// against a stale snapshot fetched before the archive completed.
+    private var archivedIds: Set<String> = []
 
     init(
         storeCache: ConversationStoreCache,
@@ -198,6 +203,7 @@ final class ProjectStore {
         do {
             try await archiveWorkspaceClosure(id)
             pendingArchiveIds.remove(id)
+            archivedIds.insert(id)
             syncMonitoredWorkspaces()
         } catch {
             pendingArchiveIds.remove(id)
@@ -266,11 +272,13 @@ final class ProjectStore {
                     fresh[i].workspaces[j].hasFavicon = fresh[i].hasFavicon
                 }
             }
-            // A refresh landing mid-archive must not resurrect an optimistically
-            // removed workspace.
-            if !pendingArchiveIds.isEmpty {
+            // A refresh must not resurrect an archived workspace: neither one
+            // whose archive is still in flight, nor one from a stale snapshot
+            // fetched before an archive completed.
+            let hiddenIds = pendingArchiveIds.union(archivedIds)
+            if !hiddenIds.isEmpty {
                 for i in fresh.indices {
-                    fresh[i].workspaces.removeAll { pendingArchiveIds.contains($0.id) }
+                    fresh[i].workspaces.removeAll { hiddenIds.contains($0.id) }
                 }
             }
             statusMonitor.seedLastActivityDates(from: fresh.flatMap(\.workspaces))

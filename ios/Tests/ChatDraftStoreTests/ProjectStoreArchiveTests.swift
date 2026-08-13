@@ -20,8 +20,13 @@ private final class ArchiveFakeHubConnection: HubConnectionClient {
 private final class ArchiveGate {
     private var continuation: CheckedContinuation<Void, any Error>?
     private var pendingResult: Result<Void, any Error>?
+    private var enteredContinuation: CheckedContinuation<Void, Never>?
+    private var hasEntered = false
 
     func wait() async throws {
+        hasEntered = true
+        enteredContinuation?.resume()
+        enteredContinuation = nil
         try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, any Error>) in
             if let result = pendingResult {
                 pendingResult = nil
@@ -32,6 +37,13 @@ private final class ArchiveGate {
         }
     }
 
+    /// Suspends until `wait()` has been entered, so tests assert in-flight
+    /// state against a guaranteed interleaving instead of arbitrary yields.
+    func entered() async {
+        if hasEntered { return }
+        await withCheckedContinuation { enteredContinuation = $0 }
+    }
+
     func resume(_ result: Result<Void, any Error> = .success(())) {
         if let cont = continuation {
             continuation = nil
@@ -40,6 +52,11 @@ private final class ArchiveGate {
             pendingResult = result
         }
     }
+}
+
+@MainActor
+private final class Counter {
+    var value = 0
 }
 
 @MainActor
@@ -75,14 +92,15 @@ struct ProjectStoreArchiveTests {
     }
 
     private func makeStore(
-        archiveWorkspace: @escaping @MainActor (String) async throws -> Void
+        archiveWorkspace: @escaping @MainActor (String) async throws -> Void,
+        fetchProjects: (@MainActor () async throws -> [Project])? = nil
     ) -> (store: ProjectStore, cache: ConversationStoreCache) {
         let cache = ConversationStoreCache()
         let monitor = HubStatusMonitor(storeCache: cache) { _ in ArchiveFakeHubConnection() }
         let store = ProjectStore(
             storeCache: cache,
             statusMonitor: monitor,
-            fetchProjects: { [self.sampleProject()] },
+            fetchProjects: fetchProjects ?? { [self.sampleProject()] },
             fetchPreferences: { .empty },
             archiveWorkspace: archiveWorkspace
         )
@@ -101,7 +119,7 @@ struct ProjectStoreArchiveTests {
         #expect(workspaceIds(store) == ["w1", "w2", "w3"])
 
         let task = Task { await store.archiveWorkspace(id: "w2") }
-        for _ in 0..<5 { await Task.yield() }
+        await gate.entered()
 
         #expect(workspaceIds(store) == ["w1", "w3"])
         #expect(store.pendingArchiveIds == ["w2"])
@@ -147,7 +165,7 @@ struct ProjectStoreArchiveTests {
         await store.refresh()
 
         let task = Task { await store.archiveWorkspace(id: "w2") }
-        for _ in 0..<5 { await Task.yield() }
+        await gate.entered()
         #expect(workspaceIds(store) == ["w1", "w3"])
 
         await store.refresh(force: true)
@@ -159,6 +177,53 @@ struct ProjectStoreArchiveTests {
         #expect(workspaceIds(store) == ["w1", "w3"])
         #expect(store.pendingArchiveIds.isEmpty)
         #expect(store.archiveFailed == false)
+    }
+
+    @Test
+    func staleRefreshResolvingAfterArchiveSuccessDoesNotResurrect() async {
+        let fetchGate = ArchiveGate()
+        let fetchCount = Counter()
+        let staleProjects = [sampleProject()]
+        let (store, _) = makeStore(
+            archiveWorkspace: { _ in },
+            fetchProjects: {
+                fetchCount.value += 1
+                if fetchCount.value > 1 {
+                    try await fetchGate.wait()
+                }
+                return staleProjects
+            }
+        )
+        await store.refresh()
+        #expect(workspaceIds(store) == ["w1", "w2", "w3"])
+
+        // Second refresh suspends on a fetch whose snapshot still contains w2,
+        // while the archive completes and clears its pending id underneath.
+        let refreshTask = Task { await store.refresh(force: true) }
+        await fetchGate.entered()
+
+        await store.archiveWorkspace(id: "w2")
+        #expect(workspaceIds(store) == ["w1", "w3"])
+
+        fetchGate.resume()
+        await refreshTask.value
+
+        #expect(workspaceIds(store) == ["w1", "w3"])
+        #expect(store.pendingArchiveIds.isEmpty)
+    }
+
+    @Test
+    func failedArchiveIsNotTombstonedByLaterRefresh() async {
+        let (store, _) = makeStore(archiveWorkspace: { _ in throw ArchiveError() })
+        await store.refresh()
+
+        await store.archiveWorkspace(id: "w2")
+        #expect(workspaceIds(store) == ["w1", "w2", "w3"])
+
+        // A failed archive leaves the workspace alive server-side; it must
+        // survive subsequent refreshes, not be treated as archived.
+        await store.refresh(force: true)
+        #expect(workspaceIds(store) == ["w1", "w2", "w3"])
     }
 
     @Test
