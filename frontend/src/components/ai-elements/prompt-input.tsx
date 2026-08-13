@@ -384,6 +384,8 @@ export type PromptInputProps = Omit<
   globalDrop?: boolean;
   // Render a hidden input with given name and keep it in sync for native form posts. Default false.
   syncHiddenInput?: boolean;
+  // Reset uncontrolled form fields before submission. Default true.
+  resetOnSubmit?: boolean;
   // Minimal constraints
   maxFiles?: number;
   // bytes
@@ -404,6 +406,7 @@ export const PromptInput = ({
   multiple,
   globalDrop,
   syncHiddenInput,
+  resetOnSubmit = true,
   maxFiles,
   maxFileSize,
   onError,
@@ -751,9 +754,9 @@ export const PromptInput = ({
             return (formData.get("message") as string) || "";
           })();
 
-      // Reset form immediately after capturing text to avoid race condition
-      // where user input during async blob conversion would be lost
-      if (!usingProvider) {
+      // Uncontrolled consumers reset immediately so input entered during async
+      // blob conversion is not cleared afterward.
+      if (!usingProvider && resetOnSubmit) {
         form.reset();
       }
 
@@ -797,7 +800,7 @@ export const PromptInput = ({
         // Don't clear on error - user may want to retry
       }
     },
-    [usingProvider, controller, files, onSubmit, clear]
+    [usingProvider, controller, files, onSubmit, clear, resetOnSubmit]
   );
 
   // Render with or without local provider

@@ -373,7 +373,12 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput
             planMode={planMode && supportsPlanMode}
           />
         )}
-        <PromptInput onSubmit={handleSubmit} accept="image/*" multiple>
+        <PromptInput
+          onSubmit={handleSubmit}
+          accept="image/*"
+          multiple
+          resetOnSubmit={false}
+        >
         <PromptInputBody>
           <ChatInputAttachments onFileCountChange={setFileCount} attachmentsRef={attachmentsRef} />
           <MentionHighlightOverlay
@@ -383,7 +388,7 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput
           />
           <PromptInputTextarea
             ref={textareaRef}
-            className="min-h-[100px] max-h-40 bg-transparent text-sm placeholder:text-muted-foreground/40"
+            className="chat-input-textarea min-h-[100px] max-h-40 bg-transparent text-sm placeholder:text-muted-foreground/40"
             placeholder={isDisconnected ? "Reconnecting..." : (customPlaceholder ?? "Send message, #mention files, @call agents, run /commands")}
             autoCapitalize="off"
             autoComplete="off"

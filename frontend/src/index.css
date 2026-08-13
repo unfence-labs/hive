@@ -358,6 +358,15 @@
     background: color-mix(in oklch, var(--muted-foreground) 25%, transparent);
   }
 
+  .chat-input-textarea,
+  .chat-input-textarea:hover {
+    scrollbar-color: var(--input) transparent;
+  }
+  .chat-input-textarea::-webkit-scrollbar-thumb,
+  .chat-input-textarea:hover::-webkit-scrollbar-thumb {
+    background: var(--input);
+  }
+
   html,
   body {
     @apply bg-background font-sans text-foreground;

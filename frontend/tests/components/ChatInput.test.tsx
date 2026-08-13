@@ -102,6 +102,7 @@ describe("ChatInput", () => {
     expect(input).toHaveAttribute("autocomplete", "off");
     expect(input).toHaveAttribute("autocorrect", "off");
     expect(input).toHaveAttribute("spellcheck", "false");
+    expect(input).toHaveClass("chat-input-textarea");
   });
 
   it("appends text through the imperative ref API", () => {
@@ -330,6 +331,7 @@ describe("ChatInput", () => {
 
   it("clears text input after successful send", async () => {
     const user = userEvent.setup();
+    const resetSpy = vi.spyOn(HTMLFormElement.prototype, "reset");
     renderChatInput();
 
     const input = screen.getByPlaceholderText("Send message, #mention files, @call agents, run /commands");
@@ -337,6 +339,8 @@ describe("ChatInput", () => {
     await user.click(screen.getByRole("button", { name: "Send" }));
 
     expect(input).toHaveValue("");
+    expect(resetSpy).not.toHaveBeenCalled();
+    resetSpy.mockRestore();
   });
 
   it("keeps input enabled when connecting (only disconnected disables)", () => {
