@@ -22,7 +22,7 @@ vi.mock("../utils/github.js", async (importOriginal) => {
   };
 });
 
-function makePr(number: number): PullRequestInfo {
+function makePr(number: number, overrides: Partial<PullRequestInfo> = {}): PullRequestInfo {
   return {
     number,
     url: `https://github.com/o/r/pull/${number}`,
@@ -33,6 +33,7 @@ function makePr(number: number): PullRequestInfo {
     checksPassed: null,
     checksTotal: null,
     reviewStatus: null,
+    ...overrides,
   };
 }
 
@@ -154,6 +155,41 @@ describe("GitSyncService", () => {
     expect(events).toEqual([ws.id]);
 
     prService._clearForTests();
+  });
+
+  it("emits a merged PR status after the cache TTL expires", async () => {
+    const ws = await createWorkspace(projectId, dataDir);
+    vi.mocked(fetchPrForBranch).mockClear();
+    const prStatus = new PrStatusService(dataDir);
+    const prService = new GitSyncService(dataDir, prStatus, (id) => id === ws.id);
+    const events: PullRequestInfo[] = [];
+    let now = 100_000;
+    const nowSpy = vi.spyOn(Date, "now").mockImplementation(() => now);
+    prService.onPrStatusChange((_wsId, status) => {
+      if (status.pr) events.push(status.pr);
+    });
+
+    vi.mocked(fetchPrForBranch)
+      .mockResolvedValueOnce({ pr: makePr(42) })
+      .mockResolvedValueOnce({
+        pr: makePr(42, {
+          state: "merged",
+          mergeable: null,
+          mergeableState: "unknown",
+        }),
+      });
+
+    try {
+      await prService.poll();
+      now += 15_001;
+      await prService.poll();
+
+      expect(events.map((pr) => pr.state)).toEqual(["open", "merged"]);
+      expect(fetchPrForBranch).toHaveBeenCalledTimes(2);
+    } finally {
+      nowSpy.mockRestore();
+      prService._clearForTests();
+    }
   });
 
   it("clears cached PR status for a workspace when its branch changes", async () => {

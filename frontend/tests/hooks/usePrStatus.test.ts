@@ -164,3 +164,27 @@ describe("usePrStatusMap", () => {
     expect(result.current["ws-2"]?.error).toBe("Failed to fetch PR status");
   });
 });
+
+describe("useSyncPrWorkspaces", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    renderHook(() => useSyncPrWorkspaces([]), { wrapper: createWrapper().wrapper });
+  });
+
+  it("resends unchanged PR interest when the hook remounts", () => {
+    const first = renderHook(() => useSyncPrWorkspaces(["ws-1"]), {
+      wrapper: createWrapper().wrapper,
+    });
+    expect(wsTransport.syncPrWorkspaces).toHaveBeenLastCalledWith(["ws-1"]);
+
+    first.unmount();
+    vi.mocked(wsTransport.syncPrWorkspaces).mockClear();
+
+    renderHook(() => useSyncPrWorkspaces(["ws-1"]), {
+      wrapper: createWrapper().wrapper,
+    });
+
+    expect(wsTransport.syncPrWorkspaces).toHaveBeenCalledOnce();
+    expect(wsTransport.syncPrWorkspaces).toHaveBeenCalledWith(["ws-1"]);
+  });
+});
