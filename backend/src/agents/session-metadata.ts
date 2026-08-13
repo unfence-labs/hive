@@ -38,8 +38,8 @@ function migrateSessionMetadata(value: LegacySessionMetadata): {
 /** Legacy `messageCount` tracked user messages, not assistant messages, so it
  *  cannot seed the new counters directly (it can overshoot or undershoot the
  *  true eligible-assistant-message count in either direction). Derive the
- *  real count from the transcript instead. A missing/unreadable
- *  `messages.jsonl` yields 0 — correct for a session with no transcript. */
+ *  real count from the transcript instead. A missing `messages.jsonl` yields
+ *  0 — correct for a session with no transcript. */
 async function migrateLegacyMessageCount(
   path: string,
   value: LegacySessionMetadata,
@@ -47,7 +47,15 @@ async function migrateLegacyMessageCount(
   const metadata = { ...value };
   delete metadata.messageCount;
 
-  const raw = await readFile(join(dirname(path), "messages.jsonl"), "utf-8").catch(() => "");
+  let raw: string;
+  try {
+    raw = await readFile(join(dirname(path), "messages.jsonl"), "utf-8");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+      throw error;
+    }
+    raw = "";
+  }
   const eligible = parseJsonlMessages(raw).filter(isCountedAssistantMessage).length;
   metadata.assistantMessageCount = eligible;
   metadata.readAssistantMessageCount = eligible;

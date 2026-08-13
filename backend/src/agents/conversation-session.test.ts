@@ -256,6 +256,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  vi.useRealTimers();
   // Let pending fire-and-forget async work (e.g. saveImagesToDisk) settle
   await new Promise((r) => setTimeout(r, 250));
   for (let attempt = 0; attempt < 5; attempt++) {
@@ -3290,6 +3291,8 @@ describe("ConversationSession", () => {
   });
 
   it("advances updatedAt for a tool-only turn without counting an assistant message", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-02-11T00:00:00.000Z"));
     const session = createSession({ sessionId: "tool-only-updatedat" });
 
     session.sendMessage("Run a tool");
@@ -3297,8 +3300,7 @@ describe("ConversationSession", () => {
     // the turn ever streams anything, so this is the pre-turn-completion value.
     const beforeUpdatedAt = session.metadata.updatedAt;
 
-    // Give the clock room to move past beforeUpdatedAt's millisecond.
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    vi.setSystemTime(new Date("2026-02-11T00:00:01.000Z"));
 
     mockProc._stdout.push(
       assistantToolUseLine({ id: "toolu_only", name: "Bash", input: { command: "pwd" } }),
@@ -3328,12 +3330,14 @@ describe("ConversationSession", () => {
   });
 
   it("advances updatedAt for a turn that persists no assistant message at all", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-02-11T00:00:00.000Z"));
     const session = createSession({ sessionId: "no-output-updatedat" });
 
     session.sendMessage("Say nothing");
     const beforeUpdatedAt = session.metadata.updatedAt;
 
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    vi.setSystemTime(new Date("2026-02-11T00:00:01.000Z"));
 
     // Runner exits cleanly with no text, tool calls, activities, or reasoning
     // and no cancellation is surfaced (clean exit code).

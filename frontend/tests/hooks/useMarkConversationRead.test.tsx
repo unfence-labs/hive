@@ -159,11 +159,11 @@ describe("useMarkConversationRead", () => {
     });
   });
 
-  it("counts a cancelled message that has visible content", () => {
+  it("counts a cancelled message without visible content", () => {
     renderHook(() => useMarkConversationRead({
       workspaceId: "ws-1",
       sessionId: "sess-1",
-      messages: [{ ...assistantMessage("a1"), cancelled: true }],
+      messages: [{ ...assistantMessage("a1"), content: "", cancelled: true }],
       unread: { sessionId: "sess-1", assistantMessageCount: 1, readAssistantMessageCount: 0 },
       isConversationVisible: true,
       isHistoryLoading: false,

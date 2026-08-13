@@ -24,8 +24,8 @@ import {
   setNotifier,
 } from "./agent-manager.js";
 import { MAX_SESSIONS_PER_WORKSPACE } from "./session-limits.js";
-import { updateSessionMetadata } from "./session-metadata.js";
-import { getUnreadSessions } from "./session-dispatch.js";
+import { readSessionMetadata, updateSessionMetadata } from "./session-metadata.js";
+import { getUnreadSessions, markSessionRead } from "./session-dispatch.js";
 import { _clearAll as clearAllScripts } from "../services/script-runner.js";
 import {
   _setTerminalForTests,
@@ -192,6 +192,26 @@ describe("getDefaultSessionId", () => {
     });
   });
 
+  it("does not finalize legacy migration when the transcript cannot be read", async () => {
+    const sessionDir = join(dataDir, projectId, "sessions", "legacy-unreadable-transcript");
+    const metadataPath = join(sessionDir, "metadata.json");
+    await mkdir(join(sessionDir, "messages.jsonl"), { recursive: true });
+    await writeFile(metadataPath, JSON.stringify({
+      sessionId: "legacy-unreadable-transcript",
+      workspaceId: wsId,
+      createdAt: "2026-02-11T00:00:00.000Z",
+      updatedAt: "2026-02-11T00:00:01.000Z",
+      messageCount: 4,
+    }), "utf-8");
+
+    await expect(readSessionMetadata(metadataPath)).rejects.toMatchObject({ code: "EISDIR" });
+
+    const persisted = JSON.parse(await readFile(metadataPath, "utf-8")) as Record<string, unknown>;
+    expect(persisted).toHaveProperty("messageCount", 4);
+    expect(persisted).not.toHaveProperty("assistantMessageCount");
+    expect(persisted).not.toHaveProperty("readAssistantMessageCount");
+  });
+
   it("lets a client clear a badge after an undershoot-migrated session gets a new response", async () => {
     const sessionDir = join(dataDir, projectId, "sessions", "legacy-count-undershoot");
     await mkdir(sessionDir, { recursive: true });
@@ -232,6 +252,15 @@ describe("getDefaultSessionId", () => {
       assistantMessageCount: 3,
       readAssistantMessageCount: 2,
     });
+
+    await markSessionRead(wsId, "legacy-count-undershoot", 3, dataDir);
+
+    const afterMarkRead = await getUnreadSessions(wsId, dataDir);
+    expect(afterMarkRead.find((s) => s.sessionId === "legacy-count-undershoot")).toBeUndefined();
+    const persisted = JSON.parse(
+      await readFile(join(sessionDir, "metadata.json"), "utf-8"),
+    ) as Record<string, unknown>;
+    expect(persisted.readAssistantMessageCount).toBe(3);
   });
 
   it("returns undefined when the workspace has no non-empty conversation", async () => {
