@@ -89,9 +89,10 @@ export function useSyncPrWorkspaces(wsIds: string[]): void {
   useEffect(() => {
     const next = new Set(wsIds);
     const changed = next.size !== prWorkspaceIds.size || [...next].some((wsId) => !prWorkspaceIds.has(wsId));
-    if (!changed) return;
     prWorkspaceIds = next;
+    // Rehydrate transport state on every mount: disconnectAll clears it while
+    // this module-level interest set survives remounts.
     wsTransport.syncPrWorkspaces([...next]);
-    notifyPrInterestListeners();
+    if (changed) notifyPrInterestListeners();
   }, [stableKey, wsIds]);
 }
