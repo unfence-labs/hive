@@ -9,6 +9,7 @@ private enum HubLayout {
 
 struct HubView: View {
     @Environment(ProjectStore.self) private var store
+    @Binding var navigationPath: NavigationPath
     var openSettings: (() -> Void)?
     @State private var showAddProject = false
     @State private var workspaceToArchive: Workspace?
@@ -299,11 +300,20 @@ struct HubView: View {
         } else {
             VStack(spacing: HiveSpacing.xs) {
                 ForEach(sortedWorkspaces(project.workspaces)) { workspace in
-                    NavigationLink(value: workspace) {
-                        HubWorkspaceRow(
-                            workspace: workspace,
-                            monitor: store.statusMonitor
-                        )
+                    // NavigationLinks nested in this shared List row activate together.
+                    Button {
+                        navigationPath.append(workspace)
+                    } label: {
+                        HStack(spacing: HiveSpacing.xs) {
+                            HubWorkspaceRow(
+                                workspace: workspace,
+                                monitor: store.statusMonitor
+                            )
+                            Image(systemName: "chevron.right")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(WhisperColor.textMuted)
+                                .accessibilityHidden(true)
+                        }
                     }
                     .buttonStyle(.plain)
                     .contextMenu {
@@ -545,7 +555,7 @@ private extension View {
 
 #Preview {
     NavigationStack {
-        HubView()
+        HubView(navigationPath: .constant(NavigationPath()))
     }
     .environment(ProjectStore(storeCache: ConversationStoreCache()))
     .preferredColorScheme(.dark)
