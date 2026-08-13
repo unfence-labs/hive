@@ -373,7 +373,12 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput
             planMode={planMode && supportsPlanMode}
           />
         )}
-        <PromptInput onSubmit={handleSubmit} accept="image/*" multiple>
+        <PromptInput
+          onSubmit={handleSubmit}
+          accept="image/*"
+          multiple
+          resetOnSubmit={false}
+        >
         <PromptInputBody>
           <ChatInputAttachments onFileCountChange={setFileCount} attachmentsRef={attachmentsRef} />
           <MentionHighlightOverlay
