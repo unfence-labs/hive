@@ -67,8 +67,6 @@ struct HubView: View {
         }
         .navigationTitle("Hub")
         .navigationBarTitleDisplayMode(.inline)
-        .toolbarBackground(WhisperColor.appBackground, for: .navigationBar)
-        .toolbarBackground(.visible, for: .navigationBar)
         .toolbar { toolbarContent }
         .task {
             // Always safe: existing data stays visible while refresh runs.

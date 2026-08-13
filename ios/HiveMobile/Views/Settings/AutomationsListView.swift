@@ -36,8 +36,6 @@ struct AutomationsListView: View {
         .hiveScreenBackground()
         .navigationTitle("Automations")
         .navigationBarTitleDisplayMode(.inline)
-        .toolbarBackground(WhisperColor.appBackground, for: .navigationBar)
-        .toolbarBackground(.visible, for: .navigationBar)
         .navigationDestination(item: $selectedAutomation) { automation in
             AutomationDetailView(automation: automation)
         }

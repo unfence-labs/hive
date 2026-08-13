@@ -72,8 +72,6 @@ struct AutomationDetailView: View {
         .hiveScreenBackground()
         .navigationTitle(automation.name)
         .navigationBarTitleDisplayMode(.inline)
-        .toolbarBackground(WhisperColor.appBackground, for: .navigationBar)
-        .toolbarBackground(.visible, for: .navigationBar)
         .navigationDestination(item: $selectedRun) { run in
             AutomationRunLogView(automation: automation, run: run)
         }
