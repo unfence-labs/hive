@@ -21,8 +21,6 @@ struct ToolInputSheet: View {
             }
             .hiveScreenBackground()
             .navigationBarTitleDisplayMode(.inline)
-            .toolbarBackground(WhisperColor.appBackground, for: .navigationBar)
-            .toolbarBackground(.visible, for: .navigationBar)
         }
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)

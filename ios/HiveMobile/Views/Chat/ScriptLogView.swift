@@ -61,8 +61,6 @@ struct ScriptLogView: View {
         .hiveScreenBackground()
         .navigationTitle(scriptId)
         .navigationBarTitleDisplayMode(.inline)
-        .toolbarBackground(WhisperColor.appBackground, for: .navigationBar)
-        .toolbarBackground(.visible, for: .navigationBar)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button(action: triggerAction) {

@@ -59,8 +59,6 @@ struct AutomationRunLogView: View {
         .hiveScreenBackground()
         .navigationTitle("Run log")
         .navigationBarTitleDisplayMode(.inline)
-        .toolbarBackground(WhisperColor.appBackground, for: .navigationBar)
-        .toolbarBackground(.visible, for: .navigationBar)
         .task { await load() }
     }
 

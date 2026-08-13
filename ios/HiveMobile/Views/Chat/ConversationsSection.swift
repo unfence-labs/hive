@@ -61,8 +61,6 @@ struct ConversationsSection<Header: View>: View {
         .navigationDestination(for: SessionMetadata.self) { session in
             ChatView(workspace: workspace, session: session, store: store)
         }
-        .toolbarBackground(WhisperColor.appBackground, for: .navigationBar)
-        .toolbarBackground(.visible, for: .navigationBar)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 ToolbarAddButton(

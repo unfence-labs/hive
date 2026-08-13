@@ -278,8 +278,6 @@ struct ChatView: View {
                 composerStack
             }
         }
-        .toolbarBackground(WhisperColor.appBackground, for: .navigationBar)
-        .toolbarBackground(.visible, for: .navigationBar)
         .navigationTitle(navigationTitle)
         .navigationSubtitle(Text(navigationSubtitle))
         .navigationBarTitleDisplayMode(.inline)

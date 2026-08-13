@@ -88,8 +88,6 @@ struct AddProjectSheet: View {
             .hiveScreenBackground()
             .navigationTitle(mode == .clone ? "Add Project" : "Create Project")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbarBackground(WhisperColor.appBackground, for: .navigationBar)
-            .toolbarBackground(.visible, for: .navigationBar)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
