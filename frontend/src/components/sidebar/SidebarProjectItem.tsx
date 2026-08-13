@@ -27,7 +27,6 @@ interface SidebarProjectItemProps {
   liveData: Record<string, WorkspaceLiveData>;
   prStatuses: Record<string, PrStatusResponse>;
   creatingProjectId: string | null;
-  archivingWsId: string | null;
   draggingProjectId: string | null;
   projectInsertIndicator: ProjectInsertIndicator;
   onAddWorkspace: (projectId: string) => void;
@@ -61,7 +60,6 @@ export function SidebarProjectItem({
   liveData,
   prStatuses,
   creatingProjectId,
-  archivingWsId,
   draggingProjectId,
   projectInsertIndicator,
   onAddWorkspace,
@@ -148,7 +146,6 @@ export function SidebarProjectItem({
                   wsLive={liveData[ws.id]}
                   prStatus={prStatuses[ws.id]}
                   isActive={activeWsId === ws.id}
-                  isArchiving={archivingWsId === ws.id}
                   onArchive={onArchiveWorkspace}
                 />
               ))}

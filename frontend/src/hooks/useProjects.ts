@@ -1,5 +1,6 @@
 import { useCallback } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useMutation, useMutationState, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 import { api } from "./useApi";
 import type { CreateWorkspaceSource, Project, Workspace } from "@/types";
 
@@ -179,8 +180,39 @@ export function useProjects() {
   });
 
   const archiveWorkspace = useMutation({
+    mutationKey: ["archive-workspace"],
     mutationFn: (wsId: string) =>
       api.post(`/api/workspaces/${wsId}/archive`),
+    onMutate: async (wsId) => {
+      await queryClient.cancelQueries({ queryKey: ["projects"] });
+      let removed: {
+        projectId: string;
+        workspace: Workspace;
+        workspaceIndex: number;
+        previousWorkspaceId?: string;
+        nextWorkspaceId?: string;
+      } | undefined;
+      queryClient.setQueryData<Project[]>(["projects"], (prev) =>
+        prev?.map((p) => {
+          const workspaceIndex = p.workspaces.findIndex((ws) => ws.id === wsId);
+          const workspace = p.workspaces[workspaceIndex];
+          if (workspace) {
+            removed = {
+              projectId: p.id,
+              workspace,
+              workspaceIndex,
+              previousWorkspaceId: p.workspaces[workspaceIndex - 1]?.id,
+              nextWorkspaceId: p.workspaces[workspaceIndex + 1]?.id,
+            };
+          }
+          return {
+            ...p,
+            workspaces: p.workspaces.filter((ws) => ws.id !== wsId),
+          };
+        }) ?? [],
+      );
+      return removed;
+    },
     onSuccess: (_, wsId) => {
       queryClient.setQueryData<Project[]>(["projects"], (prev) =>
         prev?.map((p) => ({
@@ -190,10 +222,61 @@ export function useProjects() {
       );
       invalidateWorkspaceSources();
     },
+    onError: (err, _wsId, removed) => {
+      toast.error(
+        err instanceof Error && err.message ? err.message : "Failed to archive workspace",
+      );
+      // Re-insert locally: the failure is often an outage, in which case the
+      // reconciling refetch below fails too and nothing else refetches
+      // ["projects"] (focus/reconnect refetches are disabled globally).
+      if (removed) {
+        const {
+          projectId,
+          workspace,
+          workspaceIndex,
+          previousWorkspaceId,
+          nextWorkspaceId,
+        } = removed;
+        queryClient.setQueryData<Project[]>(["projects"], (prev) =>
+          prev?.map((p) => {
+            if (p.id !== projectId || p.workspaces.some((ws) => ws.id === workspace.id)) {
+              return p;
+            }
+            const workspaces = [...p.workspaces];
+            const nextIndex = workspaces.findIndex((ws) => ws.id === nextWorkspaceId);
+            const previousIndex = workspaces.findIndex((ws) => ws.id === previousWorkspaceId);
+            const insertAt = nextIndex >= 0
+              ? nextIndex
+              : previousIndex >= 0
+                ? previousIndex + 1
+                : Math.min(workspaceIndex, workspaces.length);
+            workspaces.splice(insertAt, 0, workspace);
+            return { ...p, workspaces };
+          }) ?? [],
+        );
+      }
+      // Server is truth: reconcile when it is reachable.
+      void queryClient.invalidateQueries({ queryKey: ["projects"] });
+    },
   });
 
+  // A background ["projects"] refetch landing while the archive POST is still
+  // in flight would resurrect the optimistically removed row, so filter
+  // pending archives out of whatever the cache holds.
+  const pendingArchiveIds = useMutationState({
+    filters: { mutationKey: ["archive-workspace"], status: "pending" },
+    select: (m) => m.state.variables as string,
+  });
+  const rawProjects = query.data ?? [];
+  const projects = pendingArchiveIds.length === 0
+    ? rawProjects
+    : rawProjects.map((p) => ({
+      ...p,
+      workspaces: p.workspaces.filter((ws) => !pendingArchiveIds.includes(ws.id)),
+    }));
+
   return {
-    projects: query.data ?? [],
+    projects,
     loading: query.isLoading,
     recovering: query.isFetching && query.isError && !query.data,
     unavailable: query.isError && !query.data,
@@ -212,6 +295,6 @@ export function useProjects() {
     createWorkspace: (projectId: string, source?: CreateWorkspaceSource) =>
       createWorkspace.mutateAsync({ projectId, source }),
     deleteProject: (id: string) => deleteProject.mutateAsync(id),
-    archiveWorkspace: (wsId: string) => archiveWorkspace.mutateAsync(wsId),
+    archiveWorkspace: (wsId: string) => archiveWorkspace.mutate(wsId),
   };
 }

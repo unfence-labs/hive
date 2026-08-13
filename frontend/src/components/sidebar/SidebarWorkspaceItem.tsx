@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { ArchiveIcon, Loader2 } from "lucide-react";
+import { ArchiveIcon } from "lucide-react";
 import {
   Tooltip,
   TooltipContent,
@@ -18,7 +18,6 @@ interface SidebarWorkspaceItemProps {
   wsLive: WorkspaceLiveData | undefined;
   prStatus: PrStatusResponse | undefined;
   isActive: boolean;
-  isArchiving: boolean;
   onArchive: (wsId: string) => void;
 }
 
@@ -39,7 +38,6 @@ export function SidebarWorkspaceItem({
   wsLive,
   prStatus,
   isActive,
-  isArchiving,
   onArchive,
 }: SidebarWorkspaceItemProps) {
   const streaming = wsLive?.streaming ?? false;
@@ -52,7 +50,7 @@ export function SidebarWorkspaceItem({
 
   // A running script must never be archived from under itself; while it runs we
   // keep showing the metadata on hover instead of swapping in the archive action.
-  const canArchive = !scriptRunning && !isArchiving;
+  const canArchive = !scriptRunning;
 
   const branchClass = streaming
     ? "sidebar-stream-text"
@@ -63,12 +61,7 @@ export function SidebarWorkspaceItem({
         : "text-muted-foreground";
 
   return (
-    <div
-      className={cn(
-        "group/ws relative transition-opacity",
-        isArchiving && "pointer-events-none opacity-40",
-      )}
-    >
+    <div className="group/ws relative">
       <Tooltip>
         <TooltipTrigger asChild>
           <Link
@@ -99,9 +92,7 @@ export function SidebarWorkspaceItem({
             <span
               className={cn(
                 "flex shrink-0 items-center gap-2 transition-opacity",
-                // While archiving, the spinner takes over the trailing slot — hide
-                // the metadata entirely so it doesn't show through underneath.
-                isArchiving ? "opacity-0" : canArchive && "group-hover/ws:opacity-0",
+                canArchive && "group-hover/ws:opacity-0",
               )}
             >
               {diffTotals && (
@@ -136,31 +127,25 @@ export function SidebarWorkspaceItem({
         </TooltipContent>
       </Tooltip>
 
-      {/* Center the archive overlay (loader + trash) on the PR-dot column, which sits
+      {/* Center the archive button on the PR-dot column, which sits
           13px from the row's right edge (px-2 = 8px + half the dot's w-2.5 cell = 5px).
           A w-3.5 (14px) box at right-1.5 (6px) centers there (6 + 7 = 13px); the box must
-          be wider than the ~13px icons, since Chromium start-aligns oversized grid items
+          be wider than the ~13px icon, since Chromium start-aligns oversized grid items
           rather than centering them. */}
-      {isArchiving ? (
-        <div className="absolute right-1.5 top-1/2 grid w-3.5 -translate-y-1/2 place-items-center">
-          <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
-        </div>
-      ) : (
-        canArchive && (
-          <button
-            type="button"
-            className="absolute right-1.5 top-1/2 grid w-3.5 -translate-y-1/2 place-items-center rounded text-muted-foreground opacity-0 transition-[opacity,color] duration-150 hover:text-destructive group-hover/ws:opacity-100"
-            onClick={(event) => {
-              event.preventDefault();
-              event.stopPropagation();
-              onArchive(ws.id);
-            }}
-            aria-label={`Archive workspace ${ws.name}`}
-            title="Archive workspace"
-          >
-            <ArchiveIcon className="size-[13px]" />
-          </button>
-        )
+      {canArchive && (
+        <button
+          type="button"
+          className="absolute right-1.5 top-1/2 grid w-3.5 -translate-y-1/2 place-items-center rounded text-muted-foreground opacity-0 transition-[opacity,color] duration-150 hover:text-destructive group-hover/ws:opacity-100"
+          onClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            onArchive(ws.id);
+          }}
+          aria-label={`Archive workspace ${ws.name}`}
+          title="Archive workspace"
+        >
+          <ArchiveIcon className="size-[13px]" />
+        </button>
       )}
     </div>
   );

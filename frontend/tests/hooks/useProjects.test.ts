@@ -1,5 +1,6 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi, beforeEach } from "vitest";
+import { toast } from "sonner";
 import { useProjects } from "@/hooks/useProjects";
 import { api } from "@/hooks/useApi";
 import { createWrapper } from "../test-utils";
@@ -12,6 +13,8 @@ vi.mock("@/hooks/useApi", () => ({
     delete: vi.fn(),
   },
 }));
+
+vi.mock("sonner", () => ({ toast: { error: vi.fn() } }));
 
 function makeProject(id: string): Project {
   return {
@@ -178,7 +181,7 @@ describe("useProjects", () => {
     expect(cached?.[1]?.workspaces).toEqual([createdWorkspace]);
   });
 
-  it("archives workspace and removes it from project cache", async () => {
+  it("archives workspace and keeps it out of the cache once the POST resolves", async () => {
     const project = makeProject("p1");
     project.workspaces = [makeWorkspace("w1"), makeWorkspace("w2")];
     vi.mocked(api.get).mockResolvedValueOnce([project]);
@@ -189,13 +192,103 @@ describe("useProjects", () => {
     await waitFor(() => expect(result.current.loading).toBe(false));
 
     await act(async () => {
-      await result.current.archiveWorkspace("w1");
+      result.current.archiveWorkspace("w1");
     });
 
-    expect(api.post).toHaveBeenCalledWith("/api/workspaces/w1/archive");
-    const cached = queryClient.getQueryData<Project[]>(["projects"]);
-    expect(cached?.[0]?.workspaces).toHaveLength(1);
-    expect(cached?.[0]?.workspaces[0]?.id).toBe("w2");
+    await waitFor(() =>
+      expect(api.post).toHaveBeenCalledWith("/api/workspaces/w1/archive"),
+    );
+    await waitFor(() => {
+      const cached = queryClient.getQueryData<Project[]>(["projects"]);
+      expect(cached?.[0]?.workspaces).toHaveLength(1);
+      expect(cached?.[0]?.workspaces[0]?.id).toBe("w2");
+    });
+    expect(result.current.projects[0]?.workspaces.map((ws) => ws.id)).toEqual(["w2"]);
+  });
+
+  it("archive optimistically removes the workspace while the POST is in flight", async () => {
+    const project = makeProject("p1");
+    project.workspaces = [makeWorkspace("w1"), makeWorkspace("w2")];
+    vi.mocked(api.get).mockResolvedValueOnce([project]);
+    vi.mocked(api.post).mockImplementation(() => new Promise(() => {}));
+
+    const { wrapper } = createWrapper();
+    const { result } = renderHook(() => useProjects(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    await act(async () => {
+      result.current.archiveWorkspace("w1");
+      // React Query batches cache notifications on a macrotask; flush it so the
+      // optimistic removal is observable without the POST ever resolving.
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(result.current.projects[0]?.workspaces.map((ws) => ws.id)).toEqual(["w2"]);
+  });
+
+  it("archive restores the row locally and toasts once when the POST fails", async () => {
+    const project = makeProject("p1");
+    project.workspaces = [makeWorkspace("w1")];
+    // Outage scenario: the reconciling refetch fails along with the POST, so
+    // the rollback must come from the local re-insert, not the server.
+    vi.mocked(api.get)
+      .mockResolvedValueOnce([project])
+      .mockRejectedValue(new Error("offline"));
+    vi.mocked(api.post).mockRejectedValueOnce(new Error("archive failed"));
+
+    const { wrapper } = createWrapper();
+    const { result } = renderHook(() => useProjects(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    await act(async () => {
+      result.current.archiveWorkspace("w1");
+    });
+
+    await waitFor(() => expect(toast.error).toHaveBeenCalledTimes(1));
+    expect(toast.error).toHaveBeenCalledWith("archive failed");
+    await waitFor(() =>
+      expect(result.current.projects[0]?.workspaces.map((ws) => ws.id)).toEqual(["w1"]),
+    );
+  });
+
+  it("preserves workspace order when concurrent archives fail", async () => {
+    const project = makeProject("p1");
+    project.workspaces = [makeWorkspace("w1"), makeWorkspace("w2"), makeWorkspace("w3")];
+    vi.mocked(api.get)
+      .mockResolvedValueOnce([project])
+      .mockRejectedValue(new Error("offline"));
+    let rejectW1!: (reason?: unknown) => void;
+    let rejectW2!: (reason?: unknown) => void;
+    vi.mocked(api.post).mockImplementation((url) => new Promise((_, reject) => {
+      if (url === "/api/workspaces/w1/archive") rejectW1 = reject;
+      if (url === "/api/workspaces/w2/archive") rejectW2 = reject;
+    }));
+
+    const { wrapper } = createWrapper();
+    const { result } = renderHook(() => useProjects(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    act(() => {
+      result.current.archiveWorkspace("w1");
+      result.current.archiveWorkspace("w2");
+    });
+
+    await waitFor(() =>
+      expect(result.current.projects[0]?.workspaces.map((ws) => ws.id)).toEqual(["w3"]),
+    );
+
+    act(() => {
+      rejectW1(new Error("archive failed"));
+      rejectW2(new Error("archive failed"));
+    });
+
+    await waitFor(() =>
+      expect(result.current.projects[0]?.workspaces.map((ws) => ws.id)).toEqual([
+        "w1",
+        "w2",
+        "w3",
+      ]),
+    );
   });
 
   it("archive only removes workspace from its parent project", async () => {
@@ -211,12 +304,14 @@ describe("useProjects", () => {
     await waitFor(() => expect(result.current.loading).toBe(false));
 
     await act(async () => {
-      await result.current.archiveWorkspace("w1");
+      result.current.archiveWorkspace("w1");
     });
 
-    const cached = queryClient.getQueryData<Project[]>(["projects"]);
-    expect(cached?.[0]?.workspaces).toHaveLength(0);
-    expect(cached?.[1]?.workspaces).toHaveLength(1);
+    await waitFor(() => {
+      const cached = queryClient.getQueryData<Project[]>(["projects"]);
+      expect(cached?.[0]?.workspaces).toHaveLength(0);
+      expect(cached?.[1]?.workspaces).toHaveLength(1);
+    });
   });
 
   it("rolls back project when workspace creation fails", async () => {
@@ -302,11 +397,13 @@ describe("useProjects", () => {
     await waitFor(() => expect(result.current.loading).toBe(false));
 
     await act(async () => {
-      await result.current.archiveWorkspace("w1");
+      result.current.archiveWorkspace("w1");
     });
 
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["project-branches"] });
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["project-pulls"] });
+    await waitFor(() => {
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["project-branches"] });
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["project-pulls"] });
+    });
   });
 
   it("invalidates projects query when fetchProjects is called", async () => {
