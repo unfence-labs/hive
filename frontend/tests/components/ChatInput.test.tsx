@@ -102,6 +102,7 @@ describe("ChatInput", () => {
     expect(input).toHaveAttribute("autocomplete", "off");
     expect(input).toHaveAttribute("autocorrect", "off");
     expect(input).toHaveAttribute("spellcheck", "false");
+    expect(input).toHaveClass("chat-input-textarea");
   });
 
   it("appends text through the imperative ref API", () => {
