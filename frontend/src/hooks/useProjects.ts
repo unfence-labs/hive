@@ -185,12 +185,33 @@ export function useProjects() {
       api.post(`/api/workspaces/${wsId}/archive`),
     onMutate: async (wsId) => {
       await queryClient.cancelQueries({ queryKey: ["projects"] });
+      let removed: {
+        projectId: string;
+        workspace: Workspace;
+        workspaceIndex: number;
+        previousWorkspaceId?: string;
+        nextWorkspaceId?: string;
+      } | undefined;
       queryClient.setQueryData<Project[]>(["projects"], (prev) =>
-        prev?.map((p) => ({
-          ...p,
-          workspaces: p.workspaces.filter((ws) => ws.id !== wsId),
-        })) ?? [],
+        prev?.map((p) => {
+          const workspaceIndex = p.workspaces.findIndex((ws) => ws.id === wsId);
+          const workspace = p.workspaces[workspaceIndex];
+          if (workspace) {
+            removed = {
+              projectId: p.id,
+              workspace,
+              workspaceIndex,
+              previousWorkspaceId: p.workspaces[workspaceIndex - 1]?.id,
+              nextWorkspaceId: p.workspaces[workspaceIndex + 1]?.id,
+            };
+          }
+          return {
+            ...p,
+            workspaces: p.workspaces.filter((ws) => ws.id !== wsId),
+          };
+        }) ?? [],
       );
+      return removed;
     },
     onSuccess: (_, wsId) => {
       queryClient.setQueryData<Project[]>(["projects"], (prev) =>
@@ -201,11 +222,40 @@ export function useProjects() {
       );
       invalidateWorkspaceSources();
     },
-    onError: (err) => {
+    onError: (err, _wsId, removed) => {
       toast.error(
         err instanceof Error && err.message ? err.message : "Failed to archive workspace",
       );
-      // Server is truth: refetch so the workspace row reappears.
+      // Re-insert locally: the failure is often an outage, in which case the
+      // reconciling refetch below fails too and nothing else refetches
+      // ["projects"] (focus/reconnect refetches are disabled globally).
+      if (removed) {
+        const {
+          projectId,
+          workspace,
+          workspaceIndex,
+          previousWorkspaceId,
+          nextWorkspaceId,
+        } = removed;
+        queryClient.setQueryData<Project[]>(["projects"], (prev) =>
+          prev?.map((p) => {
+            if (p.id !== projectId || p.workspaces.some((ws) => ws.id === workspace.id)) {
+              return p;
+            }
+            const workspaces = [...p.workspaces];
+            const nextIndex = workspaces.findIndex((ws) => ws.id === nextWorkspaceId);
+            const previousIndex = workspaces.findIndex((ws) => ws.id === previousWorkspaceId);
+            const insertAt = nextIndex >= 0
+              ? nextIndex
+              : previousIndex >= 0
+                ? previousIndex + 1
+                : Math.min(workspaceIndex, workspaces.length);
+            workspaces.splice(insertAt, 0, workspace);
+            return { ...p, workspaces };
+          }) ?? [],
+        );
+      }
+      // Server is truth: reconcile when it is reachable.
       void queryClient.invalidateQueries({ queryKey: ["projects"] });
     },
   });

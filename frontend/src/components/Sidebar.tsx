@@ -312,10 +312,11 @@ export default function Sidebar({ onAddProject, onAddAutomation, onNewWorkspaceF
         });
         uncommittedCount = stats.uncommitted.length;
       } catch {
-        uncommittedCount = 0;
+        // Fail closed: archiving destroys the worktree, so an unknown dirty
+        // state must go through the confirm dialog.
       }
     }
-    if (uncommittedCount > 0) {
+    if (uncommittedCount === undefined || uncommittedCount > 0) {
       setArchiveTarget(wsId);
     } else {
       doArchive(wsId);

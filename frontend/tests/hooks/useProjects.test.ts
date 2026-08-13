@@ -226,10 +226,14 @@ describe("useProjects", () => {
     expect(result.current.projects[0]?.workspaces.map((ws) => ws.id)).toEqual(["w2"]);
   });
 
-  it("archive rolls back via refetch and toasts once when the POST fails", async () => {
+  it("archive restores the row locally and toasts once when the POST fails", async () => {
     const project = makeProject("p1");
     project.workspaces = [makeWorkspace("w1")];
-    vi.mocked(api.get).mockResolvedValue([project]);
+    // Outage scenario: the reconciling refetch fails along with the POST, so
+    // the rollback must come from the local re-insert, not the server.
+    vi.mocked(api.get)
+      .mockResolvedValueOnce([project])
+      .mockRejectedValue(new Error("offline"));
     vi.mocked(api.post).mockRejectedValueOnce(new Error("archive failed"));
 
     const { wrapper } = createWrapper();
@@ -242,9 +246,48 @@ describe("useProjects", () => {
 
     await waitFor(() => expect(toast.error).toHaveBeenCalledTimes(1));
     expect(toast.error).toHaveBeenCalledWith("archive failed");
-    // The invalidated ["projects"] refetch restores the row from the server.
     await waitFor(() =>
       expect(result.current.projects[0]?.workspaces.map((ws) => ws.id)).toEqual(["w1"]),
+    );
+  });
+
+  it("preserves workspace order when concurrent archives fail", async () => {
+    const project = makeProject("p1");
+    project.workspaces = [makeWorkspace("w1"), makeWorkspace("w2"), makeWorkspace("w3")];
+    vi.mocked(api.get)
+      .mockResolvedValueOnce([project])
+      .mockRejectedValue(new Error("offline"));
+    let rejectW1!: (reason?: unknown) => void;
+    let rejectW2!: (reason?: unknown) => void;
+    vi.mocked(api.post).mockImplementation((url) => new Promise((_, reject) => {
+      if (url === "/api/workspaces/w1/archive") rejectW1 = reject;
+      if (url === "/api/workspaces/w2/archive") rejectW2 = reject;
+    }));
+
+    const { wrapper } = createWrapper();
+    const { result } = renderHook(() => useProjects(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    act(() => {
+      result.current.archiveWorkspace("w1");
+      result.current.archiveWorkspace("w2");
+    });
+
+    await waitFor(() =>
+      expect(result.current.projects[0]?.workspaces.map((ws) => ws.id)).toEqual(["w3"]),
+    );
+
+    act(() => {
+      rejectW1(new Error("archive failed"));
+      rejectW2(new Error("archive failed"));
+    });
+
+    await waitFor(() =>
+      expect(result.current.projects[0]?.workspaces.map((ws) => ws.id)).toEqual([
+        "w1",
+        "w2",
+        "w3",
+      ]),
     );
   });
 

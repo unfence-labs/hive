@@ -1651,7 +1651,7 @@ describe("Sidebar", () => {
     expect(api.get).not.toHaveBeenCalledWith(expect.stringContaining("/diff/stat"));
   });
 
-  it("falls back to direct API call when diffStats not cached and API fails", async () => {
+  it("fails closed to the confirm dialog when diff stats cannot be loaded", async () => {
     const user = userEvent.setup();
     mockPostWithBulkFallback({
       "/api/workspaces/w1/archive": undefined,
@@ -1665,7 +1665,14 @@ describe("Sidebar", () => {
     const archiveBtn = screen.getByRole("button", { name: /archive workspace/i });
     await user.click(archiveBtn);
 
-    // When API fails, uncommittedCount falls back to 0 -> archives directly
+    // Unknown dirty state must not archive silently: the worktree is destroyed.
+    await waitFor(() => {
+      expect(screen.getByText("Archive workspace")).toBeInTheDocument();
+    });
+    expect(api.post).not.toHaveBeenCalledWith("/api/workspaces/w1/archive");
+
+    await user.click(screen.getByRole("button", { name: "Archive" }));
+
     await waitFor(() => {
       expect(api.post).toHaveBeenCalledWith("/api/workspaces/w1/archive");
     });
