@@ -214,10 +214,21 @@ export async function createWorkspace(
       const state = await loadProject(projectId, dataDir);
       if (!state) throw new NotFoundError(`Project ${projectId} not found`);
 
-      const usedNames = state.workspaces.map((ws) => ws.name);
+      const bare = bareRepoPath(dataDir, projectId);
+
+      // Archived workspaces keep their workspace/<city> branch for restore;
+      // exclude those cities too or `worktree add -b` collides.
+      const { stdout: branchRefs } = await git(
+        ["for-each-ref", "--format=%(refname:short)", "refs/heads/workspace/"],
+        bare,
+      );
+      const branchCities = branchRefs
+        .split("\n")
+        .filter(Boolean)
+        .map((ref) => ref.slice("workspace/".length));
+      const usedNames = [...state.workspaces.map((ws) => ws.name), ...branchCities];
       const cityName = pickCityName(usedNames);
       const wsPath = join(workspacesDir(dataDir, projectId), cityName);
-      const bare = bareRepoPath(dataDir, projectId);
 
       const defaultBranch = await resolveDefaultBranch(bare);
 
