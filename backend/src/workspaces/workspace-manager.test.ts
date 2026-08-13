@@ -148,8 +148,16 @@ describe("createWorkspace", () => {
       await git(["update-ref", `refs/heads/workspace/${city}`, "HEAD"], bare);
     }
 
-    const ws = await createWorkspace(projectId, dataDir);
-    expect(ws.name).toBe(free);
+    // Pin the pick to the first available city: broken parsing leaves
+    // taggedCity and nestedCity as candidates ahead of free, so any
+    // regression fails deterministically instead of one run in three.
+    const randomSpy = vi.spyOn(Math, "random").mockReturnValue(0);
+    try {
+      const ws = await createWorkspace(projectId, dataDir);
+      expect(ws.name).toBe(free);
+    } finally {
+      randomSpy.mockRestore();
+    }
   });
 
   it("throws for non-existent project", async () => {
