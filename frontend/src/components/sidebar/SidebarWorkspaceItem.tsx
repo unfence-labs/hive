@@ -61,7 +61,7 @@ export function SidebarWorkspaceItem({
         : "text-muted-foreground";
 
   return (
-    <div className="group/ws relative transition-opacity">
+    <div className="group/ws relative">
       <Tooltip>
         <TooltipTrigger asChild>
           <Link

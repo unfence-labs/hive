@@ -261,8 +261,8 @@ export function useProjects() {
   });
 
   // A background ["projects"] refetch landing while the archive POST is still
-  // in flight would resurrect the optimistically removed row — filter pending
-  // archives out of whatever the cache holds.
+  // in flight would resurrect the optimistically removed row, so filter
+  // pending archives out of whatever the cache holds.
   const pendingArchiveIds = useMutationState({
     filters: { mutationKey: ["archive-workspace"], status: "pending" },
     select: (m) => m.state.variables as string,
