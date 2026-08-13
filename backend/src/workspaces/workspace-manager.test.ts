@@ -134,6 +134,24 @@ describe("createWorkspace", () => {
     expect(second.name).toBe(free);
   });
 
+  it("reserves cities despite same-named tags and nested workspace refs", async () => {
+    const bare = bareRepoPath(dataDir, projectId);
+    // A tag sharing the branch name makes %(refname:short) ambiguous, and a
+    // nested ref blocks its whole workspace/<city> namespace: both cities
+    // must stay excluded from the pick.
+    const [taggedCity, nestedCity, free] = CITIES;
+    await git(["update-ref", `refs/heads/workspace/${taggedCity}`, "HEAD"], bare);
+    await git(["update-ref", `refs/tags/workspace/${taggedCity}`, "HEAD"], bare);
+    await git(["update-ref", `refs/heads/workspace/${nestedCity}/topic`, "HEAD"], bare);
+    for (const city of CITIES) {
+      if (city === taggedCity || city === nestedCity || city === free) continue;
+      await git(["update-ref", `refs/heads/workspace/${city}`, "HEAD"], bare);
+    }
+
+    const ws = await createWorkspace(projectId, dataDir);
+    expect(ws.name).toBe(free);
+  });
+
   it("throws for non-existent project", async () => {
     await expect(createWorkspace("nonexistent", dataDir)).rejects.toThrow("not found");
   });

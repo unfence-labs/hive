@@ -217,15 +217,17 @@ export async function createWorkspace(
       const bare = bareRepoPath(dataDir, projectId);
 
       // Archived workspaces keep their workspace/<city> branch for restore;
-      // exclude those cities too or `worktree add -b` collides.
+      // exclude those cities too or `worktree add -b` collides. Full refnames
+      // (%(refname:short) is ambiguous next to a same-named tag), first path
+      // segment only (a nested workspace/<city>/x ref blocks workspace/<city>).
       const { stdout: branchRefs } = await git(
-        ["for-each-ref", "--format=%(refname:short)", "refs/heads/workspace/"],
+        ["for-each-ref", "--format=%(refname)", "refs/heads/workspace/"],
         bare,
       );
       const branchCities = branchRefs
         .split("\n")
         .filter(Boolean)
-        .map((ref) => ref.slice("workspace/".length));
+        .map((ref) => ref.slice("refs/heads/workspace/".length).split("/")[0]);
       const usedNames = [...state.workspaces.map((ws) => ws.name), ...branchCities];
       const cityName = pickCityName(usedNames);
       const wsPath = join(workspacesDir(dataDir, projectId), cityName);
