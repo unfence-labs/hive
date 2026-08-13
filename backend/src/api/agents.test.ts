@@ -59,7 +59,7 @@ async function writeSessionFixture(
   workspaceId: string,
   options?: {
     updatedAt?: string;
-    messageCount?: number;
+    assistantMessageCount?: number;
     messages?: Array<Record<string, unknown> | string>;
   },
 ) {
@@ -72,7 +72,8 @@ async function writeSessionFixture(
       workspaceId,
       createdAt: "2026-02-11T00:00:00.000Z",
       updatedAt: options?.updatedAt ?? "2026-02-11T00:00:01.000Z",
-      messageCount: options?.messageCount ?? 0,
+      assistantMessageCount: options?.assistantMessageCount ?? 0,
+      readAssistantMessageCount: options?.assistantMessageCount ?? 0,
     }),
     "utf-8",
   );
@@ -95,6 +96,11 @@ describe("POST /api/workspaces/:wsId/session", () => {
     const body = res.json();
     expect(body.sessionId).toBeTruthy();
     expect(body.workspaceId).toBe(wsId);
+    expect(body).toMatchObject({
+      assistantMessageCount: 0,
+      readAssistantMessageCount: 0,
+    });
+    expect(body).not.toHaveProperty("messageCount");
   });
 
   it("returns 200 for existing session", async () => {
@@ -204,7 +210,8 @@ describe("GET /api/workspaces/:wsId/session/messages", () => {
         workspaceId: wsId,
         createdAt: "2026-02-11T00:00:00.000Z",
         updatedAt: "2026-02-11T00:00:01.000Z",
-        messageCount: 1,
+        assistantMessageCount: 1,
+        readAssistantMessageCount: 1,
       }),
       "utf-8",
     );
@@ -291,7 +298,7 @@ describe("GET /api/workspaces/:wsId/sessions", () => {
     const activeSessionId = createRes.json().sessionId as string;
     await writeSessionFixture("persisted-1", wsId, {
       updatedAt: "2099-02-12T00:00:00.000Z",
-      messageCount: 2,
+      assistantMessageCount: 2,
     });
 
     const res = await app.inject({
@@ -344,7 +351,7 @@ describe("POST /api/workspaces/:wsId/sessions", () => {
 
 describe("POST /api/workspaces/:wsId/sessions/:sessionId/activate", () => {
   it("returns 404 because activation is handled over websocket switch_session", async () => {
-    await writeSessionFixture("sess-activate", wsId, { messageCount: 3 });
+    await writeSessionFixture("sess-activate", wsId, { assistantMessageCount: 3 });
 
     const res = await app.inject({
       method: "POST",

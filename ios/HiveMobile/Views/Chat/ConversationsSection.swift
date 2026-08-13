@@ -207,7 +207,6 @@ struct ConversationsSection<Header: View>: View {
 
     private func markWorkspaceVisible() {
         projectStore.statusMonitor.setViewingWorkspace(workspace.id, sessionId: nil)
-        projectStore.statusMonitor.clearCompleted(workspace.id)
     }
 
     private func refreshContent(force: Bool = false) async {
@@ -262,7 +261,6 @@ struct ConversationsSection<Header: View>: View {
             ) { sessionId in
                 try await api.deleteSession(workspaceId: workspace.id, sessionId: sessionId)
                 ChatDraftStore.shared.remove(workspaceId: workspace.id, sessionId: sessionId)
-                projectStore.statusMonitor.clearUnread(workspaceId: workspace.id, sessionId: sessionId)
             }
             if outcome.deleted {
                 sessions.removeAll { $0.sessionId == session.sessionId }

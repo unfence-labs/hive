@@ -49,7 +49,8 @@ function brainSession(overrides: Partial<SessionMetadata> & { sessionId: string 
     workspaceId: BRAIN_WORKSPACE_ID,
     createdAt: "2024-01-01T00:00:00Z",
     updatedAt: "2024-01-01T00:00:00Z",
-    messageCount: 1,
+    assistantMessageCount: 1,
+    readAssistantMessageCount: 0,
     ...overrides,
   } as SessionMetadata;
 }
@@ -124,9 +125,9 @@ describe("useActiveSessionPrewarm", () => {
       mocks.useBrain.mockReturnValue({ brain: { exists: true } });
       mocks.useSessions.mockReturnValue({
         sessions: [
-          brainSession({ sessionId: "bOld", updatedAt: "2024-02-01T00:00:00Z", messageCount: 3 }),
-          brainSession({ sessionId: "bNew", updatedAt: "2024-06-01T00:00:00Z", messageCount: 2 }),
-          brainSession({ sessionId: "bEmpty", updatedAt: "2024-07-01T00:00:00Z", messageCount: 0 }),
+          brainSession({ sessionId: "bOld", updatedAt: "2024-02-01T00:00:00Z", assistantMessageCount: 3 }),
+          brainSession({ sessionId: "bNew", updatedAt: "2024-06-01T00:00:00Z", assistantMessageCount: 2 }),
+          brainSession({ sessionId: "bEmpty", updatedAt: "2024-07-01T00:00:00Z", assistantMessageCount: 0 }),
         ],
       });
 
@@ -154,7 +155,7 @@ describe("useActiveSessionPrewarm", () => {
     it("does not prewarm the Brain when all its sessions are empty", () => {
       mocks.useBrain.mockReturnValue({ brain: { exists: true } });
       mocks.useSessions.mockReturnValue({
-        sessions: [brainSession({ sessionId: "bEmpty", messageCount: 0 })],
+        sessions: [brainSession({ sessionId: "bEmpty", assistantMessageCount: 0 })],
       });
       renderPrewarm([]);
       expect(prefetchSpy).not.toHaveBeenCalled();

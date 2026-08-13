@@ -90,8 +90,8 @@ function makeConversation(overrides: Record<string, unknown> = {}) {
 }
 
 const sessionList = [
-  { sessionId: "s1", title: "One", createdAt: "2024-01-01T00:00:00Z", messageCount: 0 },
-  { sessionId: "s2", title: "Two", createdAt: "2024-01-02T00:00:00Z", messageCount: 0 },
+  { sessionId: "s1", title: "One", createdAt: "2024-01-01T00:00:00Z", assistantMessageCount: 0, readAssistantMessageCount: 0 },
+  { sessionId: "s2", title: "Two", createdAt: "2024-01-02T00:00:00Z", assistantMessageCount: 0, readAssistantMessageCount: 0 },
 ];
 
 let createSession: ReturnType<typeof vi.fn>;
@@ -140,22 +140,18 @@ describe("useConversationColumn — session handlers", () => {
     });
   });
 
-  it("handleActivateSession activates the tab, switches, and runs onActivateSession", () => {
-    const onActivateSession = vi.fn();
-    const { result } = renderColumn("ws1", { onActivateSession });
+  it("handleActivateSession activates the tab and switches sessions", () => {
+    const { result } = renderColumn("ws1");
     act(() => result.current.handleActivateSession("s2"));
     expect(conversation.switchSession).toHaveBeenCalledWith("s2");
-    expect(onActivateSession).toHaveBeenCalledWith("s2");
     // The file/session tab should now track the session tab.
     expect(result.current.activateTab).toBeTypeOf("function");
   });
 
   it("handleActivateSession is a no-op switch when already active", () => {
-    const onActivateSession = vi.fn();
-    const { result } = renderColumn("ws1", { onActivateSession });
+    const { result } = renderColumn("ws1");
     act(() => result.current.handleActivateSession("s1")); // s1 is active
     expect(conversation.switchSession).not.toHaveBeenCalled();
-    expect(onActivateSession).not.toHaveBeenCalled();
   });
 
   it("cycles conversation tabs from app commands", () => {
@@ -256,7 +252,7 @@ describe("useConversationColumn — inactive session deletion", () => {
 
 describe("useConversationColumn — handleStartTerminal", () => {
   it("converts the active session in place when it is an empty chat", async () => {
-    // Active session s1 is an empty chat (kind absent, messageCount 0).
+    // Active session s1 is an empty chat (kind absent, assistantMessageCount 0).
     const { result } = renderColumn("ws1");
     await act(async () => {
       await result.current.handleStartTerminal();
@@ -274,7 +270,7 @@ describe("useConversationColumn — handleStartTerminal", () => {
   it("creates a fresh terminal session when the active chat already has messages", async () => {
     mocks.useSessions.mockReturnValue({
       sessions: [
-        { sessionId: "s1", title: "One", createdAt: "2024-01-01T00:00:00Z", messageCount: 3 },
+        { sessionId: "s1", title: "One", createdAt: "2024-01-01T00:00:00Z", assistantMessageCount: 3, readAssistantMessageCount: 0 },
       ],
       createSession,
       convertToTerminal,
@@ -398,10 +394,10 @@ describe("useConversationColumn — REST history pre-warm", () => {
     // Active is s1. s2 is a warmable chat; s3 is a terminal; s4 is empty.
     mocks.useSessions.mockReturnValue({
       sessions: [
-        { sessionId: "s1", title: "One", createdAt: "2024-01-01T00:00:00Z", updatedAt: "2024-01-01T00:00:00Z", messageCount: 5 },
-        { sessionId: "s2", title: "Two", createdAt: "2024-01-02T00:00:00Z", updatedAt: "2024-01-02T00:00:00Z", messageCount: 3 },
-        { sessionId: "s3", title: "Term", kind: "terminal", createdAt: "2024-01-03T00:00:00Z", updatedAt: "2024-01-03T00:00:00Z", messageCount: 4 },
-        { sessionId: "s4", title: "Empty", createdAt: "2024-01-04T00:00:00Z", updatedAt: "2024-01-04T00:00:00Z", messageCount: 0 },
+        { sessionId: "s1", title: "One", createdAt: "2024-01-01T00:00:00Z", updatedAt: "2024-01-01T00:00:00Z", assistantMessageCount: 5, readAssistantMessageCount: 0 },
+        { sessionId: "s2", title: "Two", createdAt: "2024-01-02T00:00:00Z", updatedAt: "2024-01-02T00:00:00Z", assistantMessageCount: 3, readAssistantMessageCount: 0 },
+        { sessionId: "s3", title: "Term", kind: "terminal", createdAt: "2024-01-03T00:00:00Z", updatedAt: "2024-01-03T00:00:00Z", assistantMessageCount: 4, readAssistantMessageCount: 0 },
+        { sessionId: "s4", title: "Empty", createdAt: "2024-01-04T00:00:00Z", updatedAt: "2024-01-04T00:00:00Z", assistantMessageCount: 0, readAssistantMessageCount: 0 },
       ],
       createSession,
       convertToTerminal,
@@ -425,7 +421,8 @@ describe("useConversationColumn — REST history pre-warm", () => {
         title: `S${i}`,
         createdAt: `2024-02-${day}T00:00:00Z`,
         updatedAt: `2024-02-${day}T00:00:00Z`,
-        messageCount: 2,
+        assistantMessageCount: 2,
+        readAssistantMessageCount: 0,
       };
     });
     mocks.useConversation.mockImplementation(() =>

@@ -15,7 +15,7 @@ import {
 import { cn } from "@/lib/utils";
 import { shortcutLabel } from "@/lib/shortcuts";
 import { ShortcutTooltip } from "@/components/ShortcutTooltip";
-import type { SessionKind, SessionMetadata } from "@/types";
+import type { SessionKind, SessionMetadata, UnreadSessionState } from "@/types";
 import type { FileViewMode } from "@/hooks/useTabs";
 
 // Keep in sync with the backend Brain guard (MAX_BRAIN_SESSIONS in
@@ -29,7 +29,7 @@ interface ConversationTabsProps {
   activeSessionId?: string;
   isStreaming: boolean;
   streamingSessions?: Record<string, boolean>;
-  unreadSessions?: Record<string, boolean>;
+  unreadSessions?: Record<string, UnreadSessionState>;
   onCreateSession: () => void;
   onActivateSession: (sessionId: string) => void;
   onDeleteSession: (sessionId: string) => void;
@@ -52,21 +52,18 @@ function getSessionVisualState({
   sessionId,
   activeSessionId,
   isStreaming,
-  isFileTabActive,
   streamingSessions,
   unreadSessions,
 }: {
   sessionId: string;
   activeSessionId?: string;
   isStreaming: boolean;
-  isFileTabActive?: boolean;
   streamingSessions?: Record<string, boolean>;
-  unreadSessions?: Record<string, boolean>;
+  unreadSessions?: Record<string, UnreadSessionState>;
 }) {
   const isActive = sessionId === activeSessionId;
-  const isSessionVisible = isActive && !isFileTabActive;
   const isSessionStreaming = Boolean(streamingSessions?.[sessionId] ?? (isActive && isStreaming));
-  const isSessionUnread = !isSessionVisible && !isSessionStreaming && Boolean(unreadSessions?.[sessionId]);
+  const isSessionUnread = !isSessionStreaming && Boolean(unreadSessions?.[sessionId]);
 
   return { isActive, isSessionStreaming, isSessionUnread };
 }
@@ -74,24 +71,21 @@ function getSessionVisualState({
 function getFallbackVisualState({
   activeSessionId,
   isStreaming,
-  isFileTabActive,
   streamingSessions,
   unreadSessions,
 }: {
   activeSessionId?: string;
   isStreaming: boolean;
-  isFileTabActive?: boolean;
   streamingSessions?: Record<string, boolean>;
-  unreadSessions?: Record<string, boolean>;
+  unreadSessions?: Record<string, UnreadSessionState>;
 }) {
   const sessionIdsFromStream = Object.keys(streamingSessions ?? {});
   const fallbackSessionId = activeSessionId ?? sessionIdsFromStream[0];
   const isSessionStreaming = fallbackSessionId
     ? Boolean(streamingSessions?.[fallbackSessionId] ?? isStreaming)
     : isStreaming || sessionIdsFromStream.length > 0;
-  const isSessionVisible = !isFileTabActive;
   const hasUnread = Object.keys(unreadSessions ?? {}).length > 0;
-  const isSessionUnread = !isSessionVisible && !isSessionStreaming && hasUnread;
+  const isSessionUnread = !isSessionStreaming && hasUnread;
 
   return { isSessionStreaming, isSessionUnread };
 }
@@ -207,7 +201,6 @@ export function ConversationTabs({
   const { isSessionStreaming: isFallbackStreaming, isSessionUnread: isFallbackUnread } = getFallbackVisualState({
     activeSessionId,
     isStreaming,
-    isFileTabActive,
     streamingSessions,
     unreadSessions,
   });
@@ -325,7 +318,6 @@ export function ConversationTabs({
                 sessionId: session.sessionId,
                 activeSessionId,
                 isStreaming,
-                isFileTabActive,
                 streamingSessions,
                 unreadSessions,
               });

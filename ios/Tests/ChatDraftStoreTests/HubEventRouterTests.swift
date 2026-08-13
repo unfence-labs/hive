@@ -17,8 +17,8 @@ private final class RecordingSink: HubEventSink {
         calls.append("ensureStore:\(workspaceId)")
     }
 
-    func checkBackgroundCompletion(for workspaceId: String) {
-        calls.append("bgCompletion:\(workspaceId)")
+    func didReceiveUnreadState(_ sessions: [UnreadSessionState], for workspaceId: String) {
+        calls.append("unread:\(workspaceId):\(sessions.map(\.sessionId).joined(separator: ","))")
     }
 
     func didReceiveDiffStats(_ stats: DiffStatResponse, for workspaceId: String) {
@@ -37,10 +37,6 @@ private final class RecordingSink: HubEventSink {
         calls.append("scriptStatus:\(workspaceId)")
     }
 
-    func didReceiveDone(for workspaceId: String, sessionId: String?, markWorkspaceCompleted: Bool) {
-        calls.append("done:\(workspaceId):\(sessionId ?? "nil"):\(markWorkspaceCompleted)")
-    }
-
     func forward(_ event: WsOutgoing, for workspaceId: String) {
         calls.append("forward:\(workspaceId)")
     }
@@ -49,7 +45,7 @@ private final class RecordingSink: HubEventSink {
 @MainActor
 struct HubEventRouterTests {
     @Test
-    func statusStreamingTrueEnsuresStoreAndSkipsBackgroundCompletion() {
+    func statusStreamingTrueEnsuresStore() {
         let sink = RecordingSink()
         let envelope = HubOutgoing(
             workspaceId: "ws-1",
@@ -67,7 +63,7 @@ struct HubEventRouterTests {
     }
 
     @Test
-    func statusStreamingFalseChecksBackgroundCompletionAndSkipsEnsureStore() {
+    func statusStreamingFalseClearsStreamingAndSkipsEnsureStore() {
         let sink = RecordingSink()
         let envelope = HubOutgoing(
             workspaceId: "ws-1",
@@ -79,7 +75,6 @@ struct HubEventRouterTests {
         #expect(sink.calls == [
             "activity:ws-1",
             "streaming:false:ws-1:s1",
-            "bgCompletion:ws-1",
             "forward:ws-1"
         ])
     }
@@ -97,13 +92,12 @@ struct HubEventRouterTests {
         #expect(sink.calls == [
             "activity:ws-1",
             "streaming:false:ws-1:s1",
-            "bgCompletion:ws-1",
             "forward:ws-1"
         ])
     }
 
     @Test
-    func doneMarksWorkspaceCompleted() {
+    func doneOnlyClearsStreaming() {
         let sink = RecordingSink()
         let envelope = HubOutgoing(
             workspaceId: "ws-1",
@@ -115,13 +109,12 @@ struct HubEventRouterTests {
         #expect(sink.calls == [
             "activity:ws-1",
             "streaming:false:ws-1:s1",
-            "done:ws-1:s1:true",
             "forward:ws-1"
         ])
     }
 
     @Test
-    func cancelledWithUserInitiatedNilMarksNotCompleted() {
+    func cancelledOnlyClearsStreaming() {
         let sink = RecordingSink()
         let envelope = HubOutgoing(
             workspaceId: "ws-1",
@@ -133,42 +126,29 @@ struct HubEventRouterTests {
         #expect(sink.calls == [
             "activity:ws-1",
             "streaming:false:ws-1:s1",
-            "done:ws-1:s1:false",
             "forward:ws-1"
         ])
     }
 
     @Test
-    func cancelledWithUserInitiatedFalseMarksNotCompleted() {
+    func unreadStateReplacesAuthoritativeWorkspaceSnapshot() {
         let sink = RecordingSink()
         let envelope = HubOutgoing(
             workspaceId: "ws-1",
-            event: .cancelled(sessionId: "s1", errorDetail: nil, userInitiated: false, durationMs: nil)
+            event: .unreadState(sessions: [
+                UnreadSessionState(
+                    sessionId: "s1",
+                    assistantMessageCount: 3,
+                    readAssistantMessageCount: 1
+                )
+            ])
         )
 
         HubEventRouter.route(envelope, to: sink)
 
         #expect(sink.calls == [
             "activity:ws-1",
-            "streaming:false:ws-1:s1",
-            "done:ws-1:s1:false",
-            "forward:ws-1"
-        ])
-    }
-
-    @Test
-    func cancelledWithUserInitiatedTrueSkipsDone() {
-        let sink = RecordingSink()
-        let envelope = HubOutgoing(
-            workspaceId: "ws-1",
-            event: .cancelled(sessionId: "s1", errorDetail: nil, userInitiated: true, durationMs: nil)
-        )
-
-        HubEventRouter.route(envelope, to: sink)
-
-        #expect(sink.calls == [
-            "activity:ws-1",
-            "streaming:false:ws-1:s1",
+            "unread:ws-1:s1",
             "forward:ws-1"
         ])
     }

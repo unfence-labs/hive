@@ -4,6 +4,12 @@ import Observation
 
 enum HubConnectionState { case connecting; case connected; case disconnected }
 
+private struct MarkReadRequest: Hashable {
+    let workspaceId: String
+    let sessionId: String
+    let throughCount: Int
+}
+
 @MainActor
 protocol HubConnectionClient: AnyObject {
     func connect()
@@ -32,19 +38,16 @@ final class HubStatusMonitor {
     /// Per-workspace, per-session streaming tracking.
     /// Key = workspaceId, Value = set of sessionIds currently streaming.
     private(set) var streamingSessions: [String: Set<String>] = [:]
-    /// Per-workspace, per-session unread tracking.
-    /// Key = workspaceId, Value = set of sessionIds with unread completed turns.
-    private(set) var unreadSessions: [String: Set<String>] = [:]
+    /// Full authoritative unread snapshot per workspace, keyed by session ID.
+    private(set) var unreadSessions: [String: [String: UnreadSessionState]] = [:]
     private(set) var workspaceDiffStats: [String: DiffStatResponse] = [:]
     private(set) var workspaceBranchInfo: [String: BranchInfo] = [:]
     private(set) var workspacePrStatus: [String: PrStatusResponse] = [:]
     private(set) var workspaceScriptStatus: [String: [String: ScriptStatusInfo]] = [:]
     private(set) var workspaceLastActivityAt: [String: Date] = [:]
     private var lastViewedSessionByWorkspace: [String: String] = [:]
-    private(set) var completedWorkspaces: Set<String> = [] {
-        didSet { persistCompleted() }
-    }
     private(set) var connectionState: HubConnectionState = .connecting
+    private(set) var isAppActive = true
 
     /// True while the device reports a usable network path. Airplane mode flips
     /// this instantly — long before a socket send or the 30s ping would notice —
@@ -56,10 +59,12 @@ final class HubStatusMonitor {
     /// distinguish a genuinely fresh connection from a stale `.connected` read.
     private(set) var connectionGeneration = 0
 
-    /// Workspace currently visible in ChatView (suppresses unread badge).
+    /// Workspace currently visible in ChatView.
     var viewingWorkspaceId: String? { syncState.viewingWorkspaceId }
-    /// Session currently visible in ChatView (suppresses unread badge for that session).
+    /// Session currently visible in ChatView.
     private(set) var viewingSessionId: String?
+    private var renderedAssistantCount: Int?
+    private var markReadRequestsInFlight: Set<MarkReadRequest> = []
 
     var currentPrWorkspaces: [String] { Array(syncState.prWorkspaces) }
 
@@ -76,8 +81,6 @@ final class HubStatusMonitor {
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         return formatter
     }()
-
-    private static let completedKey = "completedWorkspaces"
 
     convenience init(storeCache: ConversationStoreCache) {
         self.init(storeCache: storeCache, makeHubConnection: { HubConnection(monitor: $0) })
@@ -118,9 +121,6 @@ final class HubStatusMonitor {
     ) {
         self.storeCache = storeCache
         self.makeHubConnection = makeHubConnection
-        // Restore persisted completed set (survives app kill)
-        let stored = UserDefaults.standard.stringArray(forKey: Self.completedKey) ?? []
-        self.completedWorkspaces = Set(stored)
         storeCache.onStoreCreated = { [weak self] workspaceId, store in
             self?.wireSendClosure(for: workspaceId, on: store)
         }
@@ -190,7 +190,7 @@ final class HubStatusMonitor {
     }
 
     func isUnread(workspaceId: String, sessionId: String) -> Bool {
-        unreadSessions[workspaceId]?.contains(sessionId) ?? false
+        unreadSessions[workspaceId]?[sessionId] != nil
     }
 
     func hasUnreadSessions(_ workspaceId: String) -> Bool {
@@ -221,16 +221,18 @@ final class HubStatusMonitor {
         workspaceScriptStatus[workspaceId] ?? [:]
     }
 
-    func isCompleted(_ workspaceId: String) -> Bool {
-        completedWorkspaces.contains(workspaceId)
+    /// Number of authoritative unread conversations in real workspaces.
+    var hubBadgeCount: Int {
+        unreadSessions.reduce(into: 0) { count, entry in
+            if entry.key != BRAIN_WORKSPACE_ID {
+                count += entry.value.count
+            }
+        }
     }
 
-    /// Number of workspaces with new activity (a completed turn or an unread
-    /// session), for the Hub tab badge. Clears as workspaces are viewed.
-    var hubBadgeCount: Int {
-        completedWorkspaces
-            .union(unreadSessions.compactMap { $0.value.isEmpty ? nil : $0.key })
-            .count
+    /// Number of authoritative unread Brain conversations.
+    var brainBadgeCount: Int {
+        unreadSessions[BRAIN_WORKSPACE_ID]?.count ?? 0
     }
 
     func lastActivityDate(for workspaceId: String) -> Date? {
@@ -243,22 +245,6 @@ final class HubStatusMonitor {
             guard let date = parseTimestamp(rawDate) else { continue }
             markActivity(for: workspace.id, at: date)
         }
-    }
-
-    func clearCompleted(_ workspaceId: String) {
-        guard completedWorkspaces.contains(workspaceId) else { return }
-        completedWorkspaces.remove(workspaceId)
-    }
-
-    func clearUnread(workspaceId: String, sessionId: String) {
-        unreadSessions[workspaceId]?.remove(sessionId)
-        if unreadSessions[workspaceId]?.isEmpty == true {
-            unreadSessions.removeValue(forKey: workspaceId)
-        }
-    }
-
-    private func persistCompleted() {
-        UserDefaults.standard.set(Array(completedWorkspaces), forKey: Self.completedKey)
     }
 
     // MARK: - Sync
@@ -284,7 +270,6 @@ final class HubStatusMonitor {
                 workspaceScriptStatus.removeValue(forKey: id)
                 workspaceLastActivityAt.removeValue(forKey: id)
                 storeCache.evict(id)
-                completedWorkspaces.remove(id)
             }
         }
 
@@ -306,6 +291,9 @@ final class HubStatusMonitor {
     }
 
     func setViewingWorkspace(_ id: String?, sessionId: String?) {
+        if id != viewingWorkspaceId || sessionId != viewingSessionId {
+            renderedAssistantCount = nil
+        }
         viewingSessionId = sessionId
         if let id, let sessionId {
             lastViewedSessionByWorkspace[id] = sessionId
@@ -318,10 +306,21 @@ final class HubStatusMonitor {
     func clearViewingSession(workspaceId: String, sessionId: String) {
         guard viewingWorkspaceId == workspaceId, viewingSessionId == sessionId else { return }
         viewingSessionId = nil
+        renderedAssistantCount = nil
+    }
+
+    /// Report how many assistant messages the visible ChatView actually renders.
+    /// The authoritative unread snapshot is only cleared after the backend echoes
+    /// a replacement `unread_state` snapshot.
+    func updateRenderedAssistantCount(workspaceId: String, sessionId: String, count: Int) {
+        guard viewingWorkspaceId == workspaceId, viewingSessionId == sessionId else { return }
+        renderedAssistantCount = count
+        requestMarkReadIfNeeded()
     }
 
     func returnToHub(visiblePrWorkspaces ids: [String]) {
         viewingSessionId = nil
+        renderedAssistantCount = nil
         if let payload = syncState.returnToHub(visiblePrWorkspaces: Set(ids)) {
             hubConnection?.sendSync(payload)
         }
@@ -340,10 +339,10 @@ final class HubStatusMonitor {
         workspaceLastActivityAt.removeAll()
         workspaceScriptStatus.removeAll()
         workspacePrStatus.removeAll()
-        completedWorkspaces.removeAll()
         lastViewedSessionByWorkspace.removeAll()
         viewingSessionId = nil
-        streamingBeforeBackground.removeAll()
+        renderedAssistantCount = nil
+        markReadRequestsInFlight.removeAll()
         needsResubscribe = true
     }
 
@@ -353,7 +352,10 @@ final class HubStatusMonitor {
         if state == .connecting { needsResubscribe = true }
         guard connectionState != state else { return }
         connectionState = state
-        if state == .connected { connectionGeneration += 1 }
+        if state == .connected {
+            connectionGeneration += 1
+            requestMarkReadIfNeeded()
+        }
     }
 
     func reconnectNow() {
@@ -374,10 +376,6 @@ final class HubStatusMonitor {
         }
     }
 
-    /// Workspaces that were streaming when the app entered background.
-    /// Used to detect streaming→idle transitions after reconnect and mark them as completed.
-    private var streamingBeforeBackground: Set<String> = []
-
     func didReceiveStreaming(_ streaming: Bool, for workspaceId: String, sessionId: String?) {
         if streaming {
             var sessions = streamingSessions[workspaceId] ?? []
@@ -397,12 +395,13 @@ final class HubStatusMonitor {
         }
     }
 
-    /// Handle background→foreground streaming transition for a workspace.
-    /// Only called from status events (bootstrap), not from done/cancelled.
-    func checkBackgroundCompletion(for workspaceId: String) {
-        if !isStreaming(workspaceId), streamingBeforeBackground.remove(workspaceId) != nil {
-            didReceiveDone(for: workspaceId, sessionId: nil, markWorkspaceCompleted: true)
+    func didReceiveUnreadState(_ sessions: [UnreadSessionState], for workspaceId: String) {
+        if sessions.isEmpty {
+            unreadSessions.removeValue(forKey: workspaceId)
+        } else {
+            unreadSessions[workspaceId] = Dictionary(uniqueKeysWithValues: sessions.map { ($0.sessionId, $0) })
         }
+        requestMarkReadIfNeeded()
     }
 
     func didReceiveDiffStats(_ stats: DiffStatResponse, for workspaceId: String) {
@@ -422,25 +421,6 @@ final class HubStatusMonitor {
         var statuses = workspaceScriptStatus[workspaceId] ?? [:]
         statuses[scriptType] = ScriptStatusInfo(state: scriptState, exitCode: exitCode)
         workspaceScriptStatus[workspaceId] = statuses
-    }
-
-    func didReceiveDone(for workspaceId: String, sessionId: String?, markWorkspaceCompleted: Bool) {
-        if let sessionId,
-           workspaceId == viewingWorkspaceId,
-           sessionId == viewingSessionId {
-            clearUnread(workspaceId: workspaceId, sessionId: sessionId)
-            return
-        }
-
-        if let sessionId {
-            var sessions = unreadSessions[workspaceId] ?? []
-            sessions.insert(sessionId)
-            unreadSessions[workspaceId] = sessions
-        }
-
-        guard markWorkspaceCompleted else { return }
-        guard workspaceId != viewingWorkspaceId else { return }
-        completedWorkspaces.insert(workspaceId)
     }
 
     func didReceiveActivity(_ event: WsOutgoing, for workspaceId: String) {
@@ -481,17 +461,54 @@ final class HubStatusMonitor {
         storeCache.stores[workspaceId]?.handle(event)
     }
 
+    private func requestMarkReadIfNeeded() {
+        guard isAppActive,
+              connectionState == .connected,
+              let workspaceId = viewingWorkspaceId,
+              let sessionId = viewingSessionId,
+              let throughCount = renderedAssistantCount,
+              throughCount > 0,
+              let unread = unreadSessions[workspaceId]?[sessionId],
+              throughCount > unread.readAssistantMessageCount else {
+            return
+        }
+
+        let request = MarkReadRequest(
+            workspaceId: workspaceId,
+            sessionId: sessionId,
+            throughCount: throughCount
+        )
+        guard markReadRequestsInFlight.insert(request).inserted else { return }
+
+        Task { [weak self] in
+            guard let self else { return }
+            let message = HubIncoming.workspaceEvent(
+                workspaceId: workspaceId,
+                event: .markRead(sessionId: sessionId, throughCount: throughCount)
+            )
+            await self.resubscribeIfNeeded()
+            let sent = await self.hubConnection?.send(message) == true
+            self.markReadRequestsInFlight.remove(request)
+            if !sent {
+                self.handleSendFailure()
+            }
+        }
+    }
+
     // MARK: - App lifecycle
 
     func forceRefresh() {
         hubConnection?.probeLiveness()
     }
 
-    /// Called when the app returns to foreground after a non-trivial background period.
     func appDidBecomeActive() {
-        // Snapshot workspace IDs that had any streaming session
-        streamingBeforeBackground = Set(streamingSessions.keys)
+        isAppActive = true
+        requestMarkReadIfNeeded()
         forceRefresh()
+    }
+
+    func appDidBecomeInactive() {
+        isAppActive = false
     }
 }
 

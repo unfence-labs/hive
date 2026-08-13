@@ -1,8 +1,9 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import BrainView from "@/pages/BrainView";
 import { _resetSnapshotCache } from "@/hooks/useTabs";
+import { BRAIN_WORKSPACE_ID } from "@/lib/brain";
 import { createWrapper } from "../test-utils";
 
 function renderBrain() {
@@ -22,7 +23,7 @@ const mocks = vi.hoisted(() => ({
   useConversation: vi.fn(),
   useSessions: vi.fn(),
   useWorkspaceLiveDataContext: vi.fn(),
-  useClearUnread: vi.fn(),
+  wsSend: vi.fn(),
   useTasks: vi.fn(),
   useBackgroundAgents: vi.fn(),
   useTerminalApps: vi.fn(),
@@ -47,7 +48,9 @@ vi.mock("@/hooks/useConversation", () => ({ useConversation: mocks.useConversati
 vi.mock("@/hooks/useSessions", () => ({ useSessions: mocks.useSessions }));
 vi.mock("@/contexts/WorkspaceLiveDataContext", () => ({
   useWorkspaceLiveDataContext: mocks.useWorkspaceLiveDataContext,
-  useClearUnread: mocks.useClearUnread,
+}));
+vi.mock("@/lib/ws-transport", () => ({
+  wsTransport: { send: mocks.wsSend },
 }));
 vi.mock("@/hooks/useTasks", () => ({ useTasks: mocks.useTasks }));
 vi.mock("@/hooks/useBackgroundAgents", () => ({ useBackgroundAgents: mocks.useBackgroundAgents }));
@@ -122,6 +125,7 @@ function emptyConversation() {
 describe("BrainView", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.spyOn(document, "hasFocus").mockReturnValue(true);
     _resetSnapshotCache();
     mocks.useBrain.mockReturnValue({ brain: { exists: true, repoUrl: "x", createdAt: "" }, loading: false });
     mocks.useBrainFileTree.mockReturnValue({ data: [{ name: "a.md", path: "a.md", type: "file" }], error: null });
@@ -140,10 +144,13 @@ describe("BrainView", () => {
       deleteSession: vi.fn(),
     });
     mocks.useWorkspaceLiveDataContext.mockReturnValue({});
-    mocks.useClearUnread.mockReturnValue(vi.fn());
     mocks.useTasks.mockReturnValue({ tasks: [], currentTask: null, counts: {} });
     mocks.useBackgroundAgents.mockReturnValue({ agents: [], runningCount: 0 });
     mocks.useTerminalApps.mockReturnValue([]);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 
   it("shows the not-connected state when no Brain exists", () => {
@@ -161,6 +168,41 @@ describe("BrainView", () => {
     expect(screen.getByText("a.md")).toBeInTheDocument();
     // Chat is visible, no file tab open yet.
     expect(screen.queryByTestId("file-viewer")).not.toBeInTheDocument();
+  });
+
+  it("marks the visible Brain conversation read using the rendered assistant count", async () => {
+    mocks.useConversation.mockReturnValue({
+      ...emptyConversation(),
+      messages: [{
+        id: "assistant-1",
+        sessionId: "s1",
+        role: "assistant",
+        content: "Saved note",
+        timestamp: "2026-02-12T00:00:00.000Z",
+      }],
+      isHistoryLoading: false,
+    });
+    mocks.useWorkspaceLiveDataContext.mockReturnValue({
+      [BRAIN_WORKSPACE_ID]: {
+        unreadSessions: {
+          s1: {
+            sessionId: "s1",
+            assistantMessageCount: 2,
+            readAssistantMessageCount: 0,
+          },
+        },
+      },
+    });
+
+    renderBrain();
+
+    await waitFor(() => {
+      expect(mocks.wsSend).toHaveBeenCalledWith(BRAIN_WORKSPACE_ID, {
+        type: "mark_read",
+        sessionId: "s1",
+        throughCount: 1,
+      });
+    });
   });
 
   it("has no note-management (create/rename/delete) affordances", () => {

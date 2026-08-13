@@ -99,7 +99,8 @@ async function writeSessionFixture(
     workspaceId,
     createdAt: "2026-02-11T00:00:00.000Z",
     updatedAt: "2026-02-11T00:00:01.000Z",
-    messageCount: 0,
+    assistantMessageCount: 0,
+    readAssistantMessageCount: 0,
     ...options?.metadata,
   };
 
@@ -118,14 +119,40 @@ async function writeSessionFixture(
 }
 
 describe("getDefaultSessionId", () => {
+  it("migrates legacy messageCount metadata as already read", async () => {
+    const sessionDir = join(dataDir, projectId, "sessions", "legacy-count");
+    await mkdir(sessionDir, { recursive: true });
+    await writeFile(join(sessionDir, "metadata.json"), JSON.stringify({
+      sessionId: "legacy-count",
+      workspaceId: wsId,
+      createdAt: "2026-02-11T00:00:00.000Z",
+      updatedAt: "2026-02-11T00:00:01.000Z",
+      messageCount: 4,
+    }), "utf-8");
+
+    const sessions = await listWorkspaceSessions(wsId, dataDir);
+    expect(sessions[0]).toMatchObject({
+      assistantMessageCount: 4,
+      readAssistantMessageCount: 4,
+    });
+    const persisted = JSON.parse(
+      await readFile(join(sessionDir, "metadata.json"), "utf-8"),
+    ) as Record<string, unknown>;
+    expect(persisted).not.toHaveProperty("messageCount");
+    expect(persisted).toMatchObject({
+      assistantMessageCount: 4,
+      readAssistantMessageCount: 4,
+    });
+  });
+
   it("returns undefined when the workspace has no non-empty conversation", async () => {
-    await writeSessionFixture("empty-1", wsId, { metadata: { messageCount: 0 } });
+    await writeSessionFixture("empty-1", wsId, { metadata: { assistantMessageCount: 0 } });
     expect(await getDefaultSessionId(wsId, dataDir)).toBeUndefined();
   });
 
   it("returns an empty session that owns a pending draft prompt", async () => {
     await writeSessionFixture("draft-session", wsId, {
-      metadata: { messageCount: 0, draftPrompt: "Fix issue #42" },
+      metadata: { assistantMessageCount: 0, draftPrompt: "Fix issue #42" },
     });
 
     expect(await getDefaultSessionId(wsId, dataDir)).toBe("draft-session");
@@ -133,10 +160,10 @@ describe("getDefaultSessionId", () => {
 
   it("skips a newer empty session and opens the most-recent non-empty chat", async () => {
     await writeSessionFixture("empty-new", wsId, {
-      metadata: { messageCount: 0, updatedAt: "2026-02-20T00:00:00.000Z" },
+      metadata: { assistantMessageCount: 0, updatedAt: "2026-02-20T00:00:00.000Z" },
     });
     await writeSessionFixture("has-msgs", wsId, {
-      metadata: { messageCount: 2, updatedAt: "2026-02-10T00:00:00.000Z" },
+      metadata: { assistantMessageCount: 1, updatedAt: "2026-02-10T00:00:00.000Z" },
       messages: [
         { id: "u1", sessionId: "has-msgs", role: "user", content: "hi", timestamp: "2026-02-10T00:00:00.000Z" },
         { id: "a1", sessionId: "has-msgs", role: "assistant", content: "yo", timestamp: "2026-02-10T00:00:01.000Z" },
@@ -147,10 +174,10 @@ describe("getDefaultSessionId", () => {
 
   it("skips an active empty loaded session and opens the most-recent non-empty chat", async () => {
     const { session: emptyActive } = await getOrCreateSession(wsId, dataDir, CONV_CMD);
-    expect(emptyActive.metadata.messageCount).toBe(0);
+    expect(emptyActive.metadata.assistantMessageCount).toBe(0);
 
     await writeSessionFixture("has-msgs", wsId, {
-      metadata: { messageCount: 2, updatedAt: "2026-02-10T00:00:00.000Z" },
+      metadata: { assistantMessageCount: 1, updatedAt: "2026-02-10T00:00:00.000Z" },
       messages: [
         { id: "u1", sessionId: "has-msgs", role: "user", content: "hi", timestamp: "2026-02-10T00:00:00.000Z" },
         { id: "a1", sessionId: "has-msgs", role: "assistant", content: "yo", timestamp: "2026-02-10T00:00:01.000Z" },
@@ -162,10 +189,10 @@ describe("getDefaultSessionId", () => {
 
   it("never returns a terminal session", async () => {
     await writeSessionFixture("term", wsId, {
-      metadata: { messageCount: 5, kind: "terminal", updatedAt: "2026-02-20T00:00:00.000Z" },
+      metadata: { assistantMessageCount: 5, kind: "terminal", updatedAt: "2026-02-20T00:00:00.000Z" },
     });
     await writeSessionFixture("chat", wsId, {
-      metadata: { messageCount: 1, updatedAt: "2026-02-10T00:00:00.000Z" },
+      metadata: { assistantMessageCount: 1, updatedAt: "2026-02-10T00:00:00.000Z" },
       messages: [{ id: "u1", sessionId: "chat", role: "user", content: "hi", timestamp: "2026-02-10T00:00:00.000Z" }],
     });
     expect(await getDefaultSessionId(wsId, dataDir)).toBe("chat");
@@ -240,7 +267,8 @@ describe("getOrCreateSession", () => {
     await writeSessionFixture("prev-session", wsId, {
       metadata: {
         claudeSessionId,
-        messageCount: 5,
+        assistantMessageCount: 5,
+        readAssistantMessageCount: 5,
         updatedAt: "2026-02-12T00:00:00.000Z",
       },
     });
@@ -257,7 +285,7 @@ describe("getOrCreateSession", () => {
     expect(created).toBe(false);
     expect(session.sessionId).toBe("prev-session");
     expect(session.metadata.claudeSessionId).toBe(claudeSessionId);
-    expect(session.metadata.messageCount).toBe(5);
+    expect(session.metadata.assistantMessageCount).toBe(5);
 
     const updatedState = await loadProject(projectId, dataDir);
     const updatedWs = updatedState!.workspaces.find((w) => w.id === wsId)!;
@@ -490,7 +518,7 @@ describe("listWorkspaceSessions", () => {
     await writeSessionFixture(session.sessionId, wsId, {
       metadata: {
         updatedAt: "2000-01-01T00:00:00.000Z",
-        messageCount: 99,
+        assistantMessageCount: 99,
       },
     });
 
@@ -499,7 +527,7 @@ describe("listWorkspaceSessions", () => {
     expect(sessions[0]).toMatchObject({
       sessionId: session.sessionId,
       workspaceId: wsId,
-      messageCount: session.metadata.messageCount,
+      assistantMessageCount: session.metadata.assistantMessageCount,
       updatedAt: session.metadata.updatedAt,
     });
   });
@@ -649,7 +677,7 @@ describe("terminal sessions", () => {
 
   it("refuses to convert a session that already has messages", async () => {
     await writeSessionFixture("chatty-session", wsId, {
-      metadata: { messageCount: 3, updatedAt: "2026-02-12T00:00:00.000Z" },
+      metadata: { assistantMessageCount: 3, updatedAt: "2026-02-12T00:00:00.000Z" },
     });
 
     await expect(
@@ -662,7 +690,7 @@ describe("activateSession", () => {
   it("loads a persisted session, marks it active, and keeps current loaded", async () => {
     const { session: current } = await getOrCreateSession(wsId, dataDir, CONV_CMD);
     await writeSessionFixture("sess-target", wsId, {
-      metadata: { messageCount: 2, updatedAt: "2026-02-12T00:00:00.000Z" },
+      metadata: { assistantMessageCount: 2, updatedAt: "2026-02-12T00:00:00.000Z" },
     });
 
     const activated = await activateSession(wsId, "sess-target", dataDir, CONV_CMD);
@@ -734,7 +762,8 @@ describe("hardDeleteSession", () => {
       workspaceId: wsId,
       createdAt: "2026-02-12T00:00:00.000Z",
       updatedAt: "2026-02-12T00:00:01.000Z",
-      messageCount: 0,
+      assistantMessageCount: 0,
+      readAssistantMessageCount: 0,
     }), "utf-8");
 
     await expect(stat(sessionDir)).resolves.toBeDefined();

@@ -262,7 +262,8 @@ export interface SessionMetadata {
   kind?: SessionKind;
   createdAt: string;
   updatedAt: string;
-  messageCount: number;
+  assistantMessageCount: number;
+  readAssistantMessageCount: number;
   lockedProvider?: string;
   /** Options from the last user message accepted for execution. */
   lastRunOptions?: MessageOptions;
@@ -461,7 +462,14 @@ export type WsIncoming =
   | { type: "user_message"; content: string; images?: ImageAttachment[]; fileMentions?: FileMention[]; options?: MessageOptions; sessionId?: string; clientMessageId?: string }
   | { type: "stop"; sessionId?: string }
   | { type: "tool_input_response"; requestId: string; toolName: string; result: ToolInputResult; sessionId?: string }
-  | { type: "request_stream_snapshots" };
+  | { type: "request_stream_snapshots" }
+  | { type: "mark_read"; sessionId: string; throughCount: number };
+
+export interface UnreadSessionState {
+  sessionId: string;
+  assistantMessageCount: number;
+  readAssistantMessageCount: number;
+}
 
 /** Backend -> Frontend */
 export type WsOutgoing =
@@ -508,7 +516,8 @@ export type WsOutgoing =
   | { type: "pr_status"; status: PrStatusResponse }
   | { type: "script_status"; scriptType: ScriptType; state: ScriptState; exitCode?: number }
   | { type: "browser_status"; status: BrowserStatusPayload }
-  | { type: "plan_mode_changed"; sessionId: string; active: boolean };
+  | { type: "plan_mode_changed"; sessionId: string; active: boolean }
+  | { type: "unread_state"; sessions: UnreadSessionState[] };
 
 export type BrowserSessionState = "registered" | "active" | "closed" | "error";
 

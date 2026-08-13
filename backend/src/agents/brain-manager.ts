@@ -12,6 +12,7 @@ import { assertSessionCapacity } from "./session-limits.js";
 import { extractSummary, extractPreview } from "../utils/summary-extractor.js";
 import { withKeyedLock } from "../utils/async-lock.js";
 import { parseJsonlMessages, sortByUpdatedAtDesc } from "./session-utils.js";
+import { readSessionMetadata, updateSessionMetadata } from "./session-metadata.js";
 import type { ChatMessage, SessionMetadata } from "../types.js";
 
 /**
@@ -139,8 +140,7 @@ async function loadSessionFromDisk(
   const metaPath = join(sessionsRoot(dataDir), sessionId, "metadata.json");
   let meta: SessionMetadata;
   try {
-    const raw = await readFile(metaPath, "utf-8");
-    meta = JSON.parse(raw) as SessionMetadata;
+    meta = await readSessionMetadata(metaPath);
   } catch {
     throw new NotFoundError(`Session ${sessionId} not found`);
   }
@@ -223,8 +223,9 @@ export async function listBrainSessions(dataDir = getDataDir()): Promise<Session
     for (const entry of entries) {
       if (!entry.isDirectory()) continue;
       try {
-        const raw = await readFile(join(sessionsRoot(dataDir), entry.name, "metadata.json"), "utf-8");
-        const meta = JSON.parse(raw) as SessionMetadata;
+        const meta = await readSessionMetadata(
+          join(sessionsRoot(dataDir), entry.name, "metadata.json"),
+        );
         if (meta.workspaceId !== BRAIN_WORKSPACE_ID) continue;
         sessions.push(meta);
       } catch {
@@ -252,7 +253,38 @@ export async function getDefaultBrainSessionId(dataDir = getDataDir()): Promise<
   if (active) return active.sessionId;
 
   const sessions = await listBrainSessions(dataDir); // sorted updatedAt-desc
-  return sessions.find((s) => s.messageCount > 0)?.sessionId;
+  return sessions.find((s) => s.assistantMessageCount > 0)?.sessionId;
+}
+
+export async function markBrainSessionRead(
+  sessionId: string,
+  throughCount: number,
+  dataDir = getDataDir(),
+): Promise<SessionMetadata> {
+  return withKeyedLock(brainLocks, BRAIN_WORKSPACE_ID, async () => {
+    const loaded = loadedSessions.get(sessionId);
+    if (loaded) return loaded.markRead(throughCount);
+
+    const metaPath = join(sessionsRoot(dataDir), sessionId, "metadata.json");
+    return updateSessionMetadata(metaPath, (metadata) => {
+      if (metadata.workspaceId !== BRAIN_WORKSPACE_ID) {
+        throw new NotFoundError(`Session ${sessionId} does not belong to the Brain`);
+      }
+      if (!Number.isInteger(throughCount) || throughCount < 0) {
+        throw new Error("throughCount must be a non-negative integer");
+      }
+      if (throughCount > metadata.assistantMessageCount) {
+        throw new Error("throughCount cannot exceed assistantMessageCount");
+      }
+      return {
+        ...metadata,
+        readAssistantMessageCount: Math.max(
+          metadata.readAssistantMessageCount,
+          throughCount,
+        ),
+      };
+    });
+  });
 }
 
 /** Create a new Brain session and make it active. Enforces the shared session cap. */

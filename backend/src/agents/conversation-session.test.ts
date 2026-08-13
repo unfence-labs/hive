@@ -2348,6 +2348,12 @@ describe("ConversationSession", () => {
     mockProc._stdout.push(appServerResponse(turnStart.id, {
       turn: { id: "turn-failed" },
     }));
+    mockProc._stdout.push(appServerNotification("item/agentMessage/delta", {
+      threadId: "thread-app-failed",
+      turnId: "turn-failed",
+      itemId: "failed-partial",
+      delta: "Partial answer",
+    }));
 
     mockProc._stdout.push(appServerNotification("turn/completed", {
       threadId: "thread-app-failed",
@@ -2372,6 +2378,7 @@ describe("ConversationSession", () => {
     expect(messages.some((msg) => msg.type === "done")).toBe(false);
     expect(messages.some((msg) => msg.type === "cancelled")).toBe(false);
     expect(session.status).toBe("error");
+    expect(session.metadata.assistantMessageCount).toBe(1);
   });
 
   it("waits for Codex app-server turn completion after protocol error notifications", async () => {
@@ -2431,6 +2438,7 @@ describe("ConversationSession", () => {
       message: "Rate limited: try again later",
     });
     expect(messages.some((msg) => msg.type === "cancelled")).toBe(false);
+    expect(session.metadata.assistantMessageCount).toBe(0);
   });
 
   it("treats Codex app-server interrupted turns without a local stop as errors", async () => {
@@ -3171,7 +3179,8 @@ describe("ConversationSession", () => {
   it("exposes metadata with correct workspaceId", () => {
     const session = createSession();
     expect(session.metadata.workspaceId).toBe("ws-test");
-    expect(session.metadata.messageCount).toBe(0);
+    expect(session.metadata.assistantMessageCount).toBe(0);
+    expect(session.metadata.readAssistantMessageCount).toBe(0);
     expect(session.metadata.sessionId).toBe(session.sessionId);
   });
 
@@ -3191,6 +3200,7 @@ describe("ConversationSession", () => {
     expect(lines.length).toBe(2);
     const assistantMsg = JSON.parse(lines[1]);
     expect(assistantMsg.cancelled).toBe(true);
+    expect(session.metadata.assistantMessageCount).toBe(1);
   });
 
   it("persists an explicit interruption message when cancelled before any output", async () => {
@@ -3256,6 +3266,7 @@ describe("ConversationSession", () => {
     expect(userMsg.role).toBe("user");
     expect(userMsg.content).toBe("Hello");
     expect(userMsg.sessionId).toBe("persist-test");
+    expect(session.metadata.assistantMessageCount).toBe(0);
   });
 
   it("persists assistant message on done", async () => {
@@ -3299,7 +3310,8 @@ describe("ConversationSession", () => {
 
     expect(meta.sessionId).toBe("meta-test");
     expect(meta.claudeSessionId).toBe(preGeneratedId);
-    expect(meta.messageCount).toBe(1);
+    expect(meta.assistantMessageCount).toBe(1);
+    expect(meta.readAssistantMessageCount).toBe(0);
   });
 
   it("getMessages() returns persisted messages", async () => {
@@ -3418,7 +3430,8 @@ describe("ConversationSession", () => {
     });
 
     expect(session2.metadata.claudeSessionId).toBe(preGeneratedId);
-    expect(session2.metadata.messageCount).toBe(1);
+    expect(session2.metadata.assistantMessageCount).toBe(1);
+    expect(session2.metadata.readAssistantMessageCount).toBe(0);
   });
 
   it("kills blocking AskUserQuestion tool calls and emits tool_input_required", async () => {

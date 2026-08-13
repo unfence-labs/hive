@@ -1,5 +1,4 @@
 import Foundation
-import Observation
 import Testing
 @testable import HiveMobileStoresCore
 
@@ -55,7 +54,13 @@ struct HubStatusMonitorTests {
 
         monitor.sync(workspaceIds: ["ws-removed", "ws-kept"])
         monitor.didReceiveStreaming(true, for: "ws-removed", sessionId: "session-1")
-        monitor.didReceiveDone(for: "ws-removed", sessionId: "session-1", markWorkspaceCompleted: true)
+        monitor.didReceiveUnreadState([
+            UnreadSessionState(
+                sessionId: "session-1",
+                assistantMessageCount: 2,
+                readAssistantMessageCount: 1
+            )
+        ], for: "ws-removed")
         monitor.didReceiveDiffStats(DiffStatResponse(committed: [], uncommitted: []), for: "ws-removed")
         monitor.didReceiveBranchInfo(
             BranchInfo(name: "feature", lastSyncedAt: "2026-01-01T00:00:00.000Z"),
@@ -76,7 +81,6 @@ struct HubStatusMonitorTests {
         #expect(monitor.diffStats(for: "ws-removed") == nil)
         #expect(monitor.branchInfo(for: "ws-removed") == nil)
         #expect(monitor.scriptStatus(for: "ws-removed").isEmpty)
-        #expect(monitor.isCompleted("ws-removed") == false)
         #expect(cache.stores["ws-removed"] == nil)
         #expect(connection.syncCalls.last?.payload.workspaceIds == ["ws-kept"])
     }
@@ -108,11 +112,18 @@ struct HubStatusMonitorTests {
     }
 
     @Test
-    func routedDoneForVisibleSessionDoesNotCreateUnreadOrCompletedState() {
+    func routedDoneDoesNotDeriveUnreadState() {
         let (monitor, _, _) = makeMonitor()
         monitor.sync(workspaceIds: ["ws-visible"])
         monitor.setViewingWorkspace("ws-visible", sessionId: "session-1")
         monitor.didReceiveStreaming(true, for: "ws-visible", sessionId: "session-1")
+        monitor.didReceiveUnreadState([
+            UnreadSessionState(
+                sessionId: "session-1",
+                assistantMessageCount: 1,
+                readAssistantMessageCount: 0
+            )
+        ], for: "ws-visible")
 
         HubEventRouter.route(
             HubOutgoing(
@@ -131,8 +142,7 @@ struct HubStatusMonitorTests {
         )
 
         #expect(monitor.isStreaming(workspaceId: "ws-visible", sessionId: "session-1") == false)
-        #expect(monitor.isUnread(workspaceId: "ws-visible", sessionId: "session-1") == false)
-        #expect(monitor.isCompleted("ws-visible") == false)
+        #expect(monitor.isUnread(workspaceId: "ws-visible", sessionId: "session-1"))
     }
 
     @Test
@@ -309,40 +319,105 @@ struct HubStatusMonitorTests {
     }
 
     @Test
-    func hubBadgeCountsWorkspacesWithActivityAndClearsOnView() {
+    func badgesCountUnreadConversationsAndSeparateBrain() {
         let (monitor, _, _) = makeMonitor()
-        monitor.sync(workspaceIds: ["ws-a", "ws-b"])
-        // Completed state persists across launches; start from a clean baseline.
-        monitor.clearCompleted("ws-a")
-        monitor.clearCompleted("ws-b")
-        #expect(monitor.hubBadgeCount == 0)
+        monitor.didReceiveUnreadState([
+            UnreadSessionState(sessionId: "a1", assistantMessageCount: 2, readAssistantMessageCount: 1),
+            UnreadSessionState(sessionId: "a2", assistantMessageCount: 4, readAssistantMessageCount: 0)
+        ], for: "ws-a")
+        monitor.didReceiveUnreadState([
+            UnreadSessionState(sessionId: "b1", assistantMessageCount: 1, readAssistantMessageCount: 0)
+        ], for: BRAIN_WORKSPACE_ID)
 
-        monitor.didReceiveStreaming(true, for: "ws-a", sessionId: "s1")
-        monitor.didReceiveDone(for: "ws-a", sessionId: "s1", markWorkspaceCompleted: true)
-        monitor.didReceiveStreaming(true, for: "ws-b", sessionId: "s2")
-        monitor.didReceiveDone(for: "ws-b", sessionId: "s2", markWorkspaceCompleted: true)
         #expect(monitor.hubBadgeCount == 2)
-
-        // Viewing ws-a clears its completed and unread state.
-        monitor.clearCompleted("ws-a")
-        monitor.clearUnread(workspaceId: "ws-a", sessionId: "s1")
-        #expect(monitor.hubBadgeCount == 1)
+        #expect(monitor.brainBadgeCount == 1)
     }
 
     @Test
-    func clearingMissingCompletedWorkspaceDoesNotNotifyObservers() {
+    func unreadSnapshotFullyReplacesWorkspaceState() {
         let (monitor, _, _) = makeMonitor()
-        let workspaceId = "ws-missing-\(UUID())"
-        var changed = false
+        monitor.didReceiveUnreadState([
+            UnreadSessionState(sessionId: "s1", assistantMessageCount: 2, readAssistantMessageCount: 1),
+            UnreadSessionState(sessionId: "s2", assistantMessageCount: 1, readAssistantMessageCount: 0)
+        ], for: "ws-1")
 
-        withObservationTracking {
-            _ = monitor.isCompleted(workspaceId)
-        } onChange: {
-            changed = true
+        monitor.didReceiveUnreadState([
+            UnreadSessionState(sessionId: "s2", assistantMessageCount: 1, readAssistantMessageCount: 0)
+        ], for: "ws-1")
+
+        #expect(!monitor.isUnread(workspaceId: "ws-1", sessionId: "s1"))
+        #expect(monitor.isUnread(workspaceId: "ws-1", sessionId: "s2"))
+
+        monitor.didReceiveUnreadState([], for: "ws-1")
+        #expect(!monitor.hasUnreadSessions("ws-1"))
+    }
+
+    @Test
+    func visibleActiveChatMarksOnlyRenderedAssistantMessagesWithoutOptimisticClear() async throws {
+        let (monitor, _, connection) = makeMonitor()
+        monitor.sync(workspaceIds: ["ws-1"])
+        monitor.didChangeConnectionState(.connected)
+        monitor.setViewingWorkspace("ws-1", sessionId: "s1")
+        monitor.didReceiveUnreadState([
+            UnreadSessionState(sessionId: "s1", assistantMessageCount: 5, readAssistantMessageCount: 1)
+        ], for: "ws-1")
+
+        monitor.updateRenderedAssistantCount(workspaceId: "ws-1", sessionId: "s1", count: 3)
+        await Task.yield()
+
+        #expect(connection.sentMessages.count == 2)
+        if case .syncWorkspaces = connection.sentMessages.first {} else {
+            Issue.record("mark_read should resubscribe before sending")
         }
+        let sent = try #require(connection.sentMessages.last)
+        guard case .workspaceEvent(let workspaceId, let event) = sent,
+              case .markRead(let sessionId, let throughCount) = event else {
+            Issue.record("Expected a mark_read workspace event")
+            return
+        }
+        #expect(workspaceId == "ws-1")
+        #expect(sessionId == "s1")
+        #expect(throughCount == 3)
+        #expect(monitor.isUnread(workspaceId: "ws-1", sessionId: "s1"))
 
-        monitor.clearCompleted(workspaceId)
+        monitor.didReceiveUnreadState([], for: "ws-1")
+        #expect(!monitor.isUnread(workspaceId: "ws-1", sessionId: "s1"))
+    }
 
-        #expect(!changed)
+    @Test
+    func backgroundChatWaitsUntilActiveBeforeMarkingRead() async {
+        let (monitor, _, connection) = makeMonitor()
+        monitor.sync(workspaceIds: ["ws-1"])
+        monitor.didChangeConnectionState(.connected)
+        monitor.setViewingWorkspace("ws-1", sessionId: "s1")
+        monitor.didReceiveUnreadState([
+            UnreadSessionState(sessionId: "s1", assistantMessageCount: 2, readAssistantMessageCount: 0)
+        ], for: "ws-1")
+        monitor.appDidBecomeInactive()
+
+        monitor.updateRenderedAssistantCount(workspaceId: "ws-1", sessionId: "s1", count: 2)
+        await Task.yield()
+        #expect(connection.sentMessages.isEmpty)
+
+        monitor.appDidBecomeActive()
+        await Task.yield()
+        #expect(connection.sentMessages.count == 2)
+    }
+
+    @Test
+    func disconnectedChatRetriesMarkReadAfterReconnect() async {
+        let (monitor, _, connection) = makeMonitor()
+        monitor.sync(workspaceIds: ["ws-1"])
+        monitor.setViewingWorkspace("ws-1", sessionId: "s1")
+        monitor.didReceiveUnreadState([
+            UnreadSessionState(sessionId: "s1", assistantMessageCount: 2, readAssistantMessageCount: 0)
+        ], for: "ws-1")
+        monitor.updateRenderedAssistantCount(workspaceId: "ws-1", sessionId: "s1", count: 2)
+        await Task.yield()
+        #expect(connection.sentMessages.isEmpty)
+
+        monitor.didChangeConnectionState(.connected)
+        await Task.yield()
+        #expect(connection.sentMessages.count == 2)
     }
 }

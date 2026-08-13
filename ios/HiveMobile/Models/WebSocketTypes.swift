@@ -84,6 +84,7 @@ enum WsIncoming: Encodable {
     case userMessage(content: String, images: [ImageAttachment]?, fileMentions: [FileMention]?, options: MessageOptions?, sessionId: String?, clientMessageId: String?)
     case stop(sessionId: String?)
     case toolInputResponse(requestId: String, toolName: String, result: ToolInputResult, sessionId: String?)
+    case markRead(sessionId: String, throughCount: Int)
     /// Ask the backend to replay live status + full snapshot for every currently
     /// streaming session in the addressed workspace (no session id: every
     /// streaming session in that workspace is replayed). Narrow web/mobile-view
@@ -113,6 +114,10 @@ enum WsIncoming: Encodable {
             try container.encode(toolName, forKey: .toolName)
             try container.encode(result, forKey: .result)
             try container.encodeIfPresent(sessionId, forKey: .sessionId)
+        case .markRead(let sessionId, let throughCount):
+            try container.encode("mark_read", forKey: .type)
+            try container.encode(sessionId, forKey: .sessionId)
+            try container.encode(throughCount, forKey: .throughCount)
         case .requestStreamSnapshots:
             try container.encode("request_stream_snapshots", forKey: .type)
         }
@@ -120,11 +125,17 @@ enum WsIncoming: Encodable {
 
     private enum CodingKeys: String, CodingKey {
         case type, sessionId, content, images, fileMentions, options, requestId, toolName, result
-        case clientMessageId
+        case clientMessageId, throughCount
     }
 }
 
 // MARK: - WsOutgoing (Backend -> Frontend)
+
+struct UnreadSessionState: Codable, Equatable {
+    let sessionId: String
+    let assistantMessageCount: Int
+    let readAssistantMessageCount: Int
+}
 
 enum WsOutgoing: Decodable {
     case textDelta(sessionId: String, text: String)
@@ -148,6 +159,7 @@ enum WsOutgoing: Decodable {
     case prStatus(status: PrStatusResponse)
     case scriptStatus(scriptType: String, state: String, exitCode: Int?)
     case planModeChanged(sessionId: String, active: Bool)
+    case unreadState(sessions: [UnreadSessionState])
     case unknown(type: String)
 
     private enum CodingKeys: String, CodingKey {
@@ -158,7 +170,7 @@ enum WsOutgoing: Decodable {
         case durationMs, inputTokens, outputTokens, contextUsedTokens, contextWindowTokens, pendingToolName
         case errorDetail, userInitiated
         case message, status, streaming, streamingStartedAt, lockedProvider
-        case messages, info, stats
+        case messages, sessions, info, stats
         case scriptType, state, exitCode
         case active
         case clientMessageId
@@ -330,6 +342,10 @@ enum WsOutgoing: Decodable {
                 sessionId: try container.decode(String.self, forKey: .sessionId),
                 active: try container.decode(Bool.self, forKey: .active)
             )
+        case "unread_state":
+            self = .unreadState(
+                sessions: try container.decode([UnreadSessionState].self, forKey: .sessions)
+            )
         default:
             self = .unknown(type: type)
         }
@@ -351,7 +367,8 @@ enum HubActivityMarking: Equatable {
 func hubActivityMarking(for event: WsOutgoing) -> HubActivityMarking {
     switch event {
     case .textDelta, .thinking,
-         .branchInfo, .diffStats, .prStatus, .scriptStatus, .planModeChanged, .streamSnapshot:
+         .branchInfo, .diffStats, .prStatus, .scriptStatus, .planModeChanged, .streamSnapshot,
+         .unreadState:
         return .ignore
     case .history:
         return .markLatestMessageTimestamp

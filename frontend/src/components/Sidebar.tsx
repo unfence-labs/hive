@@ -551,6 +551,7 @@ export default function Sidebar({ onAddProject, onAddAutomation, onNewWorkspaceF
   );
 
   const brainActivity = workspaceActivityState(liveData[BRAIN_WORKSPACE_ID]);
+  const brainUnreadCount = Object.keys(liveData[BRAIN_WORKSPACE_ID]?.unreadSessions ?? {}).length;
   const brainSidebarEntry = brain.exists ? (
     <Link
       to="/brain"
@@ -575,6 +576,14 @@ export default function Sidebar({ onAddProject, onAddAutomation, onNewWorkspaceF
         <SidebarActivityDot state={brainActivity} dimmed={pathname === "/brain"} />
       </span>
       <span className="truncate text-sidebar-foreground">Brain</span>
+      {brainUnreadCount > 0 && (
+        <span
+          className="ml-auto min-w-5 rounded-full bg-primary px-1.5 text-center text-[10px] font-semibold leading-5 text-primary-foreground"
+          aria-label={`${brainUnreadCount} unread conversation${brainUnreadCount === 1 ? "" : "s"}`}
+        >
+          {brainUnreadCount}
+        </span>
+      )}
     </Link>
   ) : null;
 
