@@ -385,6 +385,30 @@ struct HubStatusMonitorTests {
     }
 
     @Test
+    func markReadClampsToAuthoritativeSnapshotCountUnderStaleSnapshotRace() async throws {
+        let (monitor, _, connection) = makeMonitor()
+        monitor.sync(workspaceIds: ["ws-1"])
+        monitor.didChangeConnectionState(.connected)
+        monitor.setViewingWorkspace("ws-1", sessionId: "s1")
+        monitor.didReceiveUnreadState([
+            UnreadSessionState(sessionId: "s1", assistantMessageCount: 3, readAssistantMessageCount: 0)
+        ], for: "ws-1")
+
+        monitor.updateRenderedAssistantCount(workspaceId: "ws-1", sessionId: "s1", count: 5)
+        await Task.yield()
+
+        let sent = try #require(connection.sentMessages.last)
+        guard case .workspaceEvent(let workspaceId, let event) = sent,
+              case .markRead(let sessionId, let throughCount) = event else {
+            Issue.record("Expected a mark_read workspace event")
+            return
+        }
+        #expect(workspaceId == "ws-1")
+        #expect(sessionId == "s1")
+        #expect(throughCount == 3)
+    }
+
+    @Test
     func backgroundChatWaitsUntilActiveBeforeMarkingRead() async {
         let (monitor, _, connection) = makeMonitor()
         monitor.sync(workspaceIds: ["ws-1"])

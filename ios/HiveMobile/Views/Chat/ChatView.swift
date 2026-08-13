@@ -108,7 +108,9 @@ struct ChatView: View {
     private var readProgress: ChatReadProgress {
         ChatReadProgress(
             isReady: !isLoading,
-            assistantMessageCount: store.messages.lazy.filter { $0.role == .assistant }.count
+            assistantMessageCount: store.messages.lazy.filter {
+                $0.role == .assistant && (!$0.content.isEmpty || $0.cancelled == true)
+            }.count
         )
     }
 

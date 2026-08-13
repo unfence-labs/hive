@@ -24,6 +24,8 @@ import {
   setNotifier,
 } from "./agent-manager.js";
 import { MAX_SESSIONS_PER_WORKSPACE } from "./session-limits.js";
+import { updateSessionMetadata } from "./session-metadata.js";
+import { getUnreadSessions } from "./session-dispatch.js";
 import { _clearAll as clearAllScripts } from "../services/script-runner.js";
 import {
   _setTerminalForTests,
@@ -119,7 +121,7 @@ async function writeSessionFixture(
 }
 
 describe("getDefaultSessionId", () => {
-  it("migrates legacy messageCount metadata as already read", async () => {
+  it("migrates legacy messageCount metadata to the eligible assistant count on disk", async () => {
     const sessionDir = join(dataDir, projectId, "sessions", "legacy-count");
     await mkdir(sessionDir, { recursive: true });
     await writeFile(join(sessionDir, "metadata.json"), JSON.stringify({
@@ -129,19 +131,106 @@ describe("getDefaultSessionId", () => {
       updatedAt: "2026-02-11T00:00:01.000Z",
       messageCount: 4,
     }), "utf-8");
+    const messages = [
+      { id: "u1", sessionId: "legacy-count", role: "user", content: "hi 1", timestamp: "2026-02-11T00:00:00.000Z" },
+      { id: "a1", sessionId: "legacy-count", role: "assistant", content: "reply 1", timestamp: "2026-02-11T00:00:01.000Z" },
+      { id: "u2", sessionId: "legacy-count", role: "user", content: "hi 2", timestamp: "2026-02-11T00:00:02.000Z" },
+      { id: "a2", sessionId: "legacy-count", role: "assistant", content: "", timestamp: "2026-02-11T00:00:03.000Z" },
+      { id: "u3", sessionId: "legacy-count", role: "user", content: "hi 3", timestamp: "2026-02-11T00:00:04.000Z" },
+      { id: "a3", sessionId: "legacy-count", role: "assistant", content: "reply 2", timestamp: "2026-02-11T00:00:05.000Z" },
+      { id: "u4", sessionId: "legacy-count", role: "user", content: "hi 4", timestamp: "2026-02-11T00:00:06.000Z" },
+    ];
+    await writeFile(
+      join(sessionDir, "messages.jsonl"),
+      messages.map((m) => JSON.stringify(m)).join("\n") + "\n",
+      "utf-8",
+    );
 
     const sessions = await listWorkspaceSessions(wsId, dataDir);
-    expect(sessions[0]).toMatchObject({
-      assistantMessageCount: 4,
-      readAssistantMessageCount: 4,
+    const session = sessions.find((s) => s.sessionId === "legacy-count");
+    expect(session).toMatchObject({
+      assistantMessageCount: 2,
+      readAssistantMessageCount: 2,
     });
     const persisted = JSON.parse(
       await readFile(join(sessionDir, "metadata.json"), "utf-8"),
     ) as Record<string, unknown>;
     expect(persisted).not.toHaveProperty("messageCount");
     expect(persisted).toMatchObject({
-      assistantMessageCount: 4,
-      readAssistantMessageCount: 4,
+      assistantMessageCount: 2,
+      readAssistantMessageCount: 2,
+    });
+
+    const unread = await getUnreadSessions(wsId, dataDir);
+    expect(unread.find((s) => s.sessionId === "legacy-count")).toBeUndefined();
+  });
+
+  it("migrates legacy messageCount metadata with no transcript to zero", async () => {
+    const sessionDir = join(dataDir, projectId, "sessions", "legacy-count-no-transcript");
+    await mkdir(sessionDir, { recursive: true });
+    await writeFile(join(sessionDir, "metadata.json"), JSON.stringify({
+      sessionId: "legacy-count-no-transcript",
+      workspaceId: wsId,
+      createdAt: "2026-02-11T00:00:00.000Z",
+      updatedAt: "2026-02-11T00:00:01.000Z",
+      messageCount: 4,
+    }), "utf-8");
+
+    const sessions = await listWorkspaceSessions(wsId, dataDir);
+    const session = sessions.find((s) => s.sessionId === "legacy-count-no-transcript");
+    expect(session).toMatchObject({
+      assistantMessageCount: 0,
+      readAssistantMessageCount: 0,
+    });
+    const persisted = JSON.parse(
+      await readFile(join(sessionDir, "metadata.json"), "utf-8"),
+    ) as Record<string, unknown>;
+    expect(persisted).not.toHaveProperty("messageCount");
+    expect(persisted).toMatchObject({
+      assistantMessageCount: 0,
+      readAssistantMessageCount: 0,
+    });
+  });
+
+  it("lets a client clear a badge after an undershoot-migrated session gets a new response", async () => {
+    const sessionDir = join(dataDir, projectId, "sessions", "legacy-count-undershoot");
+    await mkdir(sessionDir, { recursive: true });
+    await writeFile(join(sessionDir, "metadata.json"), JSON.stringify({
+      sessionId: "legacy-count-undershoot",
+      workspaceId: wsId,
+      createdAt: "2026-02-11T00:00:00.000Z",
+      updatedAt: "2026-02-11T00:00:01.000Z",
+      messageCount: 4,
+    }), "utf-8");
+    const messages = [
+      { id: "u1", sessionId: "legacy-count-undershoot", role: "user", content: "hi 1", timestamp: "2026-02-11T00:00:00.000Z" },
+      { id: "a1", sessionId: "legacy-count-undershoot", role: "assistant", content: "reply 1", timestamp: "2026-02-11T00:00:01.000Z" },
+      { id: "u2", sessionId: "legacy-count-undershoot", role: "user", content: "hi 2", timestamp: "2026-02-11T00:00:02.000Z" },
+      { id: "a2", sessionId: "legacy-count-undershoot", role: "assistant", content: "", timestamp: "2026-02-11T00:00:03.000Z" },
+      { id: "u3", sessionId: "legacy-count-undershoot", role: "user", content: "hi 3", timestamp: "2026-02-11T00:00:04.000Z" },
+      { id: "a3", sessionId: "legacy-count-undershoot", role: "assistant", content: "reply 2", timestamp: "2026-02-11T00:00:05.000Z" },
+      { id: "u4", sessionId: "legacy-count-undershoot", role: "user", content: "hi 4", timestamp: "2026-02-11T00:00:06.000Z" },
+    ];
+    await writeFile(
+      join(sessionDir, "messages.jsonl"),
+      messages.map((m) => JSON.stringify(m)).join("\n") + "\n",
+      "utf-8",
+    );
+
+    // Trigger the migration: both counters become 2 (the eligible assistant count).
+    await listWorkspaceSessions(wsId, dataDir);
+
+    // Simulate one new counted assistant response landing after migration.
+    await updateSessionMetadata(join(sessionDir, "metadata.json"), (metadata) => ({
+      ...metadata,
+      assistantMessageCount: 3,
+    }));
+
+    const unread = await getUnreadSessions(wsId, dataDir);
+    expect(unread.find((s) => s.sessionId === "legacy-count-undershoot")).toEqual({
+      sessionId: "legacy-count-undershoot",
+      assistantMessageCount: 3,
+      readAssistantMessageCount: 2,
     });
   });
 

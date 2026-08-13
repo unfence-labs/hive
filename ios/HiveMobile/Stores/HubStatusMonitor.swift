@@ -466,17 +466,20 @@ final class HubStatusMonitor {
               connectionState == .connected,
               let workspaceId = viewingWorkspaceId,
               let sessionId = viewingSessionId,
-              let throughCount = renderedAssistantCount,
-              throughCount > 0,
-              let unread = unreadSessions[workspaceId]?[sessionId],
-              throughCount > unread.readAssistantMessageCount else {
+              let renderedAssistantCount,
+              let unread = unreadSessions[workspaceId]?[sessionId] else {
             return
         }
+
+        // Clamp to the authoritative snapshot count as a guard against stale-snapshot
+        // races (client refetched history before the newest unread snapshot arrived).
+        let clamped = min(renderedAssistantCount, unread.assistantMessageCount)
+        guard clamped > 0, clamped > unread.readAssistantMessageCount else { return }
 
         let request = MarkReadRequest(
             workspaceId: workspaceId,
             sessionId: sessionId,
-            throughCount: throughCount
+            throughCount: clamped
         )
         guard markReadRequestsInFlight.insert(request).inserted else { return }
 
@@ -484,7 +487,7 @@ final class HubStatusMonitor {
             guard let self else { return }
             let message = HubIncoming.workspaceEvent(
                 workspaceId: workspaceId,
-                event: .markRead(sessionId: sessionId, throughCount: throughCount)
+                event: .markRead(sessionId: sessionId, throughCount: clamped)
             )
             await self.resubscribeIfNeeded()
             let sent = await self.hubConnection?.send(message) == true

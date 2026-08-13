@@ -1,8 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
+import { dirname, join } from "node:path";
 import type { SessionMetadata } from "../types.js";
 import { withKeyedLock } from "../utils/async-lock.js";
+import { isCountedAssistantMessage, parseJsonlMessages } from "./session-utils.js";
 
 type LegacySessionMetadata = Omit<
   SessionMetadata,
@@ -20,14 +21,7 @@ function migrateSessionMetadata(value: LegacySessionMetadata): {
   migrated: boolean;
 } {
   const metadata = { ...value };
-  const legacyMessageCount = metadata.messageCount;
   delete metadata.messageCount;
-
-  if (typeof legacyMessageCount === "number") {
-    metadata.assistantMessageCount = legacyMessageCount;
-    metadata.readAssistantMessageCount = legacyMessageCount;
-    return { metadata: metadata as SessionMetadata, migrated: true };
-  }
 
   let migrated = false;
   if (typeof metadata.assistantMessageCount !== "number") {
@@ -39,6 +33,26 @@ function migrateSessionMetadata(value: LegacySessionMetadata): {
     migrated = true;
   }
   return { metadata: metadata as SessionMetadata, migrated };
+}
+
+/** Legacy `messageCount` tracked user messages, not assistant messages, so it
+ *  cannot seed the new counters directly (it can overshoot or undershoot the
+ *  true eligible-assistant-message count in either direction). Derive the
+ *  real count from the transcript instead. A missing/unreadable
+ *  `messages.jsonl` yields 0 — correct for a session with no transcript. */
+async function migrateLegacyMessageCount(
+  path: string,
+  value: LegacySessionMetadata,
+): Promise<SessionMetadata> {
+  const metadata = { ...value };
+  delete metadata.messageCount;
+
+  const raw = await readFile(join(dirname(path), "messages.jsonl"), "utf-8").catch(() => "");
+  const eligible = parseJsonlMessages(raw).filter(isCountedAssistantMessage).length;
+  metadata.assistantMessageCount = eligible;
+  metadata.readAssistantMessageCount = eligible;
+
+  return metadata as SessionMetadata;
 }
 
 async function writeMetadataUnlocked(path: string, metadata: SessionMetadata): Promise<void> {
@@ -55,9 +69,15 @@ async function writeMetadataUnlocked(path: string, metadata: SessionMetadata): P
 
 async function readMetadataUnlocked(path: string): Promise<SessionMetadata> {
   const raw = await readFile(path, "utf-8");
-  const { metadata, migrated } = migrateSessionMetadata(
-    JSON.parse(raw) as LegacySessionMetadata,
-  );
+  const parsed = JSON.parse(raw) as LegacySessionMetadata;
+
+  if (typeof parsed.messageCount === "number") {
+    const metadata = await migrateLegacyMessageCount(path, parsed);
+    await writeMetadataUnlocked(path, metadata);
+    return metadata;
+  }
+
+  const { metadata, migrated } = migrateSessionMetadata(parsed);
   if (migrated) {
     await writeMetadataUnlocked(path, metadata);
   }

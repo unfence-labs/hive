@@ -137,4 +137,65 @@ describe("useMarkConversationRead", () => {
       throughCount: 2,
     });
   });
+
+  it("does not count tool-only assistant messages with no visible content", () => {
+    renderHook(() => useMarkConversationRead({
+      workspaceId: "ws-1",
+      sessionId: "sess-1",
+      messages: [
+        assistantMessage("a1"),
+        assistantMessage("a2"),
+        { ...assistantMessage("a3"), content: "" },
+      ],
+      unread: { sessionId: "sess-1", assistantMessageCount: 2, readAssistantMessageCount: 0 },
+      isConversationVisible: true,
+      isHistoryLoading: false,
+    }));
+
+    expect(mocks.send).toHaveBeenCalledWith("ws-1", {
+      type: "mark_read",
+      sessionId: "sess-1",
+      throughCount: 2,
+    });
+  });
+
+  it("counts a cancelled message that has visible content", () => {
+    renderHook(() => useMarkConversationRead({
+      workspaceId: "ws-1",
+      sessionId: "sess-1",
+      messages: [{ ...assistantMessage("a1"), cancelled: true }],
+      unread: { sessionId: "sess-1", assistantMessageCount: 1, readAssistantMessageCount: 0 },
+      isConversationVisible: true,
+      isHistoryLoading: false,
+    }));
+
+    expect(mocks.send).toHaveBeenCalledWith("ws-1", {
+      type: "mark_read",
+      sessionId: "sess-1",
+      throughCount: 1,
+    });
+  });
+
+  it("clamps throughCount to the authoritative snapshot count under a stale-snapshot race", () => {
+    renderHook(() => useMarkConversationRead({
+      workspaceId: "ws-1",
+      sessionId: "sess-1",
+      messages: [
+        assistantMessage("a1"),
+        assistantMessage("a2"),
+        assistantMessage("a3"),
+        assistantMessage("a4"),
+        assistantMessage("a5"),
+      ],
+      unread: { sessionId: "sess-1", assistantMessageCount: 3, readAssistantMessageCount: 0 },
+      isConversationVisible: true,
+      isHistoryLoading: false,
+    }));
+
+    expect(mocks.send).toHaveBeenCalledWith("ws-1", {
+      type: "mark_read",
+      sessionId: "sess-1",
+      throughCount: 3,
+    });
+  });
 });

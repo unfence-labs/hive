@@ -3289,6 +3289,72 @@ describe("ConversationSession", () => {
     expect(assistantMsg.content).toBe("Hello back!");
   });
 
+  it("advances updatedAt for a tool-only turn without counting an assistant message", async () => {
+    const session = createSession({ sessionId: "tool-only-updatedat" });
+
+    session.sendMessage("Run a tool");
+    // Captured synchronously: sendMessage() bumps updatedAt in-memory before
+    // the turn ever streams anything, so this is the pre-turn-completion value.
+    const beforeUpdatedAt = session.metadata.updatedAt;
+
+    // Give the clock room to move past beforeUpdatedAt's millisecond.
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    mockProc._stdout.push(
+      assistantToolUseLine({ id: "toolu_only", name: "Bash", input: { command: "pwd" } }),
+    );
+    mockProc._stdout.push(userLine([{ tool_use_id: "toolu_only", content: "/tmp/test" }]));
+    mockProc._stdout.push(resultLine("tool-only-session"));
+    mockProc._emitClose(0);
+
+    await session.drain();
+
+    const messagesPath = join(tempDir, "sessions", "tool-only-updatedat", "messages.jsonl");
+    const raw = await readFile(messagesPath, "utf-8");
+    const lines = raw.split("\n").filter(Boolean);
+
+    expect(lines.length).toBe(2); // user + assistant (tool call only, no text)
+    const assistantMsg = JSON.parse(lines[1]);
+    expect(assistantMsg.role).toBe("assistant");
+    expect(assistantMsg.content).toBe("");
+    expect(assistantMsg.toolCalls?.[0]?.name).toBe("Bash");
+    expect(session.metadata.assistantMessageCount).toBe(0);
+
+    const metaPath = join(tempDir, "sessions", "tool-only-updatedat", "metadata.json");
+    const persistedMeta = JSON.parse(await readFile(metaPath, "utf-8"));
+    expect(new Date(persistedMeta.updatedAt).getTime()).toBeGreaterThan(
+      new Date(beforeUpdatedAt).getTime(),
+    );
+  });
+
+  it("advances updatedAt for a turn that persists no assistant message at all", async () => {
+    const session = createSession({ sessionId: "no-output-updatedat" });
+
+    session.sendMessage("Say nothing");
+    const beforeUpdatedAt = session.metadata.updatedAt;
+
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    // Runner exits cleanly with no text, tool calls, activities, or reasoning
+    // and no cancellation is surfaced (clean exit code).
+    mockProc._emitClose(0);
+
+    await session.drain();
+
+    const messagesPath = join(tempDir, "sessions", "no-output-updatedat", "messages.jsonl");
+    const raw = await readFile(messagesPath, "utf-8");
+    const lines = raw.split("\n").filter(Boolean);
+
+    expect(lines.length).toBe(1); // only the user message, no assistant message appended
+    expect(session.metadata.assistantMessageCount).toBe(0);
+
+    const metaPath = join(tempDir, "sessions", "no-output-updatedat", "metadata.json");
+    const persistedMeta = JSON.parse(await readFile(metaPath, "utf-8"));
+    expect(new Date(persistedMeta.updatedAt).getTime()).toBeGreaterThan(
+      new Date(beforeUpdatedAt).getTime(),
+    );
+  });
+
   it("saves metadata with pre-generated claudeSessionId", async () => {
     const session = createSession({ sessionId: "meta-test" });
 

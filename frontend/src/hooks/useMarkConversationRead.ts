@@ -41,7 +41,9 @@ export function useMarkConversationRead({
 }): void {
   const pageActive = usePageActive();
   const renderedAssistantCount = messages.reduce(
-    (count, message) => count + (message.role === "assistant" ? 1 : 0),
+    (count, message) =>
+      count +
+      (message.role === "assistant" && (message.content !== "" || message.cancelled) ? 1 : 0),
     0,
   );
 
@@ -52,16 +54,22 @@ export function useMarkConversationRead({
       !unread ||
       !isConversationVisible ||
       !pageActive ||
-      isHistoryLoading ||
-      renderedAssistantCount <= unread.readAssistantMessageCount
+      isHistoryLoading
     ) {
+      return;
+    }
+
+    // Clamp to the authoritative snapshot count as a guard against stale-snapshot
+    // races (client refetched history before the newest unread snapshot arrived).
+    const throughCount = Math.min(renderedAssistantCount, unread.assistantMessageCount);
+    if (throughCount <= unread.readAssistantMessageCount) {
       return;
     }
 
     wsTransport.send(workspaceId, {
       type: "mark_read",
       sessionId,
-      throughCount: renderedAssistantCount,
+      throughCount,
     });
   }, [
     workspaceId,

@@ -14,6 +14,15 @@ export function parseJsonlMessages(raw: string): ChatMessage[] {
   return messages;
 }
 
+/** True when a persisted message counts toward assistantMessageCount.
+ *  Mirrors the increment condition in conversation-session.ts (_handleExit):
+ *  visible text or a surfaced cancellation; tool-/reasoning-only messages
+ *  are persisted but not counted. Web and iOS re-implement this rule —
+ *  change all three together. */
+export function isCountedAssistantMessage(msg: ChatMessage): boolean {
+  return msg.role === "assistant" && (msg.content !== "" || msg.cancelled === true);
+}
+
 /** Sort items by their `updatedAt` ISO timestamp, newest first; invalid dates sort last. */
 export function sortByUpdatedAtDesc<T extends { updatedAt: string }>(items: T[]): T[] {
   return items.sort((a, b) => {

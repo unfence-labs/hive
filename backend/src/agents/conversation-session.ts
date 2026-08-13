@@ -1619,10 +1619,10 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
           await this.appendMessage(assistantMsg);
           if (streamText || shouldSurfaceCancelled) {
             this._metadata.assistantMessageCount++;
-            this._metadata.updatedAt = new Date().toISOString();
-            await this.saveMetadata();
           }
         }
+        this._metadata.updatedAt = new Date().toISOString();
+        await this.saveMetadata();
     }, "[session] Persist assistant completion failed:");
 
     void (async () => {
