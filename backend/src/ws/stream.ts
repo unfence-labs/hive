@@ -663,14 +663,19 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
             incoming.throughCount,
             dataDir,
           );
-          await queueUnreadStateBroadcast(wsId);
         } catch (err: unknown) {
-          sendToHub(hub, wsId, {
-            type: "error",
-            message: errorMessage(err, "Failed to mark session read"),
-            sessionId: incoming.sessionId,
-          });
+          // mark_read is idempotent housekeeping: clients clamp before sending,
+          // so a rejection is not a conversation error. Keep the authoritative
+          // unread snapshot unchanged and retain observability server-side.
+          app.log.warn(
+            { err, workspaceId: wsId, sessionId: incoming.sessionId },
+            "mark_read rejected",
+          );
+          break;
         }
+        // The helper logs snapshot failures at error level. Do not fold them
+        // into the mark-read rejection path after the watermark was persisted.
+        void queueUnreadStateBroadcast(wsId);
         break;
       }
       case "user_message": {

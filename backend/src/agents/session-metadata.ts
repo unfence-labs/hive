@@ -1,9 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { isCountedAssistantMessage } from "@hive/shared/counted-message";
 import type { SessionMetadata } from "../types.js";
 import { withKeyedLock } from "../utils/async-lock.js";
-import { isCountedAssistantMessage, parseJsonlMessages } from "./session-utils.js";
+import { parseJsonlMessages } from "./session-utils.js";
 
 type LegacySessionMetadata = Omit<
   SessionMetadata,
@@ -90,6 +91,26 @@ async function readMetadataUnlocked(path: string): Promise<SessionMetadata> {
     await writeMetadataUnlocked(path, metadata);
   }
   return metadata;
+}
+
+/** Validate a mark-read request and apply it monotonically. */
+export function applyMarkRead(
+  metadata: SessionMetadata,
+  throughCount: number,
+): SessionMetadata {
+  if (!Number.isInteger(throughCount) || throughCount < 0) {
+    throw new Error("throughCount must be a non-negative integer");
+  }
+  if (throughCount > metadata.assistantMessageCount) {
+    throw new Error("throughCount cannot exceed assistantMessageCount");
+  }
+  return {
+    ...metadata,
+    readAssistantMessageCount: Math.max(
+      metadata.readAssistantMessageCount,
+      throughCount,
+    ),
+  };
 }
 
 export async function readSessionMetadata(path: string): Promise<SessionMetadata> {

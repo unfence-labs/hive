@@ -11,7 +11,7 @@ import { assertSessionCapacity } from "./session-limits.js";
 import { extractSummary, extractPreview } from "../utils/summary-extractor.js";
 import { withKeyedLock } from "../utils/async-lock.js";
 import { parseJsonlMessages, sortByUpdatedAtDesc } from "./session-utils.js";
-import { readSessionMetadata, updateSessionMetadata } from "./session-metadata.js";
+import { applyMarkRead, readSessionMetadata, updateSessionMetadata } from "./session-metadata.js";
 import { removeTerminal } from "../services/terminal-runner.js";
 import type { ChatMessage, SessionKind, SessionMetadata, WorkspaceSource } from "../types.js";
 import { Notifier } from "../notifications/notifier.js";
@@ -809,19 +809,7 @@ export async function markSessionRead(
       if (metadata.workspaceId !== wsId) {
         throw new NotFoundError(`Session ${sessionId} does not belong to workspace ${wsId}`);
       }
-      if (!Number.isInteger(throughCount) || throughCount < 0) {
-        throw new Error("throughCount must be a non-negative integer");
-      }
-      if (throughCount > metadata.assistantMessageCount) {
-        throw new Error("throughCount cannot exceed assistantMessageCount");
-      }
-      return {
-        ...metadata,
-        readAssistantMessageCount: Math.max(
-          metadata.readAssistantMessageCount,
-          throughCount,
-        ),
-      };
+      return applyMarkRead(metadata, throughCount);
     });
   });
 }

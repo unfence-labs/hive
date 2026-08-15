@@ -381,15 +381,23 @@ describe("WS /ws/hub", () => {
       (item) => item.type === "unread_state" && item.sessions.length === 1,
     ));
 
+    const warn = vi.spyOn(app.log, "warn");
     ws.send(hubEvent(wsId, { type: "mark_read", sessionId, throughCount: -1 }));
     ws.send(hubEvent(wsId, { type: "mark_read", sessionId, throughCount: 2 }));
-    await waitForMessage(messages, (items) => items.filter((item) => item.type === "error").length >= 2);
+    await vi.waitFor(() => expect(warn).toHaveBeenCalledTimes(2));
+    expect(warn).toHaveBeenCalledWith(
+      expect.objectContaining({ workspaceId: wsId, sessionId }),
+      "mark_read rejected",
+    );
+    warn.mockRestore();
 
     ws.send(hubEvent(wsId, { type: "mark_read", sessionId, throughCount: 1 }));
     ws.send(hubEvent(wsId, { type: "mark_read", sessionId, throughCount: 0 }));
     await waitForMessage(messages, (items) => items.filter(
       (item) => item.type === "unread_state" && item.sessions.length === 0,
-    ).length >= 1);
+    ).length >= 2);
+
+    expect(messages.filter((item) => item.type === "error")).toEqual([]);
 
     const persisted = JSON.parse(await readFile(metadataPath, "utf-8"));
     expect(persisted.readAssistantMessageCount).toBe(1);

@@ -6,6 +6,7 @@
   },
   "include": [
     "agent-activity.ts",
+    "counted-message.ts",
     "project-env.ts",
     "setup-errors.ts",
     "setup-types.ts",

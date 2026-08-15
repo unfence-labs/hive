@@ -2,6 +2,7 @@ import { EventEmitter } from "node:events";
 import { copyFile, mkdir, readFile, stat, writeFile, open } from "node:fs/promises";
 import { extname, join } from "node:path";
 import { commandExecutionActivityToToolCall } from "@hive/shared/agent-activity";
+import { isCountedAssistantMessage } from "@hive/shared/counted-message";
 import { workspaceFileRawPath } from "@hive/shared/workspace-files";
 import { nanoid } from "nanoid";
 import sharp from "sharp";
@@ -15,7 +16,7 @@ import { createAgentRunner, type AgentRunnerFactory } from "./runners/factory.js
 import type { AgentRunner, AgentRunnerTurnStartedEvent, StopReason } from "./runners/types.js";
 import { DEBUG_AGENT_LOGS } from "../utils/env.js";
 import { addBounded } from "../utils/bounded-set.js";
-import { readSessionMetadata, writeSessionMetadata } from "./session-metadata.js";
+import { applyMarkRead, readSessionMetadata, writeSessionMetadata } from "./session-metadata.js";
 import type {
   AgentActivity,
   AgentActivityFile,
@@ -1617,7 +1618,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
             contextWindowTokens: resultContextWindowTokens,
           };
           await this.appendMessage(assistantMsg);
-          if (streamText || shouldSurfaceCancelled) {
+          if (isCountedAssistantMessage(assistantMsg)) {
             this._metadata.assistantMessageCount++;
           }
         }
@@ -1806,18 +1807,9 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
 
   async markRead(throughCount: number): Promise<SessionMetadata> {
     await this.enqueuePersistOperation(async () => {
-      if (!Number.isInteger(throughCount) || throughCount < 0) {
-        throw new Error("throughCount must be a non-negative integer");
-      }
-      if (throughCount > this._metadata.assistantMessageCount) {
-        throw new Error("throughCount cannot exceed assistantMessageCount");
-      }
-      const nextReadCount = Math.max(
-        this._metadata.readAssistantMessageCount,
-        throughCount,
-      );
-      if (nextReadCount === this._metadata.readAssistantMessageCount) return;
-      this._metadata.readAssistantMessageCount = nextReadCount;
+      const next = applyMarkRead(this._metadata, throughCount);
+      if (next.readAssistantMessageCount === this._metadata.readAssistantMessageCount) return;
+      this._metadata = next;
       await this.saveMetadata();
     }, "[session] Mark read failed:");
     return this.metadata;

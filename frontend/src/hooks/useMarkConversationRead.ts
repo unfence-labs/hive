@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { isCountedAssistantMessage } from "@hive/shared/counted-message";
 import { wsTransport } from "@/lib/ws-transport";
 import type { ChatMessage, UnreadSessionState } from "@/types";
 
@@ -41,9 +42,7 @@ export function useMarkConversationRead({
 }): void {
   const pageActive = usePageActive();
   const renderedAssistantCount = messages.reduce(
-    (count, message) =>
-      count +
-      (message.role === "assistant" && (message.content !== "" || message.cancelled) ? 1 : 0),
+    (count, message) => count + (isCountedAssistantMessage(message) ? 1 : 0),
     0,
   );
 
