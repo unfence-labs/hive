@@ -1,6 +1,11 @@
 import Combine
 import SwiftUI
 
+private struct ChatReadProgress: Hashable {
+    let isReady: Bool
+    let assistantMessageCount: Int
+}
+
 struct ChatView: View {
     let workspace: Workspace
     let session: SessionMetadata
@@ -42,7 +47,7 @@ struct ChatView: View {
             return provider
         }
         // Backfill: pre-multi-model sessions have no lockedProvider but were always Claude.
-        if session.messageCount > 0 {
+        if session.assistantMessageCount > 0 {
             return "claude"
         }
         return nil
@@ -98,6 +103,15 @@ struct ChatView: View {
 
     private var pendingToolUseIds: Set<String> {
         Set(store.pendingToolInputs.map(\.toolUseId))
+    }
+
+    private var readProgress: ChatReadProgress {
+        ChatReadProgress(
+            isReady: !isLoading,
+            assistantMessageCount: store.messages.lazy.filter {
+                $0.role == .assistant && (!$0.content.isEmpty || $0.cancelled == true)
+            }.count
+        )
     }
 
     var body: some View {
@@ -309,6 +323,16 @@ struct ChatView: View {
         }
         .task { await setup() }
         .task { await modelCatalog.loadIfNeeded() }
+        .task(id: readProgress) {
+            guard readProgress.isReady else { return }
+            await Task.yield()
+            guard !Task.isCancelled else { return }
+            projectStore.statusMonitor.updateRenderedAssistantCount(
+                workspaceId: workspace.id,
+                sessionId: session.sessionId,
+                count: readProgress.assistantMessageCount
+            )
+        }
         .task(id: findQuery) {
             guard findOpen else { return }
             try? await Task.sleep(for: .milliseconds(200))
@@ -537,8 +561,6 @@ struct ChatView: View {
     private func setup() async {
         store.isChatVisible = true
         projectStore.statusMonitor.setViewingWorkspace(workspace.id, sessionId: session.sessionId)
-        projectStore.statusMonitor.clearCompleted(workspace.id)
-        projectStore.statusMonitor.clearUnread(workspaceId: workspace.id, sessionId: session.sessionId)
         let selectedSessionId = session.sessionId
 
         // Wire post-turn re-sync: after done/cancelled, re-fetch messages from REST
@@ -845,7 +867,8 @@ struct ChatView: View {
                 title: "Fix iOS navigation",
                 createdAt: "2026-02-18T08:00:00.000Z",
                 updatedAt: "2026-02-18T10:00:00.000Z",
-                messageCount: 5,
+                assistantMessageCount: 5,
+                readAssistantMessageCount: 5,
                 lockedProvider: "codex"
             ),
             store: ConversationStore()

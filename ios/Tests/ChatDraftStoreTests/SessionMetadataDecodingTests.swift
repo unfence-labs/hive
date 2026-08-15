@@ -14,7 +14,8 @@ struct SessionMetadataDecodingTests {
           "title": "Refactor navigation",
           "createdAt": "2026-01-01T00:00:00.000Z",
           "updatedAt": "2026-01-02T00:00:00.000Z",
-          "messageCount": 7,
+          "assistantMessageCount": 7,
+          "readAssistantMessageCount": 3,
           "lockedProvider": "codex",
           "kind": "chat",
           "draftPrompt": "Fix issue #42",
@@ -36,7 +37,8 @@ struct SessionMetadataDecodingTests {
         #expect(metadata.title == "Refactor navigation")
         #expect(metadata.createdAt == "2026-01-01T00:00:00.000Z")
         #expect(metadata.updatedAt == "2026-01-02T00:00:00.000Z")
-        #expect(metadata.messageCount == 7)
+        #expect(metadata.assistantMessageCount == 7)
+        #expect(metadata.readAssistantMessageCount == 3)
         #expect(metadata.lockedProvider == "codex")
         #expect(metadata.kind == "chat")
         #expect(metadata.draftPrompt == "Fix issue #42")
@@ -55,7 +57,8 @@ struct SessionMetadataDecodingTests {
           "workspaceId": "workspace-1",
           "createdAt": "2026-01-03T00:00:00.000Z",
           "updatedAt": "2026-01-04T00:00:00.000Z",
-          "messageCount": 0
+          "assistantMessageCount": 0,
+          "readAssistantMessageCount": 0
         }
         """.data(using: .utf8)!
 

@@ -24,6 +24,8 @@ import {
   setNotifier,
 } from "./agent-manager.js";
 import { MAX_SESSIONS_PER_WORKSPACE } from "./session-limits.js";
+import { readSessionMetadata, updateSessionMetadata } from "./session-metadata.js";
+import { getUnreadSessions, markSessionRead } from "./session-dispatch.js";
 import { _clearAll as clearAllScripts } from "../services/script-runner.js";
 import {
   _setTerminalForTests,
@@ -99,7 +101,8 @@ async function writeSessionFixture(
     workspaceId,
     createdAt: "2026-02-11T00:00:00.000Z",
     updatedAt: "2026-02-11T00:00:01.000Z",
-    messageCount: 0,
+    assistantMessageCount: 0,
+    readAssistantMessageCount: 0,
     ...options?.metadata,
   };
 
@@ -118,14 +121,156 @@ async function writeSessionFixture(
 }
 
 describe("getDefaultSessionId", () => {
+  it("migrates legacy messageCount metadata to the eligible assistant count on disk", async () => {
+    const sessionDir = join(dataDir, projectId, "sessions", "legacy-count");
+    await mkdir(sessionDir, { recursive: true });
+    await writeFile(join(sessionDir, "metadata.json"), JSON.stringify({
+      sessionId: "legacy-count",
+      workspaceId: wsId,
+      createdAt: "2026-02-11T00:00:00.000Z",
+      updatedAt: "2026-02-11T00:00:01.000Z",
+      messageCount: 4,
+    }), "utf-8");
+    const messages = [
+      { id: "u1", sessionId: "legacy-count", role: "user", content: "hi 1", timestamp: "2026-02-11T00:00:00.000Z" },
+      { id: "a1", sessionId: "legacy-count", role: "assistant", content: "reply 1", timestamp: "2026-02-11T00:00:01.000Z" },
+      { id: "u2", sessionId: "legacy-count", role: "user", content: "hi 2", timestamp: "2026-02-11T00:00:02.000Z" },
+      { id: "a2", sessionId: "legacy-count", role: "assistant", content: "", timestamp: "2026-02-11T00:00:03.000Z" },
+      { id: "u3", sessionId: "legacy-count", role: "user", content: "hi 3", timestamp: "2026-02-11T00:00:04.000Z" },
+      { id: "a3", sessionId: "legacy-count", role: "assistant", content: "reply 2", timestamp: "2026-02-11T00:00:05.000Z" },
+      { id: "u4", sessionId: "legacy-count", role: "user", content: "hi 4", timestamp: "2026-02-11T00:00:06.000Z" },
+    ];
+    await writeFile(
+      join(sessionDir, "messages.jsonl"),
+      messages.map((m) => JSON.stringify(m)).join("\n") + "\n",
+      "utf-8",
+    );
+
+    const sessions = await listWorkspaceSessions(wsId, dataDir);
+    const session = sessions.find((s) => s.sessionId === "legacy-count");
+    expect(session).toMatchObject({
+      assistantMessageCount: 2,
+      readAssistantMessageCount: 2,
+    });
+    const persisted = JSON.parse(
+      await readFile(join(sessionDir, "metadata.json"), "utf-8"),
+    ) as Record<string, unknown>;
+    expect(persisted).not.toHaveProperty("messageCount");
+    expect(persisted).toMatchObject({
+      assistantMessageCount: 2,
+      readAssistantMessageCount: 2,
+    });
+
+    const unread = await getUnreadSessions(wsId, dataDir);
+    expect(unread.find((s) => s.sessionId === "legacy-count")).toBeUndefined();
+  });
+
+  it("migrates legacy messageCount metadata with no transcript to zero", async () => {
+    const sessionDir = join(dataDir, projectId, "sessions", "legacy-count-no-transcript");
+    await mkdir(sessionDir, { recursive: true });
+    await writeFile(join(sessionDir, "metadata.json"), JSON.stringify({
+      sessionId: "legacy-count-no-transcript",
+      workspaceId: wsId,
+      createdAt: "2026-02-11T00:00:00.000Z",
+      updatedAt: "2026-02-11T00:00:01.000Z",
+      messageCount: 4,
+    }), "utf-8");
+
+    const sessions = await listWorkspaceSessions(wsId, dataDir);
+    const session = sessions.find((s) => s.sessionId === "legacy-count-no-transcript");
+    expect(session).toMatchObject({
+      assistantMessageCount: 0,
+      readAssistantMessageCount: 0,
+    });
+    const persisted = JSON.parse(
+      await readFile(join(sessionDir, "metadata.json"), "utf-8"),
+    ) as Record<string, unknown>;
+    expect(persisted).not.toHaveProperty("messageCount");
+    expect(persisted).toMatchObject({
+      assistantMessageCount: 0,
+      readAssistantMessageCount: 0,
+    });
+  });
+
+  it("does not finalize legacy migration when the transcript cannot be read", async () => {
+    const sessionDir = join(dataDir, projectId, "sessions", "legacy-unreadable-transcript");
+    const metadataPath = join(sessionDir, "metadata.json");
+    await mkdir(join(sessionDir, "messages.jsonl"), { recursive: true });
+    await writeFile(metadataPath, JSON.stringify({
+      sessionId: "legacy-unreadable-transcript",
+      workspaceId: wsId,
+      createdAt: "2026-02-11T00:00:00.000Z",
+      updatedAt: "2026-02-11T00:00:01.000Z",
+      messageCount: 4,
+    }), "utf-8");
+
+    await expect(readSessionMetadata(metadataPath)).rejects.toMatchObject({ code: "EISDIR" });
+
+    const persisted = JSON.parse(await readFile(metadataPath, "utf-8")) as Record<string, unknown>;
+    expect(persisted).toHaveProperty("messageCount", 4);
+    expect(persisted).not.toHaveProperty("assistantMessageCount");
+    expect(persisted).not.toHaveProperty("readAssistantMessageCount");
+  });
+
+  it("lets a client clear a badge after an undershoot-migrated session gets a new response", async () => {
+    const sessionDir = join(dataDir, projectId, "sessions", "legacy-count-undershoot");
+    await mkdir(sessionDir, { recursive: true });
+    await writeFile(join(sessionDir, "metadata.json"), JSON.stringify({
+      sessionId: "legacy-count-undershoot",
+      workspaceId: wsId,
+      createdAt: "2026-02-11T00:00:00.000Z",
+      updatedAt: "2026-02-11T00:00:01.000Z",
+      messageCount: 4,
+    }), "utf-8");
+    const messages = [
+      { id: "u1", sessionId: "legacy-count-undershoot", role: "user", content: "hi 1", timestamp: "2026-02-11T00:00:00.000Z" },
+      { id: "a1", sessionId: "legacy-count-undershoot", role: "assistant", content: "reply 1", timestamp: "2026-02-11T00:00:01.000Z" },
+      { id: "u2", sessionId: "legacy-count-undershoot", role: "user", content: "hi 2", timestamp: "2026-02-11T00:00:02.000Z" },
+      { id: "a2", sessionId: "legacy-count-undershoot", role: "assistant", content: "", timestamp: "2026-02-11T00:00:03.000Z" },
+      { id: "u3", sessionId: "legacy-count-undershoot", role: "user", content: "hi 3", timestamp: "2026-02-11T00:00:04.000Z" },
+      { id: "a3", sessionId: "legacy-count-undershoot", role: "assistant", content: "reply 2", timestamp: "2026-02-11T00:00:05.000Z" },
+      { id: "u4", sessionId: "legacy-count-undershoot", role: "user", content: "hi 4", timestamp: "2026-02-11T00:00:06.000Z" },
+    ];
+    await writeFile(
+      join(sessionDir, "messages.jsonl"),
+      messages.map((m) => JSON.stringify(m)).join("\n") + "\n",
+      "utf-8",
+    );
+
+    // Trigger the migration: both counters become 2 (the eligible assistant count).
+    await listWorkspaceSessions(wsId, dataDir);
+
+    // Simulate one new counted assistant response landing after migration.
+    await updateSessionMetadata(join(sessionDir, "metadata.json"), (metadata) => ({
+      ...metadata,
+      assistantMessageCount: 3,
+    }));
+
+    const unread = await getUnreadSessions(wsId, dataDir);
+    expect(unread.find((s) => s.sessionId === "legacy-count-undershoot")).toEqual({
+      sessionId: "legacy-count-undershoot",
+      assistantMessageCount: 3,
+      readAssistantMessageCount: 2,
+    });
+
+    await markSessionRead(wsId, "legacy-count-undershoot", 3, dataDir);
+
+    const afterMarkRead = await getUnreadSessions(wsId, dataDir);
+    expect(afterMarkRead.find((s) => s.sessionId === "legacy-count-undershoot")).toBeUndefined();
+    const persisted = JSON.parse(
+      await readFile(join(sessionDir, "metadata.json"), "utf-8"),
+    ) as Record<string, unknown>;
+    expect(persisted.readAssistantMessageCount).toBe(3);
+  });
+
   it("returns undefined when the workspace has no non-empty conversation", async () => {
-    await writeSessionFixture("empty-1", wsId, { metadata: { messageCount: 0 } });
+    await writeSessionFixture("empty-1", wsId, { metadata: { assistantMessageCount: 0 } });
     expect(await getDefaultSessionId(wsId, dataDir)).toBeUndefined();
   });
 
   it("returns an empty session that owns a pending draft prompt", async () => {
     await writeSessionFixture("draft-session", wsId, {
-      metadata: { messageCount: 0, draftPrompt: "Fix issue #42" },
+      metadata: { assistantMessageCount: 0, draftPrompt: "Fix issue #42" },
     });
 
     expect(await getDefaultSessionId(wsId, dataDir)).toBe("draft-session");
@@ -133,10 +278,10 @@ describe("getDefaultSessionId", () => {
 
   it("skips a newer empty session and opens the most-recent non-empty chat", async () => {
     await writeSessionFixture("empty-new", wsId, {
-      metadata: { messageCount: 0, updatedAt: "2026-02-20T00:00:00.000Z" },
+      metadata: { assistantMessageCount: 0, updatedAt: "2026-02-20T00:00:00.000Z" },
     });
     await writeSessionFixture("has-msgs", wsId, {
-      metadata: { messageCount: 2, updatedAt: "2026-02-10T00:00:00.000Z" },
+      metadata: { assistantMessageCount: 1, updatedAt: "2026-02-10T00:00:00.000Z" },
       messages: [
         { id: "u1", sessionId: "has-msgs", role: "user", content: "hi", timestamp: "2026-02-10T00:00:00.000Z" },
         { id: "a1", sessionId: "has-msgs", role: "assistant", content: "yo", timestamp: "2026-02-10T00:00:01.000Z" },
@@ -147,10 +292,10 @@ describe("getDefaultSessionId", () => {
 
   it("skips an active empty loaded session and opens the most-recent non-empty chat", async () => {
     const { session: emptyActive } = await getOrCreateSession(wsId, dataDir, CONV_CMD);
-    expect(emptyActive.metadata.messageCount).toBe(0);
+    expect(emptyActive.metadata.assistantMessageCount).toBe(0);
 
     await writeSessionFixture("has-msgs", wsId, {
-      metadata: { messageCount: 2, updatedAt: "2026-02-10T00:00:00.000Z" },
+      metadata: { assistantMessageCount: 1, updatedAt: "2026-02-10T00:00:00.000Z" },
       messages: [
         { id: "u1", sessionId: "has-msgs", role: "user", content: "hi", timestamp: "2026-02-10T00:00:00.000Z" },
         { id: "a1", sessionId: "has-msgs", role: "assistant", content: "yo", timestamp: "2026-02-10T00:00:01.000Z" },
@@ -162,10 +307,10 @@ describe("getDefaultSessionId", () => {
 
   it("never returns a terminal session", async () => {
     await writeSessionFixture("term", wsId, {
-      metadata: { messageCount: 5, kind: "terminal", updatedAt: "2026-02-20T00:00:00.000Z" },
+      metadata: { assistantMessageCount: 5, kind: "terminal", updatedAt: "2026-02-20T00:00:00.000Z" },
     });
     await writeSessionFixture("chat", wsId, {
-      metadata: { messageCount: 1, updatedAt: "2026-02-10T00:00:00.000Z" },
+      metadata: { assistantMessageCount: 1, updatedAt: "2026-02-10T00:00:00.000Z" },
       messages: [{ id: "u1", sessionId: "chat", role: "user", content: "hi", timestamp: "2026-02-10T00:00:00.000Z" }],
     });
     expect(await getDefaultSessionId(wsId, dataDir)).toBe("chat");
@@ -240,7 +385,8 @@ describe("getOrCreateSession", () => {
     await writeSessionFixture("prev-session", wsId, {
       metadata: {
         claudeSessionId,
-        messageCount: 5,
+        assistantMessageCount: 5,
+        readAssistantMessageCount: 5,
         updatedAt: "2026-02-12T00:00:00.000Z",
       },
     });
@@ -257,7 +403,7 @@ describe("getOrCreateSession", () => {
     expect(created).toBe(false);
     expect(session.sessionId).toBe("prev-session");
     expect(session.metadata.claudeSessionId).toBe(claudeSessionId);
-    expect(session.metadata.messageCount).toBe(5);
+    expect(session.metadata.assistantMessageCount).toBe(5);
 
     const updatedState = await loadProject(projectId, dataDir);
     const updatedWs = updatedState!.workspaces.find((w) => w.id === wsId)!;
@@ -490,7 +636,7 @@ describe("listWorkspaceSessions", () => {
     await writeSessionFixture(session.sessionId, wsId, {
       metadata: {
         updatedAt: "2000-01-01T00:00:00.000Z",
-        messageCount: 99,
+        assistantMessageCount: 99,
       },
     });
 
@@ -499,7 +645,7 @@ describe("listWorkspaceSessions", () => {
     expect(sessions[0]).toMatchObject({
       sessionId: session.sessionId,
       workspaceId: wsId,
-      messageCount: session.metadata.messageCount,
+      assistantMessageCount: session.metadata.assistantMessageCount,
       updatedAt: session.metadata.updatedAt,
     });
   });
@@ -649,7 +795,7 @@ describe("terminal sessions", () => {
 
   it("refuses to convert a session that already has messages", async () => {
     await writeSessionFixture("chatty-session", wsId, {
-      metadata: { messageCount: 3, updatedAt: "2026-02-12T00:00:00.000Z" },
+      metadata: { assistantMessageCount: 3, updatedAt: "2026-02-12T00:00:00.000Z" },
     });
 
     await expect(
@@ -662,7 +808,7 @@ describe("activateSession", () => {
   it("loads a persisted session, marks it active, and keeps current loaded", async () => {
     const { session: current } = await getOrCreateSession(wsId, dataDir, CONV_CMD);
     await writeSessionFixture("sess-target", wsId, {
-      metadata: { messageCount: 2, updatedAt: "2026-02-12T00:00:00.000Z" },
+      metadata: { assistantMessageCount: 2, updatedAt: "2026-02-12T00:00:00.000Z" },
     });
 
     const activated = await activateSession(wsId, "sess-target", dataDir, CONV_CMD);
@@ -734,7 +880,8 @@ describe("hardDeleteSession", () => {
       workspaceId: wsId,
       createdAt: "2026-02-12T00:00:00.000Z",
       updatedAt: "2026-02-12T00:00:01.000Z",
-      messageCount: 0,
+      assistantMessageCount: 0,
+      readAssistantMessageCount: 0,
     }), "utf-8");
 
     await expect(stat(sessionDir)).resolves.toBeDefined();

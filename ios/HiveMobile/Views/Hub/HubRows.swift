@@ -2,19 +2,19 @@ import SwiftUI
 
 struct HubActivitySummary {
     var streaming = 0
-    var completed = 0
+    var unread = 0
     var needsAttention = 0
 
     var visualState: HubActivityVisualState {
         if streaming > 0 { return .streaming }
-        if completed > 0 { return .completed }
+        if unread > 0 { return .unread }
         return .idle
     }
 }
 
 enum HubActivityVisualState {
     case streaming
-    case completed
+    case unread
     case idle
 }
 
@@ -134,9 +134,7 @@ struct HubWorkspaceRow: View {
     let monitor: HubStatusMonitor
 
     private var isStreaming: Bool { monitor.isStreaming(workspace.id) }
-    private var turnCompleted: Bool {
-        monitor.isCompleted(workspace.id) || monitor.hasUnreadSessions(workspace.id)
-    }
+    private var hasUnread: Bool { monitor.hasUnreadSessions(workspace.id) }
     private var diffStats: DiffStatResponse? { monitor.diffStats(for: workspace.id) }
     private var prStatus: PrStatusResponse? { monitor.prStatus(for: workspace.id) }
     private var isPrStatusLoading: Bool { monitor.isPrStatusLoading(workspace.id) }
@@ -193,7 +191,7 @@ struct HubWorkspaceRow: View {
         if isStreaming {
             StreamingDot()
                 .accessibilityLabel("Streaming")
-        } else if turnCompleted {
+        } else if hasUnread {
             UnreadDot()
                 .accessibilityLabel("Unread activity")
         } else {
@@ -244,7 +242,7 @@ private struct HubActivityDot: View {
         case .streaming:
             StreamingDot(size: 7)
                 .accessibilityLabel("Agent is working")
-        case .completed:
+        case .unread:
             UnreadDot(size: 7, shadowRadius: 4)
                 .accessibilityLabel("Unread activity")
         case .idle:

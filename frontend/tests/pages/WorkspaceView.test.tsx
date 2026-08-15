@@ -22,13 +22,20 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { WorkspaceLiveDataProvider } from "@/contexts/WorkspaceLiveDataContext";
 import WorkspaceView from "@/pages/WorkspaceView";
 import { replaceConnection } from "@/hooks/useConnection";
-import type { DiffFileStat, DiffStatResponse, Workspace, WorkspaceFileTreeNode } from "@/types";
+import type {
+  DiffFileStat,
+  DiffStatResponse,
+  UnreadSessionState,
+  Workspace,
+  WorkspaceFileTreeNode,
+} from "@/types";
 
 const mocks = vi.hoisted(() => ({
   apiGet: vi.fn(),
   useConversation: vi.fn(),
   useSessions: vi.fn(),
-  useWorkspaceLiveData: vi.fn().mockReturnValue({ liveData: {}, clearUnread: vi.fn() }),
+  useWorkspaceLiveData: vi.fn().mockReturnValue({}),
+  wsSend: vi.fn(),
   sendMessage: vi.fn(),
   stopStreaming: vi.fn(),
   clearChat: vi.fn(),
@@ -72,7 +79,11 @@ vi.mock("@/hooks/useWorkspaceLiveData", () => ({
 }));
 
 vi.mock("@/lib/ws-transport", () => ({
-  wsTransport: { clearCachedData: mocks.clearCachedData, onReconnect: vi.fn(() => () => {}) },
+  wsTransport: {
+    clearCachedData: mocks.clearCachedData,
+    onReconnect: vi.fn(() => () => {}),
+    send: mocks.wsSend,
+  },
 }));
 
 vi.mock("@/hooks/useScripts", () => ({
@@ -244,7 +255,7 @@ vi.mock("@/components/ConversationTabs", () => ({
     onCreateSession: () => void;
     onActivateSession: (id: string) => void;
     onFileTabActivate?: () => void;
-    unreadSessions?: Record<string, boolean>;
+    unreadSessions?: Record<string, UnreadSessionState>;
   }) => {
     const { onDeleteSession, onCreateSession, onActivateSession, onFileTabActivate } = props;
     mocks.captureConversationTabsProps(props);
@@ -416,6 +427,7 @@ function renderWorkspace(initialEntry = "/workspaces/ws-1") {
 
 beforeEach(() => {
   localStorage.clear();
+  vi.spyOn(document, "hasFocus").mockReturnValue(true);
   mocks.openExternal.mockReset();
   mocks.useTerminalApps.mockReset();
   mocks.useTerminalApps.mockReturnValue([]);
@@ -447,7 +459,8 @@ describe("WorkspaceView behavior", () => {
     mocks.refreshSessions.mockReset();
     mocks.clearCachedData.mockReset();
     mocks.useWorkspaceLiveData.mockReset();
-    mocks.useWorkspaceLiveData.mockReturnValue({ liveData: {}, clearUnread: vi.fn() });
+    mocks.useWorkspaceLiveData.mockReturnValue({});
+    mocks.wsSend.mockReset();
     mocks.captureConversationTabsProps.mockReset();
     mocks.chatInputMounted.mockReset();
     mocks.openExternal.mockReset();
@@ -671,17 +684,14 @@ describe("WorkspaceView behavior", () => {
     const user = userEvent.setup();
     mocks.useConversation.mockReturnValue(buildConversationState({ sessionId: "sess-active" }));
     mocks.useWorkspaceLiveData.mockReturnValue({
-      clearUnread: vi.fn(),
-      liveData: {
-        "ws-1": {
-          browserSessions: {
-            "sess-active": {
-              sessionId: "sess-active",
-              state: "active",
-              streaming: true,
-              streamPath: "/ws/browser/ws-1/sess-active",
-              updatedAt: 1,
-            },
+      "ws-1": {
+        browserSessions: {
+          "sess-active": {
+            sessionId: "sess-active",
+            state: "active",
+            streaming: true,
+            streamPath: "/ws/browser/ws-1/sess-active",
+            updatedAt: 1,
           },
         },
       },
@@ -787,56 +797,44 @@ describe("WorkspaceView behavior", () => {
     expect(mocks.switchSession).toHaveBeenCalledWith("sess-2");
   });
 
-  it("clears only the active session unread on mount (not entire workspace)", async () => {
-    const user = userEvent.setup();
-    const clearUnread = vi.fn();
-    const liveData = { "ws-1": { unreadSessions: { "sess-1": true } } };
-    mocks.useWorkspaceLiveData.mockReturnValue({ liveData, clearUnread });
-    mocks.useConversation.mockReturnValue({
-      messages: [],
-      isStreaming: false,
-      streamingStartedAt: null,
-      workspaceStatus: "idle",
-      currentStreamingText: "",
-      activeToolCalls: [],
-      pendingToolInputs: [],
-      connectionStatus: "connected",
-      error: null,
-      sessionId: "sess-1",
-      sendMessage: mocks.sendMessage,
-      stopStreaming: mocks.stopStreaming,
-      clearChat: mocks.clearChat,
-      switchSession: mocks.switchSession,
-      answerQuestion: mocks.answerQuestion,
-      batchAnswerQuestions: mocks.batchAnswerQuestions,
-      approvePlan: mocks.approvePlan,
-      rejectToolInput: mocks.rejectToolInput,
-      dismissPlan: mocks.dismissPlan,
+  it("marks the visible active conversation read through the rendered assistant count", async () => {
+    mocks.useWorkspaceLiveData.mockReturnValue({
+      "ws-1": {
+        unreadSessions: {
+          "sess-1": {
+            sessionId: "sess-1",
+            assistantMessageCount: 2,
+            readAssistantMessageCount: 0,
+          },
+        },
+      },
     });
+    mocks.useConversation.mockReturnValue(buildConversationState({
+      sessionId: "sess-1",
+      isHistoryLoading: false,
+      messages: [{
+        id: "assistant-1",
+        sessionId: "sess-1",
+        role: "assistant",
+        content: "Finished response",
+        timestamp: "2026-02-12T00:00:00.000Z",
+      }],
+    }));
 
     renderWorkspace();
     await screen.findByText("tokyo");
-    // Should clear only the active session, not the entire workspace
-    expect(clearUnread).toHaveBeenCalledWith("ws-1", "sess-1");
-    expect(clearUnread).not.toHaveBeenCalledWith("ws-1");
+
+    await waitFor(() => {
+      expect(mocks.wsSend).toHaveBeenCalledWith("ws-1", {
+        type: "mark_read",
+        sessionId: "sess-1",
+        throughCount: 1,
+      });
+    });
   });
 
-  it("clears unread state for target session when activating a different session", async () => {
+  it("does not switch when clicking the already active session", async () => {
     const user = userEvent.setup();
-    const clearUnread = vi.fn();
-    mocks.useWorkspaceLiveData.mockReturnValue({ liveData: {}, clearUnread });
-
-    renderWorkspace();
-    await screen.findByText("tokyo");
-
-    await user.click(screen.getByTestId("activate-session-btn"));
-    expect(clearUnread).toHaveBeenCalledWith("ws-1", "sess-2");
-  });
-
-  it("does not clear target session unread when clicking the already active session", async () => {
-    const user = userEvent.setup();
-    const clearUnread = vi.fn();
-    mocks.useWorkspaceLiveData.mockReturnValue({ liveData: {}, clearUnread });
     mocks.useConversation.mockReturnValue({
       messages: [],
       isStreaming: false,
@@ -864,15 +862,10 @@ describe("WorkspaceView behavior", () => {
 
     await user.click(screen.getByTestId("activate-session-btn"));
     expect(mocks.switchSession).not.toHaveBeenCalled();
-    expect(
-      clearUnread.mock.calls.some((call) => call[0] === "ws-1" && call[1] === "sess-2"),
-    ).toBe(false);
   });
 
   it("returns to conversation tab when clicking the already active session", async () => {
     const user = userEvent.setup();
-    const clearUnread = vi.fn();
-    mocks.useWorkspaceLiveData.mockReturnValue({ liveData: {}, clearUnread });
     mocks.useConversation.mockReturnValue({
       messages: [],
       isStreaming: false,
@@ -920,9 +913,6 @@ describe("WorkspaceView behavior", () => {
     await user.click(screen.getByTestId("activate-session-btn"));
 
     expect(mocks.switchSession).not.toHaveBeenCalled();
-    expect(
-      clearUnread.mock.calls.some((call) => call[0] === "ws-1" && call[1] === "sess-2"),
-    ).toBe(false);
 
     await waitFor(() => {
       const lastCall =
@@ -976,12 +966,20 @@ describe("WorkspaceView behavior", () => {
   });
 
   it("passes unreadSessions from liveData to ConversationTabs", async () => {
-    const unreadSessions = { "sess-2": true, "sess-3": true };
-    mocks.useWorkspaceLiveData.mockReturnValue({
-      liveData: {
-        "ws-1": { unreadSessions },
+    const unreadSessions = {
+      "sess-2": {
+        sessionId: "sess-2",
+        assistantMessageCount: 3,
+        readAssistantMessageCount: 1,
       },
-      clearUnread: vi.fn(),
+      "sess-3": {
+        sessionId: "sess-3",
+        assistantMessageCount: 2,
+        readAssistantMessageCount: 0,
+      },
+    };
+    mocks.useWorkspaceLiveData.mockReturnValue({
+      "ws-1": { unreadSessions },
     });
 
     renderWorkspace();
@@ -991,17 +989,14 @@ describe("WorkspaceView behavior", () => {
       const lastCall =
         mocks.captureConversationTabsProps.mock.calls[
           mocks.captureConversationTabsProps.mock.calls.length - 1
-        ]?.[0] as { unreadSessions?: Record<string, boolean> } | undefined;
+        ]?.[0] as { unreadSessions?: Record<string, UnreadSessionState> } | undefined;
       expect(lastCall?.unreadSessions).toEqual(unreadSessions);
     });
   });
 
   it("displays live branch name from useWorkspaceLiveData when available", async () => {
     mocks.useWorkspaceLiveData.mockReturnValue({
-      liveData: {
-        "ws-1": { branch: "feature/live-branch", branchInfo: { name: "feature/live-branch", lastSyncedAt: "2026-02-13T00:00:00.000Z" } },
-      },
-      clearUnread: vi.fn(),
+      "ws-1": { branch: "feature/live-branch", branchInfo: { name: "feature/live-branch", lastSyncedAt: "2026-02-13T00:00:00.000Z" } },
     });
 
     renderWorkspace();
@@ -1195,10 +1190,7 @@ describe("WorkspaceView behavior", () => {
     let diffStatsResponse = staleDiffStats;
 
     mocks.useWorkspaceLiveData.mockReturnValue({
-      liveData: {
-        "ws-1": { diffStats: staleDiffStats },
-      },
-      clearUnread: vi.fn(),
+      "ws-1": { diffStats: staleDiffStats },
     });
     mocks.apiGet.mockImplementation(async (url: string) => {
       const workspaceMatch = url.match(/^\/api\/workspaces\/([^/]+)$/);
@@ -1265,7 +1257,8 @@ describe("WorkspaceView behavior", () => {
       workspaceId: "ws-1",
       createdAt: "2026-02-12T00:00:00.000Z",
       updatedAt: "2026-02-12T00:00:00.000Z",
-      messageCount: 0,
+      assistantMessageCount: 0,
+      readAssistantMessageCount: 0,
     });
     mocks.switchSession.mockResolvedValue(undefined);
     mocks.refreshSessions.mockResolvedValue(undefined);
@@ -1318,7 +1311,8 @@ describe("WorkspaceView behavior", () => {
       workspaceId: "ws-1",
       createdAt: "2026-02-12T00:00:00.000Z",
       updatedAt: "2026-02-12T00:00:00.000Z",
-      messageCount: 0,
+      assistantMessageCount: 0,
+      readAssistantMessageCount: 0,
     });
     mocks.switchSession.mockResolvedValue(undefined);
     mocks.refreshSessions.mockResolvedValue(undefined);
@@ -1402,7 +1396,8 @@ describe("WorkspaceView behavior", () => {
       workspaceId: "ws-1",
       createdAt: "2026-02-12T00:00:00.000Z",
       updatedAt: "2026-02-12T00:00:00.000Z",
-      messageCount: 0,
+      assistantMessageCount: 0,
+      readAssistantMessageCount: 0,
     });
     mocks.switchSession.mockResolvedValue(undefined);
     mocks.refreshSessions.mockResolvedValue(undefined);
@@ -1539,7 +1534,8 @@ describe("WorkspaceView behavior", () => {
         workspaceId: "ws-1",
         createdAt: "2026-02-12T00:00:00.000Z",
         updatedAt: "2026-02-12T00:00:00.000Z",
-        messageCount: 0,
+        assistantMessageCount: 0,
+        readAssistantMessageCount: 0,
         draftPrompt: "Fix issue #42",
       }],
       loading: false,
@@ -1653,7 +1649,7 @@ describe("WorkspaceView session delete behavior", () => {
     mocks.refreshSessions.mockReset();
     mocks.clearCachedData.mockReset();
     mocks.useWorkspaceLiveData.mockReset();
-    mocks.useWorkspaceLiveData.mockReturnValue({ liveData: {}, clearUnread: vi.fn() });
+    mocks.useWorkspaceLiveData.mockReturnValue({});
 
     mocks.useScripts.mockReturnValue({
       config: null,
@@ -1702,8 +1698,8 @@ describe("WorkspaceView session delete behavior", () => {
     const user = userEvent.setup();
     mocks.useSessions.mockReturnValue({
       sessions: [
-        { sessionId: "sess-active", workspaceId: "ws-1", createdAt: "2026-02-12T00:00:00.000Z", updatedAt: "2026-02-12T00:00:01.000Z", messageCount: 5 },
-        { sessionId: "sess-other", workspaceId: "ws-1", createdAt: "2026-02-12T00:00:00.000Z", updatedAt: "2026-02-12T00:00:00.000Z", messageCount: 2 },
+        { sessionId: "sess-active", workspaceId: "ws-1", createdAt: "2026-02-12T00:00:00.000Z", updatedAt: "2026-02-12T00:00:01.000Z", assistantMessageCount: 5, readAssistantMessageCount: 0 },
+        { sessionId: "sess-other", workspaceId: "ws-1", createdAt: "2026-02-12T00:00:00.000Z", updatedAt: "2026-02-12T00:00:00.000Z", assistantMessageCount: 2, readAssistantMessageCount: 0 },
       ],
       createSession: mocks.createSession,
       deleteSession: mocks.deleteSession.mockResolvedValue(true),
@@ -1729,7 +1725,7 @@ describe("WorkspaceView session delete behavior", () => {
     const user = userEvent.setup();
     mocks.useSessions.mockReturnValue({
       sessions: [
-        { sessionId: "sess-active", workspaceId: "ws-1", createdAt: "2026-02-12T00:00:00.000Z", updatedAt: "2026-02-12T00:00:01.000Z", messageCount: 5 },
+        { sessionId: "sess-active", workspaceId: "ws-1", createdAt: "2026-02-12T00:00:00.000Z", updatedAt: "2026-02-12T00:00:01.000Z", assistantMessageCount: 5, readAssistantMessageCount: 0 },
       ],
       createSession: mocks.createSession,
       deleteSession: mocks.deleteSession.mockResolvedValue(true),
@@ -1755,8 +1751,8 @@ describe("WorkspaceView session delete behavior", () => {
     const user = userEvent.setup();
     mocks.useSessions.mockReturnValue({
       sessions: [
-        { sessionId: "sess-active", workspaceId: "ws-1", createdAt: "2026-02-12T00:00:00.000Z", updatedAt: "2026-02-12T00:00:01.000Z", messageCount: 5 },
-        { sessionId: "sess-other", workspaceId: "ws-1", createdAt: "2026-02-12T00:00:00.000Z", updatedAt: "2026-02-12T00:00:00.000Z", messageCount: 2 },
+        { sessionId: "sess-active", workspaceId: "ws-1", createdAt: "2026-02-12T00:00:00.000Z", updatedAt: "2026-02-12T00:00:01.000Z", assistantMessageCount: 5, readAssistantMessageCount: 0 },
+        { sessionId: "sess-other", workspaceId: "ws-1", createdAt: "2026-02-12T00:00:00.000Z", updatedAt: "2026-02-12T00:00:00.000Z", assistantMessageCount: 2, readAssistantMessageCount: 0 },
       ],
       createSession: mocks.createSession,
       deleteSession: mocks.deleteSession.mockResolvedValue(false),
@@ -1783,8 +1779,8 @@ describe("WorkspaceView session delete behavior", () => {
     const user = userEvent.setup();
     mocks.useSessions.mockReturnValue({
       sessions: [
-        { sessionId: "sess-active", workspaceId: "ws-1", createdAt: "2026-02-12T00:00:00.000Z", updatedAt: "2026-02-12T00:00:01.000Z", messageCount: 5 },
-        { sessionId: "sess-inactive", workspaceId: "ws-1", createdAt: "2026-02-12T00:00:00.000Z", updatedAt: "2026-02-12T00:00:00.000Z", messageCount: 2 },
+        { sessionId: "sess-active", workspaceId: "ws-1", createdAt: "2026-02-12T00:00:00.000Z", updatedAt: "2026-02-12T00:00:01.000Z", assistantMessageCount: 5, readAssistantMessageCount: 0 },
+        { sessionId: "sess-inactive", workspaceId: "ws-1", createdAt: "2026-02-12T00:00:00.000Z", updatedAt: "2026-02-12T00:00:00.000Z", assistantMessageCount: 2, readAssistantMessageCount: 0 },
       ],
       createSession: mocks.createSession,
       deleteSession: mocks.deleteSession.mockResolvedValue(true),
@@ -1881,7 +1877,7 @@ describe("WorkspaceView VS Code SSH host resolution", () => {
       disconnectOutput: mocks.disconnectScriptOutput,
     });
 
-    mocks.useWorkspaceLiveData.mockReturnValue({ liveData: {}, clearUnread: vi.fn() });
+    mocks.useWorkspaceLiveData.mockReturnValue({});
   }
 
   beforeEach(() => {
@@ -2093,7 +2089,7 @@ describe("WorkspaceView dropdown terminal interactions", () => {
       disconnectOutput: mocks.disconnectScriptOutput,
     });
 
-    mocks.useWorkspaceLiveData.mockReturnValue({ liveData: {}, clearUnread: vi.fn() });
+    mocks.useWorkspaceLiveData.mockReturnValue({});
   }
 
   beforeEach(() => {

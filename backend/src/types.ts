@@ -254,7 +254,8 @@ export interface SessionMetadata {
   title?: string;
   createdAt: string;
   updatedAt: string;
-  messageCount: number;
+  assistantMessageCount: number;
+  readAssistantMessageCount: number;
   /** Provider ID locked on first message (e.g. "claude" or "codex"). */
   lockedProvider?: string;
   /** Options from the last user message accepted for execution. */
@@ -480,6 +481,7 @@ export interface BrowserStatusPayload {
 /** Frontend -> Backend */
 export type WsIncoming =
   | { type: "switch_session"; sessionId: string }
+  | { type: "mark_read"; sessionId: string; throughCount: number }
   | { type: "user_message"; content: string; images?: ImageAttachment[]; fileMentions?: FileMention[]; options?: MessageOptions; sessionId?: string; clientMessageId?: string }
   | { type: "stop"; sessionId?: string }
   | { type: "tool_input_response"; requestId: string; toolName: string; result: ToolInputResult; sessionId?: string }
@@ -530,7 +532,15 @@ export type WsOutgoing =
   | { type: "pr_status"; status: PrStatusResponse }
   | { type: "script_status"; scriptType: ScriptType; state: ScriptState; exitCode?: number }
   | { type: "browser_status"; status: BrowserStatusPayload }
-  | { type: "plan_mode_changed"; sessionId: string; active: boolean };
+  | { type: "plan_mode_changed"; sessionId: string; active: boolean }
+  | {
+      type: "unread_state";
+      sessions: Array<{
+        sessionId: string;
+        assistantMessageCount: number;
+        readAssistantMessageCount: number;
+      }>;
+    };
 
 // ── Automation types ─────────────────────────────────────────────────
 

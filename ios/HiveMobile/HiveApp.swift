@@ -90,6 +90,7 @@ struct HiveApp: App {
                 .hiveScreenBackground()
                 .toolbar(brainPath.isEmpty ? .automatic : .hidden, for: .tabBar)
             }
+            .badge(projectStore.statusMonitor.brainBadgeCount)
             Tab("Hub", systemImage: "square.grid.2x2.fill", value: .hub) {
                 NavigationStack(path: $hubPath) {
                     HubView(
@@ -131,22 +132,25 @@ struct HiveApp: App {
             DispatchQueue.main.async { hubPath.append(workspace) }
             projectStore.pendingNavigation = nil
         }
-        .onChange(of: scenePhase) { _, newPhase in
+        .onChange(of: scenePhase, initial: true) { _, newPhase in
             switch newPhase {
             case .background:
                 backgroundedAt = Date()
+                projectStore.statusMonitor.appDidBecomeInactive()
+            case .inactive:
+                projectStore.statusMonitor.appDidBecomeInactive()
             case .active:
+                projectStore.statusMonitor.appDidBecomeActive()
                 if let bg = backgroundedAt {
                     let elapsed = Date().timeIntervalSince(bg)
-                    projectStore.statusMonitor.appDidBecomeActive()
                     Task { await modelCatalog.load() }
                     if elapsed > 30 {
                         Task { await projectStore.refresh(force: true) }
                     }
                 }
                 backgroundedAt = nil
-            default:
-                break
+            @unknown default:
+                projectStore.statusMonitor.appDidBecomeInactive()
             }
         }
     }

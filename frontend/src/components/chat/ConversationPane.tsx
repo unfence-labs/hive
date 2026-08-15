@@ -17,6 +17,7 @@ import type {
   ReasoningSegment,
   SessionMetadata,
   ToolCall,
+  UnreadSessionState,
 } from "@/types";
 
 /**
@@ -38,7 +39,7 @@ export interface ConversationPaneProps {
   activeSessionId?: string;
   isStreaming: boolean;
   streamingSessions?: Record<string, boolean>;
-  unreadSessions?: Record<string, boolean>;
+  unreadSessions?: Record<string, UnreadSessionState>;
   onCreateSession: () => void;
   onActivateSession: (sessionId: string) => void;
   onDeleteSession: (sessionId: string) => void;

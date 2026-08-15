@@ -256,6 +256,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  vi.useRealTimers();
   // Let pending fire-and-forget async work (e.g. saveImagesToDisk) settle
   await new Promise((r) => setTimeout(r, 250));
   for (let attempt = 0; attempt < 5; attempt++) {
@@ -2348,6 +2349,12 @@ describe("ConversationSession", () => {
     mockProc._stdout.push(appServerResponse(turnStart.id, {
       turn: { id: "turn-failed" },
     }));
+    mockProc._stdout.push(appServerNotification("item/agentMessage/delta", {
+      threadId: "thread-app-failed",
+      turnId: "turn-failed",
+      itemId: "failed-partial",
+      delta: "Partial answer",
+    }));
 
     mockProc._stdout.push(appServerNotification("turn/completed", {
       threadId: "thread-app-failed",
@@ -2372,6 +2379,7 @@ describe("ConversationSession", () => {
     expect(messages.some((msg) => msg.type === "done")).toBe(false);
     expect(messages.some((msg) => msg.type === "cancelled")).toBe(false);
     expect(session.status).toBe("error");
+    expect(session.metadata.assistantMessageCount).toBe(1);
   });
 
   it("waits for Codex app-server turn completion after protocol error notifications", async () => {
@@ -2431,6 +2439,7 @@ describe("ConversationSession", () => {
       message: "Rate limited: try again later",
     });
     expect(messages.some((msg) => msg.type === "cancelled")).toBe(false);
+    expect(session.metadata.assistantMessageCount).toBe(0);
   });
 
   it("treats Codex app-server interrupted turns without a local stop as errors", async () => {
@@ -3171,7 +3180,8 @@ describe("ConversationSession", () => {
   it("exposes metadata with correct workspaceId", () => {
     const session = createSession();
     expect(session.metadata.workspaceId).toBe("ws-test");
-    expect(session.metadata.messageCount).toBe(0);
+    expect(session.metadata.assistantMessageCount).toBe(0);
+    expect(session.metadata.readAssistantMessageCount).toBe(0);
     expect(session.metadata.sessionId).toBe(session.sessionId);
   });
 
@@ -3191,6 +3201,7 @@ describe("ConversationSession", () => {
     expect(lines.length).toBe(2);
     const assistantMsg = JSON.parse(lines[1]);
     expect(assistantMsg.cancelled).toBe(true);
+    expect(session.metadata.assistantMessageCount).toBe(1);
   });
 
   it("persists an explicit interruption message when cancelled before any output", async () => {
@@ -3256,6 +3267,7 @@ describe("ConversationSession", () => {
     expect(userMsg.role).toBe("user");
     expect(userMsg.content).toBe("Hello");
     expect(userMsg.sessionId).toBe("persist-test");
+    expect(session.metadata.assistantMessageCount).toBe(0);
   });
 
   it("persists assistant message on done", async () => {
@@ -3276,6 +3288,75 @@ describe("ConversationSession", () => {
     const assistantMsg = JSON.parse(lines[1]);
     expect(assistantMsg.role).toBe("assistant");
     expect(assistantMsg.content).toBe("Hello back!");
+  });
+
+  it("advances updatedAt for a tool-only turn without counting an assistant message", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-02-11T00:00:00.000Z"));
+    const session = createSession({ sessionId: "tool-only-updatedat" });
+
+    session.sendMessage("Run a tool");
+    // Captured synchronously: sendMessage() bumps updatedAt in-memory before
+    // the turn ever streams anything, so this is the pre-turn-completion value.
+    const beforeUpdatedAt = session.metadata.updatedAt;
+
+    vi.setSystemTime(new Date("2026-02-11T00:00:01.000Z"));
+
+    mockProc._stdout.push(
+      assistantToolUseLine({ id: "toolu_only", name: "Bash", input: { command: "pwd" } }),
+    );
+    mockProc._stdout.push(userLine([{ tool_use_id: "toolu_only", content: "/tmp/test" }]));
+    mockProc._stdout.push(resultLine("tool-only-session"));
+    mockProc._emitClose(0);
+
+    await session.drain();
+
+    const messagesPath = join(tempDir, "sessions", "tool-only-updatedat", "messages.jsonl");
+    const raw = await readFile(messagesPath, "utf-8");
+    const lines = raw.split("\n").filter(Boolean);
+
+    expect(lines.length).toBe(2); // user + assistant (tool call only, no text)
+    const assistantMsg = JSON.parse(lines[1]);
+    expect(assistantMsg.role).toBe("assistant");
+    expect(assistantMsg.content).toBe("");
+    expect(assistantMsg.toolCalls?.[0]?.name).toBe("Bash");
+    expect(session.metadata.assistantMessageCount).toBe(0);
+
+    const metaPath = join(tempDir, "sessions", "tool-only-updatedat", "metadata.json");
+    const persistedMeta = JSON.parse(await readFile(metaPath, "utf-8"));
+    expect(new Date(persistedMeta.updatedAt).getTime()).toBeGreaterThan(
+      new Date(beforeUpdatedAt).getTime(),
+    );
+  });
+
+  it("advances updatedAt for a turn that persists no assistant message at all", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-02-11T00:00:00.000Z"));
+    const session = createSession({ sessionId: "no-output-updatedat" });
+
+    session.sendMessage("Say nothing");
+    const beforeUpdatedAt = session.metadata.updatedAt;
+
+    vi.setSystemTime(new Date("2026-02-11T00:00:01.000Z"));
+
+    // Runner exits cleanly with no text, tool calls, activities, or reasoning
+    // and no cancellation is surfaced (clean exit code).
+    mockProc._emitClose(0);
+
+    await session.drain();
+
+    const messagesPath = join(tempDir, "sessions", "no-output-updatedat", "messages.jsonl");
+    const raw = await readFile(messagesPath, "utf-8");
+    const lines = raw.split("\n").filter(Boolean);
+
+    expect(lines.length).toBe(1); // only the user message, no assistant message appended
+    expect(session.metadata.assistantMessageCount).toBe(0);
+
+    const metaPath = join(tempDir, "sessions", "no-output-updatedat", "metadata.json");
+    const persistedMeta = JSON.parse(await readFile(metaPath, "utf-8"));
+    expect(new Date(persistedMeta.updatedAt).getTime()).toBeGreaterThan(
+      new Date(beforeUpdatedAt).getTime(),
+    );
   });
 
   it("saves metadata with pre-generated claudeSessionId", async () => {
@@ -3299,7 +3380,8 @@ describe("ConversationSession", () => {
 
     expect(meta.sessionId).toBe("meta-test");
     expect(meta.claudeSessionId).toBe(preGeneratedId);
-    expect(meta.messageCount).toBe(1);
+    expect(meta.assistantMessageCount).toBe(1);
+    expect(meta.readAssistantMessageCount).toBe(0);
   });
 
   it("getMessages() returns persisted messages", async () => {
@@ -3418,7 +3500,8 @@ describe("ConversationSession", () => {
     });
 
     expect(session2.metadata.claudeSessionId).toBe(preGeneratedId);
-    expect(session2.metadata.messageCount).toBe(1);
+    expect(session2.metadata.assistantMessageCount).toBe(1);
+    expect(session2.metadata.readAssistantMessageCount).toBe(0);
   });
 
   it("kills blocking AskUserQuestion tool calls and emits tool_input_required", async () => {

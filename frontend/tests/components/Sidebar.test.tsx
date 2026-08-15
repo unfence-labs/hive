@@ -9,7 +9,13 @@ import { api } from "@/hooks/useApi";
 import { useWsCacheInvalidation } from "@/hooks/useWsCacheInvalidation";
 import { BRAIN_WORKSPACE_ID } from "@/lib/brain";
 import type { UiPreferencesPayload } from "@/lib/sidebar-preferences";
-import type { BrainState, Project, PullRequestInfo, WsOutgoing } from "@/types";
+import type {
+  BrainState,
+  Project,
+  PullRequestInfo,
+  UnreadSessionState,
+  WsOutgoing,
+} from "@/types";
 
 const reloadHiveMock = vi.hoisted(() => vi.fn());
 
@@ -241,6 +247,14 @@ function findSidebarUnreadDot(container: HTMLElement) {
   );
 }
 
+function unreadSession(sessionId: string): UnreadSessionState {
+  return {
+    sessionId,
+    assistantMessageCount: 2,
+    readAssistantMessageCount: 1,
+  };
+}
+
 function makePr(overrides: Partial<PullRequestInfo> = {}): PullRequestInfo {
   return {
     number: 42,
@@ -398,11 +412,18 @@ describe("Sidebar", () => {
     const brainLink = await screen.findByRole("link", { name: /Brain/i });
     expect(brainLink.querySelector("[aria-label='Unread activity']")).toBeNull();
 
-    // A background turn completes -> unread dot.
+    // The server publishes the authoritative unread set and count.
     act(() => {
-      __wsMock.emit(BRAIN_WORKSPACE_ID, { type: "done", sessionId: "brain-sess-1" });
+      __wsMock.emit(BRAIN_WORKSPACE_ID, {
+        type: "unread_state",
+        sessions: [
+          unreadSession("brain-sess-1"),
+          unreadSession("brain-sess-2"),
+        ],
+      });
     });
     expect(brainLink.querySelector("[aria-label='Unread activity']")).not.toBeNull();
+    expect(screen.getByLabelText("2 unread conversations")).toBeInTheDocument();
 
     // A new turn starts -> streaming indicator takes over.
     act(() => {
@@ -1354,7 +1375,7 @@ describe("Sidebar", () => {
     expect(streamingIndicators).toHaveLength(1);
   });
 
-  it("shows unread dot for inactive workspace after done event", async () => {
+  it("shows unread dot for inactive workspace from authoritative unread state", async () => {
     const multiWsProjects: Project[] = [
       {
         id: "p1",
@@ -1374,7 +1395,10 @@ describe("Sidebar", () => {
     await screen.findByText("workspace/paris");
 
     act(() => {
-      __wsMock.emit("w2", { type: "done", sessionId: "sess-2" });
+      __wsMock.emit("w2", {
+        type: "unread_state",
+        sessions: [unreadSession("sess-2")],
+      });
     });
 
     const inactiveLink = screen.getByRole("link", { name: /workspace\/paris/i });
@@ -1382,14 +1406,17 @@ describe("Sidebar", () => {
     expect(inactiveLink.querySelector("svg.lucide-git-branch")).toBeNull();
   });
 
-  it("shows unread dot even for the active workspace when a session completes", async () => {
+  it("shows authoritative unread state even for the active workspace", async () => {
     const { __wsMock } = await getWsMock();
     renderSidebar("/workspaces/w1", projects);
 
     await screen.findByText("workspace/tokyo");
 
     act(() => {
-      __wsMock.emit("w1", { type: "done", sessionId: "sess-1" });
+      __wsMock.emit("w1", {
+        type: "unread_state",
+        sessions: [unreadSession("sess-1")],
+      });
     });
 
     const activeLink = screen.getByRole("link", { name: /workspace\/tokyo/i });
@@ -1417,7 +1444,10 @@ describe("Sidebar", () => {
     const inactiveLink = screen.getByRole("link", { name: /workspace\/paris/i });
 
     act(() => {
-      __wsMock.emit("w2", { type: "done", sessionId: "sess-2" });
+      __wsMock.emit("w2", {
+        type: "unread_state",
+        sessions: [unreadSession("sess-2")],
+      });
     });
     expect(findSidebarUnreadDot(inactiveLink)).toBeInTheDocument();
 

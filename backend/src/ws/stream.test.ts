@@ -3,7 +3,7 @@ import Fastify, { type FastifyInstance } from "fastify";
 import websocket from "@fastify/websocket";
 import WebSocket from "ws";
 import { createHash } from "node:crypto";
-import { chmod, rm, mkdir, writeFile } from "node:fs/promises";
+import { chmod, rm, mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createTempDir, createFixtureRepo } from "../utils/test-helpers.js";
 import { createProject } from "../projects/project-manager.js";
@@ -22,6 +22,7 @@ import {
 import type { SessionOptions } from "../agents/agent-manager.js";
 import type { AuthExpectation } from "../utils/auth.js";
 import { streamRoutes, broadcastToWorkspace, completionProviderForMessage, _getChannelsForTests, _getHubSocketsForTests, _tickHubLivenessForTests } from "./stream.js";
+import { sessionRoutes } from "../api/agents.js";
 import {
   _setScriptStatusForTests,
   _clearAll as clearScripts,
@@ -56,6 +57,9 @@ beforeEach(async () => {
   await app.register(websocket, { options: { maxPayload: 10 * 1024 * 1024 } });
   await app.register((instance: FastifyInstance) =>
     streamRoutes(instance, { dataDir, sessionOptions: CONV_CMD }),
+  );
+  await app.register((instance: FastifyInstance) =>
+    sessionRoutes(instance, { dataDir, sessionOptions: CONV_CMD }),
   );
   await app.ready();
 });
@@ -275,7 +279,8 @@ async function writePersistedChatSession(
       workspaceId: wsId,
       createdAt: "2026-02-10T00:00:00.000Z",
       updatedAt,
-      messageCount: 1,
+      assistantMessageCount: 1,
+      readAssistantMessageCount: 1,
     }),
     "utf-8",
   );
@@ -309,6 +314,98 @@ describe("WS /ws/hub", () => {
     await waitForMessage(messages, (msgs) => msgs.some((m) => m.type === "status"));
 
     expect(messages[0]).toEqual({ type: "status", status: "idle", streaming: false });
+    ws.close();
+  });
+
+  it("broadcasts a replacement unread snapshot after deleting an unread session", async () => {
+    const sessionId = "unread-to-delete";
+    await writePersistedChatSession(sessionId, "Unread response");
+    const metadataPath = join(dataDir, projectId, "sessions", sessionId, "metadata.json");
+    const metadata = JSON.parse(await readFile(metadataPath, "utf-8"));
+    metadata.readAssistantMessageCount = 0;
+    await writeFile(metadataPath, JSON.stringify(metadata), "utf-8");
+
+    const { wsReady, messages } = connectHub([wsId]);
+    const ws = await wsReady;
+    await waitForMessage(messages, (items) => items.some(
+      (item) => item.type === "unread_state" && item.sessions.some((entry) => entry.sessionId === sessionId),
+    ));
+
+    const response = await app.inject({
+      method: "DELETE",
+      url: `/api/workspaces/${wsId}/sessions/${sessionId}`,
+    });
+    expect(response.statusCode).toBe(204);
+
+    await waitForMessage(messages, (items) => items.filter(
+      (item) => item.type === "unread_state",
+    ).some((item) => item.type === "unread_state" && item.sessions.length === 0));
+    ws.close();
+  });
+
+  it("bootstraps only unread non-terminal sessions", async () => {
+    await writePersistedChatSession("read-chat", "Read response");
+    await writePersistedChatSession("unread-chat", "Unread response");
+    await writePersistedChatSession("unread-terminal", "Terminal response");
+    for (const [sessionId, updates] of [
+      ["unread-chat", { readAssistantMessageCount: 0 }],
+      ["unread-terminal", { readAssistantMessageCount: 0, kind: "terminal" }],
+    ] as const) {
+      const path = join(dataDir, projectId, "sessions", sessionId, "metadata.json");
+      const metadata = JSON.parse(await readFile(path, "utf-8"));
+      await writeFile(path, JSON.stringify({ ...metadata, ...updates }), "utf-8");
+    }
+
+    const { wsReady, messages } = connectHub([wsId]);
+    const ws = await wsReady;
+    await waitForMessage(messages, (items) => items.some((item) => item.type === "unread_state"));
+
+    const snapshot = messages.filter((item) => item.type === "unread_state").at(-1);
+    expect(snapshot).toEqual({
+      type: "unread_state",
+      sessions: [{
+        sessionId: "unread-chat",
+        assistantMessageCount: 1,
+        readAssistantMessageCount: 0,
+      }],
+    });
+    ws.close();
+  });
+
+  it("validates mark_read and applies concurrent updates monotonically", async () => {
+    const sessionId = "mark-read-session";
+    await writePersistedChatSession(sessionId, "Unread response");
+    const metadataPath = join(dataDir, projectId, "sessions", sessionId, "metadata.json");
+    const metadata = JSON.parse(await readFile(metadataPath, "utf-8"));
+    metadata.readAssistantMessageCount = 0;
+    await writeFile(metadataPath, JSON.stringify(metadata), "utf-8");
+
+    const { wsReady, messages } = connectHub([wsId]);
+    const ws = await wsReady;
+    await waitForMessage(messages, (items) => items.some(
+      (item) => item.type === "unread_state" && item.sessions.length === 1,
+    ));
+
+    const warn = vi.spyOn(app.log, "warn");
+    ws.send(hubEvent(wsId, { type: "mark_read", sessionId, throughCount: -1 }));
+    ws.send(hubEvent(wsId, { type: "mark_read", sessionId, throughCount: 2 }));
+    await vi.waitFor(() => expect(warn).toHaveBeenCalledTimes(2));
+    expect(warn).toHaveBeenCalledWith(
+      expect.objectContaining({ workspaceId: wsId, sessionId }),
+      "mark_read rejected",
+    );
+    warn.mockRestore();
+
+    ws.send(hubEvent(wsId, { type: "mark_read", sessionId, throughCount: 1 }));
+    ws.send(hubEvent(wsId, { type: "mark_read", sessionId, throughCount: 0 }));
+    await waitForMessage(messages, (items) => items.filter(
+      (item) => item.type === "unread_state" && item.sessions.length === 0,
+    ).length >= 2);
+
+    expect(messages.filter((item) => item.type === "error")).toEqual([]);
+
+    const persisted = JSON.parse(await readFile(metadataPath, "utf-8"));
+    expect(persisted.readAssistantMessageCount).toBe(1);
     ws.close();
   });
 
@@ -376,7 +473,7 @@ describe("WS /ws/hub", () => {
     streaming.sendMessage("keep me streaming");
     await waitForCondition(() => streaming.status === "streaming");
     const emptyActive = await createNewSession(wsId, dataDir, slowCmd);
-    expect(emptyActive.metadata.messageCount).toBe(0);
+    expect(emptyActive.metadata.assistantMessageCount).toBe(0);
 
     const { wsReady, messages } = connectHub([wsId], { app: local.app });
     const ws = await wsReady;
@@ -1737,7 +1834,7 @@ describe("WS /ws/hub", () => {
     await waitForMessage(messages, (msgs) => msgs.some((m) => m.type === "status"));
     await new Promise((r) => setTimeout(r, 100));
 
-    expect(messages).toHaveLength(1);
+    expect(messages.filter((message) => message.type !== "unread_state")).toHaveLength(1);
     expect(messages[0]).toEqual({ type: "status", status: "idle", streaming: false });
     expect(messages.some((m) => m.type === "branch_info")).toBe(false);
     expect(messages.some((m) => m.type === "diff_stats")).toBe(false);
@@ -2172,9 +2269,14 @@ describe("WS /ws/hub", () => {
     const snapshotsFor = (id: string) =>
       allEnvelopes.filter((e) => e.workspaceId === id && e.event.type === "stream_snapshot");
 
-    // Initial bootstrap ships exactly one snapshot per streaming workspace.
+    // Initial bootstrap ships exactly one stream snapshot plus the authoritative
+    // unread snapshot per workspace. Wait for both before measuring isolation.
     await waitForCondition(
-      () => snapshotsFor(wsId).length === 1 && snapshotsFor(other.id).length === 1,
+      () =>
+        snapshotsFor(wsId).length === 1
+        && snapshotsFor(other.id).length === 1
+        && allEnvelopes.some((e) => e.workspaceId === wsId && e.event.type === "unread_state")
+        && allEnvelopes.some((e) => e.workspaceId === other.id && e.event.type === "unread_state"),
     );
 
     const otherEnvelopeCountBefore = allEnvelopes.filter((e) => e.workspaceId === other.id).length;

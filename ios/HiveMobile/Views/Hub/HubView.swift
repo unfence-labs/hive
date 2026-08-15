@@ -374,7 +374,7 @@ struct HubView: View {
 
     private func workspaceRunningRank(_ workspaceId: String) -> Int {
         if store.statusMonitor.isStreaming(workspaceId) { return 0 }
-        if store.statusMonitor.isCompleted(workspaceId) || store.statusMonitor.hasUnreadSessions(workspaceId) { return 1 }
+        if store.statusMonitor.hasUnreadSessions(workspaceId) { return 1 }
         return 2
     }
 
@@ -391,7 +391,7 @@ struct HubView: View {
             var next = partial
             let projectActivity = activitySummary(for: node.project)
             next.streaming += projectActivity.streaming
-            next.completed += projectActivity.completed
+            next.unread += projectActivity.unread
             next.needsAttention += projectActivity.needsAttention
             return next
         }
@@ -403,8 +403,8 @@ struct HubView: View {
             if store.statusMonitor.isStreaming(workspace.id) {
                 next.streaming += 1
             }
-            if store.statusMonitor.isCompleted(workspace.id) || store.statusMonitor.hasUnreadSessions(workspace.id) {
-                next.completed += 1
+            if store.statusMonitor.hasUnreadSessions(workspace.id) {
+                next.unread += 1
             }
             if workspaceNeedsAttention(workspace.id) {
                 next.needsAttention += 1
@@ -420,7 +420,7 @@ struct HubView: View {
 
     private func projectHasLiveAttention(_ project: Project) -> Bool {
         let activity = activitySummary(for: project)
-        return activity.streaming > 0 || activity.completed > 0 || activity.needsAttention > 0
+        return activity.streaming > 0 || activity.unread > 0 || activity.needsAttention > 0
     }
 
     // MARK: - Expansion State

@@ -17,6 +17,7 @@ import {
 } from "../agents/session-dispatch.js";
 import type { SessionOptions } from "../agents/agent-manager.js";
 import { errorMessage, errorStatus } from "../utils/errors.js";
+import { broadcastUnreadState } from "../ws/stream.js";
 
 export interface SessionRoutesOptions {
   dataDir?: string;
@@ -133,6 +134,9 @@ export async function sessionRoutes(app: FastifyInstance, opts: SessionRoutesOpt
           req.params.sessionId,
           dataDir,
         );
+        await broadcastUnreadState(req.params.wsId, dataDir).catch((err) => {
+          req.log.error({ err, wsId: req.params.wsId }, "Unread state broadcast failed");
+        });
         return reply.send(meta);
       } catch (err: unknown) {
         const msg = errorMessage(err, "Failed to convert session to terminal");
@@ -148,6 +152,9 @@ export async function sessionRoutes(app: FastifyInstance, opts: SessionRoutesOpt
     async (req, reply) => {
       try {
         await hardDeleteSession(req.params.wsId, req.params.sessionId, dataDir);
+        await broadcastUnreadState(req.params.wsId, dataDir).catch((err) => {
+          req.log.error({ err, wsId: req.params.wsId }, "Unread state broadcast failed");
+        });
         return reply.status(204).send();
       } catch (err: unknown) {
         const msg = errorMessage(err, "Failed to delete session");

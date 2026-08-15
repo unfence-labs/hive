@@ -450,7 +450,7 @@ final class ConversationStore {
         case .diffStats(let stats):
             diffStats = stats
 
-        case .scriptStatus, .prStatus:
+        case .scriptStatus, .prStatus, .unreadState:
             break // Handled by sidebar, not relevant to chat
 
         case .planModeChanged(let sid, let active):
