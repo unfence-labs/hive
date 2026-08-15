@@ -514,6 +514,35 @@ struct AgentActivityDecodingTests {
     }
 
     @Test
+    func decodesAuthoritativeUnreadSnapshot() throws {
+        let envelope = try decodeHubEnvelope("""
+        {
+          "workspaceId": "ws-1",
+          "event": {
+            "type": "unread_state",
+            "sessions": [
+              {
+                "sessionId": "session-1",
+                "assistantMessageCount": 5,
+                "readAssistantMessageCount": 2
+              }
+            ]
+          }
+        }
+        """)
+
+        guard case .unreadState(let sessions) = envelope.event else {
+            Issue.record("Expected unread_state event")
+            return
+        }
+        let session = try #require(sessions.first)
+        #expect(envelope.workspaceId == "ws-1")
+        #expect(session.sessionId == "session-1")
+        #expect(session.assistantMessageCount == 5)
+        #expect(session.readAssistantMessageCount == 2)
+    }
+
+    @Test
     func decodesGoalUpdateActivityAndKeepsItOutOfVisibleFeed() throws {
         let message = try decodeMessage("""
         {

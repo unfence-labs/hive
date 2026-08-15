@@ -5,7 +5,8 @@ import { Group, Panel, useDefaultLayout, usePanelRef } from "react-resizable-pan
 import { api } from "@/hooks/useApi";
 import { useConversationColumn } from "@/hooks/useConversationColumn";
 import { removeCachedSessionMessages } from "@/hooks/useSessionMessages";
-import { useWorkspaceLiveDataContext, useClearUnread } from "@/contexts/WorkspaceLiveDataContext";
+import { useWorkspaceLiveDataContext } from "@/contexts/WorkspaceLiveDataContext";
+import { useMarkConversationRead } from "@/hooks/useMarkConversationRead";
 
 import { FileTree, renderFileTreeNodes } from "@/components/ai-elements/file-tree";
 import ChatInput, { type ChatInputHandle } from "@/components/ChatInput";
@@ -73,7 +74,6 @@ export default function WorkspaceView() {
 
   // Live data via WebSocket (branch + diff stats)
   const liveData = useWorkspaceLiveDataContext();
-  const clearUnread = useClearUnread();
   const liveDiffStats = wsId ? liveData[wsId]?.diffStats : undefined;
 
 
@@ -151,13 +151,6 @@ export default function WorkspaceView() {
     void queryClient.invalidateQueries({ queryKey: ["workspace", wsId] });
   }, [wsId, queryClient]);
 
-  const onActivateSession = useCallback(
-    (targetSessionId: string) => {
-      if (wsId) clearUnread(wsId, targetSessionId);
-    },
-    [wsId, clearUnread],
-  );
-
   const {
     messages,
     isHistoryLoading,
@@ -220,18 +213,18 @@ export default function WorkspaceView() {
     handleActivateSession,
     handleDeleteSession,
     handleStartTerminal,
-  } = useConversationColumn(wsId, { onActivateSession, onLastSessionDeleted });
+  } = useConversationColumn(wsId, { onLastSessionDeleted });
 
   const [renderMode, setRenderMode] = useState<"raw" | "rendered">("raw");
 
-  // Clear unread only when the active conversation is actually visible.
-  // If the file tab is open, keep unread state so the tab can show a dot.
-  useEffect(() => {
-    if (isFileTabActive) return;
-    if (wsId && sessionId && liveData[wsId]?.unreadSessions?.[sessionId]) {
-      clearUnread(wsId, sessionId);
-    }
-  }, [isFileTabActive, wsId, sessionId, liveData, clearUnread]);
+  useMarkConversationRead({
+    workspaceId: wsId,
+    sessionId,
+    messages,
+    unread: wsId && sessionId ? liveData[wsId]?.unreadSessions?.[sessionId] : undefined,
+    isConversationVisible: !isFileTabActive,
+    isHistoryLoading: !!isHistoryLoading,
+  });
 
   // Scripts (hive.json setup/run)
   const {

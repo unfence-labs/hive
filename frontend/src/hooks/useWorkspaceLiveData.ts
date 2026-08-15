@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { wsTransport } from "@/lib/ws-transport";
-import type { BranchInfo, BrowserStatusPayload, DiffStatResponse, ScriptState } from "@/types";
+import type { BranchInfo, BrowserStatusPayload, DiffStatResponse, ScriptState, UnreadSessionState } from "@/types";
 
 export interface WorkspaceLiveData {
   status?: "idle" | "busy";
@@ -12,14 +12,12 @@ export interface WorkspaceLiveData {
   scriptRunning?: boolean;
   scriptStates?: Record<string, ScriptState>;
   browserSessions?: Record<string, BrowserStatusPayload>;
-  unreadSessions?: Record<string, boolean>;
+  unreadSessions?: Record<string, UnreadSessionState>;
 }
-
-export type ClearUnreadFn = (wsId: string, sessionId?: string) => void;
 
 export function useWorkspaceLiveData(
   workspaceIds: string[],
-): { liveData: Record<string, WorkspaceLiveData>; clearUnread: ClearUnreadFn } {
+): Record<string, WorkspaceLiveData> {
   const [liveData, setLiveData] = useState<Record<string, WorkspaceLiveData>>(
     {},
   );
@@ -94,10 +92,8 @@ export function useWorkspaceLiveData(
         } else if ((msg.type === "done" || msg.type === "cancelled") && msg.sessionId) {
           setLiveData((prev) => {
             const current = prev[wsId] ?? {};
-            const prevUnread = current.unreadSessions ?? {};
             const wasStreaming = !!(current.streamingSessions ?? {})[msg.sessionId!];
-            const alreadyUnread = !!prevUnread[msg.sessionId!];
-            if (!wasStreaming && alreadyUnread) return prev;
+            if (!wasStreaming) return prev;
             const nextSessions = wasStreaming
               ? { ...(current.streamingSessions ?? {}) }
               : (current.streamingSessions ?? {});
@@ -109,10 +105,20 @@ export function useWorkspaceLiveData(
                 ...current,
                 streaming: anySessionStreaming,
                 streamingSessions: nextSessions,
-                unreadSessions: { ...prevUnread, [msg.sessionId!]: true },
               },
             };
           });
+        } else if (msg.type === "unread_state") {
+          const unreadSessions = Object.fromEntries(
+            msg.sessions.map((session) => [session.sessionId, session]),
+          );
+          setLiveData((prev) => ({
+            ...prev,
+            [wsId]: {
+              ...prev[wsId],
+              unreadSessions: msg.sessions.length > 0 ? unreadSessions : undefined,
+            },
+          }));
         } else if (msg.type === "script_status") {
           setLiveData((prev) => {
             const current = prev[wsId] ?? {};
@@ -163,21 +169,5 @@ export function useWorkspaceLiveData(
     });
   }, [workspaceIds]);
 
-  const clearUnread = useCallback<ClearUnreadFn>((wsId, sessionId) => {
-    setLiveData((prev) => {
-      const current = prev[wsId];
-      if (!current?.unreadSessions) return prev;
-      if (sessionId) {
-        if (!current.unreadSessions[sessionId]) return prev;
-        const { [sessionId]: _, ...rest } = current.unreadSessions;
-        return {
-          ...prev,
-          [wsId]: { ...current, unreadSessions: Object.keys(rest).length > 0 ? rest : undefined },
-        };
-      }
-      return { ...prev, [wsId]: { ...current, unreadSessions: undefined } };
-    });
-  }, []);
-
-  return { liveData, clearUnread };
+  return liveData;
 }

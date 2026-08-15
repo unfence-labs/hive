@@ -88,6 +88,38 @@ export async function listWorkspaceSessions(
     : workspaceManager.listWorkspaceSessions(wsId, dataDir);
 }
 
+export async function markSessionRead(
+  wsId: string,
+  sessionId: string,
+  throughCount: number,
+  dataDir = getDataDir(),
+): Promise<SessionMetadata> {
+  return isBrain(wsId)
+    ? brainManager.markBrainSessionRead(sessionId, throughCount, dataDir)
+    : workspaceManager.markSessionRead(wsId, sessionId, throughCount, dataDir);
+}
+
+export async function getUnreadSessions(
+  wsId: string,
+  dataDir = getDataDir(),
+): Promise<Array<{
+  sessionId: string;
+  assistantMessageCount: number;
+  readAssistantMessageCount: number;
+}>> {
+  const sessions = await listWorkspaceSessions(wsId, dataDir);
+  return sessions
+    .filter((metadata) =>
+      metadata.kind !== "terminal"
+      && metadata.assistantMessageCount > metadata.readAssistantMessageCount
+    )
+    .map(({ sessionId, assistantMessageCount, readAssistantMessageCount }) => ({
+      sessionId,
+      assistantMessageCount,
+      readAssistantMessageCount,
+    }));
+}
+
 /** Session a fresh client should open for a workspace (metadata only). */
 export async function getDefaultSessionId(
   wsId: string,

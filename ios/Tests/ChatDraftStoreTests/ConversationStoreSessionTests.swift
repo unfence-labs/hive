@@ -734,6 +734,22 @@ struct ConversationStoreSessionTests {
     }
 
     @Test @MainActor
+    func markReadEncodesRenderedAssistantCount() throws {
+        let message = HubIncoming.workspaceEvent(
+            workspaceId: "ws-1",
+            event: .markRead(sessionId: "session-1", throughCount: 3)
+        )
+        let data = try JSONEncoder().encode(message)
+        let object = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let event = try #require(object["event"] as? [String: Any])
+
+        #expect(object["workspaceId"] as? String == "ws-1")
+        #expect(event["type"] as? String == "mark_read")
+        #expect(event["sessionId"] as? String == "session-1")
+        #expect(event["throughCount"] as? Int == 3)
+    }
+
+    @Test @MainActor
     func toolInputResolvedClearsPendingToolInputs() throws {
         let store = ConversationStore()
         store.handle(.status(
@@ -770,7 +786,8 @@ struct ConversationStoreSessionTests {
             title: title,
             createdAt: "2026-01-01T00:00:00.000Z",
             updatedAt: "2026-01-01T00:00:00.000Z",
-            messageCount: 0,
+            assistantMessageCount: 0,
+            readAssistantMessageCount: 0,
             lockedProvider: nil
         )
     }

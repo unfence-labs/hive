@@ -11,6 +11,7 @@ import { assertSessionCapacity } from "./session-limits.js";
 import { extractSummary, extractPreview } from "../utils/summary-extractor.js";
 import { withKeyedLock } from "../utils/async-lock.js";
 import { parseJsonlMessages, sortByUpdatedAtDesc } from "./session-utils.js";
+import { applyMarkRead, readSessionMetadata, updateSessionMetadata } from "./session-metadata.js";
 import { removeTerminal } from "../services/terminal-runner.js";
 import type { ChatMessage, SessionKind, SessionMetadata, WorkspaceSource } from "../types.js";
 import { Notifier } from "../notifications/notifier.js";
@@ -120,14 +121,14 @@ function getMostRecentlyUpdatedLoadedSession(wsId: string): ConversationSession 
 
 function isPersistedDefaultSessionCandidate(meta: SessionMetadata): boolean {
   return meta.kind !== "terminal" && (
-    meta.messageCount > 0 ||
+    meta.assistantMessageCount > 0 ||
     Boolean(meta.draftPrompt)
   );
 }
 
 export function isLoadedDefaultSessionCandidate(session: ConversationSession): boolean {
   return session.metadata.kind !== "terminal" && (
-    session.metadata.messageCount > 0 ||
+    session.metadata.assistantMessageCount > 0 ||
     Boolean(session.metadata.draftPrompt) ||
     session.status === "streaming"
   );
@@ -280,8 +281,7 @@ export async function getSessionMessages(
       if (!entry.isDirectory()) continue;
       const metadataPath = join(sessionsRoot, entry.name, "metadata.json");
       try {
-        const rawMeta = await readFile(metadataPath, "utf-8");
-        const meta = JSON.parse(rawMeta) as SessionMetadata;
+        const meta = await readSessionMetadata(metadataPath);
         if (meta.workspaceId !== wsId) continue;
         metas.push({ sessionId: entry.name, updatedAt: meta.updatedAt });
       } catch {
@@ -539,8 +539,7 @@ async function loadSessionFromDisk(
   const metaPath = join(ctx.sessionsRoot, sessionId, "metadata.json");
   let meta: SessionMetadata;
   try {
-    const raw = await readFile(metaPath, "utf-8");
-    meta = JSON.parse(raw) as SessionMetadata;
+    meta = await readSessionMetadata(metaPath);
   } catch {
     throw new NotFoundError(`Session ${sessionId} not found`);
   }
@@ -587,8 +586,9 @@ export async function listWorkspaceSessions(
     for (const entry of entries) {
       if (!entry.isDirectory()) continue;
       try {
-        const raw = await readFile(join(sessionsRoot, entry.name, "metadata.json"), "utf-8");
-        const meta = JSON.parse(raw) as SessionMetadata;
+        const meta = await readSessionMetadata(
+          join(sessionsRoot, entry.name, "metadata.json"),
+        );
         if (meta.workspaceId !== wsId) continue;
         sessions.push(meta);
       } catch {
@@ -791,6 +791,27 @@ export async function getSpecificSessionMessages(
   } catch {
     return [];
   }
+}
+
+export async function markSessionRead(
+  wsId: string,
+  sessionId: string,
+  throughCount: number,
+  dataDir = getDataDir(),
+): Promise<SessionMetadata> {
+  return withWorkspaceLock(wsId, async () => {
+    const loaded = getLoadedSessionById(wsId, sessionId);
+    if (loaded) return loaded.markRead(throughCount);
+
+    const ctx = await resolveWorkspaceContext(wsId, dataDir);
+    const metaPath = join(ctx.sessionsRoot, sessionId, "metadata.json");
+    return updateSessionMetadata(metaPath, (metadata) => {
+      if (metadata.workspaceId !== wsId) {
+        throw new NotFoundError(`Session ${sessionId} does not belong to workspace ${wsId}`);
+      }
+      return applyMarkRead(metadata, throughCount);
+    });
+  });
 }
 
 /** Resolve the absolute path to a session attachment file. */

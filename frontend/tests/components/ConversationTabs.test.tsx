@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import type { ComponentProps } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { ConversationTabs } from "@/components/ConversationTabs";
-import type { SessionMetadata } from "@/types";
+import type { SessionMetadata, UnreadSessionState } from "@/types";
 
 function makeSession(id: string, updatedAt: string, title?: string): SessionMetadata {
   return {
@@ -12,7 +12,16 @@ function makeSession(id: string, updatedAt: string, title?: string): SessionMeta
     title,
     createdAt: "2026-02-12T00:00:00.000Z",
     updatedAt,
-    messageCount: 1,
+    assistantMessageCount: 1,
+    readAssistantMessageCount: 0,
+  };
+}
+
+function unreadSession(sessionId: string): UnreadSessionState {
+  return {
+    sessionId,
+    assistantMessageCount: 2,
+    readAssistantMessageCount: 1,
   };
 }
 
@@ -288,7 +297,7 @@ describe("ConversationTabs", () => {
 
   it("shows unread dot for inactive unread session when not streaming", () => {
     renderTabs({
-      unreadSessions: { "sess-2": true },
+      unreadSessions: { "sess-2": unreadSession("sess-2") },
     });
 
     const inactiveTab = screen.getByText("Second conversation").closest("button")!;
@@ -296,18 +305,18 @@ describe("ConversationTabs", () => {
     expect(inactiveTab.querySelector("svg.lucide-message-square")).toBeNull();
   });
 
-  it("does not show unread dot for active session even when unreadSessions marks it", () => {
+  it("shows authoritative unread state on the active session until mark_read is acknowledged", () => {
     renderTabs({
-      unreadSessions: { "sess-1": true },
+      unreadSessions: { "sess-1": unreadSession("sess-1") },
     });
 
     const activeTab = screen.getByText("First conversation").closest("button")!;
-    expect(findUnreadDot(activeTab)).not.toBeInTheDocument();
+    expect(findUnreadDot(activeTab)).toBeInTheDocument();
   });
 
   it("shows unread dot for active session when file tab is active", () => {
     renderTabs({
-      unreadSessions: { "sess-1": true },
+      unreadSessions: { "sess-1": unreadSession("sess-1") },
       openFile: "src/index.ts",
       isFileTabActive: true,
     });
@@ -318,7 +327,7 @@ describe("ConversationTabs", () => {
 
   it("prioritizes streaming indicator over unread dot", () => {
     renderTabs({
-      unreadSessions: { "sess-2": true },
+      unreadSessions: { "sess-2": unreadSession("sess-2") },
       streamingSessions: { "sess-2": true },
     });
 
@@ -525,7 +534,8 @@ describe("ConversationTabs — file tab", () => {
       kind: "terminal",
       createdAt: "2026-02-12T00:00:02.000Z",
       updatedAt: "2026-02-12T00:00:02.000Z",
-      messageCount: 0,
+      assistantMessageCount: 0,
+      readAssistantMessageCount: 0,
     };
     renderTabs({
       sessions: [makeSession("sess-1", "2026-02-12T00:00:01.000Z", "Chat"), terminal],
@@ -547,7 +557,8 @@ describe("ConversationTabs — file tab", () => {
       title,
       createdAt,
       updatedAt: createdAt,
-      messageCount: 0,
+      assistantMessageCount: 0,
+      readAssistantMessageCount: 0,
     });
 
     renderTabs({

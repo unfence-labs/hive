@@ -57,7 +57,7 @@ export function useActiveSessionPrewarm(projects: Project[]): void {
     // server's getDefaultBrainSessionId fallback. Empty sessions have no history
     // to warm; terminals never exist on the Brain.
     const brainEntry = brainSessions
-      .filter((session) => session.messageCount > 0)
+      .filter((session) => session.assistantMessageCount > 0)
       .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0];
     if (brainEntry) {
       targets.push({ wsId: BRAIN_WORKSPACE_ID, sessionId: brainEntry.sessionId });

@@ -15,16 +15,9 @@ import { tabId, type QueuedMessage, type SessionMetadata } from "@/types";
 type ConversationApi = ReturnType<typeof useConversation>;
 
 /**
- * Options for {@link useConversationColumn}. Both callbacks model the small,
- * legitimate divergences between WorkspaceView and BrainView so the rest of the
- * orchestration can stay shared.
+ * Options for {@link useConversationColumn}.
  */
 export interface ConversationColumnOptions {
-  /**
-   * Invoked when a session tab is activated (after `activateTab` + `switchSession`).
-   * WorkspaceView passes a fn that clears the per-session unread badge; Brain omits.
-   */
-  onActivateSession?: (sessionId: string) => void;
   /**
    * Invoked when the last remaining session is deleted (after `clearChat`).
    * Each page does its own cache cleanup here (Brain just clears the WS cache;
@@ -46,8 +39,7 @@ export interface ConversationColumnOptions {
  *
  * Handler semantics:
  * - `handleCreateSession`: create + switch to the new session.
- * - `handleActivateSession`: activate the session tab, then switch; runs
- *   `opts.onActivateSession` for the freshly activated id (no-op if already active).
+ * - `handleActivateSession`: activate the session tab, then switch.
  * - `handleDeleteSession`: delete; if it was the active session, switch to the
  *   next one, or `clearChat` + `opts.onLastSessionDeleted` when none remain.
  *
@@ -137,7 +129,7 @@ export function useConversationColumn(
     // most-recent first only so the warm-up order is predictable.
     const eligible = sessions
       .filter((s) => s.kind !== "terminal") // terminals have no chat transcript
-      .filter((s) => s.messageCount > 0) // nothing to warm for empty sessions
+      .filter((s) => s.assistantMessageCount > 0) // nothing to warm for empty sessions
       .filter((s) => s.sessionId !== sessionId) // active session already fetches
       .slice()
       // updatedAt is an ISO 8601 string, which sorts correctly lexicographically.
@@ -219,7 +211,7 @@ export function useConversationColumn(
     // If send fails (WS disconnected), keep queue — effect re-fires on reconnect.
   }, [queuedMessage, isStreaming, workspaceStatus, pendingToolInputs, sendMessage, setQueuedMessage]);
 
-  const { onActivateSession, onLastSessionDeleted } = opts;
+  const { onLastSessionDeleted } = opts;
 
   const handleCreateSession = useCallback(async () => {
     const meta = await createSession();
@@ -233,9 +225,8 @@ export function useConversationColumn(
       activateTab(`session:${targetSessionId}`);
       if (targetSessionId === sessionId) return;
       switchSession(targetSessionId);
-      onActivateSession?.(targetSessionId);
     },
-    [activateTab, sessionId, switchSession, onActivateSession],
+    [activateTab, sessionId, switchSession],
   );
 
   const activateRelativeTab = useCallback((offset: -1 | 1) => {
@@ -305,7 +296,7 @@ export function useConversationColumn(
     if (
       activeSession &&
       activeSession.kind !== "terminal" &&
-      activeSession.messageCount === 0 &&
+      activeSession.assistantMessageCount === 0 &&
       sessionId
     ) {
       const converted = await convertToTerminal(sessionId);

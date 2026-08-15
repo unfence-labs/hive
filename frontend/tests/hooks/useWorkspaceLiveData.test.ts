@@ -59,58 +59,70 @@ describe("useWorkspaceLiveData", () => {
 
   it("returns empty object initially for given workspace IDs", () => {
     const { result } = renderHook(() => useWorkspaceLiveData(["ws-1", "ws-2"]));
-    expect(result.current.liveData).toEqual({});
+    expect(result.current).toEqual({});
   });
 
-  it("marks a session as unread on done events", async () => {
+  it("replaces unread sessions from authoritative unread_state events", async () => {
     const { __wsMock } = await getWsMock();
     const { result } = renderHook(() => useWorkspaceLiveData(["ws-1"]));
 
     act(() => {
-      __wsMock.emit("ws-1", { type: "done", sessionId: "sess-1" });
+      __wsMock.emit("ws-1", {
+        type: "unread_state",
+        sessions: [
+          {
+            sessionId: "sess-1",
+            assistantMessageCount: 4,
+            readAssistantMessageCount: 1,
+          },
+          {
+            sessionId: "sess-2",
+            assistantMessageCount: 2,
+            readAssistantMessageCount: 0,
+          },
+        ],
+      });
     });
 
-    expect(result.current.liveData["ws-1"]?.unreadSessions).toEqual({ "sess-1": true });
-  });
-
-  it("marks a session as unread on cancelled events", async () => {
-    const { __wsMock } = await getWsMock();
-    const { result } = renderHook(() => useWorkspaceLiveData(["ws-1"]));
+    expect(result.current["ws-1"]?.unreadSessions).toEqual({
+      "sess-1": {
+        sessionId: "sess-1",
+        assistantMessageCount: 4,
+        readAssistantMessageCount: 1,
+      },
+      "sess-2": {
+        sessionId: "sess-2",
+        assistantMessageCount: 2,
+        readAssistantMessageCount: 0,
+      },
+    });
 
     act(() => {
-      __wsMock.emit("ws-1", { type: "cancelled", sessionId: "sess-1" });
+      __wsMock.emit("ws-1", {
+        type: "unread_state",
+        sessions: [
+          {
+            sessionId: "sess-2",
+            assistantMessageCount: 3,
+            readAssistantMessageCount: 0,
+          },
+        ],
+      });
     });
 
-    expect(result.current.liveData["ws-1"]?.unreadSessions).toEqual({ "sess-1": true });
-  });
-
-  it("ignores done/cancelled events without sessionId for unread tracking", async () => {
-    const { __wsMock } = await getWsMock();
-    const { result } = renderHook(() => useWorkspaceLiveData(["ws-1"]));
+    expect(result.current["ws-1"]?.unreadSessions).toEqual({
+      "sess-2": {
+        sessionId: "sess-2",
+        assistantMessageCount: 3,
+        readAssistantMessageCount: 0,
+      },
+    });
 
     act(() => {
-      __wsMock.emit("ws-1", { type: "done" });
-      __wsMock.emit("ws-1", { type: "cancelled" });
+      __wsMock.emit("ws-1", { type: "unread_state", sessions: [] });
     });
 
-    expect(result.current.liveData["ws-1"]?.unreadSessions).toBeUndefined();
-  });
-
-  it("does not re-render when the same unread session is marked twice", async () => {
-    const { __wsMock } = await getWsMock();
-    const { result } = renderHook(() => useWorkspaceLiveData(["ws-1"]));
-
-    act(() => {
-      __wsMock.emit("ws-1", { type: "done", sessionId: "sess-1" });
-    });
-
-    const firstRef = result.current.liveData;
-
-    act(() => {
-      __wsMock.emit("ws-1", { type: "cancelled", sessionId: "sess-1" });
-    });
-
-    expect(result.current.liveData).toBe(firstRef);
+    expect(result.current["ws-1"]?.unreadSessions).toBeUndefined();
   });
 
   it("updates status on WS status message", async () => {
@@ -121,13 +133,13 @@ describe("useWorkspaceLiveData", () => {
       __wsMock.emit("ws-1", { type: "status", status: "busy", streaming: true });
     });
 
-    expect(result.current.liveData["ws-1"]).toEqual({ status: "busy", streaming: true, streamingSessions: {} });
+    expect(result.current["ws-1"]).toEqual({ status: "busy", streaming: true, streamingSessions: {} });
 
     act(() => {
       __wsMock.emit("ws-1", { type: "status", status: "idle", streaming: false });
     });
 
-    expect(result.current.liveData["ws-1"]).toEqual({ status: "idle", streaming: false, streamingSessions: {} });
+    expect(result.current["ws-1"]).toEqual({ status: "idle", streaming: false, streamingSessions: {} });
   });
 
   it("tracks multiple streaming sessions even when workspace status stays busy", async () => {
@@ -143,7 +155,7 @@ describe("useWorkspaceLiveData", () => {
       });
     });
 
-    expect(result.current.liveData["ws-1"]).toEqual({
+    expect(result.current["ws-1"]).toEqual({
       status: "busy",
       streaming: true,
       streamingSessions: { "sess-a": true },
@@ -158,7 +170,7 @@ describe("useWorkspaceLiveData", () => {
       });
     });
 
-    expect(result.current.liveData["ws-1"]).toEqual({
+    expect(result.current["ws-1"]).toEqual({
       status: "busy",
       streaming: true,
       streamingSessions: { "sess-a": true, "sess-b": true },
@@ -193,7 +205,7 @@ describe("useWorkspaceLiveData", () => {
       });
     });
 
-    expect(result.current.liveData["ws-1"]).toEqual({
+    expect(result.current["ws-1"]).toEqual({
       status: "busy",
       streaming: true,
       streamingSessions: { "sess-b": true },
@@ -205,7 +217,14 @@ describe("useWorkspaceLiveData", () => {
     const { result } = renderHook(() => useWorkspaceLiveData(["ws-1"]));
 
     act(() => {
-      __wsMock.emit("ws-1", { type: "done", sessionId: "sess-a" });
+      __wsMock.emit("ws-1", {
+        type: "unread_state",
+        sessions: [{
+          sessionId: "sess-a",
+          assistantMessageCount: 2,
+          readAssistantMessageCount: 1,
+        }],
+      });
       __wsMock.emit("ws-1", {
         type: "status",
         status: "busy",
@@ -214,8 +233,14 @@ describe("useWorkspaceLiveData", () => {
       });
     });
 
-    expect(result.current.liveData["ws-1"]?.unreadSessions).toEqual({ "sess-a": true });
-    expect(result.current.liveData["ws-1"]?.streamingSessions).toEqual({ "sess-a": true });
+    expect(result.current["ws-1"]?.unreadSessions).toEqual({
+      "sess-a": {
+        sessionId: "sess-a",
+        assistantMessageCount: 2,
+        readAssistantMessageCount: 1,
+      },
+    });
+    expect(result.current["ws-1"]?.streamingSessions).toEqual({ "sess-a": true });
   });
 
   it("updates branch on WS branch_info message", async () => {
@@ -228,7 +253,7 @@ describe("useWorkspaceLiveData", () => {
       __wsMock.emit("ws-1", { type: "branch_info", info: branchInfo });
     });
 
-    expect(result.current.liveData["ws-1"]).toEqual({
+    expect(result.current["ws-1"]).toEqual({
       branch: "workspace/tokyo",
       branchInfo,
     });
@@ -245,7 +270,7 @@ describe("useWorkspaceLiveData", () => {
       });
     });
 
-    const firstReference = result.current.liveData;
+    const firstReference = result.current;
 
     act(() => {
       __wsMock.emit("ws-1", {
@@ -254,7 +279,7 @@ describe("useWorkspaceLiveData", () => {
       });
     });
 
-    expect(result.current.liveData).toBe(firstReference);
+    expect(result.current).toBe(firstReference);
   });
 
   it("cleans up stale entries when workspace IDs change", async () => {
@@ -269,13 +294,13 @@ describe("useWorkspaceLiveData", () => {
       __wsMock.emit("ws-2", { type: "status", status: "idle", streaming: false });
     });
 
-    expect(result.current.liveData["ws-1"]).toBeDefined();
-    expect(result.current.liveData["ws-2"]).toBeDefined();
+    expect(result.current["ws-1"]).toBeDefined();
+    expect(result.current["ws-2"]).toBeDefined();
 
     rerender(["ws-1"]);
 
-    expect(result.current.liveData["ws-1"]).toBeDefined();
-    expect(result.current.liveData["ws-2"]).toBeUndefined();
+    expect(result.current["ws-1"]).toBeDefined();
+    expect(result.current["ws-2"]).toBeUndefined();
   });
 
   it("unsubscribes handlers on unmount", async () => {
@@ -297,8 +322,8 @@ describe("useWorkspaceLiveData", () => {
       __wsMock.emit("ws-1", { type: "script_status", scriptType: "run", state: "running" });
     });
 
-    expect(result.current.liveData["ws-1"]?.scriptRunning).toBe(true);
-    expect(result.current.liveData["ws-1"]?.scriptStates).toEqual({ run: "running" });
+    expect(result.current["ws-1"]?.scriptRunning).toBe(true);
+    expect(result.current["ws-1"]?.scriptStates).toEqual({ run: "running" });
   });
 
   it("clears scriptRunning when script finishes", async () => {
@@ -308,13 +333,13 @@ describe("useWorkspaceLiveData", () => {
     act(() => {
       __wsMock.emit("ws-1", { type: "script_status", scriptType: "run", state: "running" });
     });
-    expect(result.current.liveData["ws-1"]?.scriptRunning).toBe(true);
+    expect(result.current["ws-1"]?.scriptRunning).toBe(true);
 
     act(() => {
       __wsMock.emit("ws-1", { type: "script_status", scriptType: "run", state: "done", exitCode: 0 });
     });
-    expect(result.current.liveData["ws-1"]?.scriptRunning).toBe(false);
-    expect(result.current.liveData["ws-1"]?.scriptStates).toEqual({ run: "done" });
+    expect(result.current["ws-1"]?.scriptRunning).toBe(false);
+    expect(result.current["ws-1"]?.scriptStates).toEqual({ run: "done" });
   });
 
   it("stays scriptRunning while at least one script type is running", async () => {
@@ -325,18 +350,18 @@ describe("useWorkspaceLiveData", () => {
       __wsMock.emit("ws-1", { type: "script_status", scriptType: "setup", state: "running" });
       __wsMock.emit("ws-1", { type: "script_status", scriptType: "run", state: "running" });
     });
-    expect(result.current.liveData["ws-1"]?.scriptRunning).toBe(true);
+    expect(result.current["ws-1"]?.scriptRunning).toBe(true);
 
     act(() => {
       __wsMock.emit("ws-1", { type: "script_status", scriptType: "setup", state: "done", exitCode: 0 });
     });
     // run is still running
-    expect(result.current.liveData["ws-1"]?.scriptRunning).toBe(true);
+    expect(result.current["ws-1"]?.scriptRunning).toBe(true);
 
     act(() => {
       __wsMock.emit("ws-1", { type: "script_status", scriptType: "run", state: "error", exitCode: 1 });
     });
-    expect(result.current.liveData["ws-1"]?.scriptRunning).toBe(false);
+    expect(result.current["ws-1"]?.scriptRunning).toBe(false);
   });
 
   it("computes scriptRunning for arbitrary named scripts", async () => {
@@ -348,8 +373,8 @@ describe("useWorkspaceLiveData", () => {
       __wsMock.emit("ws-1", { type: "script_status", scriptType: "frontend", state: "done", exitCode: 0 });
     });
 
-    expect(result.current.liveData["ws-1"]?.scriptRunning).toBe(true);
-    expect(result.current.liveData["ws-1"]?.scriptStates).toEqual({
+    expect(result.current["ws-1"]?.scriptRunning).toBe(true);
+    expect(result.current["ws-1"]?.scriptStates).toEqual({
       backend: "running",
       frontend: "done",
     });
@@ -358,8 +383,8 @@ describe("useWorkspaceLiveData", () => {
       __wsMock.emit("ws-1", { type: "script_status", scriptType: "backend", state: "error", exitCode: 1 });
     });
 
-    expect(result.current.liveData["ws-1"]?.scriptRunning).toBe(false);
-    expect(result.current.liveData["ws-1"]?.scriptStates).toEqual({
+    expect(result.current["ws-1"]?.scriptRunning).toBe(false);
+    expect(result.current["ws-1"]?.scriptStates).toEqual({
       backend: "error",
       frontend: "done",
     });
@@ -382,7 +407,7 @@ describe("useWorkspaceLiveData", () => {
       });
     });
 
-    expect(result.current.liveData["ws-1"]?.browserSessions).toEqual({
+    expect(result.current["ws-1"]?.browserSessions).toEqual({
       "sess-a": {
         sessionId: "sess-a",
         state: "active",
@@ -403,7 +428,7 @@ describe("useWorkspaceLiveData", () => {
       });
     });
 
-    expect(result.current.liveData["ws-1"]?.browserSessions).toBeUndefined();
+    expect(result.current["ws-1"]?.browserSessions).toBeUndefined();
   });
 
   it("does not re-render when same script_status is emitted twice", async () => {
@@ -414,13 +439,13 @@ describe("useWorkspaceLiveData", () => {
       __wsMock.emit("ws-1", { type: "script_status", scriptType: "run", state: "running" });
     });
 
-    const firstRef = result.current.liveData;
+    const firstRef = result.current;
 
     act(() => {
       __wsMock.emit("ws-1", { type: "script_status", scriptType: "run", state: "running" });
     });
 
-    expect(result.current.liveData).toBe(firstRef);
+    expect(result.current).toBe(firstRef);
   });
 
   it("handles multiple workspaces independently", async () => {
@@ -431,8 +456,8 @@ describe("useWorkspaceLiveData", () => {
       __wsMock.emit("ws-1", { type: "status", status: "busy", streaming: true });
     });
 
-    expect(result.current.liveData["ws-1"]).toEqual({ status: "busy", streaming: true, streamingSessions: {} });
-    expect(result.current.liveData["ws-2"]).toBeUndefined();
+    expect(result.current["ws-1"]).toEqual({ status: "busy", streaming: true, streamingSessions: {} });
+    expect(result.current["ws-2"]).toBeUndefined();
 
     act(() => {
       __wsMock.emit("ws-2", {
@@ -441,69 +466,11 @@ describe("useWorkspaceLiveData", () => {
       });
     });
 
-    expect(result.current.liveData["ws-1"]).toEqual({ status: "busy", streaming: true, streamingSessions: {} });
-    expect(result.current.liveData["ws-2"]).toEqual({
+    expect(result.current["ws-1"]).toEqual({ status: "busy", streaming: true, streamingSessions: {} });
+    expect(result.current["ws-2"]).toEqual({
       branch: "workspace/kyoto",
       branchInfo: { name: "workspace/kyoto", lastSyncedAt: "2026-02-13T00:00:00.000Z" },
     });
-  });
-
-  it("clearUnread removes only the targeted session when sessionId is provided", async () => {
-    const { __wsMock } = await getWsMock();
-    const { result } = renderHook(() => useWorkspaceLiveData(["ws-1"]));
-
-    act(() => {
-      __wsMock.emit("ws-1", { type: "done", sessionId: "sess-a" });
-      __wsMock.emit("ws-1", { type: "done", sessionId: "sess-b" });
-    });
-
-    act(() => {
-      result.current.clearUnread("ws-1", "sess-a");
-    });
-
-    expect(result.current.liveData["ws-1"]?.unreadSessions).toEqual({ "sess-b": true });
-  });
-
-  it("clearUnread removes unreadSessions entirely when the last unread session is cleared", async () => {
-    const { __wsMock } = await getWsMock();
-    const { result } = renderHook(() => useWorkspaceLiveData(["ws-1"]));
-
-    act(() => {
-      __wsMock.emit("ws-1", { type: "done", sessionId: "sess-a" });
-    });
-
-    act(() => {
-      result.current.clearUnread("ws-1", "sess-a");
-    });
-
-    expect(result.current.liveData["ws-1"]?.unreadSessions).toBeUndefined();
-  });
-
-  it("clearUnread clears all unread sessions for a workspace when no sessionId is provided", async () => {
-    const { __wsMock } = await getWsMock();
-    const { result } = renderHook(() => useWorkspaceLiveData(["ws-1"]));
-
-    act(() => {
-      __wsMock.emit("ws-1", { type: "done", sessionId: "sess-a" });
-      __wsMock.emit("ws-1", { type: "done", sessionId: "sess-b" });
-    });
-
-    act(() => {
-      result.current.clearUnread("ws-1");
-    });
-
-    expect(result.current.liveData["ws-1"]?.unreadSessions).toBeUndefined();
-  });
-
-  it("clearUnread is a no-op when no unread state exists for the workspace", () => {
-    const { result } = renderHook(() => useWorkspaceLiveData(["ws-1"]));
-    const firstRef = result.current.liveData;
-
-    act(() => {
-      result.current.clearUnread("ws-1");
-    });
-
-    expect(result.current.liveData).toBe(firstRef);
   });
 
   it("clears streamingSessions on done event", async () => {
@@ -519,16 +486,16 @@ describe("useWorkspaceLiveData", () => {
       });
     });
 
-    expect(result.current.liveData["ws-1"]?.streaming).toBe(true);
-    expect(result.current.liveData["ws-1"]?.streamingSessions).toEqual({ "sess-a": true });
+    expect(result.current["ws-1"]?.streaming).toBe(true);
+    expect(result.current["ws-1"]?.streamingSessions).toEqual({ "sess-a": true });
 
     act(() => {
       __wsMock.emit("ws-1", { type: "done", sessionId: "sess-a" });
     });
 
-    expect(result.current.liveData["ws-1"]?.streaming).toBe(false);
-    expect(result.current.liveData["ws-1"]?.streamingSessions).toEqual({});
-    expect(result.current.liveData["ws-1"]?.unreadSessions).toEqual({ "sess-a": true });
+    expect(result.current["ws-1"]?.streaming).toBe(false);
+    expect(result.current["ws-1"]?.streamingSessions).toEqual({});
+    expect(result.current["ws-1"]?.unreadSessions).toBeUndefined();
   });
 
   it("clears streamingSessions on cancelled event", async () => {
@@ -544,15 +511,15 @@ describe("useWorkspaceLiveData", () => {
       });
     });
 
-    expect(result.current.liveData["ws-1"]?.streaming).toBe(true);
+    expect(result.current["ws-1"]?.streaming).toBe(true);
 
     act(() => {
       __wsMock.emit("ws-1", { type: "cancelled", sessionId: "sess-a" });
     });
 
-    expect(result.current.liveData["ws-1"]?.streaming).toBe(false);
-    expect(result.current.liveData["ws-1"]?.streamingSessions).toEqual({});
-    expect(result.current.liveData["ws-1"]?.unreadSessions).toEqual({ "sess-a": true });
+    expect(result.current["ws-1"]?.streaming).toBe(false);
+    expect(result.current["ws-1"]?.streamingSessions).toEqual({});
+    expect(result.current["ws-1"]?.unreadSessions).toBeUndefined();
   });
 
   it("keeps other sessions streaming when one session receives done", async () => {
@@ -574,30 +541,14 @@ describe("useWorkspaceLiveData", () => {
       });
     });
 
-    expect(result.current.liveData["ws-1"]?.streaming).toBe(true);
+    expect(result.current["ws-1"]?.streaming).toBe(true);
 
     act(() => {
       __wsMock.emit("ws-1", { type: "done", sessionId: "sess-a" });
     });
 
-    expect(result.current.liveData["ws-1"]?.streaming).toBe(true);
-    expect(result.current.liveData["ws-1"]?.streamingSessions).toEqual({ "sess-b": true });
+    expect(result.current["ws-1"]?.streaming).toBe(true);
+    expect(result.current["ws-1"]?.streamingSessions).toEqual({ "sess-b": true });
   });
 
-  it("clearUnread is a no-op when the target session is not unread", async () => {
-    const { __wsMock } = await getWsMock();
-    const { result } = renderHook(() => useWorkspaceLiveData(["ws-1"]));
-
-    act(() => {
-      __wsMock.emit("ws-1", { type: "done", sessionId: "sess-a" });
-    });
-
-    const firstRef = result.current.liveData;
-
-    act(() => {
-      result.current.clearUnread("ws-1", "sess-missing");
-    });
-
-    expect(result.current.liveData).toBe(firstRef);
-  });
 });

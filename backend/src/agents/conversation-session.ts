@@ -2,6 +2,7 @@ import { EventEmitter } from "node:events";
 import { copyFile, mkdir, readFile, stat, writeFile, open } from "node:fs/promises";
 import { extname, join } from "node:path";
 import { commandExecutionActivityToToolCall } from "@hive/shared/agent-activity";
+import { isCountedAssistantMessage } from "@hive/shared/counted-message";
 import { workspaceFileRawPath } from "@hive/shared/workspace-files";
 import { nanoid } from "nanoid";
 import sharp from "sharp";
@@ -15,6 +16,7 @@ import { createAgentRunner, type AgentRunnerFactory } from "./runners/factory.js
 import type { AgentRunner, AgentRunnerTurnStartedEvent, StopReason } from "./runners/types.js";
 import { DEBUG_AGENT_LOGS } from "../utils/env.js";
 import { addBounded } from "../utils/bounded-set.js";
+import { applyMarkRead, readSessionMetadata, writeSessionMetadata } from "./session-metadata.js";
 import type {
   AgentActivity,
   AgentActivityFile,
@@ -254,7 +256,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
   private codexAppServerRunner: AgentRunner | null = null;
   private _status: "idle" | "streaming" | "error" = "idle";
   private _streamingStartedAt: number | null = null;
-  private messageCount = 0;
+  private userMessageCount = 0;
   private cliSessionId: string | undefined;
   private persistQueue: Promise<void> = Promise.resolve();
   private _lastPlanMode = false;
@@ -299,7 +301,8 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
       workspaceId: this.workspaceId,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
-      messageCount: 0,
+      assistantMessageCount: 0,
+      readAssistantMessageCount: 0,
       kind: this.sessionKind,
       ...(config.draftPrompt ? { draftPrompt: config.draftPrompt } : {}),
     };
@@ -372,10 +375,20 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
     };
   }
 
-  private enqueueMetadataPersist(): void {
-    this.persistQueue = this.persistQueue
-      .then(() => this.saveMetadata())
-      .catch((err) => console.error("[session] Persist metadata failed:", err));
+  private enqueuePersistOperation(
+    operation: () => Promise<void>,
+    errorLabel: string,
+  ): Promise<void> {
+    const result = this.persistQueue.then(operation);
+    this.persistQueue = result.catch((err) => console.error(errorLabel, err));
+    return result;
+  }
+
+  private enqueueMetadataPersist(): Promise<void> {
+    return this.enqueuePersistOperation(
+      () => this.saveMetadata(),
+      "[session] Persist metadata failed:",
+    );
   }
 
   /** Load a session from disk. Returns the session in idle state with history available. */
@@ -383,18 +396,31 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
     const session = new ConversationSession(config);
     try {
       const metaPath = join(session.sessionDir, "metadata.json");
-      const raw = await readFile(metaPath, "utf-8");
-      const meta = JSON.parse(raw) as SessionMetadata;
+      const meta = await readSessionMetadata(metaPath);
       session._metadata = meta;
       session.cliSessionId = meta.providerSessionId ?? meta.claudeSessionId;
-      session.messageCount = meta.messageCount;
+      try {
+        const messages = await readFile(join(session.sessionDir, "messages.jsonl"), "utf-8");
+        session.userMessageCount = messages
+          .split("\n")
+          .filter((line) => {
+            if (!line.trim()) return false;
+            try {
+              return (JSON.parse(line) as ChatMessage).role === "user";
+            } catch {
+              return false;
+            }
+          }).length;
+      } catch {
+        session.userMessageCount = meta.assistantMessageCount > 0 ? 1 : 0;
+      }
       // Restore the persisted kind (absent = "chat" for old sessions) and keep
       // _metadata.kind consistent so subsequent saves never drop it.
       session.sessionKind = meta.kind ?? "chat";
       session._metadata.kind = session.sessionKind;
       // Backfill lockedProvider for sessions created before multi-model support.
       // All pre-existing sessions were Claude-only, so default to "claude".
-      if (!meta.lockedProvider && meta.messageCount > 0) {
+      if (!meta.lockedProvider && session.userMessageCount > 0) {
         session._metadata.lockedProvider = "claude";
       }
     } catch {
@@ -525,8 +551,8 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
     }
     void this.enqueuePersist(userMsg);
     this.emit("message", { type: "user_message", message: userMsg });
-    this.messageCount++;
-    if (this.messageCount === 1) {
+    this.userMessageCount++;
+    if (this.userMessageCount === 1) {
       delete this._metadata.draftPrompt;
       this.enqueueMetadataPersist();
       this.emit("first_message", content);
@@ -801,7 +827,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
       return;
     }
 
-    const isFirstMessage = this.messageCount === 1;
+    const isFirstMessage = this.userMessageCount === 1;
     const runnerSelection = this.runnerFactory({
       cwd: this.cwd,
       content: "",
@@ -888,7 +914,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
     preResolved?: { provider: AgentProvider; modelId: string },
     imagePaths?: string[],
   ): void {
-    const isFirstMessage = this.messageCount === 1;
+    const isFirstMessage = this.userMessageCount === 1;
 
     // Use pre-resolved provider when available, otherwise resolve fresh
     const { provider, modelId } = this.testCommand
@@ -1529,7 +1555,8 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
     const effectiveDurationMs = resultDurationMs
       ?? (capturedStreamingStart ? Date.now() - capturedStreamingStart : undefined);
 
-    this._status = (exitCode === 0 || killedForBlockingTool) ? "idle" : "error";
+    const terminalStatus = (exitCode === 0 || killedForBlockingTool) ? "idle" : "error";
+    this._status = terminalStatus;
     this._streamingStartedAt = null;
     this.stopReason = null;
     this.runner = null;
@@ -1546,10 +1573,6 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
     const pendingImageAttachments = this.pendingImageAttachments;
     this.pendingImageAttachments = [];
 
-    this._metadata.messageCount = this.messageCount;
-    this._metadata.updatedAt = new Date().toISOString();
-    this.enqueueMetadataPersist();
-
     const unansweredBlockingTools = killedForBlockingTool
       ? streamToolCalls.filter((tc) => blockingToolNames.has(tc.name))
       : [];
@@ -1560,8 +1583,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
       ? unansweredBlockingTools[0]!.name
       : undefined;
 
-    void (async () => {
-      try {
+    const persistCompletion = this.enqueuePersistOperation(async () => {
         // Wait for image preview copies so their served preview URLs are baked
         // into the persisted activities before the message is written.
         if (pendingImageAttachments.length > 0) {
@@ -1595,10 +1617,18 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
             contextUsedTokens: resultContextUsedTokens,
             contextWindowTokens: resultContextWindowTokens,
           };
-          void this.enqueuePersist(assistantMsg);
+          await this.appendMessage(assistantMsg);
+          if (isCountedAssistantMessage(assistantMsg)) {
+            this._metadata.assistantMessageCount++;
+          }
         }
+        this._metadata.updatedAt = new Date().toISOString();
+        await this.saveMetadata();
+    }, "[session] Persist assistant completion failed:");
 
-        await this.persistQueue;
+    void (async () => {
+      try {
+        await persistCompletion;
         if (shouldSurfaceCancelled) {
           this.emit("message", {
             type: "cancelled",
@@ -1642,6 +1672,13 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
             input,
           });
         }
+      } catch (err) {
+        this._status = "error";
+        this.emit("message", {
+          type: "error",
+          sessionId: this.sessionId,
+          message: err instanceof Error ? err.message : "Failed to persist assistant message",
+        });
       } finally {
         this.emit("exit", exitCode);
       }
@@ -1734,7 +1771,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
    *  not an agent, so there must be no conversation history to strand. */
   convertToTerminal(): void {
     if (this.sessionKind === "terminal") return;
-    if (this.messageCount > 0) {
+    if (this.userMessageCount > 0 || this._metadata.assistantMessageCount > 0) {
       throw new Error("Cannot convert a session with messages into a terminal");
     }
     this.sessionKind = "terminal";
@@ -1744,32 +1781,38 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
   }
 
   private async appendMessage(msg: ChatMessage): Promise<void> {
+    await mkdir(this.sessionDir, { recursive: true });
+    const messagesPath = join(this.sessionDir, "messages.jsonl");
+    // Prepend \n so that even if a previous write was interrupted mid-line
+    // (e.g. server crash during a large appendFile), this message starts on
+    // its own line.  The reader filters blank lines produced by the double \n
+    // in the normal (non-crash) case.
+    // datasync() forces the kernel to flush data to disk, preventing loss on
+    // hard crashes (OOM kill, power loss, SIGKILL).
+    const fh = await open(messagesPath, "a");
     try {
-      await mkdir(this.sessionDir, { recursive: true });
-      const messagesPath = join(this.sessionDir, "messages.jsonl");
-      // Prepend \n so that even if a previous write was interrupted mid-line
-      // (e.g. server crash during a large appendFile), this message starts on
-      // its own line.  The reader filters blank lines produced by the double \n
-      // in the normal (non-crash) case.
-      // datasync() forces the kernel to flush data to disk, preventing loss on
-      // hard crashes (OOM kill, power loss, SIGKILL).
-      const fh = await open(messagesPath, "a");
-      try {
-        await fh.appendFile("\n" + JSON.stringify(msg) + "\n");
-        await fh.datasync();
-      } finally {
-        await fh.close();
-      }
-    } catch (err) {
-      console.error("[session] appendMessage failed:", err);
+      await fh.appendFile("\n" + JSON.stringify(msg) + "\n");
+      await fh.datasync();
+    } finally {
+      await fh.close();
     }
   }
 
   private enqueuePersist(msg: ChatMessage): Promise<void> {
-    this.persistQueue = this.persistQueue
-      .then(() => this.appendMessage(msg))
-      .catch((err) => console.error("[session] Persist message failed:", err));
-    return this.persistQueue;
+    return this.enqueuePersistOperation(
+      () => this.appendMessage(msg),
+      "[session] Persist message failed:",
+    );
+  }
+
+  async markRead(throughCount: number): Promise<SessionMetadata> {
+    await this.enqueuePersistOperation(async () => {
+      const next = applyMarkRead(this._metadata, throughCount);
+      if (next.readAssistantMessageCount === this._metadata.readAssistantMessageCount) return;
+      this._metadata = next;
+      await this.saveMetadata();
+    }, "[session] Mark read failed:");
+    return this.metadata;
   }
 
   /** Await pending persist operations (for graceful shutdown). */
@@ -1799,16 +1842,11 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
   }
 
   async persistMetadata(): Promise<void> {
-    await this.saveMetadata();
+    await this.enqueueMetadataPersist();
   }
 
   private async saveMetadata(): Promise<void> {
-    try {
-      await mkdir(this.sessionDir, { recursive: true });
-      const metaPath = join(this.sessionDir, "metadata.json");
-      await writeFile(metaPath, JSON.stringify(this._metadata, null, 2), "utf-8");
-    } catch (err) {
-      console.error("[session] saveMetadata failed:", err);
-    }
+    const metaPath = join(this.sessionDir, "metadata.json");
+    await writeSessionMetadata(metaPath, this._metadata);
   }
 }

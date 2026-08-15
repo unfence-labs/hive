@@ -5,12 +5,11 @@ protocol HubEventSink: AnyObject {
     func didReceiveActivity(_ event: WsOutgoing, for workspaceId: String)
     func didReceiveStreaming(_ streaming: Bool, for workspaceId: String, sessionId: String?)
     func ensureStoreExists(for workspaceId: String)
-    func checkBackgroundCompletion(for workspaceId: String)
+    func didReceiveUnreadState(_ sessions: [UnreadSessionState], for workspaceId: String)
     func didReceiveDiffStats(_ stats: DiffStatResponse, for workspaceId: String)
     func didReceivePrStatus(_ status: PrStatusResponse, for workspaceId: String)
     func didReceiveBranchInfo(_ info: BranchInfo, for workspaceId: String)
     func didReceiveScriptStatus(scriptType: String, state: String, exitCode: Int?, for workspaceId: String)
-    func didReceiveDone(for workspaceId: String, sessionId: String?, markWorkspaceCompleted: Bool)
     func forward(_ event: WsOutgoing, for workspaceId: String)
 }
 
@@ -28,12 +27,6 @@ enum HubEventRouter {
             if isStreaming {
                 sink.ensureStoreExists(for: workspaceId)
             }
-            // Only status events (bootstrap) check background completion,
-            // not done/cancelled — those handle completion directly.
-            if !isStreaming {
-                sink.checkBackgroundCompletion(for: workspaceId)
-            }
-
         case .diffStats(let stats):
             sink.didReceiveDiffStats(stats, for: workspaceId)
 
@@ -48,14 +41,12 @@ enum HubEventRouter {
 
         case .done(let sessionId, _, _, _, _, _, _):
             sink.didReceiveStreaming(false, for: workspaceId, sessionId: sessionId)
-            sink.didReceiveDone(for: workspaceId, sessionId: sessionId, markWorkspaceCompleted: true)
 
-        case .cancelled(let sessionId, _, let userInitiated, _):
-            // Clear streaming for this session but only mark failed background turns as unread.
+        case .cancelled(let sessionId, _, _, _):
             sink.didReceiveStreaming(false, for: workspaceId, sessionId: sessionId)
-            if userInitiated != true {
-                sink.didReceiveDone(for: workspaceId, sessionId: sessionId, markWorkspaceCompleted: false)
-            }
+
+        case .unreadState(let sessions):
+            sink.didReceiveUnreadState(sessions, for: workspaceId)
 
         case .streamSnapshot(let sessionId, _, _, _, _, _, _):
             sink.didReceiveStreaming(true, for: workspaceId, sessionId: sessionId)

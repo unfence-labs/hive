@@ -6,8 +6,10 @@ import {
   getSessionById,
   getOrCreateSession,
   getDefaultSessionId,
+  getUnreadSessions,
   getStreamingSessionIds,
   isLoadedDefaultSessionCandidate,
+  markSessionRead,
   stopStreaming,
 } from "../agents/session-dispatch.js";
 import type { SessionOptions } from "../agents/agent-manager.js";
@@ -84,6 +86,7 @@ const PING_INTERVAL_MS = 30_000;
 const channels = new Map<string, WorkspaceChannel>();
 const hubSockets = new Set<HubSocket>();
 const hubPingTimers = new Map<HubSocket, NodeJS.Timeout>();
+const unreadStateQueues = new Map<string, Promise<void>>();
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -145,6 +148,26 @@ export function broadcastToWorkspace(workspaceId: string, msg: WsOutgoing): void
       hub.ws.send(serialized);
     }
   }
+}
+
+export async function broadcastUnreadState(
+  workspaceId: string,
+  dataDir = getDataDir(),
+): Promise<void> {
+  const previous = unreadStateQueues.get(workspaceId) ?? Promise.resolve();
+  const queued = previous.catch(() => {}).then(async () => {
+    broadcastToWorkspace(workspaceId, {
+      type: "unread_state",
+      sessions: await getUnreadSessions(workspaceId, dataDir),
+    });
+  });
+  unreadStateQueues.set(workspaceId, queued);
+  void queued.finally(() => {
+    if (unreadStateQueues.get(workspaceId) === queued) {
+      unreadStateQueues.delete(workspaceId);
+    }
+  }).catch(() => {});
+  return queued;
 }
 
 /**
@@ -227,6 +250,16 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
     }
   };
 
+  const queueUnreadStateBroadcast = (
+    workspaceId: string,
+  ): Promise<void> => {
+    const queued = broadcastUnreadState(workspaceId, dataDir);
+    void queued.catch((err) => {
+      app.log.error({ err, workspaceId }, "Unread state broadcast failed");
+    });
+    return queued;
+  };
+
   // ── Session helpers (unchanged logic) ─────────────────────────────
 
   const sendSessionBootstrap = async (hub: HubSocket, workspaceId: string, session: ActiveSession): Promise<void> => {
@@ -300,6 +333,13 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
         browserSessionManager.maybeMarkToolActivity(workspaceId, session.sessionId, msg.name, msg.input);
       }
       broadcastToChannel(channel, workspaceId, msg);
+      if (
+        msg.type === "done"
+        || msg.type === "cancelled"
+        || (msg.type === "error" && session.status !== "streaming")
+      ) {
+        void queueUnreadStateBroadcast(workspaceId);
+      }
     };
     const onError = (err: Error, clientMessageId?: string) => {
       broadcastToChannel(channel, workspaceId, {
@@ -544,7 +584,12 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
       await sendWorkspaceBootstrap(hub, wsId, channel);
       // The socket may close while a bootstrap awaits; adding it then would
       // resurrect membership the close handler already cleaned up.
-      if (hub.ws.readyState === hub.ws.OPEN) channel.hubSockets.add(hub);
+      if (hub.ws.readyState === hub.ws.OPEN) {
+        channel.hubSockets.add(hub);
+        // Join before reading unread state so any concurrent completion also
+        // reaches this socket through the same serialized snapshot queue.
+        await queueUnreadStateBroadcast(wsId);
+      }
     }
 
     // Resend full bootstrap for workspaces the client was already subscribed
@@ -555,7 +600,10 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
       for (const wsId of desired) {
         if (!previouslySubscribed.has(wsId)) continue;
         const channel = channels.get(wsId);
-        if (channel) await sendWorkspaceBootstrap(hub, wsId, channel);
+        if (channel) {
+          await sendWorkspaceBootstrap(hub, wsId, channel);
+          await queueUnreadStateBroadcast(wsId);
+        }
       }
     }
 
@@ -605,6 +653,29 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
         } catch (err: unknown) {
           sendToHub(hub, wsId, { type: "error", message: errorMessage(err, "Failed to switch session") });
         }
+        break;
+      }
+      case "mark_read": {
+        try {
+          await markSessionRead(
+            wsId,
+            incoming.sessionId,
+            incoming.throughCount,
+            dataDir,
+          );
+        } catch (err: unknown) {
+          // mark_read is idempotent housekeeping: clients clamp before sending,
+          // so a rejection is not a conversation error. Keep the authoritative
+          // unread snapshot unchanged and retain observability server-side.
+          app.log.warn(
+            { err, workspaceId: wsId, sessionId: incoming.sessionId },
+            "mark_read rejected",
+          );
+          break;
+        }
+        // The helper logs snapshot failures at error level. Do not fold them
+        // into the mark-read rejection path after the watermark was persisted.
+        void queueUnreadStateBroadcast(wsId);
         break;
       }
       case "user_message": {

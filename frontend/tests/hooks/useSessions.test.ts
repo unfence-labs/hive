@@ -23,7 +23,8 @@ function makeSession(
     workspaceId,
     createdAt,
     updatedAt: "2026-02-12T00:00:01.000Z",
-    messageCount: 0,
+    assistantMessageCount: 0,
+    readAssistantMessageCount: 0,
   };
 }
 

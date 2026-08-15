@@ -6,6 +6,7 @@
   "type": "module",
   "exports": {
     "./agent-activity": "./dist/agent-activity.js",
+    "./counted-message": "./dist/counted-message.js",
     "./project-env": "./dist/project-env.js",
     "./setup-errors": "./dist/setup-errors.js",
     "./setup-types": "./dist/setup-types.js",

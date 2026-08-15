@@ -14,13 +14,11 @@ struct ConversationRow: View {
 
     private var title: String { session.displayTitle }
 
-    // The persisted messageCount only syncs when a turn completes (see
-    // conversation-session.ts), so it counts completed exchanges — i.e. agent
-    // responses. Label it as such: "No responses yet" is accurate while the
-    // first response is still streaming.
+    // The backend count is authoritative and only includes persisted assistant
+    // messages, so "No responses yet" remains accurate during the first stream.
     private var responseCountText: String {
-        guard session.messageCount > 0 else { return "No responses yet" }
-        return "\(session.messageCount) response\(session.messageCount == 1 ? "" : "s")"
+        guard session.assistantMessageCount > 0 else { return "No responses yet" }
+        return "\(session.assistantMessageCount) response\(session.assistantMessageCount == 1 ? "" : "s")"
     }
 
     private var timestampText: String? {
@@ -177,7 +175,8 @@ private struct SessionStatusIndicator: View {
                 title: "Fix login bug",
                 createdAt: "2026-02-18T09:00:00.000Z",
                 updatedAt: "2026-02-18T10:00:00.000Z",
-                messageCount: 5,
+                assistantMessageCount: 5,
+                readAssistantMessageCount: 5,
                 lockedProvider: "claude"
             ),
             monitor: store.statusMonitor,
