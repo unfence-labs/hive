@@ -1,6 +1,10 @@
 import { act, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { BrowserPanel, __clearBrowserStreamConnectionsForTests } from "@/components/BrowserPanel";
+import {
+  BrowserPanel,
+  __clearBrowserStreamConnectionsForTests,
+  reconnectActiveBrowserStreams,
+} from "@/components/BrowserPanel";
 import type { BrowserStatusPayload } from "@/types";
 
 class MockWebSocket {
@@ -183,6 +187,32 @@ describe("BrowserPanel", () => {
 
     first.unmount();
     render(<BrowserPanel status={status} collapsed onToggleCollapsed={() => {}} />);
+
+    expect(MockWebSocket.instances).toHaveLength(1);
+  });
+
+  it("reconnects every active browser stream", async () => {
+    render(<BrowserPanel status={status} />);
+    render(<BrowserPanel status={{ ...status, sessionId: "session-2", streamPath: "/ws/browser/ws-1/session-2" }} />);
+    await waitFor(() => expect(MockWebSocket.instances).toHaveLength(2));
+
+    act(() => reconnectActiveBrowserStreams());
+
+    expect(MockWebSocket.instances).toHaveLength(4);
+    expect(MockWebSocket.instances[0]?.readyState).toBe(MockWebSocket.CLOSED);
+    expect(MockWebSocket.instances[1]?.readyState).toBe(MockWebSocket.CLOSED);
+    await waitFor(() => {
+      expect(MockWebSocket.instances[2]?.readyState).toBe(MockWebSocket.OPEN);
+      expect(MockWebSocket.instances[3]?.readyState).toBe(MockWebSocket.OPEN);
+    });
+  });
+
+  it("does not reconnect a retained stream without subscribers", async () => {
+    const panel = render(<BrowserPanel status={status} />);
+    await waitFor(() => expect(MockWebSocket.instances[0]?.readyState).toBe(MockWebSocket.OPEN));
+    panel.unmount();
+
+    act(() => reconnectActiveBrowserStreams());
 
     expect(MockWebSocket.instances).toHaveLength(1);
   });

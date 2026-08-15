@@ -43,6 +43,10 @@ class MockWebSocket {
     this.onmessage?.({ data: JSON.stringify(envelope) } as MessageEvent);
   }
 
+  hubLevelMessage(message: Exclude<HubOutgoing, { workspaceId: string }>): void {
+    this.onmessage?.({ data: JSON.stringify(message) } as MessageEvent);
+  }
+
   /** Send raw data (for testing malformed messages). */
   message(data: string): void {
     this.onmessage?.({ data } as MessageEvent);
@@ -135,6 +139,107 @@ describe("wsTransport", () => {
     socket.open();
     const parsed = socket.sent.map((s) => JSON.parse(s) as Record<string, unknown>);
     expect(parsed.filter((m) => m.forceBootstrap === true)).toHaveLength(0);
+  });
+
+  it("replaces the hub socket and resolves a full resync on the matching acknowledgement", async () => {
+    wsTransport.syncWorkspaces(["ws-1", "ws-2"]);
+    const first = MockWebSocket.instances[0]!;
+    first.open();
+    const reconnectListener = vi.fn();
+    wsTransport.onReconnect("ws-1", reconnectListener);
+
+    const result = wsTransport.requestFullResync();
+
+    expect(first.readyState).toBe(MockWebSocket.CLOSED);
+    expect(MockWebSocket.instances).toHaveLength(2);
+    const fresh = MockWebSocket.instances[1]!;
+    fresh.open();
+    expect(reconnectListener).toHaveBeenCalledOnce();
+
+    const forcedSync = fresh.sent
+      .map((message) => JSON.parse(message) as Record<string, unknown>)
+      .find((message) => message.type === "sync_workspaces");
+    expect(forcedSync).toMatchObject({
+      workspaceIds: ["ws-1", "ws-2"],
+      forceBootstrap: true,
+    });
+    expect(forcedSync?.requestId).toEqual(expect.any(String));
+
+    let settled = false;
+    void result.then(() => { settled = true; });
+    fresh.hubLevelMessage({ type: "sync_complete", requestId: "unrelated" });
+    await Promise.resolve();
+    expect(settled).toBe(false);
+
+    fresh.hubLevelMessage({
+      type: "sync_complete",
+      requestId: forcedSync?.requestId as string,
+    });
+    await expect(result).resolves.toBeUndefined();
+  });
+
+  it("clears cached live state before a full resync", () => {
+    wsTransport.connect("ws-1");
+    const first = MockWebSocket.instances[0]!;
+    first.open();
+    first.hubMessage("ws-1", { type: "status", status: "busy", streaming: true });
+    first.hubMessage("ws-1", {
+      type: "branch_info",
+      info: { name: "main", lastSyncedAt: "2026-01-01T00:00:00.000Z" },
+    });
+
+    const result = wsTransport.requestFullResync();
+    const replayed: WsOutgoing[] = [];
+    wsTransport.onMessage("ws-1", (message) => replayed.push(message));
+
+    expect(replayed).toEqual([]);
+    const fresh = MockWebSocket.instances[1]!;
+    fresh.open();
+    const forcedSync = JSON.parse(fresh.sent[0]!) as { requestId: string };
+    fresh.hubLevelMessage({ type: "sync_complete", requestId: forcedSync.requestId });
+    return result;
+  });
+
+  it("cancels a pending full resync without leaving a forced request behind", async () => {
+    wsTransport.connect("ws-1");
+    MockWebSocket.instances[0]!.open();
+    const controller = new AbortController();
+
+    const result = wsTransport.requestFullResync(controller.signal);
+    controller.abort();
+    await expect(result).rejects.toMatchObject({ name: "AbortError" });
+
+    const fresh = MockWebSocket.instances[1]!;
+    fresh.open();
+    const sync = JSON.parse(fresh.sent[0]!) as Record<string, unknown>;
+    expect(sync.forceBootstrap).toBeUndefined();
+    expect(sync.requestId).toBeUndefined();
+  });
+
+  it("rejects a full resync if the fresh hub disconnects before acknowledgement", async () => {
+    wsTransport.connect("ws-1");
+    MockWebSocket.instances[0]!.open();
+
+    const result = wsTransport.requestFullResync();
+    const fresh = MockWebSocket.instances[1]!;
+    fresh.open();
+    fresh.close();
+
+    await expect(result).rejects.toThrow("Hub disconnected during full resync");
+  });
+
+  it("can complete a full resync when no workspaces are subscribed", async () => {
+    wsTransport.syncWorkspaces([]);
+    MockWebSocket.instances[0]!.open();
+
+    const result = wsTransport.requestFullResync();
+    const fresh = MockWebSocket.instances[1]!;
+    fresh.open();
+    const sync = JSON.parse(fresh.sent[0]!) as { workspaceIds: string[]; requestId: string };
+    expect(sync.workspaceIds).toEqual([]);
+    fresh.hubLevelMessage({ type: "sync_complete", requestId: sync.requestId });
+
+    await expect(result).resolves.toBeUndefined();
   });
 
   it("uses a single hub socket for multiple workspaces", () => {

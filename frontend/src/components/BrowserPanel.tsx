@@ -216,6 +216,14 @@ function releaseBrowserStreamConnection(streamUrl: string, connection: BrowserSt
   }, CONNECTION_RELEASE_DELAY_MS);
 }
 
+export function reconnectActiveBrowserStreams(): void {
+  for (const connection of browserStreamConnections.values()) {
+    if (connection.hasSubscribers()) {
+      connection.reconnect();
+    }
+  }
+}
+
 export function __clearBrowserStreamConnectionsForTests(): void {
   for (const connection of browserStreamConnections.values()) {
     connection.close();

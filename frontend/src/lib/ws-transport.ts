@@ -1,5 +1,5 @@
 import { getAuthToken, getServerUrl } from "@/hooks/useConnection";
-import type { WsIncoming, WsOutgoing, HubOutgoing } from "@/types";
+import type { WsIncoming, WsOutgoing, HubIncoming, HubOutgoing } from "@/types";
 
 export type ConnectionStatus = "connecting" | "connected" | "disconnected";
 
@@ -25,6 +25,14 @@ const FOCUS_PROBE_TIMEOUT_MS = 3_000;
 
 /** Narrowed hub envelope carrying a workspace event (the non-pong variant). */
 type WorkspaceEnvelope = { workspaceId: string; event: WsOutgoing };
+
+interface PendingFullResync {
+  requestId: string;
+  resolve: () => void;
+  reject: (reason: Error) => void;
+  signal?: AbortSignal;
+  abortListener?: () => void;
+}
 
 // ── Hub socket state ────────────────────────────────────────────────
 
@@ -65,6 +73,8 @@ class WsTransport {
   private subscribedWorkspaceIds = new Set<string>();
   private prWorkspaceIds = new Set<string>();
   private globalListeners = new Set<GlobalMessageHandler>();
+  private pendingFullResync: PendingFullResync | null = null;
+  private nextSyncRequestId = 0;
 
   /** Connect to a workspace (subscribes it via the hub). */
   connect(workspaceId: string): void {
@@ -112,6 +122,45 @@ class WsTransport {
    */
   requestStreamSnapshots(workspaceId: string): void {
     this.send(workspaceId, { type: "request_stream_snapshots" });
+  }
+
+  /**
+   * Replace the hub socket and replay every subscribed workspace bootstrap.
+   * The promise resolves only after the backend confirms that the serialized
+   * bootstrap finished on the fresh connection.
+   */
+  requestFullResync(signal?: AbortSignal): Promise<void> {
+    if (signal?.aborted) {
+      return Promise.reject(this.abortReason(signal));
+    }
+    if (this.pendingFullResync) {
+      return Promise.reject(new Error("A full resync is already in progress"));
+    }
+    for (const sub of this.subscriptions.values()) {
+      sub.lastStatus = undefined;
+      sub.lastStatusBySession.clear();
+      sub.lastDiffStats = undefined;
+      sub.lastBranchInfo = undefined;
+      sub.messageBuffer = [];
+    }
+
+    this.teardownHub();
+    const requestId = `sync-${Date.now()}-${++this.nextSyncRequestId}`;
+    const promise = new Promise<void>((resolve, reject) => {
+      const pending: PendingFullResync = { requestId, resolve, reject, signal };
+      if (signal) {
+        pending.abortListener = () => {
+          this.rejectPendingFullResync(this.abortReason(signal));
+        };
+        signal.addEventListener("abort", pending.abortListener, { once: true });
+      }
+      this.pendingFullResync = pending;
+    });
+
+    this.hub.reconnectAttempt = 1;
+    this.setHubStatus("connecting");
+    this.openHubSocket();
+    return promise;
   }
 
   syncPrWorkspaces(workspaceIds: string[]): void {
@@ -319,7 +368,10 @@ class WsTransport {
         }
       }
       this.setHubStatus("connected");
-      this.sendSyncWorkspaces();
+      const pending = this.pendingFullResync;
+      this.sendSyncWorkspaces(pending
+        ? { forceBootstrap: true, requestId: pending.requestId }
+        : undefined);
     };
 
     ws.onmessage = (event) => {
@@ -328,6 +380,12 @@ class WsTransport {
         const envelope = JSON.parse(event.data as string) as HubOutgoing;
         if ("type" in envelope && envelope.type === "pong") {
           this.hub.lastPongAt = Date.now();
+          return;
+        }
+        if ("type" in envelope && envelope.type === "sync_complete") {
+          if (envelope.requestId === this.pendingFullResync?.requestId) {
+            this.resolvePendingFullResync();
+          }
           return;
         }
         this.handleIncomingEnvelope(envelope as WorkspaceEnvelope);
@@ -343,6 +401,7 @@ class WsTransport {
       this.stopHeartbeat();
       this.hub.ws = null;
       this.setHubStatus("disconnected");
+      this.rejectPendingFullResync(new Error("Hub disconnected during full resync"));
       if (this.subscribedWorkspaceIds.size > 0) {
         this.scheduleHubReconnect();
       }
@@ -390,13 +449,43 @@ class WsTransport {
     }
   }
 
-  private sendSyncWorkspaces(): void {
+  private sendSyncWorkspaces(
+    options?: { forceBootstrap: true; requestId: string },
+  ): void {
     if (!this.hub.ws || this.hub.ws.readyState !== WebSocket.OPEN) return;
-    this.hub.ws.send(JSON.stringify({
+    const message: HubIncoming = {
       type: "sync_workspaces",
       workspaceIds: [...this.subscribedWorkspaceIds],
       prWorkspaces: [...this.prWorkspaceIds],
-    }));
+      ...options,
+    };
+    this.hub.ws.send(JSON.stringify(message));
+  }
+
+  private abortReason(signal: AbortSignal): Error {
+    return signal.reason instanceof Error
+      ? signal.reason
+      : new DOMException("Full resync cancelled", "AbortError");
+  }
+
+  private resolvePendingFullResync(): void {
+    const pending = this.pendingFullResync;
+    if (!pending) return;
+    this.pendingFullResync = null;
+    if (pending.signal && pending.abortListener) {
+      pending.signal.removeEventListener("abort", pending.abortListener);
+    }
+    pending.resolve();
+  }
+
+  private rejectPendingFullResync(reason: Error): void {
+    const pending = this.pendingFullResync;
+    if (!pending) return;
+    this.pendingFullResync = null;
+    if (pending.signal && pending.abortListener) {
+      pending.signal.removeEventListener("abort", pending.abortListener);
+    }
+    pending.reject(reason);
   }
 
   private sendPing(): void {
@@ -455,6 +544,7 @@ class WsTransport {
   }
 
   private teardownHub(): void {
+    this.rejectPendingFullResync(new Error("Hub disconnected during full resync"));
     this.stopHeartbeat();
     if (this.hub.reconnectTimer) {
       clearTimeout(this.hub.reconnectTimer);

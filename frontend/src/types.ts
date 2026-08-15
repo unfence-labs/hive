@@ -784,8 +784,22 @@ export interface UpdateCustomAgentRequest {
 
 // ── Hub WebSocket protocol (multiplexed) ────────────────────────────
 
+/** Client -> Server (hub-level). */
+export type HubIncoming =
+  | {
+      type: "sync_workspaces";
+      workspaceIds: string[];
+      focusWorkspaces?: string[];
+      prWorkspaces?: string[];
+      forceBootstrap?: boolean;
+      requestId?: string;
+    }
+  | { type: "ping" }
+  | { workspaceId: string; event: WsIncoming };
+
 /** Server -> Client (hub-level). Workspace events are tagged with their workspace. */
 export type HubOutgoing =
   | { workspaceId: string; event: WsOutgoing }
+  | { type: "sync_complete"; requestId: string }
   /** Reply to a client `ping` (liveness probe). */
   | { type: "pong" };

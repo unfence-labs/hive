@@ -33,13 +33,15 @@ struct HubFramePipelineTests {
         let pipelineStore = ConversationStore(streamFlushInterval: nil)
         let inlineStore = ConversationStore(streamFlushInterval: nil)
         let pipeline = HubFramePipeline { envelope in
-            pipelineStore.handle(envelope.event)
+            guard case .workspaceEvent(_, let event) = envelope else { return }
+            pipelineStore.handle(event)
         }
         let decoder = JSONDecoder()
         for frame in frames {
             await pipeline.submit(.string(frame))
             let envelope = try decoder.decode(HubOutgoing.self, from: Data(frame.utf8))
-            inlineStore.handle(envelope.event)
+            guard case .workspaceEvent(_, let event) = envelope else { continue }
+            inlineStore.handle(event)
         }
         await pipeline.finish()
         pipelineStore.flushStreamingDeltas()
@@ -57,7 +59,8 @@ struct HubFramePipelineTests {
         let snapshotText = String(repeating: "x", count: 2_000_000)
         let store = ConversationStore(streamFlushInterval: nil)
         let pipeline = HubFramePipeline { envelope in
-            store.handle(envelope.event)
+            guard case .workspaceEvent(_, let event) = envelope else { return }
+            store.handle(event)
         }
 
         await pipeline.submit(.string(frame(
@@ -74,7 +77,8 @@ struct HubFramePipelineTests {
     func malformedFrameIsDroppedWithoutStallingDelivery() async {
         let store = ConversationStore(streamFlushInterval: nil)
         let pipeline = HubFramePipeline { envelope in
-            store.handle(envelope.event)
+            guard case .workspaceEvent(_, let event) = envelope else { return }
+            store.handle(event)
         }
 
         await pipeline.submit(.string(frame(#"{"type":"status","status":"busy","sessionId":"session-1","streaming":true}"#)))

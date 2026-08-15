@@ -11,6 +11,12 @@ import { BRAIN_WORKSPACE_ID } from "@/lib/brain";
 import type { UiPreferencesPayload } from "@/lib/sidebar-preferences";
 import type { BrainState, Project, PullRequestInfo, WsOutgoing } from "@/types";
 
+const reloadHiveMock = vi.hoisted(() => vi.fn());
+
+vi.mock("@/lib/reload-hive", () => ({
+  reloadHive: reloadHiveMock,
+}));
+
 declare const require: <T = any>(id: string) => T;
 
 /** Match elements whose full textContent equals `text` (handles text split across child spans). */
@@ -321,6 +327,7 @@ describe("Sidebar", () => {
   ];
 
   beforeEach(async () => {
+    reloadHiveMock.mockReset();
     vi.mocked(api.get).mockReset();
     vi.mocked(api.post).mockReset();
     vi.mocked(api.put).mockReset();
@@ -1688,6 +1695,22 @@ describe("Sidebar", () => {
     await waitFor(() => {
       expect(screen.getByTestId("settings-from")).toHaveTextContent("/workspaces/w1");
     });
+  });
+
+  it("reloads Hive immediately from the isolated footer action", async () => {
+    const user = userEvent.setup();
+    renderSidebar("/home", projects);
+
+    const reload = screen.getByRole("button", { name: "Reload Hive" });
+    const commands = screen.getByRole("button", { name: "Commands" });
+    const footer = reload.parentElement;
+
+    expect(footer).toHaveClass("justify-between");
+    expect(commands.parentElement).not.toBe(footer);
+
+    await user.click(reload);
+
+    expect(reloadHiveMock).toHaveBeenCalledOnce();
   });
 
   it("keeps repository creation actions compact in the workspaces header", async () => {

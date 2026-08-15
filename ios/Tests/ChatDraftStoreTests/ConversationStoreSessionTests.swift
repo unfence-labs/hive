@@ -719,6 +719,34 @@ struct ConversationStoreSessionTests {
     }
 
     @Test @MainActor
+    func syncWorkspacesCorrelatesForcedBootstrap() throws {
+        let message = HubIncoming.syncWorkspaces(
+            workspaceIds: ["ws-1"],
+            focusWorkspaces: ["ws-1"],
+            prWorkspaces: [],
+            forceBootstrap: true,
+            requestId: "sync-1"
+        )
+        let data = try JSONEncoder().encode(message)
+        let object = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+
+        #expect(object?["forceBootstrap"] as? Bool == true)
+        #expect(object?["requestId"] as? String == "sync-1")
+    }
+
+    @Test @MainActor
+    func decodesSyncCompleteAcknowledgement() throws {
+        let data = Data(#"{"type":"sync_complete","requestId":"sync-1"}"#.utf8)
+        let message = try JSONDecoder().decode(HubOutgoing.self, from: data)
+
+        guard case .syncComplete(let requestId) = message else {
+            Issue.record("Expected sync_complete")
+            return
+        }
+        #expect(requestId == "sync-1")
+    }
+
+    @Test @MainActor
     func requestStreamSnapshotsEncodesTypeOnly() throws {
         let message = WsIncoming.requestStreamSnapshots
         let data = try JSONEncoder().encode(message)

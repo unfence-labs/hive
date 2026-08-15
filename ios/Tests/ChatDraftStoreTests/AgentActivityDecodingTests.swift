@@ -292,7 +292,7 @@ struct AgentActivityDecodingTests {
         }
         """)
 
-        guard case .agentActivity(let sessionId, let activity) = envelope.event else {
+        guard case .workspaceEvent(_, .agentActivity(let sessionId, let activity)) = envelope else {
             Issue.record("Expected agent_activity event")
             return
         }
@@ -506,7 +506,7 @@ struct AgentActivityDecodingTests {
         }
         """)
 
-        guard case .unknown(let type) = envelope.event else {
+        guard case .workspaceEvent(_, .unknown(let type)) = envelope else {
             Issue.record("Expected unknown event")
             return
         }
