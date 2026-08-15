@@ -216,16 +216,48 @@ describe("wsTransport", () => {
     expect(sync.requestId).toBeUndefined();
   });
 
-  it("rejects a full resync if the fresh hub disconnects before acknowledgement", async () => {
+  it("retries a dropped full resync after 1s with the same request ID", async () => {
     wsTransport.connect("ws-1");
     MockWebSocket.instances[0]!.open();
 
     const result = wsTransport.requestFullResync();
     const fresh = MockWebSocket.instances[1]!;
     fresh.open();
+    const firstSync = JSON.parse(fresh.sent[0]!) as { requestId: string };
     fresh.close();
 
-    await expect(result).rejects.toThrow("Hub disconnected during full resync");
+    await vi.advanceTimersByTimeAsync(999);
+    expect(MockWebSocket.instances).toHaveLength(2);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(MockWebSocket.instances).toHaveLength(3);
+
+    const retry = MockWebSocket.instances[2]!;
+    retry.open();
+    const retrySync = JSON.parse(retry.sent[0]!) as { requestId: string };
+    expect(retrySync.requestId).toBe(firstSync.requestId);
+    retry.hubLevelMessage({ type: "sync_complete", requestId: retrySync.requestId });
+    await expect(result).resolves.toBeUndefined();
+  });
+
+  it("keeps a full resync pending through a liveness-driven reconnect", async () => {
+    wsTransport.connect("ws-1");
+    MockWebSocket.instances[0]!.open();
+
+    const result = wsTransport.requestFullResync();
+    const fresh = MockWebSocket.instances[1]!;
+    fresh.open();
+    const firstSync = JSON.parse(fresh.sent[0]!) as { requestId: string };
+
+    wsTransport.probeLiveness();
+    await vi.advanceTimersByTimeAsync(3_000);
+
+    const retry = MockWebSocket.instances[2]!;
+    retry.open();
+    const retrySync = JSON.parse(retry.sent[0]!) as { requestId: string };
+    expect(retrySync.requestId).toBe(firstSync.requestId);
+    retry.hubLevelMessage({ type: "sync_complete", requestId: retrySync.requestId });
+
+    await expect(result).resolves.toBeUndefined();
   });
 
   it("can complete a full resync when no workspaces are subscribed", async () => {
@@ -240,6 +272,37 @@ describe("wsTransport", () => {
     fresh.hubLevelMessage({ type: "sync_complete", requestId: sync.requestId });
 
     await expect(result).resolves.toBeUndefined();
+  });
+
+  it("retries a dropped full resync when no workspaces are subscribed", async () => {
+    wsTransport.syncWorkspaces([]);
+    MockWebSocket.instances[0]!.open();
+
+    const result = wsTransport.requestFullResync();
+    const fresh = MockWebSocket.instances[1]!;
+    fresh.open();
+    const firstSync = JSON.parse(fresh.sent[0]!) as { requestId: string };
+    fresh.close();
+
+    await vi.advanceTimersByTimeAsync(1_000);
+    const retry = MockWebSocket.instances[2]!;
+    retry.open();
+    const retrySync = JSON.parse(retry.sent[0]!) as { workspaceIds: string[]; requestId: string };
+    expect(retrySync).toMatchObject({ workspaceIds: [], requestId: firstSync.requestId });
+    retry.hubLevelMessage({ type: "sync_complete", requestId: retrySync.requestId });
+
+    await expect(result).resolves.toBeUndefined();
+  });
+
+  it("rejects a pending full resync on disconnectAll", async () => {
+    wsTransport.connect("ws-1");
+    MockWebSocket.instances[0]!.open();
+
+    const result = wsTransport.requestFullResync();
+    MockWebSocket.instances[1]!.open();
+    wsTransport.disconnectAll();
+
+    await expect(result).rejects.toThrow("Hub disconnected during full resync");
   });
 
   it("uses a single hub socket for multiple workspaces", () => {

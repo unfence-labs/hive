@@ -189,6 +189,7 @@ class WsTransport {
 
   /** Disconnect all workspaces and close the hub socket. */
   disconnectAll(): void {
+    this.rejectPendingFullResync(new Error("Hub disconnected during full resync"));
     this.teardownHub();
     this.subscriptions.clear();
     this.subscribedWorkspaceIds.clear();
@@ -401,8 +402,7 @@ class WsTransport {
       this.stopHeartbeat();
       this.hub.ws = null;
       this.setHubStatus("disconnected");
-      this.rejectPendingFullResync(new Error("Hub disconnected during full resync"));
-      if (this.subscribedWorkspaceIds.size > 0) {
+      if (this.subscribedWorkspaceIds.size > 0 || this.pendingFullResync) {
         this.scheduleHubReconnect();
       }
     };
@@ -521,7 +521,7 @@ class WsTransport {
    * so this does not blank the visible stream.
    */
   private forceReconnect(): void {
-    if (this.subscribedWorkspaceIds.size === 0) return;
+    if (this.subscribedWorkspaceIds.size === 0 && !this.pendingFullResync) return;
     this.teardownHub();
     this.hub.reconnectAttempt = 1;
     this.setHubStatus("connecting");
@@ -537,14 +537,13 @@ class WsTransport {
     this.hub.reconnectAttempt++;
     this.hub.reconnectTimer = setTimeout(() => {
       this.hub.reconnectTimer = null;
-      if (this.subscribedWorkspaceIds.size === 0) return;
+      if (this.subscribedWorkspaceIds.size === 0 && !this.pendingFullResync) return;
       this.setHubStatus("connecting");
       this.openHubSocket();
     }, delay);
   }
 
   private teardownHub(): void {
-    this.rejectPendingFullResync(new Error("Hub disconnected during full resync"));
     this.stopHeartbeat();
     if (this.hub.reconnectTimer) {
       clearTimeout(this.hub.reconnectTimer);

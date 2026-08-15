@@ -17,8 +17,8 @@ function showSyncFailureToast() {
       <HiveToast
         variant="error"
         title="Hive"
-        status="Offline"
-        description="Sync failed. Hive will keep trying to reconnect."
+        status="Sync incomplete"
+        description="Hive will keep trying to reconnect."
         actionLabel="Reload Hive"
         onAction={reloadHive}
         onClose={() => toast.dismiss(id)}
@@ -59,12 +59,12 @@ export function useAppResync(): boolean {
     const syncPromise = Promise.all([
       queryClient.refetchQueries({ type: "active" }, { throwOnError: true }),
       wsTransport.requestFullResync(abortController.signal),
-      import("@/components/BrowserPanel").then(({ reconnectActiveBrowserStreams }) => {
-        reconnectActiveBrowserStreams();
-      }),
-    ]);
+      import("@/components/BrowserPanel"),
+    ]).then(([, , { reconnectActiveBrowserStreams }]) => {
+      reconnectActivePtyTerminals();
+      reconnectActiveBrowserStreams();
+    });
 
-    reconnectActivePtyTerminals();
     queryClient.removeQueries({ type: "inactive" });
 
     const operation = Promise.race([syncPromise, abortPromise])

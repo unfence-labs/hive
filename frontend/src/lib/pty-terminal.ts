@@ -88,6 +88,7 @@ export function connectPtyTerminal(
 
   const connect = () => {
     const previous = ws;
+    let resetPending = previous !== null;
     if (previous) {
       previous.onclose = null;
       previous.close();
@@ -100,11 +101,19 @@ export function connectPtyTerminal(
     next.onmessage = (event) => {
       if (ws !== next) return;
       if (event.data instanceof ArrayBuffer) {
+        if (resetPending) {
+          term.reset();
+          resetPending = false;
+        }
         term.write(new Uint8Array(event.data));
         return;
       }
       try {
         const msg = JSON.parse(event.data as string) as PtyControlMessage;
+        if (resetPending) {
+          term.reset();
+          resetPending = false;
+        }
         onControl?.(msg);
         if (msg.type === "exit") {
           onExit?.(msg.code ?? -1);

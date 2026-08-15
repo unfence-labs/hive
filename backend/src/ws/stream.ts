@@ -485,7 +485,6 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
     focusWorkspaces?: string[],
     prWorkspaces?: string[],
     forceBootstrap?: boolean,
-    awaitPrRefresh = false,
   ): Promise<void> => {
     const desired = new Set(workspaceIds);
     const previouslySubscribed = new Set(hub.subscribedWorkspaces);
@@ -567,10 +566,9 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
     // the workspace was outside `workspaceIds` sent nothing — treat those as
     // new and send the initial status now.
     //
-    // PR refreshes can hit the network (gh takes up to 8s). Routine subscription
-    // updates keep them in the background. A correlated full resync awaits them
-    // so its completion acknowledgement is an honest boundary for all requested
-    // hub state. sendWorkspacePrStatus never rejects.
+    // PR refreshes can hit the network (gh takes up to 8s), so keep them in the
+    // background. A correlated full resync acknowledges completion of the core
+    // workspace bootstrap without waiting for this optional remote state.
     const prRefreshes = [...hub.prWorkspaces]
       .filter((wsId) =>
         desired.has(wsId) &&
@@ -578,12 +576,7 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
           !(previouslySubscribed.has(wsId) && previousPrWorkspaces.has(wsId)))
       )
       .map((wsId) => sendWorkspacePrStatus(hub, wsId));
-    const prRefresh = Promise.all(prRefreshes);
-    if (awaitPrRefresh) {
-      await prRefresh;
-    } else {
-      void prRefresh;
-    }
+    void Promise.all(prRefreshes);
   };
 
   // ── Workspace message handler ─────────────────────────────────────
@@ -854,7 +847,6 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
               parsed.focusWorkspaces,
               parsed.prWorkspaces,
               parsed.forceBootstrap === true,
-              parsed.forceBootstrap === true && typeof parsed.requestId === "string",
             );
             if (
               parsed.forceBootstrap === true &&

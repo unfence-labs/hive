@@ -101,13 +101,15 @@ describe("useAppResync", () => {
 
     expect(result.current).toBe(true);
     expect(mocks.requestFullResync).toHaveBeenCalledTimes(1);
-    expect(mocks.reconnectActivePtyTerminals).toHaveBeenCalledTimes(1);
-    expect(mocks.reconnectActiveBrowserStreams).toHaveBeenCalledTimes(1);
+    expect(mocks.reconnectActivePtyTerminals).not.toHaveBeenCalled();
+    expect(mocks.reconnectActiveBrowserStreams).not.toHaveBeenCalled();
     expect(remove).toHaveBeenCalledWith({ type: "inactive" });
     expect(refetch).toHaveBeenCalledWith({ type: "active" }, { throwOnError: true });
 
     await act(async () => pending.resolve());
     expect(result.current).toBe(false);
+    expect(mocks.reconnectActivePtyTerminals).toHaveBeenCalledTimes(1);
+    expect(mocks.reconnectActiveBrowserStreams).toHaveBeenCalledTimes(1);
     expect(mocks.toastCustom).not.toHaveBeenCalled();
   });
 
@@ -162,6 +164,23 @@ describe("useAppResync", () => {
     expect(resyncSignal?.aborted).toBe(true);
     expect(cancel).toHaveBeenCalledTimes(1);
     expect(result.current).toBe(false);
+    expect(mocks.reconnectActivePtyTerminals).not.toHaveBeenCalled();
+    expect(mocks.reconnectActiveBrowserStreams).not.toHaveBeenCalled();
+    expect(mocks.toastCustom).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps auxiliary transports intact when the core resync fails", async () => {
+    const { queryClient, wrapper } = createWrapper();
+    vi.spyOn(queryClient, "refetchQueries").mockRejectedValue(new Error("REST unavailable"));
+    const { result } = renderHook(() => useAppResync(), { wrapper });
+
+    act(() => window.dispatchEvent(new Event("blur")));
+    act(() => vi.advanceTimersByTime(FULL_RESYNC_AFTER_MS));
+    await act(async () => window.dispatchEvent(new Event("focus")));
+
+    expect(result.current).toBe(false);
+    expect(mocks.reconnectActivePtyTerminals).not.toHaveBeenCalled();
+    expect(mocks.reconnectActiveBrowserStreams).not.toHaveBeenCalled();
     expect(mocks.toastCustom).toHaveBeenCalledTimes(1);
   });
 

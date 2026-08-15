@@ -1547,7 +1547,7 @@ describe("WS /ws/hub", () => {
     await local.app.close();
   });
 
-  it("acknowledges a correlated bootstrap only after its requested PR refresh", async () => {
+  it("acknowledges a correlated bootstrap without waiting for its requested PR refresh", async () => {
     let resolveRefresh!: (value: { pr: null }) => void;
     const deferredRefresh = new Promise<{ pr: null }>((resolve) => {
       resolveRefresh = resolve;
@@ -1569,26 +1569,36 @@ describe("WS /ws/hub", () => {
     await waitForMessage(messages, (items) => items.some((item) => item.type === "pr_status"));
 
     syncWorkspaces(ws, [wsId], undefined, [wsId], true, "refresh-pr");
-    await waitForCondition(() => prStatusProvider.getStatus.mock.calls.length === 2);
-    expect(hubMessages).not.toContainEqual({ type: "sync_complete", requestId: "refresh-pr" });
-
-    resolveRefresh({ pr: null });
     await waitForCondition(() =>
+      prStatusProvider.getStatus.mock.calls.length === 2 &&
       hubMessages.some((message) =>
         "type" in message &&
         message.type === "sync_complete" &&
         message.requestId === "refresh-pr"
       ),
     );
+
     const ackIndex = hubMessages.findIndex((message) =>
       "type" in message && message.type === "sync_complete" && message.requestId === "refresh-pr"
+    );
+    const prCountAtAck = hubMessages
+      .slice(0, ackIndex + 1)
+      .filter((message) => "workspaceId" in message && message.event.type === "pr_status")
+      .length;
+    expect(prCountAtAck).toBe(1);
+
+    resolveRefresh({ pr: null });
+    await waitForCondition(() =>
+      hubMessages.filter((message) =>
+        "workspaceId" in message && message.event.type === "pr_status"
+      ).length === 2,
     );
     const refreshedPrIndex = hubMessages.reduce(
       (latest, message, index) =>
         "workspaceId" in message && message.event.type === "pr_status" ? index : latest,
       -1,
     );
-    expect(ackIndex).toBeGreaterThan(refreshedPrIndex);
+    expect(refreshedPrIndex).toBeGreaterThan(ackIndex);
 
     ws.close();
     await local.app.close();

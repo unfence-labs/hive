@@ -800,6 +800,7 @@ export type HubIncoming =
 /** Server -> Client (hub-level). Workspace events are tagged with their workspace. */
 export type HubOutgoing =
   | { workspaceId: string; event: WsOutgoing }
+  /** Sent after an explicitly correlated core workspace bootstrap has completed. */
   | { type: "sync_complete"; requestId: string }
   /** Reply to a client `ping` (liveness probe). */
   | { type: "pong" };
