@@ -836,6 +836,8 @@ export type HubIncoming =
       focusWorkspaces?: string[];
       prWorkspaces?: string[];
       forceBootstrap?: boolean;
+      /** Correlates an explicit forced bootstrap with its completion acknowledgement. */
+      requestId?: string;
     }
   // Application-level liveness probe. The browser WebSocket API never exposes
   // protocol-level ping/pong to JS, so clients send this to actively detect a
@@ -846,5 +848,7 @@ export type HubIncoming =
 /** Server -> Client (hub-level). Workspace events are tagged with their workspace. */
 export type HubOutgoing =
   | { workspaceId: string; event: WsOutgoing }
+  /** Sent after an explicitly correlated core workspace bootstrap has completed. */
+  | { type: "sync_complete"; requestId: string }
   /** Reply to a client `ping` (liveness probe). */
   | { type: "pong" };

@@ -5,6 +5,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import SettingsSidebar from "@/components/SettingsSidebar";
 
+const reloadHiveMock = vi.hoisted(() => vi.fn());
+
+vi.mock("@/lib/reload-hive", () => ({
+  reloadHive: reloadHiveMock,
+}));
+
 const apiMock = vi.hoisted(() => ({
   delete: vi.fn(),
   get: vi.fn(),
@@ -59,10 +65,10 @@ function mockDefaultApi() {
   });
 }
 
-function SettingsShell() {
+function SettingsShell({ isResyncing = false }: { isResyncing?: boolean }) {
   return (
     <div>
-      <SettingsSidebar />
+      <SettingsSidebar isResyncing={isResyncing} />
       <Outlet />
     </div>
   );
@@ -82,6 +88,7 @@ function renderWithProviders(ui: React.ReactElement) {
 
 describe("SettingsSidebar", () => {
   beforeEach(() => {
+    reloadHiveMock.mockReset();
     apiMock.delete.mockReset();
     apiMock.get.mockReset();
     apiMock.post.mockReset();
@@ -115,6 +122,46 @@ describe("SettingsSidebar", () => {
     await waitFor(() => {
       expect(screen.getByText("Workspace w1")).toBeInTheDocument();
     });
+  });
+
+  it("reloads Hive immediately from the isolated footer action", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(
+      <MemoryRouter initialEntries={["/settings/appearance"]}>
+        <Routes>
+          <Route path="/settings" element={<SettingsShell />}>
+            <Route path="appearance" element={<div>Appearance settings</div>} />
+          </Route>
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    const reload = screen.getByRole("button", { name: "Reload Hive" });
+    const back = screen.getByRole("button", { name: "Back" });
+    const footer = reload.parentElement;
+
+    expect(footer).toHaveClass("justify-between");
+    expect(back.parentElement).toBe(footer);
+
+    await user.click(reload);
+
+    expect(reloadHiveMock).toHaveBeenCalledOnce();
+  });
+
+  it("replaces the reload action with a syncing status", () => {
+    renderWithProviders(
+      <MemoryRouter initialEntries={["/settings/appearance"]}>
+        <Routes>
+          <Route path="/settings" element={<SettingsShell isResyncing />}>
+            <Route path="appearance" element={<div>Appearance settings</div>} />
+          </Route>
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByRole("status", { name: "Syncing Hive" })).toHaveTextContent("Syncing…");
+    expect(screen.queryByRole("button", { name: "Reload Hive" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Back" })).toBeInTheDocument();
   });
 
   it("falls back to /home when opened directly", async () => {

@@ -614,10 +614,9 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
     // the workspace was outside `workspaceIds` sent nothing — treat those as
     // new and send the initial status now.
     //
-    // The refreshes can hit the network (gh takes up to 8s), so let them
-    // finish in the background instead of holding the per-socket sync queue.
-    // sendToHub re-checks PR interest at send time, which suppresses the send
-    // if a later sync drops the workspace; sendWorkspacePrStatus never rejects.
+    // PR refreshes can hit the network (gh takes up to 8s), so keep them in the
+    // background. A correlated full resync acknowledges completion of the core
+    // workspace bootstrap without waiting for this optional remote state.
     const prRefreshes = [...hub.prWorkspaces]
       .filter((wsId) =>
         desired.has(wsId) &&
@@ -920,6 +919,17 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
               parsed.prWorkspaces,
               parsed.forceBootstrap === true,
             );
+            if (
+              parsed.forceBootstrap === true &&
+              typeof parsed.requestId === "string" &&
+              socket.readyState === socket.OPEN
+            ) {
+              const response: HubOutgoing = {
+                type: "sync_complete",
+                requestId: parsed.requestId,
+              };
+              socket.send(JSON.stringify(response));
+            }
           };
           syncQueue = (syncQueue ? syncQueue.then(runSync) : runSync())
             .catch((err) => {

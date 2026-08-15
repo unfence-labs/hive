@@ -292,7 +292,7 @@ struct AgentActivityDecodingTests {
         }
         """)
 
-        guard case .agentActivity(let sessionId, let activity) = envelope.event else {
+        guard case .workspaceEvent(_, .agentActivity(let sessionId, let activity)) = envelope else {
             Issue.record("Expected agent_activity event")
             return
         }
@@ -506,7 +506,7 @@ struct AgentActivityDecodingTests {
         }
         """)
 
-        guard case .unknown(let type) = envelope.event else {
+        guard case .workspaceEvent(_, .unknown(let type)) = envelope else {
             Issue.record("Expected unknown event")
             return
         }
@@ -531,12 +531,12 @@ struct AgentActivityDecodingTests {
         }
         """)
 
-        guard case .unreadState(let sessions) = envelope.event else {
+        guard case .workspaceEvent(let workspaceId, .unreadState(let sessions)) = envelope else {
             Issue.record("Expected unread_state event")
             return
         }
         let session = try #require(sessions.first)
-        #expect(envelope.workspaceId == "ws-1")
+        #expect(workspaceId == "ws-1")
         #expect(session.sessionId == "session-1")
         #expect(session.assistantMessageCount == 5)
         #expect(session.readAssistantMessageCount == 2)

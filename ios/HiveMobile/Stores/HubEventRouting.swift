@@ -16,8 +16,7 @@ protocol HubEventSink: AnyObject {
 enum HubEventRouter {
     @MainActor
     static func route(_ envelope: HubOutgoing, to sink: HubEventSink) {
-        let workspaceId = envelope.workspaceId
-        let event = envelope.event
+        guard case .workspaceEvent(let workspaceId, let event) = envelope else { return }
         sink.didReceiveActivity(event, for: workspaceId)
 
         switch event {

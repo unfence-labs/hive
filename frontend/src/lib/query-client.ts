@@ -5,10 +5,10 @@ export const queryClient = new QueryClient({
     queries: {
       // WS invalidation is the freshness mechanism, not time-based expiry.
       staleTime: 5 * 60 * 1000,
-      // Desktop app — user tabs away constantly; refetch storms on focus would
-      // spam the remote VPS and cause visible flicker.
+      // Short focus changes must stay quiet. Meaningful foreground recovery is
+      // coordinated explicitly so the whole app refreshes as one operation.
       refetchOnWindowFocus: false,
-      // WS transport handles reconnects and replays cached data.
+      // The same coordinator owns network recovery instead of per-query refetches.
       refetchOnReconnect: false,
       // Remote VPS — transient failures happen. Retry twice with backoff.
       retry: 2,

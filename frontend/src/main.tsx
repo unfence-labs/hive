@@ -4,7 +4,6 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { queryClient } from "@/lib/query-client";
 import "./index.css";
 import { copyToClipboard } from "@/lib/clipboard";
-import { wsTransport } from "@/lib/ws-transport";
 import { initAccentColor } from "@/hooks/useAccentColor";
 import App from "./App";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
@@ -12,19 +11,6 @@ import { ErrorBoundary } from "@/components/ErrorBoundary";
 // The stored theme mode is restored by the inline script in index.html; the
 // accent color is restored here.
 initAccentColor();
-
-// A hub WebSocket can stay readyState OPEN after the OS sleeps/wakes or the
-// network changes, never firing onclose — leaving the UI stuck on stale data.
-// When the user returns (tab visible / window focus / network back), probe the
-// socket; probeLiveness() reconnects only if the probe goes unanswered, so a
-// healthy idle conversation is never needlessly reconnected. Works in both the
-// browser and the Tauri webview (which receives standard focus events).
-const probeHubLiveness = () => wsTransport.probeLiveness();
-document.addEventListener("visibilitychange", () => {
-  if (document.visibilityState === "visible") probeHubLiveness();
-});
-window.addEventListener("focus", probeHubLiveness);
-window.addEventListener("online", probeHubLiveness);
 
 // Fallback for streamdown's code block copy button in non-secure contexts
 // where navigator.clipboard is unavailable (HTTP, remote IP).

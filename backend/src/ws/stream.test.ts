@@ -86,6 +86,7 @@ function syncWorkspaces(
   focusWorkspaces?: string[],
   prWorkspaces?: string[],
   forceBootstrap?: boolean,
+  requestId?: string,
 ): void {
   ws.send(JSON.stringify({
     type: "sync_workspaces",
@@ -93,6 +94,7 @@ function syncWorkspaces(
     ...(focusWorkspaces !== undefined ? { focusWorkspaces } : {}),
     ...(prWorkspaces !== undefined ? { prWorkspaces } : {}),
     ...(forceBootstrap !== undefined ? { forceBootstrap } : {}),
+    ...(requestId !== undefined ? { requestId } : {}),
   }));
 }
 
@@ -118,6 +120,7 @@ function connectHub(
   wsReady: Promise<WebSocket>;
   messages: WsOutgoing[];
   allEnvelopes: WorkspaceEnvelope[];
+  hubMessages: HubOutgoing[];
 } {
   const queryString = opts?.query
     ? `?${new URLSearchParams(opts.query).toString()}`
@@ -125,6 +128,7 @@ function connectHub(
   const path = `/ws/hub${queryString}`;
   const messages: WsOutgoing[] = [];
   const allEnvelopes: WorkspaceEnvelope[] = [];
+  const hubMessages: HubOutgoing[] = [];
   const targetWsId = workspaceIds[0];
   const wsReady = (opts?.app ?? app).injectWS(
     path,
@@ -133,7 +137,8 @@ function connectHub(
       onInit: (ws) => {
         ws.on("message", (data: Buffer) => {
           const envelope = JSON.parse(data.toString()) as HubOutgoing;
-          if (!("workspaceId" in envelope)) return; // ignore hub-level pong frames
+          hubMessages.push(envelope);
+          if (!("workspaceId" in envelope)) return; // ignore hub-level control frames
           allEnvelopes.push(envelope);
           if (opts?.collectAll || envelope.workspaceId === targetWsId) {
             messages.push(envelope.event);
@@ -146,7 +151,7 @@ function connectHub(
       },
     },
   ) as Promise<WebSocket>;
-  return { wsReady, messages, allEnvelopes };
+  return { wsReady, messages, allEnvelopes, hubMessages };
 }
 
 /** Connect to hub and attach listeners after injectWS resolves. */
@@ -171,7 +176,7 @@ async function connectHubLateListener(
   await Promise.resolve();
   ws.on("message", (data: Buffer) => {
     const envelope = JSON.parse(data.toString()) as HubOutgoing;
-    if (!("workspaceId" in envelope)) return; // ignore hub-level pong frames
+    if (!("workspaceId" in envelope)) return; // ignore hub-level control frames
     allEnvelopes.push(envelope);
     if (envelope.workspaceId === targetWsId) {
       messages.push(envelope.event);
@@ -1591,7 +1596,7 @@ describe("WS /ws/hub", () => {
       ),
     };
     const local = await startWsApp(undefined, CONV_CMD, provider);
-    const { wsReady, messages } = connectHub([wsId], { app: local.app });
+    const { wsReady, messages, hubMessages } = connectHub([wsId], { app: local.app });
     const ws = await wsReady;
 
     await waitForMessage(
@@ -1608,18 +1613,89 @@ describe("WS /ws/hub", () => {
 
     // Re-sync the same workspace with forceBootstrap: true, simulating iOS
     // requesting a refresh over an already-healthy socket (no reconnect).
-    syncWorkspaces(ws, [wsId], undefined, undefined, true);
+    syncWorkspaces(ws, [wsId], undefined, undefined, true, "refresh-1");
 
     await waitForMessage(
       messages,
       (msgs) =>
         msgs.filter((m) => m.type === "branch_info").length >= 2 &&
-        msgs.filter((m) => m.type === "diff_stats").length >= 2,
+        msgs.filter((m) => m.type === "diff_stats").length >= 2 &&
+        hubMessages.some((message) =>
+          "type" in message &&
+          message.type === "sync_complete" &&
+          message.requestId === "refresh-1"
+        ),
     );
     expect(messages).toContainEqual({ type: "branch_info", info: branchInfoV2 });
     expect(messages).toContainEqual({ type: "diff_stats", stats: diffStatsV2 });
+    const ackIndex = hubMessages.findIndex((message) =>
+      "type" in message && message.type === "sync_complete" && message.requestId === "refresh-1"
+    );
+    const refreshedDiffIndex = hubMessages.reduce(
+      (latest, message, index) =>
+        "workspaceId" in message && message.event.type === "diff_stats" ? index : latest,
+      -1,
+    );
+    expect(ackIndex).toBeGreaterThan(refreshedDiffIndex);
     // The socket was never closed/reopened for this refresh.
     expect(ws.readyState).toBe(ws.OPEN);
+
+    ws.close();
+    await local.app.close();
+  });
+
+  it("acknowledges a correlated bootstrap without waiting for its requested PR refresh", async () => {
+    let resolveRefresh!: (value: { pr: null }) => void;
+    const deferredRefresh = new Promise<{ pr: null }>((resolve) => {
+      resolveRefresh = resolve;
+    });
+    let refreshCount = 0;
+    const prStatusProvider = {
+      getCachedStatus: vi.fn(() => undefined),
+      getStatus: vi.fn(() => {
+        refreshCount++;
+        return refreshCount === 1 ? Promise.resolve({ pr: null }) : deferredRefresh;
+      }),
+    };
+    const local = await startWsApp(undefined, CONV_CMD, undefined, prStatusProvider);
+    const { wsReady, messages, hubMessages } = connectHub([wsId], {
+      app: local.app,
+      prWorkspaces: [wsId],
+    });
+    const ws = await wsReady;
+    await waitForMessage(messages, (items) => items.some((item) => item.type === "pr_status"));
+
+    syncWorkspaces(ws, [wsId], undefined, [wsId], true, "refresh-pr");
+    await waitForCondition(() =>
+      prStatusProvider.getStatus.mock.calls.length === 2 &&
+      hubMessages.some((message) =>
+        "type" in message &&
+        message.type === "sync_complete" &&
+        message.requestId === "refresh-pr"
+      ),
+    );
+
+    const ackIndex = hubMessages.findIndex((message) =>
+      "type" in message && message.type === "sync_complete" && message.requestId === "refresh-pr"
+    );
+    const prCountAtAck = hubMessages
+      .slice(0, ackIndex + 1)
+      .filter((message) => "workspaceId" in message && message.event.type === "pr_status")
+      .length;
+    expect(prCountAtAck).toBe(1);
+
+    resolveRefresh({ pr: null });
+    await waitForCondition(() =>
+      hubMessages.filter((message) =>
+        "workspaceId" in message && message.event.type === "pr_status"
+      ).length === 2,
+    );
+    const refreshedPrIndex = hubMessages.reduce(
+      (latest, message, index) =>
+        "workspaceId" in message && message.event.type === "pr_status" ? index : latest,
+      -1,
+    );
+    expect(refreshedPrIndex).toBeGreaterThan(ackIndex);
 
     ws.close();
     await local.app.close();

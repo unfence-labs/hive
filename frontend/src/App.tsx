@@ -18,6 +18,7 @@ import { useDesktopUpdate } from "@/hooks/useDesktopUpdate";
 import { ServerUpdatePrompt } from "@/components/ServerUpdatePrompt";
 import { wsTransport } from "@/lib/ws-transport";
 import { HiveToaster } from "@/components/ui/toaster";
+import { useAppResync } from "@/hooks/useAppResync";
 
 const AutomationDetail = lazy(() => import("@/pages/AutomationDetail"));
 const WorkspaceView = lazy(() => import("@/pages/WorkspaceView"));
@@ -106,6 +107,7 @@ function ConfiguredApp({
   onCloseInstaller: () => void;
 }) {
   const { projects, loading, fetchProjects, createProjectWithWorkspace, createNewProjectWithWorkspace } = useProjects();
+  const isResyncing = useAppResync();
   const [showAddProject, setShowAddProject] = useState(false);
   const [showAddAutomation, setShowAddAutomation] = useState(false);
   // "New workspace from…" picker — owned here so both the global shortcuts
@@ -172,6 +174,7 @@ function ConfiguredApp({
             <Route
               element={
                 <AppLayout
+                  isResyncing={isResyncing}
                   onAddProject={() => setShowAddProject(true)}
                   onAddAutomation={() => setShowAddAutomation(true)}
                   onNewWorkspaceFrom={(projectId) => setWorkspaceFrom({ open: true, projectId })}

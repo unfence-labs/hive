@@ -50,6 +50,7 @@ import {
 import { SidebarActivityDot } from "@/components/sidebar/SidebarActivityDot";
 import { useAutomations } from "@/hooks/useAutomations";
 import { SidebarShell } from "@/components/SidebarShell";
+import { SidebarRecoveryControl } from "@/components/SidebarRecoveryControl";
 import { ResizeHandle } from "@/components/ResizeHandle";
 import { SidebarFolderComposer } from "@/components/sidebar/SidebarFolderComposer";
 import { SidebarFolderItem } from "@/components/sidebar/SidebarFolderItem";
@@ -62,6 +63,7 @@ import type { Automation, DiffStatResponse, Project } from "@/types";
 // ── Sidebar ──────────────────────────────────────────────────────────
 
 interface SidebarProps {
+  isResyncing?: boolean;
   onAddProject: () => void;
   onAddAutomation?: () => void;
   onNewWorkspaceFrom?: (projectId: string) => void;
@@ -163,7 +165,12 @@ function SidebarPanelScroll({
   );
 }
 
-export default function Sidebar({ onAddProject, onAddAutomation, onNewWorkspaceFrom }: SidebarProps) {
+export default function Sidebar({
+  isResyncing = false,
+  onAddProject,
+  onAddAutomation,
+  onNewWorkspaceFrom,
+}: SidebarProps) {
   const {
     projects,
     loading,
@@ -526,27 +533,30 @@ export default function Sidebar({ onAddProject, onAddAutomation, onNewWorkspaceF
   };
 
   const footerActions = (
-    <div className="flex items-center justify-end gap-1 px-2 py-1.5">
-      <ShortcutTooltip label="Commands" shortcut={shortcutLabel("K")}>
-        <button
-          type="button"
-          onClick={() => dispatchAppCommand("open-spotlight")}
-          className="shrink-0 rounded p-1 text-muted-foreground transition-colors hover:text-sidebar-foreground"
-          aria-label="Commands"
-        >
-          <Search className="h-4 w-4" />
-        </button>
-      </ShortcutTooltip>
-      <ShortcutTooltip label="Settings" shortcut={shortcutLabel(",")}>
-        <Link
-          to="/settings"
-          state={{ from: pathname }}
-          className="shrink-0 rounded p-1 text-muted-foreground transition-colors hover:text-sidebar-foreground"
-          aria-label="Settings"
-        >
-          <Settings className="h-4 w-4" />
-        </Link>
-      </ShortcutTooltip>
+    <div className="flex items-center justify-between px-2 py-1.5">
+      <SidebarRecoveryControl isResyncing={isResyncing} />
+      <div className="flex items-center justify-end gap-1">
+        <ShortcutTooltip label="Commands" shortcut={shortcutLabel("K")}>
+          <button
+            type="button"
+            onClick={() => dispatchAppCommand("open-spotlight")}
+            className="shrink-0 rounded p-1 text-muted-foreground transition-colors hover:text-sidebar-foreground"
+            aria-label="Commands"
+          >
+            <Search className="h-4 w-4" />
+          </button>
+        </ShortcutTooltip>
+        <ShortcutTooltip label="Settings" shortcut={shortcutLabel(",")}>
+          <Link
+            to="/settings"
+            state={{ from: pathname }}
+            className="shrink-0 rounded p-1 text-muted-foreground transition-colors hover:text-sidebar-foreground"
+            aria-label="Settings"
+          >
+            <Settings className="h-4 w-4" />
+          </Link>
+        </ShortcutTooltip>
+      </div>
     </div>
   );
 

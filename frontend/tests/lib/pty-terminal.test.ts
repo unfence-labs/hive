@@ -1,6 +1,10 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Terminal as XTerm } from "@xterm/xterm";
-import { connectPtyTerminal } from "@/lib/pty-terminal";
+import {
+  __clearPtyTerminalConnectionsForTests,
+  connectPtyTerminal,
+  reconnectActivePtyTerminals,
+} from "@/lib/pty-terminal";
 
 class MockWebSocket {
   static OPEN = 1;
@@ -27,10 +31,12 @@ function createTerminal() {
   let resizeHandler: ((size: { cols: number; rows: number }) => void) | null = null;
   const inputDispose = vi.fn();
   const resizeDispose = vi.fn();
+  const reset = vi.fn();
   const term = {
     cols: 100,
     rows: 30,
     write: vi.fn(),
+    reset,
     onData: (handler: (data: string) => void) => {
       dataHandler = handler;
       return { dispose: inputDispose };
@@ -46,6 +52,7 @@ function createTerminal() {
     emitResize: (cols: number, rows: number) => resizeHandler?.({ cols, rows }),
     inputDispose,
     resizeDispose,
+    reset,
   };
 }
 
@@ -59,6 +66,11 @@ describe("connectPtyTerminal", () => {
   beforeEach(() => {
     MockWebSocket.instances.length = 0;
     vi.stubGlobal("WebSocket", MockWebSocket as unknown as typeof WebSocket);
+  });
+
+  afterEach(() => {
+    __clearPtyTerminalConnectionsForTests();
+    vi.unstubAllGlobals();
   });
 
   it("writes binary chunks to the terminal", () => {
@@ -127,5 +139,71 @@ describe("connectPtyTerminal", () => {
     lastSocket().onclose?.();
     expect(t.inputDispose).toHaveBeenCalledTimes(1);
     expect(t.resizeDispose).toHaveBeenCalledTimes(1);
+  });
+
+  it("reconnects every active PTY without disposing terminal listeners", () => {
+    const first = createTerminal();
+    const second = createTerminal();
+    const firstOnClose = vi.fn();
+    const disconnectFirst = connectPtyTerminal(first.term, "ws://x/ws/terminal/ws-1", { onClose: firstOnClose });
+    connectPtyTerminal(second.term, "ws://x/ws/script/ws-1", { onClose: vi.fn() });
+
+    reconnectActivePtyTerminals();
+
+    expect(MockWebSocket.instances).toHaveLength(4);
+    expect(MockWebSocket.instances[0]?.close).toHaveBeenCalledTimes(1);
+    expect(MockWebSocket.instances[1]?.close).toHaveBeenCalledTimes(1);
+    expect(first.inputDispose).not.toHaveBeenCalled();
+    expect(first.resizeDispose).not.toHaveBeenCalled();
+    expect(firstOnClose).not.toHaveBeenCalled();
+    expect(first.reset).not.toHaveBeenCalled();
+
+    first.emitData("pwd\n");
+    const replacement = MockWebSocket.instances[2];
+    const binary = replacement?.send.mock.calls.find((call) => ArrayBuffer.isView(call[0]))?.[0];
+    expect(new TextDecoder().decode(binary as Uint8Array)).toBe("pwd\n");
+
+    disconnectFirst();
+    expect(replacement?.close).toHaveBeenCalledTimes(1);
+    expect(first.inputDispose).toHaveBeenCalledTimes(1);
+    expect(first.resizeDispose).toHaveBeenCalledTimes(1);
+    expect(firstOnClose).not.toHaveBeenCalled();
+  });
+
+  it("resets the terminal only when the replacement socket starts replaying", () => {
+    const terminal = createTerminal();
+    connectPtyTerminal(terminal.term, "ws://x/ws/terminal/ws-1");
+
+    expect(terminal.reset).not.toHaveBeenCalled();
+    reconnectActivePtyTerminals();
+    expect(terminal.reset).not.toHaveBeenCalled();
+
+    const replacement = lastSocket();
+    replacement.onmessage?.({ data: new Uint8Array([1, 2, 3]).buffer });
+    replacement.onmessage?.({ data: JSON.stringify({ type: "ready" }) });
+
+    expect(terminal.reset).toHaveBeenCalledTimes(1);
+    expect(terminal.reset.mock.invocationCallOrder[0]).toBeLessThan(
+      (terminal.term.write as ReturnType<typeof vi.fn>).mock.invocationCallOrder[0]!,
+    );
+  });
+
+  it("resets an empty terminal replay when the replacement ready frame arrives", () => {
+    const terminal = createTerminal();
+    connectPtyTerminal(terminal.term, "ws://x/ws/terminal/ws-1");
+
+    reconnectActivePtyTerminals();
+    lastSocket().onmessage?.({ data: JSON.stringify({ type: "ready" }) });
+
+    expect(terminal.reset).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not reconnect a PTY after it disconnects", () => {
+    const disconnect = connectPtyTerminal(createTerminal().term, "ws://x/ws/terminal/ws-1");
+    disconnect();
+
+    reconnectActivePtyTerminals();
+
+    expect(MockWebSocket.instances).toHaveLength(1);
   });
 });

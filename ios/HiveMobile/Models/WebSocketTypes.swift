@@ -2,10 +2,30 @@ import Foundation
 
 // MARK: - Hub WebSocket Protocol (Multiplexed)
 
-/// Server -> Client (hub-level). Every outgoing event is tagged with its workspace.
-struct HubOutgoing: Decodable {
-    let workspaceId: String
-    let event: WsOutgoing
+/// Server -> Client (hub-level).
+enum HubOutgoing: Decodable {
+    case workspaceEvent(workspaceId: String, event: WsOutgoing)
+    case syncComplete(requestId: String)
+
+    init(workspaceId: String, event: WsOutgoing) {
+        self = .workspaceEvent(workspaceId: workspaceId, event: event)
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        if try container.decodeIfPresent(String.self, forKey: .type) == "sync_complete" {
+            self = .syncComplete(requestId: try container.decode(String.self, forKey: .requestId))
+            return
+        }
+        self = .workspaceEvent(
+            workspaceId: try container.decode(String.self, forKey: .workspaceId),
+            event: try container.decode(WsOutgoing.self, forKey: .event)
+        )
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case type, requestId, workspaceId, event
+    }
 }
 
 /// Client -> Server (hub-level).
@@ -14,13 +34,14 @@ enum HubIncoming: Encodable {
         workspaceIds: [String],
         focusWorkspaces: [String],
         prWorkspaces: [String],
-        forceBootstrap: Bool = false
+        forceBootstrap: Bool = false,
+        requestId: String? = nil
     )
     case workspaceEvent(workspaceId: String, event: WsIncoming)
 
     func encode(to encoder: Encoder) throws {
         switch self {
-        case .syncWorkspaces(let workspaceIds, let focusWorkspaces, let prWorkspaces, let forceBootstrap):
+        case .syncWorkspaces(let workspaceIds, let focusWorkspaces, let prWorkspaces, let forceBootstrap, let requestId):
             var container = encoder.container(keyedBy: SyncCodingKeys.self)
             try container.encode("sync_workspaces", forKey: .type)
             try container.encode(workspaceIds, forKey: .workspaceIds)
@@ -30,6 +51,7 @@ enum HubIncoming: Encodable {
             if forceBootstrap {
                 try container.encode(forceBootstrap, forKey: .forceBootstrap)
             }
+            try container.encodeIfPresent(requestId, forKey: .requestId)
         case .workspaceEvent(let workspaceId, let event):
             var container = encoder.container(keyedBy: EventCodingKeys.self)
             try container.encode(workspaceId, forKey: .workspaceId)
@@ -38,7 +60,7 @@ enum HubIncoming: Encodable {
     }
 
     private enum SyncCodingKeys: String, CodingKey {
-        case type, workspaceIds, focusWorkspaces, prWorkspaces, forceBootstrap
+        case type, workspaceIds, focusWorkspaces, prWorkspaces, forceBootstrap, requestId
     }
 
     private enum EventCodingKeys: String, CodingKey {
