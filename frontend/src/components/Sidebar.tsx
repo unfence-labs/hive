@@ -50,7 +50,7 @@ import {
 import { SidebarActivityDot } from "@/components/sidebar/SidebarActivityDot";
 import { useAutomations } from "@/hooks/useAutomations";
 import { SidebarShell } from "@/components/SidebarShell";
-import { SidebarReloadButton } from "@/components/SidebarReloadButton";
+import { SidebarRecoveryControl } from "@/components/SidebarRecoveryControl";
 import { ResizeHandle } from "@/components/ResizeHandle";
 import { SidebarFolderComposer } from "@/components/sidebar/SidebarFolderComposer";
 import { SidebarFolderItem } from "@/components/sidebar/SidebarFolderItem";
@@ -63,6 +63,7 @@ import type { Automation, DiffStatResponse, Project } from "@/types";
 // ── Sidebar ──────────────────────────────────────────────────────────
 
 interface SidebarProps {
+  isResyncing?: boolean;
   onAddProject: () => void;
   onAddAutomation?: () => void;
   onNewWorkspaceFrom?: (projectId: string) => void;
@@ -164,7 +165,12 @@ function SidebarPanelScroll({
   );
 }
 
-export default function Sidebar({ onAddProject, onAddAutomation, onNewWorkspaceFrom }: SidebarProps) {
+export default function Sidebar({
+  isResyncing = false,
+  onAddProject,
+  onAddAutomation,
+  onNewWorkspaceFrom,
+}: SidebarProps) {
   const {
     projects,
     loading,
@@ -528,7 +534,7 @@ export default function Sidebar({ onAddProject, onAddAutomation, onNewWorkspaceF
 
   const footerActions = (
     <div className="flex items-center justify-between px-2 py-1.5">
-      <SidebarReloadButton />
+      <SidebarRecoveryControl isResyncing={isResyncing} />
       <div className="flex items-center justify-end gap-1">
         <ShortcutTooltip label="Commands" shortcut={shortcutLabel("K")}>
           <button

@@ -18,7 +18,6 @@ import { useDesktopUpdate } from "@/hooks/useDesktopUpdate";
 import { ServerUpdatePrompt } from "@/components/ServerUpdatePrompt";
 import { wsTransport } from "@/lib/ws-transport";
 import { HiveToaster } from "@/components/ui/toaster";
-import { AppResyncOverlay } from "@/components/AppResyncOverlay";
 import { useAppResync } from "@/hooks/useAppResync";
 
 const AutomationDetail = lazy(() => import("@/pages/AutomationDetail"));
@@ -175,6 +174,7 @@ function ConfiguredApp({
             <Route
               element={
                 <AppLayout
+                  isResyncing={isResyncing}
                   onAddProject={() => setShowAddProject(true)}
                   onAddAutomation={() => setShowAddAutomation(true)}
                   onNewWorkspaceFrom={(projectId) => setWorkspaceFrom({ open: true, projectId })}
@@ -222,7 +222,6 @@ function ConfiguredApp({
             </Route>
           </Routes>
         </Suspense>
-        {isResyncing && <AppResyncOverlay />}
       </WorkspaceLiveDataProvider>
     </BrowserRouter>
   );

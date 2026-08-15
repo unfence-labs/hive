@@ -73,12 +73,18 @@ export function SettingsHeader({ children }: { children: React.ReactNode }) {
 }
 
 interface AppLayoutProps {
+  isResyncing?: boolean;
   onAddProject: () => void;
   onNewWorkspaceFrom?: (projectId: string) => void;
   onAddAutomation?: () => void;
 }
 
-export default function AppLayout({ onAddProject, onAddAutomation, onNewWorkspaceFrom }: AppLayoutProps) {
+export default function AppLayout({
+  isResyncing = false,
+  onAddProject,
+  onAddAutomation,
+  onNewWorkspaceFrom,
+}: AppLayoutProps) {
   const { pathname } = useLocation();
   const isSettings = pathname.startsWith("/settings");
   const { backendEnv } = useConnectionStatus();
@@ -162,9 +168,14 @@ export default function AppLayout({ onAddProject, onAddAutomation, onNewWorkspac
           className="overflow-hidden"
         >
           {isSettings ? (
-            <SettingsSidebar />
+            <SettingsSidebar isResyncing={isResyncing} />
           ) : (
-            <Sidebar onAddProject={onAddProject} onAddAutomation={onAddAutomation} onNewWorkspaceFrom={onNewWorkspaceFrom} />
+            <Sidebar
+              isResyncing={isResyncing}
+              onAddProject={onAddProject}
+              onAddAutomation={onAddAutomation}
+              onNewWorkspaceFrom={onNewWorkspaceFrom}
+            />
           )}
         </Panel>
         <ResizeHandle orientation="vertical" cardSide="right" />

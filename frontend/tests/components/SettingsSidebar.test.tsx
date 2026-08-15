@@ -65,10 +65,10 @@ function mockDefaultApi() {
   });
 }
 
-function SettingsShell() {
+function SettingsShell({ isResyncing = false }: { isResyncing?: boolean }) {
   return (
     <div>
-      <SettingsSidebar />
+      <SettingsSidebar isResyncing={isResyncing} />
       <Outlet />
     </div>
   );
@@ -146,6 +146,22 @@ describe("SettingsSidebar", () => {
     await user.click(reload);
 
     expect(reloadHiveMock).toHaveBeenCalledOnce();
+  });
+
+  it("replaces the reload action with a syncing status", () => {
+    renderWithProviders(
+      <MemoryRouter initialEntries={["/settings/appearance"]}>
+        <Routes>
+          <Route path="/settings" element={<SettingsShell isResyncing />}>
+            <Route path="appearance" element={<div>Appearance settings</div>} />
+          </Route>
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByRole("status", { name: "Syncing Hive" })).toHaveTextContent("Syncing…");
+    expect(screen.queryByRole("button", { name: "Reload Hive" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Back" })).toBeInTheDocument();
   });
 
   it("falls back to /home when opened directly", async () => {

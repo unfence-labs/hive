@@ -29,11 +29,11 @@ import {
   type SidebarProjectFolderView,
 } from "@/hooks/useSidebarProjectFolders";
 import { SidebarShell } from "@/components/SidebarShell";
-import { SidebarReloadButton } from "@/components/SidebarReloadButton";
+import { SidebarRecoveryControl } from "@/components/SidebarRecoveryControl";
 import { isDesktopShell } from "@/lib/is-desktop";
 import type { Project } from "@/types";
 
-export default function SettingsSidebar() {
+export default function SettingsSidebar({ isResyncing = false }: { isResyncing?: boolean }) {
   const { projects, ready: projectsReady } = useProjects();
   const navigate = useNavigate();
   const location = useLocation();
@@ -53,7 +53,7 @@ export default function SettingsSidebar() {
 
   const footerActions = (
     <div className="flex items-center justify-between px-2 py-1.5">
-      <SidebarReloadButton />
+      <SidebarRecoveryControl isResyncing={isResyncing} />
       <button
         type="button"
         onClick={() => navigate(returnTo.current)}

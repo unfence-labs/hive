@@ -126,11 +126,15 @@ function SettingsStateProbe() {
 
 const onNewWorkspaceFromMock = vi.fn();
 
-function SidebarRoute() {
+function SidebarRoute({ isResyncing = false }: { isResyncing?: boolean }) {
   const location = useLocation();
   return (
     <>
-      <Sidebar onAddProject={vi.fn()} onNewWorkspaceFrom={onNewWorkspaceFromMock} />
+      <Sidebar
+        isResyncing={isResyncing}
+        onAddProject={vi.fn()}
+        onNewWorkspaceFrom={onNewWorkspaceFromMock}
+      />
       <div data-testid="location-path">{location.pathname}</div>
     </>
   );
@@ -151,6 +155,7 @@ function renderSidebar(
     automations?: Record<string, unknown>[] | Error;
     uiPreferences?: UiPreferencesPayload;
   },
+  isResyncing = false,
 ) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
@@ -204,23 +209,23 @@ function renderSidebar(
           <Routes>
             <Route
               path="/projects"
-              element={<SidebarRoute />}
+              element={<SidebarRoute isResyncing={isResyncing} />}
             />
             <Route
               path="/home"
-              element={<SidebarRoute />}
+              element={<SidebarRoute isResyncing={isResyncing} />}
             />
             <Route
               path="/workspaces/:wsId"
-              element={<SidebarRoute />}
+              element={<SidebarRoute isResyncing={isResyncing} />}
             />
             <Route
               path="/automations/:automationId"
-              element={<SidebarRoute />}
+              element={<SidebarRoute isResyncing={isResyncing} />}
             />
             <Route
               path="/brain"
-              element={<SidebarRoute />}
+              element={<SidebarRoute isResyncing={isResyncing} />}
             />
             <Route path="/settings" element={<SettingsStateProbe />} />
           </Routes>
@@ -1711,6 +1716,15 @@ describe("Sidebar", () => {
     await user.click(reload);
 
     expect(reloadHiveMock).toHaveBeenCalledOnce();
+  });
+
+  it("replaces the reload action with a syncing status", () => {
+    renderSidebar("/home", projects, undefined, true);
+
+    expect(screen.getByRole("status", { name: "Syncing Hive" })).toHaveTextContent("Syncing…");
+    expect(screen.queryByRole("button", { name: "Reload Hive" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Commands" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Settings" })).toBeInTheDocument();
   });
 
   it("keeps repository creation actions compact in the workspaces header", async () => {

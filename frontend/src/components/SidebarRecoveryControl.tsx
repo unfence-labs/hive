@@ -2,7 +2,20 @@ import { RefreshCw } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { reloadHive } from "@/lib/reload-hive";
 
-export function SidebarReloadButton() {
+export function SidebarRecoveryControl({ isResyncing = false }: { isResyncing?: boolean }) {
+  if (isResyncing) {
+    return (
+      <span
+        role="status"
+        aria-live="polite"
+        aria-label="Syncing Hive"
+        className="flex h-6 shrink-0 items-center px-1 text-xs text-muted-foreground"
+      >
+        Syncing…
+      </span>
+    );
+  }
+
   return (
     <TooltipProvider>
       <Tooltip delayDuration={500}>
