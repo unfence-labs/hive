@@ -46,7 +46,7 @@
     "cmdk": "^1.1.1",
     "codemirror": "^6.0.2",
     "croner": "^10.0.1",
-    "diff": "^8.0.3",
+    "diff": "^9.0.0",
     "lucide-react": "^0.563.0",
     "nanoid": "^3.3.11",
     "radix-ui": "^1.6.7",
