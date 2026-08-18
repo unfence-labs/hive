@@ -7,6 +7,7 @@ import { projectRoutes } from "./projects.js";
 import { workspaceRoutes } from "./workspaces.js";
 import { workspaceSourceRoutes } from "./workspace-sources.js";
 import { git } from "../utils/git.js";
+import { refreshDefaultBranchFromOrigin } from "../utils/git-default-branch.js";
 import { loadProject, saveProject } from "../state/state.js";
 import { fetchPrDetail, fetchIssueDetail, listOpenPullRequests, listOpenIssues } from "../utils/github.js";
 
@@ -333,6 +334,29 @@ describe("POST /api/projects/:id/workspaces with source kind 'issue'", () => {
     );
   });
 
+  it("force-refreshes the default branch when the shared refresh cache is warm", async () => {
+    const bare = join(dataDir, projectId, "repo.git");
+    await refreshDefaultBranchFromOrigin(bare, "main");
+    const remoteHead = await createCommit("merged after refresh", fixtureRepoUrl);
+    await git(["update-ref", "refs/heads/main", remoteHead], fixtureRepoUrl);
+    await setProjectGitHubUrl();
+    vi.mocked(fetchIssueDetail).mockResolvedValue({
+      number: 46,
+      title: "Use latest main",
+      body: "",
+      url: "https://github.com/acme/demo/issues/46",
+    });
+
+    const res = await createFromSource({ kind: "issue", number: 46 });
+    expect(res.statusCode).toBe(201);
+    const wsPath = join(dataDir, projectId, "workspaces", res.json().name);
+    const { stdout: workspaceHead } = await git(["rev-parse", "HEAD"], wsPath);
+    expect(workspaceHead).toBe(remoteHead);
+
+    const { stdout: hiveRefs } = await git(["for-each-ref", "refs/hive"], bare);
+    expect(hiveRefs).toBe("");
+  });
+
   it("honors a customized issue-draft.md template", async () => {
     await setProjectGitHubUrl();
     const promptsDir = join(dataDir, "prompts");
@@ -360,6 +384,17 @@ describe("POST /api/projects/:id/workspaces body validation", () => {
     expect(res.statusCode).toBe(201);
     expect(res.json().branch).toMatch(/^workspace\//);
     expect(res.json().source).toBeUndefined();
+  });
+
+  it("fails clearly when the latest default branch cannot be fetched", async () => {
+    await rm(fixtureRepoUrl, { recursive: true, force: true });
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projectId}/workspaces`,
+    });
+    expect(res.statusCode).toBe(500);
+    expect(res.json().error).toBe('Could not fetch the latest "main" from origin');
   });
 
   it("rejects an invalid source kind", async () => {
