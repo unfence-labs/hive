@@ -17,7 +17,10 @@ import {
 } from "./workspace-manager.js";
 import { git } from "../utils/git.js";
 import { CITIES } from "../utils/city-names.js";
-import { _resetDefaultBranchRefreshCache } from "../utils/git-default-branch.js";
+import {
+  _resetDefaultBranchRefreshCache,
+  refreshDefaultBranchFromOrigin,
+} from "../utils/git-default-branch.js";
 import { loadProject, saveProject } from "../state/state.js";
 import * as stateStore from "../state/state.js";
 import { saveProjectEnv } from "../state/project-env.js";
@@ -32,6 +35,7 @@ async function pushRemoteMainFile(
   cloneName: string,
   fileName: string,
   content: string,
+  resetRefreshCache = true,
 ): Promise<void> {
   const pushClone = join(tempDir, cloneName);
   await git(["clone", fixtureRepoUrl, pushClone]);
@@ -41,8 +45,10 @@ async function pushRemoteMainFile(
   await git(["add", "."], pushClone);
   await git(["commit", "-m", `add ${fileName}`], pushClone);
   await git(["push", "origin", "main"], pushClone);
-  // The remote moved: drop the refresh TTL so the next refresh refetches.
-  _resetDefaultBranchRefreshCache();
+  if (resetRefreshCache) {
+    // The remote moved: drop the refresh TTL so the next refresh refetches.
+    _resetDefaultBranchRefreshCache();
+  }
 }
 
 beforeEach(async () => {
@@ -173,6 +179,58 @@ describe("createWorkspace", () => {
     expect(existsSync(join(wsPath, "new-remote-file.txt"))).toBe(true);
     const content = await readFile(join(wsPath, "new-remote-file.txt"), "utf-8");
     expect(content).toBe("from remote\n");
+  });
+
+  it("force-refreshes the default branch when the shared refresh cache is warm", async () => {
+    const bare = bareRepoPath(dataDir, projectId);
+    await refreshDefaultBranchFromOrigin(bare, "main");
+    await pushRemoteMainFile(
+      "push-clone-warm-cache",
+      "after-refresh.txt",
+      "latest remote state\n",
+      false,
+    );
+
+    const ws = await createWorkspace(projectId, dataDir);
+    const wsPath = join(dataDir, projectId, "workspaces", ws.name);
+    expect(await readFile(join(wsPath, "after-refresh.txt"), "utf-8")).toBe(
+      "latest remote state\n",
+    );
+
+    const { stdout: hiveRefs } = await git(["for-each-ref", "refs/hive"], bare);
+    expect(hiveRefs).toBe("");
+  });
+
+  it("fails and cleans up the fetched ref when local and remote main diverge", async () => {
+    const bare = bareRepoPath(dataDir, projectId);
+    const { stdout: localCommit } = await git(
+      [
+        "-c",
+        "user.email=test@hive.dev",
+        "-c",
+        "user.name=Hive Test",
+        "commit-tree",
+        "main^{tree}",
+        "-p",
+        "main",
+        "-m",
+        "local main commit",
+      ],
+      bare,
+    );
+    await git(["update-ref", "refs/heads/main", localCommit], bare);
+    await pushRemoteMainFile(
+      "push-clone-diverged-main",
+      "remote-only.txt",
+      "remote change\n",
+      false,
+    );
+
+    await expect(createWorkspace(projectId, dataDir)).rejects.toThrow(
+      'Could not refresh default branch "main" from origin',
+    );
+    const { stdout: hiveRefs } = await git(["for-each-ref", "refs/hive"], bare);
+    expect(hiveRefs).toBe("");
   });
 
   it("picks up modified files pushed to remote after project creation", async () => {

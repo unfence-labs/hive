@@ -17,7 +17,10 @@ import { buildFileTree } from "../utils/file-tree.js";
 import { MAX_TEXT_FILE_SIZE, resolveSafeRepoFilePath } from "../utils/repo-files.js";
 import { buildDiffResponse, getUntrackedDiff } from "../utils/git-diff.js";
 import { bareRepoPath, workspacesDir, resolveDefaultBranch } from "../utils/paths.js";
-import { refreshDefaultBranchFromOrigin } from "../utils/git-default-branch.js";
+import {
+  refreshDefaultBranchFromOrigin,
+  refreshDefaultBranchFromOriginStrict,
+} from "../utils/git-default-branch.js";
 import { pickCityName } from "../utils/city-names.js";
 import { loadProject, loadAllProjects, saveProject, getDataDir, withProjectStateLock } from "../state/state.js";
 import { isInitialized, lookupWorkspace } from "../state/workspace-index.js";
@@ -81,7 +84,10 @@ async function assertBranchNotCheckedOut(
  */
 async function fetchToTempRef(bare: string, remoteRef: string): Promise<string> {
   const tempRef = `refs/hive/incoming/${nanoid(8)}`;
-  await git(["fetch", "--no-tags", "origin", `+${remoteRef}:${tempRef}`], bare);
+  await git(
+    ["fetch", "--no-tags", "--no-write-fetch-head", "origin", `+${remoteRef}:${tempRef}`],
+    bare,
+  );
   return tempRef;
 }
 
@@ -234,15 +240,19 @@ export async function createWorkspace(
 
       const defaultBranch = await resolveDefaultBranch(bare);
 
+      let defaultBranchStartPoint = defaultBranch;
+      if ((!source || source.kind === "issue") && state.url) {
+        defaultBranchStartPoint = await refreshDefaultBranchFromOriginStrict(bare, defaultBranch);
+      }
+
       let branch: string;
       let wsSource: WorkspaceSource | undefined;
       let draftPrompt: string | undefined;
 
       if (!source) {
-        // Default flow: new branch off the refreshed default branch.
+        // Default flow: new branch off the default branch.
         branch = `workspace/${cityName}`;
-        await refreshDefaultBranchFromOrigin(bare, defaultBranch);
-        await addWorktreeWithNewBranch(bare, wsPath, branch, defaultBranch);
+        await addWorktreeWithNewBranch(bare, wsPath, branch, defaultBranchStartPoint);
       } else if (source.kind === "branch") {
         branch = source.branch;
         await checkoutSourceBranch(state, bare, wsPath, branch, dataDir);
@@ -268,8 +278,7 @@ export async function createWorkspace(
         const issue = issueDetail!;
         // Issues have no code: branch off the default branch like the default flow.
         branch = `workspace/${cityName}`;
-        await refreshDefaultBranchFromOrigin(bare, defaultBranch);
-        await addWorktreeWithNewBranch(bare, wsPath, branch, defaultBranch);
+        await addWorktreeWithNewBranch(bare, wsPath, branch, defaultBranchStartPoint);
         wsSource = { kind: "issue", number: issue.number, title: issue.title, url: issue.url };
         const template = await loadIssueDraftPrompt(join(dataDir, "prompts"));
         const rendered = interpolateIssueDraftPrompt(template, {
