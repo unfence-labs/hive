@@ -98,6 +98,7 @@ describe("ClaudeProvider", () => {
     const args = provider.buildArgs("Hello", {}, baseSession({ isFirstMessage: true }));
     expect(args).toContain("--session-id");
     expect(args).toContain("test-session-id");
+    expect(args[args.indexOf("--name") + 1]).toBe("hive-test-session-id");
     expect(args).not.toContain("--resume");
   });
 
@@ -106,6 +107,7 @@ describe("ClaudeProvider", () => {
     expect(args).toContain("--resume");
     expect(args).toContain("test-session-id");
     expect(args).not.toContain("--session-id");
+    expect(args).not.toContain("--name");
   });
 
   it("adds --model with cli value when model is specified", () => {

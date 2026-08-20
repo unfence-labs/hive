@@ -85,6 +85,7 @@ describe("KimiProvider", () => {
     expect(args).toContain("--print");
     expect(args).toContain("--output-format");
     expect(args).toContain("stream-json");
+    expect(args[args.indexOf("--name") + 1]).toBe("hive-test-session-id");
     const idx = args.indexOf("--model");
     expect(args[idx + 1]).toBe("k3");
     expect(args).not.toContain("--effort");
