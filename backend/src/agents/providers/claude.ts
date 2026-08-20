@@ -83,6 +83,9 @@ export class ClaudeProvider implements AgentProvider {
       ...(session.isFirstMessage && session.systemPrompt
         ? ["--append-system-prompt", session.systemPrompt]
         : []),
+      // Hive owns the user-facing title. Naming the underlying Claude session
+      // prevents Claude Code from launching its redundant title-generation request.
+      ...(session.isFirstMessage ? ["--name", `hive-${session.sessionId}`] : []),
       ...(session.isFirstMessage
         ? ["--session-id", session.sessionId]
         : ["--resume", session.sessionId]),
