@@ -1,4 +1,5 @@
-import { FileTextIcon, GithubIcon, SparklesIcon } from "lucide-react";
+import { FileTextIcon, SparklesIcon } from "lucide-react";
+import { Github as GithubIcon } from "@react-symbols/icons";
 
 interface BrainWelcomeProps {
   notesCount: number;
