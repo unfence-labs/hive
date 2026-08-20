@@ -137,9 +137,20 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput
   const isDisconnected = connectionStatus === "disconnected";
   const hasQueuedMessage = !!queuedMessage;
   const isInputDisabled = disabled || isDisconnected || hasQueuedMessage;
-  const canSubmit = !isInputDisabled && (value.trim().length > 0 || fileCount > 0);
-
-  const { models, selectedModelId, selectedModel, setSelectedModelId, capabilities } = useModels(lockedProvider, lastRunOptions?.model);
+  const {
+    models,
+    selectedModelId,
+    selectedModel,
+    setSelectedModelId,
+    capabilities,
+    isLoading: modelsLoading,
+    isError: modelsError,
+    retry: retryModels,
+  } = useModels(lockedProvider, lastRunOptions?.model);
+  const canSubmit =
+    !isInputDisabled &&
+    selectedModel !== undefined &&
+    (value.trim().length > 0 || fileCount > 0);
   const contextUsage = useContextUsage(messages, selectedModel);
   const completionProvider = lockedProvider ?? (selectedModelId ? selectedModelId.split(":")[0] : undefined);
 
@@ -313,7 +324,7 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput
   const handleSubmit = ({ text, files }: PromptInputMessage) => {
     const trimmed = text.trim();
     if (!trimmed && files.length === 0) return;
-    if (disabled || isDisconnected) return;
+    if (disabled || isDisconnected || !selectedModel) return;
 
     const images: ImageAttachment[] | undefined = files.length > 0
       ? files.map((f) => ({
@@ -403,6 +414,9 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput
               selectedModelId={selectedModelId}
               onSelect={setSelectedModelId}
               lockedProvider={lockedProvider}
+              isLoading={modelsLoading}
+              isError={modelsError}
+              onRetry={retryModels}
             />
             {supportsThinking && (
               <ThinkingSelector
@@ -474,7 +488,7 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput
           </PromptInputTools>
         </PromptInputFooter>
         </PromptInput>
-        {!value.trim() && !isInputDisabled && (
+        {!value.trim() && !isInputDisabled && selectedModel && (
           <div className="pointer-events-none absolute top-2 right-2 z-10 flex items-center gap-1.5">
             <button
               type="button"

@@ -6,6 +6,7 @@ import { reconnectActivePtyTerminals } from "@/lib/pty-terminal";
 import { reloadHive } from "@/lib/reload-hive";
 import { TOAST_DURATIONS } from "@/lib/toast-config";
 import { wsTransport } from "@/lib/ws-transport";
+import { prefetchModelCatalog } from "@/hooks/useModels";
 
 export const FULL_RESYNC_AFTER_MS = 5 * 60 * 1000;
 export const CLOCK_CHECK_INTERVAL_MS = 30 * 1000;
@@ -60,9 +61,12 @@ export function useAppResync(): boolean {
       queryClient.refetchQueries({ type: "active" }, { throwOnError: true }),
       wsTransport.requestFullResync(abortController.signal),
       import("@/components/BrowserPanel"),
-    ]).then(([, , { reconnectActiveBrowserStreams }]) => {
+    ]).then(async ([, , { reconnectActiveBrowserStreams }]) => {
       reconnectActivePtyTerminals();
       reconnectActiveBrowserStreams();
+      // Inactive queries are cleared below, so warm the app-level catalog
+      // again after the rest of the resync has completed.
+      await prefetchModelCatalog(queryClient);
     });
 
     queryClient.removeQueries({ type: "inactive" });

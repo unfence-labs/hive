@@ -10,7 +10,10 @@ import { projectRoutes } from "../api/projects.js";
 import { workspaceRoutes } from "../api/workspaces.js";
 import { sessionRoutes } from "../api/agents.js";
 import { streamRoutes } from "../ws/stream.js";
-import { _clearActiveSessions } from "../agents/agent-manager.js";
+import {
+  _clearActiveSessions,
+  stopAllSessions,
+} from "../agents/agent-manager.js";
 import type { WsOutgoing, HubOutgoing } from "../types.js";
 
 const CONV_CMD = { command: "bash" };
@@ -45,8 +48,8 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  await stopAllSessions();
   _clearActiveSessions();
-  await new Promise((r) => setTimeout(r, 100));
   await app.close();
   await rm(tempDir, { recursive: true, force: true });
 });
@@ -223,7 +226,6 @@ describe("E2E: conversation-only lifecycle", () => {
     expect(wsCheckRes.json().status).toBe("busy");
 
     wsClient.close();
-    await _clearActiveSessions();
   }, 15000);
 
   it("WS receives idle status after endSession via HTTP DELETE", async () => {

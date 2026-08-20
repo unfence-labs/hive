@@ -1,7 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import { findToolSpec } from "./catalog.js";
 import type { CommandResult, RunCommand } from "./command.js";
-import { detectTool, type DetectDeps } from "./detect.js";
+import {
+  detectTool,
+  probeToolAuthentication,
+  type DetectDeps,
+} from "./detect.js";
 
 function ok(stdout: string, stderr = ""): CommandResult {
   return { stdout, stderr, exitCode: 0, timedOut: false };
@@ -66,7 +70,7 @@ describe("detectTool", () => {
     );
   });
 
-  it("fails closed when the Claude auth probe returns something unparseable", async () => {
+  it("does not authenticate Claude when its auth output is unparseable", async () => {
     const detection = await detectTool(
       claude,
       deps({
@@ -75,6 +79,33 @@ describe("detectTool", () => {
       }),
     );
     expect(detection.authenticated).toBe(false);
+  });
+
+  it("distinguishes an invalid Claude response from a signed-out response", async () => {
+    const invalid = await probeToolAuthentication(
+      "claude",
+      deps({ "claude auth status": ok("<html>login required</html>") }),
+    );
+    const signedOut = await probeToolAuthentication(
+      "claude",
+      deps({ "claude auth status": ok('{"loggedIn":false}') }),
+    );
+
+    expect(invalid).toEqual({ state: "unknown", failureCategory: "invalid_output" });
+    expect(signedOut).toEqual({ state: "unauthenticated" });
+  });
+
+  it("classifies an authentication probe timeout as unknown", async () => {
+    const timedOut: CommandResult = {
+      stdout: "",
+      stderr: "probe timed out",
+      exitCode: 1,
+      timedOut: true,
+    };
+
+    await expect(
+      probeToolAuthentication("codex", deps({ "codex login status": timedOut })),
+    ).resolves.toEqual({ state: "unknown", failureCategory: "timeout" });
   });
 
   it("fails closed when Claude reports loggedIn false", async () => {

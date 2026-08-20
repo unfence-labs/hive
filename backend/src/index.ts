@@ -59,6 +59,7 @@ import { detectAvailableProviders } from "./agents/providers/registry.js";
 import { stopAllScripts } from "./services/script-runner.js";
 import { stopAllTerminals } from "./services/terminal-runner.js";
 import { initWorkspaceIndex } from "./state/workspace-index.js";
+import { providerAuthentication } from "./services/setup/provider-authentication.js";
 
 const HOST = process.env.HOST ?? "127.0.0.1";
 const PORT = Number(process.env.PORT ?? 3000);
@@ -284,6 +285,7 @@ export async function buildApp(opts: BuildAppOptions = {}) {
     skipPermissions: parseBoolean(process.env.HIVE_CLAUDE_SKIP_PERMISSIONS, true),
   };
   const app = Fastify({ logger: true });
+  providerAuthentication.setLogger(app.log);
   const allowsBrowserOrigin = createBrowserOriginPolicy();
   await app.register(cors, {
     origin: (origin, callback) => {
@@ -489,6 +491,7 @@ async function main() {
   });
 
   const app = await buildApp({ gitSyncSnapshotProvider: gitSync, prStatusProvider: prStatus, scheduler });
+  await providerAuthentication.refresh();
 
   try {
     await gitSync.poll();

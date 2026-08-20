@@ -23,6 +23,8 @@ vi.mock("@/hooks/useModels", () => ({
     capabilities: { thinkingLevels: ["low", "medium", "high", "xhigh", "max"], planMode: true, blockingTools: true, completions: true },
     setSelectedModelId: vi.fn(),
     isLoading: false,
+    isError: false,
+    retry: vi.fn(),
   })),
 }));
 
@@ -236,6 +238,8 @@ describe("ChatInput autocomplete", () => {
       capabilities: { thinkingLevels: [], planMode: false, blockingTools: false, completions: false },
       setSelectedModelId: vi.fn(),
       isLoading: false,
+      isError: false,
+      retry: vi.fn(),
     });
     vi.mocked(useCompletions).mockReturnValue([
       makeItem("help", "slash_command", "builtin"),

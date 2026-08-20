@@ -173,7 +173,7 @@ export function useSetupTools(target?: SetupApiTarget) {
         }
       }
     }
-    if (catalogChanged) void refreshModelCatalog();
+    if (catalogChanged) void refreshModelCatalog(queryClient);
     if (providerUsageChanged) {
       void queryClient.invalidateQueries({ queryKey: PROVIDER_USAGE_QUERY_KEY });
     }
