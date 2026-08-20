@@ -31,16 +31,22 @@ async function updateDefaultBranchFromOrigin(
     ]);
     try {
       await git(["merge-base", "--is-ancestor", localTip, incomingTip], bareRepo);
-      if (localTip !== incomingTip) {
-        await git(["update-ref", localRef, incomingTip, localTip], bareRepo);
-      }
-      return incomingTip;
     } catch {
       // A local merge may leave the default branch ahead of origin while still
       // containing every remote commit. Only fail when the histories diverge.
       await git(["merge-base", "--is-ancestor", incomingTip, localTip], bareRepo);
       return localTip;
     }
+    if (localTip !== incomingTip) {
+      try {
+        await git(["update-ref", localRef, incomingTip, localTip], bareRepo);
+      } catch {
+        const { stdout: currentTip } = await git(["rev-parse", localRef], bareRepo);
+        await git(["merge-base", "--is-ancestor", incomingTip, currentTip], bareRepo);
+        return currentTip;
+      }
+    }
+    return incomingTip;
   } finally {
     await git(["update-ref", "-d", incomingRef], bareRepo).catch(() => {});
   }
@@ -55,7 +61,9 @@ export async function refreshDefaultBranchFromOriginStrict(
     lastRefreshAt.set(`${bareRepo}\0${defaultBranch}`, Date.now());
     return startPoint;
   } catch (err) {
-    throw new Error(`Could not fetch the latest "${defaultBranch}" from origin`, { cause: err });
+    throw new Error(`Could not refresh default branch "${defaultBranch}" from origin`, {
+      cause: err,
+    });
   }
 }
 

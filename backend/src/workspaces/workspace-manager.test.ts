@@ -227,7 +227,7 @@ describe("createWorkspace", () => {
     );
 
     await expect(createWorkspace(projectId, dataDir)).rejects.toThrow(
-      'Could not fetch the latest "main" from origin',
+      'Could not refresh default branch "main" from origin',
     );
     const { stdout: hiveRefs } = await git(["for-each-ref", "refs/hive"], bare);
     expect(hiveRefs).toBe("");

@@ -84,7 +84,10 @@ async function assertBranchNotCheckedOut(
  */
 async function fetchToTempRef(bare: string, remoteRef: string): Promise<string> {
   const tempRef = `refs/hive/incoming/${nanoid(8)}`;
-  await git(["fetch", "--no-tags", "origin", `+${remoteRef}:${tempRef}`], bare);
+  await git(
+    ["fetch", "--no-tags", "--no-write-fetch-head", "origin", `+${remoteRef}:${tempRef}`],
+    bare,
+  );
   return tempRef;
 }
 

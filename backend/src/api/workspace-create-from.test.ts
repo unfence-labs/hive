@@ -394,7 +394,7 @@ describe("POST /api/projects/:id/workspaces body validation", () => {
       url: `/api/projects/${projectId}/workspaces`,
     });
     expect(res.statusCode).toBe(500);
-    expect(res.json().error).toBe('Could not fetch the latest "main" from origin');
+    expect(res.json().error).toBe('Could not refresh default branch "main" from origin');
   });
 
   it("rejects an invalid source kind", async () => {
