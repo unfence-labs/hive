@@ -1,4 +1,9 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
+import {
+  queryOptions,
+  useQuery,
+  type QueryClient,
+} from "@tanstack/react-query";
 import { api } from "@/hooks/useApi";
 import type { ModelCatalogEntry, ModelCatalogResponse, ProviderCapabilities } from "@/types";
 
@@ -10,6 +15,8 @@ interface UseModelsReturn {
   capabilities: ProviderCapabilities | undefined;
   setSelectedModelId: (id: string) => void;
   isLoading: boolean;
+  isError: boolean;
+  retry: () => void;
 }
 
 const FALLBACK_CAPABILITIES: ProviderCapabilities = {
@@ -20,69 +27,53 @@ const FALLBACK_CAPABILITIES: ProviderCapabilities = {
   goals: false,
 };
 
-// Module-level catalog cache. The model catalog is global and effectively
-// static for a session, so caching it lets ChatInput be remounted per session
-// (key={wsId:sessionId}) without re-fetching /api/models or flashing an empty
-// model selector — the states below seed synchronously from the cache.
-let catalogCache: ModelCatalogResponse | null = null;
-let catalogPromise: Promise<ModelCatalogResponse> | null = null;
+export const MODEL_CATALOG_QUERY_KEY = ["models", "catalog"] as const;
 
-/** Mounted useModels hooks, notified when refreshModelCatalog refetches. */
-const catalogListeners = new Set<(data: ModelCatalogResponse) => void>();
-
-/** Test-only: clear the module-level catalog cache so cases stay isolated. */
-export function __resetModelCatalogCacheForTests(): void {
-  catalogCache = null;
-  catalogPromise = null;
+export function modelCatalogQueryOptions() {
+  return queryOptions({
+    queryKey: MODEL_CATALOG_QUERY_KEY,
+    queryFn: ({ signal }) =>
+      api.get<ModelCatalogResponse>("/api/models", { signal }),
+  });
 }
 
-/** Drop the cache and refetch the catalog, pushing the result to every mounted
- *  useModels hook. Used when the server-side catalog changes at runtime (e.g.
- *  saving a Kimi API key adds/removes its models). Keeps the old catalog on
- *  fetch failure. */
-export async function refreshModelCatalog(): Promise<void> {
-  catalogCache = null;
-  catalogPromise = null;
+/** Warm the shared catalog without mounting a composer. */
+export function prefetchModelCatalog(queryClient: QueryClient): Promise<void> {
+  return queryClient.prefetchQuery(modelCatalogQueryOptions());
+}
+
+/** Refetch after an action that can change which models the server exposes.
+ * Keep existing data when the refresh fails; the query records the error and
+ * the composer can offer a direct retry. */
+export async function refreshModelCatalog(queryClient: QueryClient): Promise<void> {
   try {
-    const data = await loadCatalog();
-    // A newer refresh may have superseded this one; the cache always holds the
-    // current response (see loadCatalog), so prefer it.
-    const current = catalogCache ?? data;
-    catalogListeners.forEach((listener) => listener(current));
+    if (queryClient.getQueryState(MODEL_CATALOG_QUERY_KEY)) {
+      await queryClient.refetchQueries(
+        { queryKey: MODEL_CATALOG_QUERY_KEY, exact: true, type: "all" },
+        { throwOnError: true },
+      );
+    } else {
+      await queryClient.fetchQuery(modelCatalogQueryOptions());
+    }
   } catch {
-    // Keep whatever the hooks already show; the next mount retries.
+    // The server-side action already succeeded. A catalog refresh failure must
+    // not report that action as failed or discard the last usable catalog.
   }
 }
 
-/** Settings saved a new global default: patch the cached catalog so composers
- *  mounted after this seed with it without a page reload. */
-export function setCachedDefaultModelId(defaultModelId: string): void {
-  if (catalogCache) {
-    catalogCache = { ...catalogCache, defaultModelId };
-  }
-}
-
-function loadCatalog(): Promise<ModelCatalogResponse> {
-  if (!catalogPromise) {
-    // Only the promise currently stored in catalogPromise may write the cache:
-    // a request superseded by refreshModelCatalog (which resets catalogPromise)
-    // must not overwrite the fresher response when it finally resolves.
-    const promise: Promise<ModelCatalogResponse> = api.get<ModelCatalogResponse>("/api/models")
-      .then((data) => {
-        if (catalogPromise === promise) catalogCache = data;
-        return data;
-      })
-      .catch((err) => {
-        if (catalogPromise === promise) catalogPromise = null;
-        throw err;
-      });
-    catalogPromise = promise;
-  }
-  return catalogPromise;
+/** Settings saved a new global default: update the shared catalog immediately. */
+export function setCachedDefaultModelId(
+  queryClient: QueryClient,
+  defaultModelId: string,
+): void {
+  queryClient.setQueryData<ModelCatalogResponse>(
+    MODEL_CATALOG_QUERY_KEY,
+    (catalog) => catalog ? { ...catalog, defaultModelId } : catalog,
+  );
 }
 
 /** Pick the initial model: caller's preferred id (if valid for the locked
- *  provider), else the locked provider's default, else the global default. */
+ * provider), else the locked provider's default, else the global default. */
 function seedModelId(
   catalog: ModelCatalogResponse,
   lockedProvider: string | undefined,
@@ -90,72 +81,53 @@ function seedModelId(
 ): string {
   if (preferredModelId) {
     const match = catalog.models.find(
-      (m) => m.id === preferredModelId && (!lockedProvider || m.provider === lockedProvider),
+      (model) =>
+        model.id === preferredModelId &&
+        (!lockedProvider || model.provider === lockedProvider),
     );
     if (match) return match.id;
   }
   if (lockedProvider) {
-    const providerDefault = catalog.models.find((m) => m.provider === lockedProvider && m.isDefault)
-      ?? catalog.models.find((m) => m.provider === lockedProvider);
+    const providerDefault =
+      catalog.models.find(
+        (model) => model.provider === lockedProvider && model.isDefault,
+      ) ?? catalog.models.find((model) => model.provider === lockedProvider);
     if (providerDefault) return providerDefault.id;
   }
   return catalog.defaultModelId;
 }
 
-export function useModels(lockedProvider?: string, preferredModelId?: string): UseModelsReturn {
-  const [models, setModels] = useState<ModelCatalogEntry[]>(() => catalogCache?.models ?? []);
-  const [defaultModelId, setDefaultModelId] = useState(() => catalogCache?.defaultModelId ?? "");
+export function useModels(
+  lockedProvider?: string,
+  preferredModelId?: string,
+): UseModelsReturn {
+  const catalogQuery = useQuery(modelCatalogQueryOptions());
+  const catalog = catalogQuery.data;
+  const models = catalog?.models ?? [];
+  const defaultModelId = catalog?.defaultModelId ?? "";
   const [selectedModelId, setSelectedModelId] = useState(() =>
-    catalogCache ? seedModelId(catalogCache, lockedProvider, preferredModelId) : "");
-  const [isLoading, setIsLoading] = useState(!catalogCache);
-
-  // Track latest values so the async seed reads current props, not the ones
-  // captured at mount time (lockedProvider is often undefined on first render).
-  const lockedProviderRef = useRef(lockedProvider);
-  lockedProviderRef.current = lockedProvider;
-  const preferredModelIdRef = useRef(preferredModelId);
-  preferredModelIdRef.current = preferredModelId;
+    catalog ? seedModelId(catalog, lockedProvider, preferredModelId) : "",
+  );
 
   useEffect(() => {
-    if (catalogCache) return; // already seeded synchronously from cache
-    let cancelled = false;
-    loadCatalog()
-      .then((data) => {
-        if (cancelled) return;
-        // If a refresh superseded this request, the cache already holds the
-        // fresher response — adopt it instead of our stale one.
-        const current = catalogCache ?? data;
-        setModels(current.models);
-        setDefaultModelId(current.defaultModelId);
-        setSelectedModelId((prev) =>
-          prev || seedModelId(current, lockedProviderRef.current, preferredModelIdRef.current));
-        setIsLoading(false);
-      })
-      .catch(() => {
-        if (cancelled) return;
-        setIsLoading(false);
-      });
-    return () => { cancelled = true; };
-  }, []);
+    if (!catalog) return;
+    setSelectedModelId((current) => {
+      const selected = catalog.models.find((model) => model.id === current);
+      if (selected && (!lockedProvider || selected.provider === lockedProvider)) {
+        return current;
+      }
+      return seedModelId(catalog, lockedProvider, preferredModelId);
+    });
+  }, [catalog, lockedProvider, preferredModelId]);
 
-  // Follow runtime catalog refreshes (refreshModelCatalog) while mounted.
-  useEffect(() => {
-    const listener = (data: ModelCatalogResponse) => {
-      setModels(data.models);
-      setDefaultModelId(data.defaultModelId);
-      // Keep the current selection when it survives the refresh; reseed otherwise.
-      setSelectedModelId((prev) =>
-        prev && data.models.some((m) => m.id === prev)
-          ? prev
-          : seedModelId(data, lockedProviderRef.current, preferredModelIdRef.current));
-      setIsLoading(false);
-    };
-    catalogListeners.add(listener);
-    return () => { catalogListeners.delete(listener); };
-  }, []);
-
-  const selectedModel = models.find((m) => m.id === selectedModelId);
-  const capabilities = selectedModel?.capabilities ?? (models.length > 0 ? undefined : FALLBACK_CAPABILITIES);
+  const selectedModel = models.find(
+    (model) =>
+      model.id === selectedModelId &&
+      (!lockedProvider || model.provider === lockedProvider),
+  );
+  const capabilities =
+    selectedModel?.capabilities ??
+    (models.length > 0 ? undefined : FALLBACK_CAPABILITIES);
 
   return {
     models,
@@ -164,6 +136,8 @@ export function useModels(lockedProvider?: string, preferredModelId?: string): U
     selectedModel,
     capabilities,
     setSelectedModelId,
-    isLoading,
+    isLoading: catalogQuery.isPending,
+    isError: catalogQuery.isError,
+    retry: () => { void catalogQuery.refetch(); },
   };
 }

@@ -3,7 +3,7 @@ import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import TeamSettings from "@/pages/settings/TeamSettings";
-import { __resetModelCatalogCacheForTests, refreshModelCatalog } from "@/hooks/useModels";
+import { refreshModelCatalog } from "@/hooks/useModels";
 import type { Agent, ModelCatalogResponse } from "@/types";
 
 const mocks = vi.hoisted(() => ({
@@ -145,7 +145,6 @@ function renderPage(queryClient = createQueryClient()) {
 describe("TeamSettings", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    __resetModelCatalogCacheForTests();
     mocks.apiGet.mockResolvedValue(catalog);
     mocks.useAgents.mockReturnValue({ data: [], isLoading: false });
     mocks.useCreateAgent.mockReturnValue({
@@ -274,7 +273,7 @@ describe("TeamSettings", () => {
     expect(screen.queryByRole("option", { name: "K3 (Kimi)" })).not.toBeInTheDocument();
     firstRender.unmount();
 
-    await act(() => refreshModelCatalog());
+    await act(() => refreshModelCatalog(queryClient));
     renderPage(queryClient);
     await userEvent.click(screen.getByRole("button", { name: "Add Agent" }));
 

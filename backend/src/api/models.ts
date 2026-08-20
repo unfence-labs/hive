@@ -1,47 +1,31 @@
 import type { FastifyInstance } from "fastify";
 import { getModelCatalog } from "../agents/providers/registry.js";
 import {
-  SETUP_TOOLS,
-  type SetupToolSpec,
-} from "../services/setup/catalog.js";
-import {
-  defaultDetectDeps,
-  detectToolAuthentication,
-  type DetectDeps,
-} from "../services/setup/detect.js";
+  AUTH_GATED_PROVIDER_IDS,
+  providerAuthentication,
+  type ProviderAuthenticationReader,
+} from "../services/setup/provider-authentication.js";
 import { loadConfig } from "../state/config.js";
 
 export interface ModelRoutesOptions {
   dataDir?: string;
-  detect?: DetectDeps;
+  authentication?: ProviderAuthenticationReader;
 }
 
 export async function modelRoutes(
   app: FastifyInstance,
   options: ModelRoutesOptions = {},
 ) {
-  const detect = options.detect ?? defaultDetectDeps();
-  const providerTools = SETUP_TOOLS.filter(
-    (tool): tool is SetupToolSpec & { authenticatedProviderId: string } =>
-      tool.authenticatedProviderId !== undefined,
-  );
+  const authentication = options.authentication ?? providerAuthentication;
 
   app.get("/api/models", async (_req, reply) => {
     // Load config first: it also refreshes the cached Kimi API key that
     // getModelCatalog uses to decide whether Kimi models are offered.
-    const [{ defaultModelId }, providerAuthentication] = await Promise.all([
-      loadConfig(options.dataDir),
-      Promise.all(
-        providerTools.map(async (tool) => ({
-          providerId: tool.authenticatedProviderId,
-          authenticated: await detectToolAuthentication(tool.id, detect),
-        })),
-      ),
-    ]);
+    const { defaultModelId } = await loadConfig(options.dataDir);
     const excludedProviderIds = new Set(
-      providerAuthentication
-        .filter(({ authenticated }) => !authenticated)
-        .map(({ providerId }) => providerId),
+      AUTH_GATED_PROVIDER_IDS.filter(
+        (providerId) => authentication.getState(providerId) === "unauthenticated",
+      ),
     );
     const catalog = getModelCatalog({ excludedProviderIds });
     // Apply the user-configured default only while its model is still in the

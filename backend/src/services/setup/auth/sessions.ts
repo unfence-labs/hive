@@ -9,6 +9,7 @@ import { invalidateProviderUsage } from "../../provider-usage.js";
 import { runCommand } from "../command.js";
 import { defaultDetectDeps, detectTool, type DetectDeps, type ToolDetection } from "../detect.js";
 import { findToolSpec } from "../catalog.js";
+import { providerAuthentication } from "../provider-authentication.js";
 import { claudeAuthFlow } from "./claude.js";
 import { codexAuthFlow, recoverCodexCredential } from "./codex.js";
 import { githubAuthFlow } from "./github.js";
@@ -212,6 +213,7 @@ export function defaultToolAuthStore(
         invalidateProviderUsage(tool);
       }
       await detectAvailableProviders();
+      await providerAuthentication.refresh({ force: true });
     },
     onUnexpectedError,
     flows: {

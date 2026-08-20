@@ -1,8 +1,11 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { ReactNode, ReactElement } from "react";
 import ChatInput from "@/components/ChatInput";
-import type { ChatMessage } from "@/types";
+import { MODEL_CATALOG_QUERY_KEY } from "@/hooks/useModels";
+import type { ChatMessage, ModelCatalogResponse } from "@/types";
 
 vi.mock("@/hooks/useCompletions", () => ({
   useCompletions: () => [],
@@ -29,6 +32,36 @@ type SendFn = (
   options?: { planMode: boolean; thinkingLevel: "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max" },
 ) => boolean;
 
+const MODEL_CATALOG: ModelCatalogResponse = {
+  models: [
+    {
+      id: "claude:sonnet-4-6",
+      label: "Sonnet 4.6",
+      provider: "claude",
+      providerLabel: "Claude Code",
+      isDefault: true,
+      capabilities: {
+        thinkingLevels: ["low", "medium", "high", "xhigh", "max"],
+        planMode: true,
+        blockingTools: true,
+        completions: true,
+        goals: false,
+      },
+    },
+  ],
+  defaultModelId: "claude:sonnet-4-6",
+};
+
+let queryClient: QueryClient;
+
+function QueryWrapper({ children }: { children: ReactNode }) {
+  return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
+}
+
+function renderWithQueryClient(element: ReactElement) {
+  return render(element, { wrapper: QueryWrapper });
+}
+
 function chatInputProps({
   wsId = "ws-test",
   sessionId,
@@ -54,7 +87,7 @@ function chatInputProps({
 }
 
 function renderChatInput(sessionId?: string, wsId?: string, onSend?: SendFn) {
-  return render(
+  return renderWithQueryClient(
     <ChatInput
       {...chatInputProps({ sessionId, wsId, onSend })}
     />,
@@ -105,6 +138,13 @@ function nextId(prefix: string): string {
 }
 
 beforeEach(() => {
+  queryClient = new QueryClient({
+    defaultOptions: {
+      queries: { retry: false, staleTime: Infinity },
+      mutations: { retry: false },
+    },
+  });
+  queryClient.setQueryData(MODEL_CATALOG_QUERY_KEY, MODEL_CATALOG);
   if (!URL.createObjectURL) {
     Object.defineProperty(URL, "createObjectURL", {
       configurable: true,
@@ -148,7 +188,9 @@ describe("ChatInput draft persistence", () => {
   it("seeds a server-owned session draft on mount", () => {
     const sessionId = nextId("draft-session");
 
-    render(<ChatInput {...chatInputProps({ sessionId, draftPrompt: "Fix issue #42" })} />);
+    renderWithQueryClient(
+      <ChatInput {...chatInputProps({ sessionId, draftPrompt: "Fix issue #42" })} />,
+    );
 
     expect(inputValue()).toBe("Fix issue #42");
   });
@@ -227,7 +269,7 @@ describe("ChatInput draft persistence", () => {
   it("seeds plan mode and thinking level from lastRunOptions at mount", async () => {
     const user = userEvent.setup();
     const onSend = vi.fn(() => true);
-    render(
+    renderWithQueryClient(
       <ChatInput
         {...chatInputProps({ sessionId: nextId("sess"), onSend })}
         lastRunOptions={{ planMode: true, thinkingLevel: "xhigh", fastMode: false }}
@@ -238,6 +280,7 @@ describe("ChatInput draft persistence", () => {
     await user.click(screen.getByRole("button", { name: "Send" }));
 
     expect(onSend).toHaveBeenLastCalledWith("hello", undefined, {
+      model: "claude:sonnet-4-6",
       planMode: true,
       thinkingLevel: "xhigh",
     }, undefined);
@@ -246,12 +289,15 @@ describe("ChatInput draft persistence", () => {
   it("seeds defaults when the session has no lastRunOptions", async () => {
     const user = userEvent.setup();
     const onSend = vi.fn(() => true);
-    render(<ChatInput {...chatInputProps({ sessionId: nextId("sess"), onSend })} />);
+    renderWithQueryClient(
+      <ChatInput {...chatInputProps({ sessionId: nextId("sess"), onSend })} />,
+    );
 
     await user.type(getInput(), "hi");
     await user.click(screen.getByRole("button", { name: "Send" }));
 
     expect(onSend).toHaveBeenLastCalledWith("hi", undefined, {
+      model: "claude:sonnet-4-6",
       planMode: false,
       thinkingLevel: "high",
     }, undefined);
@@ -286,6 +332,7 @@ describe("ChatInput draft persistence", () => {
 
     await user.click(screen.getByRole("button", { name: "Send" }));
     expect(onSend).toHaveBeenCalledWith("send this draft", undefined, {
+      model: "claude:sonnet-4-6",
       planMode: false,
       thinkingLevel: "high",
     }, undefined);

@@ -13,7 +13,11 @@ const modelMock = vi.hoisted(() => {
   ];
   return {
     models,
+    availableModels: models,
     selectedModelId: "claude:opus-4-7",
+    isLoading: false,
+    isError: false,
+    retry: vi.fn(),
     setSelectedModelId: vi.fn((id: string) => {
       modelMock.selectedModelId = id;
     }),
@@ -22,13 +26,15 @@ const modelMock = vi.hoisted(() => {
 
 vi.mock("@/hooks/useModels", () => ({
   useModels: () => ({
-    models: modelMock.models,
+    models: modelMock.availableModels,
     defaultModelId: "claude:opus-4-7",
     selectedModelId: modelMock.selectedModelId,
-    selectedModel: modelMock.models.find((model) => model.id === modelMock.selectedModelId),
-    capabilities: modelMock.models.find((model) => model.id === modelMock.selectedModelId)?.capabilities,
+    selectedModel: modelMock.availableModels.find((model) => model.id === modelMock.selectedModelId),
+    capabilities: modelMock.availableModels.find((model) => model.id === modelMock.selectedModelId)?.capabilities,
     setSelectedModelId: modelMock.setSelectedModelId,
-    isLoading: false,
+    isLoading: modelMock.isLoading,
+    isError: modelMock.isError,
+    retry: modelMock.retry,
   }),
 }));
 
@@ -75,8 +81,12 @@ function renderChatInput(overrides?: Partial<ComponentProps<typeof ChatInput>>) 
 
 describe("ChatInput", () => {
   beforeEach(() => {
+    modelMock.availableModels = modelMock.models;
     modelMock.selectedModelId = "claude:opus-4-7";
+    modelMock.isLoading = false;
+    modelMock.isError = false;
     modelMock.setSelectedModelId.mockClear();
+    modelMock.retry.mockClear();
   });
 
   it("does not render legacy status labels", () => {
@@ -91,6 +101,65 @@ describe("ChatInput", () => {
 
     expect(screen.getByRole("button", { name: "Send" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Stop" })).not.toBeInTheDocument();
+  });
+
+  it("keeps typing available but blocks sending while models load", async () => {
+    modelMock.availableModels = [];
+    modelMock.selectedModelId = "";
+    modelMock.isLoading = true;
+    const user = userEvent.setup();
+    const { onSend } = renderChatInput();
+
+    const input = screen.getByPlaceholderText("Send message, #mention files, @call agents, run /commands");
+    expect(screen.getByRole("button", { name: "Loading models" })).toBeDisabled();
+    expect(screen.getByText("Loading models…")).toHaveAttribute("aria-live", "polite");
+
+    await user.type(input, "draft while loading{enter}");
+
+    expect(input).toHaveValue("draft while loading");
+    expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
+    expect(onSend).not.toHaveBeenCalled();
+  });
+
+  it("offers a direct accessible retry when model loading fails", async () => {
+    modelMock.availableModels = [];
+    modelMock.selectedModelId = "";
+    modelMock.isError = true;
+    const user = userEvent.setup();
+    renderChatInput();
+
+    const retry = screen.getByRole("button", { name: "Retry models" });
+    expect(screen.getByText("Retry models")).toHaveAttribute("aria-live", "polite");
+    await user.click(retry);
+
+    expect(modelMock.retry).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+  });
+
+  it("surfaces a stale-catalog error and restores the selected model after recovery", async () => {
+    modelMock.isError = true;
+    const user = userEvent.setup();
+    const { onSend, rerender } = renderChatInput();
+
+    const input = screen.getByPlaceholderText("Send message, #mention files, @call agents, run /commands");
+    await user.type(input, "draft with stale models");
+    expect(screen.getByRole("button", { name: "Retry models" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Send" })).not.toBeDisabled();
+
+    await user.click(screen.getByRole("button", { name: "Retry models" }));
+    expect(modelMock.retry).toHaveBeenCalledTimes(1);
+
+    modelMock.isError = false;
+    rerender();
+
+    expect(screen.getByRole("button", { name: "Model: Opus 4.7" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Send" }));
+    expect(onSend).toHaveBeenCalledWith(
+      "draft with stale models",
+      undefined,
+      { model: "claude:opus-4-7", planMode: false, thinkingLevel: "high" },
+      undefined,
+    );
   });
 
   it("disables native text replacement suggestions in the message input", () => {

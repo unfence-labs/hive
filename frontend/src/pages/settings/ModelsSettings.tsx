@@ -13,6 +13,7 @@ import { PROVIDER_USAGE_QUERY_KEY } from "@/hooks/useProviderUsage";
 import { cn } from "@/lib/utils";
 
 export default function ModelsSettings() {
+  const queryClient = useQueryClient();
   const { models, defaultModelId, isLoading } = useModels();
   const [savedId, setSavedId] = useState<string | null>(null);
   const [saveFailed, setSaveFailed] = useState(false);
@@ -27,7 +28,7 @@ export default function ModelsSettings() {
     setSaveFailed(false);
     try {
       await api.put("/api/settings/defaults", { defaultModelId: modelId });
-      setCachedDefaultModelId(modelId);
+      setCachedDefaultModelId(queryClient, modelId);
     } catch {
       setSavedId(previous);
       setSaveFailed(true);
@@ -141,7 +142,7 @@ function KimiSection() {
       void queryClient.invalidateQueries({ queryKey: PROVIDER_USAGE_QUERY_KEY });
       // The key gates the Kimi models server-side: refetch so they
       // appear/disappear without a reload.
-      await refreshModelCatalog();
+      await refreshModelCatalog(queryClient);
     } catch {
       setFeedback("error");
     } finally {

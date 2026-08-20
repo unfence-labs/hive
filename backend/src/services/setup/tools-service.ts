@@ -17,6 +17,7 @@ import {
   type RunCommand,
 } from "./command.js";
 import { defaultDetectDeps, detectTool, type DetectDeps } from "./detect.js";
+import { providerAuthentication } from "./provider-authentication.js";
 import { fetchLatestNpmVersion, isNewerVersion } from "./npm-registry.js";
 import { ToolOperationError, type OperationRunner } from "./operations.js";
 
@@ -35,7 +36,10 @@ export function defaultToolsServiceDeps(): ToolsServiceDeps {
     run: runCommand,
     fetchLatestVersion: fetchLatestNpmVersion,
     prefix: toolsPrefix(),
-    onToolsChanged: detectAvailableProviders,
+    onToolsChanged: async () => {
+      await detectAvailableProviders();
+      await providerAuthentication.refresh({ force: true });
+    },
   };
 }
 

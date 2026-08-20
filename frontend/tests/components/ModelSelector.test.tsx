@@ -36,6 +36,43 @@ const CODEX_MODELS: ModelCatalogEntry[] = [
 const ALL_MODELS = [...CLAUDE_MODELS, ...CODEX_MODELS];
 
 describe("ModelSelector", () => {
+  it("renders a compact accessible loading state without a dropdown", async () => {
+    const user = userEvent.setup();
+    render(
+      <ModelSelector
+        models={[]}
+        selectedModelId=""
+        onSelect={vi.fn()}
+        isLoading
+      />,
+    );
+
+    const loading = screen.getByRole("button", { name: "Loading models" });
+    expect(loading).toBeDisabled();
+    expect(screen.getByText("Loading models…")).toHaveAttribute("aria-live", "polite");
+    await user.click(loading);
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+  });
+
+  it("retries directly after a catalog error", async () => {
+    const user = userEvent.setup();
+    const onRetry = vi.fn();
+    render(
+      <ModelSelector
+        models={[]}
+        selectedModelId=""
+        onSelect={vi.fn()}
+        isError
+        onRetry={onRetry}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Retry models" }));
+
+    expect(onRetry).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+  });
+
   it("displays selected model label", () => {
     render(
       <ModelSelector

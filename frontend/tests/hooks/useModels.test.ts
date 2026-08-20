@@ -1,13 +1,19 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { renderHook, waitFor, act } from "@testing-library/react";
-import { useModels, refreshModelCatalog, __resetModelCatalogCacheForTests } from "@/hooks/useModels";
+import { createElement, type ReactNode } from "react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { act, renderHook, waitFor } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  MODEL_CATALOG_QUERY_KEY,
+  prefetchModelCatalog,
+  refreshModelCatalog,
+  setCachedDefaultModelId,
+  useModels,
+} from "@/hooks/useModels";
 import { api } from "@/hooks/useApi";
 import type { ModelCatalogResponse } from "@/types";
 
 vi.mock("@/hooks/useApi", () => ({
-  api: {
-    get: vi.fn(),
-  },
+  api: { get: vi.fn() },
 }));
 
 const mockApi = vi.mocked(api);
@@ -41,314 +47,191 @@ const MOCK_CATALOG: ModelCatalogResponse = {
   defaultModelId: "codex:gpt-5.5",
 };
 
+function createQueryClient(retry: boolean | number = false) {
+  return new QueryClient({
+    defaultOptions: {
+      queries: { retry, retryDelay: 0, gcTime: Infinity, staleTime: 5 * 60 * 1000 },
+      mutations: { retry: false },
+    },
+  });
+}
+
+function wrapperFor(queryClient: QueryClient) {
+  return ({ children }: { children: ReactNode }) => (
+    createElement(QueryClientProvider, { client: queryClient }, children)
+  );
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
-  __resetModelCatalogCacheForTests();
-});
-
-afterEach(() => {
-  vi.restoreAllMocks();
 });
 
 describe("useModels", () => {
-  it("starts in loading state", () => {
-    mockApi.get.mockReturnValue(new Promise(() => {})); // Never resolves
-    const { result } = renderHook(() => useModels());
+  it("loads the shared catalog and seeds the global default", async () => {
+    mockApi.get.mockResolvedValue(MOCK_CATALOG);
+    const queryClient = createQueryClient();
+    const { result } = renderHook(() => useModels(), { wrapper: wrapperFor(queryClient) });
 
     expect(result.current.isLoading).toBe(true);
-    expect(result.current.models).toEqual([]);
-    expect(result.current.defaultModelId).toBe("");
     expect(result.current.selectedModelId).toBe("");
-  });
-
-  it("loads models from API", async () => {
-    mockApi.get.mockResolvedValue(MOCK_CATALOG);
-    const { result } = renderHook(() => useModels());
 
     await waitFor(() => expect(result.current.isLoading).toBe(false));
 
+    expect(mockApi.get).toHaveBeenCalledWith("/api/models", { signal: expect.any(AbortSignal) });
     expect(result.current.models).toHaveLength(3);
-    expect(result.current.defaultModelId).toBe("codex:gpt-5.5");
     expect(result.current.selectedModelId).toBe("codex:gpt-5.5");
-  });
-
-  it("calls /api/models endpoint", async () => {
-    mockApi.get.mockReturnValue(new Promise(() => {}));
-    renderHook(() => useModels());
-
-    await waitFor(() => expect(mockApi.get).toHaveBeenCalledWith("/api/models"));
-  });
-
-  it("sets selectedModelId to defaultModelId on first load", async () => {
-    mockApi.get.mockResolvedValue(MOCK_CATALOG);
-    const { result } = renderHook(() => useModels());
-
-    await waitFor(() => expect(result.current.isLoading).toBe(false));
-    expect(result.current.selectedModelId).toBe("codex:gpt-5.5");
-  });
-
-  it("preserves previously selected model on re-fetch", async () => {
-    mockApi.get.mockResolvedValue(MOCK_CATALOG);
-    const { result } = renderHook(() => useModels());
-
-    await waitFor(() => expect(result.current.isLoading).toBe(false));
-
-    act(() => {
-      result.current.setSelectedModelId("claude:sonnet-4-6");
-    });
-
-    expect(result.current.selectedModelId).toBe("claude:sonnet-4-6");
-  });
-
-  it("resolves selectedModel from models list", async () => {
-    mockApi.get.mockResolvedValue(MOCK_CATALOG);
-    const { result } = renderHook(() => useModels());
-
-    await waitFor(() => expect(result.current.isLoading).toBe(false));
-
-    expect(result.current.selectedModel).toBeDefined();
-    expect(result.current.selectedModel?.id).toBe("codex:gpt-5.5");
     expect(result.current.selectedModel?.label).toBe("GPT-5.5");
+    expect(result.current.capabilities?.goals).toBe(true);
   });
 
-  it("returns capabilities of the selected model", async () => {
+  it("uses the QueryClient retry policy for transient failures", async () => {
+    mockApi.get
+      .mockRejectedValueOnce(new Error("temporary one"))
+      .mockRejectedValueOnce(new Error("temporary two"))
+      .mockResolvedValue(MOCK_CATALOG);
+    const queryClient = createQueryClient(2);
+    const { result } = renderHook(() => useModels(), { wrapper: wrapperFor(queryClient) });
+
+    await waitFor(() => expect(result.current.models).toHaveLength(3));
+
+    expect(mockApi.get).toHaveBeenCalledTimes(3);
+    expect(result.current.isError).toBe(false);
+  });
+
+  it("prefetches once and seeds remounted composers synchronously from QueryClient", async () => {
     mockApi.get.mockResolvedValue(MOCK_CATALOG);
-    const { result } = renderHook(() => useModels());
+    const queryClient = createQueryClient();
 
-    await waitFor(() => expect(result.current.isLoading).toBe(false));
-
-    expect(result.current.capabilities).toEqual({
-      thinkingLevels: ["none", "minimal", "low", "medium", "high", "xhigh"],
-      planMode: false,
-      blockingTools: false,
-      completions: true,
-      goals: true,
+    await prefetchModelCatalog(queryClient);
+    const first = renderHook(() => useModels(undefined, "claude:sonnet-4-6"), {
+      wrapper: wrapperFor(queryClient),
     });
 
-    act(() => {
-      result.current.setSelectedModelId("codex:gpt-5.5");
-    });
+    expect(first.result.current.isLoading).toBe(false);
+    expect(first.result.current.selectedModelId).toBe("claude:sonnet-4-6");
+    first.unmount();
 
-    expect(result.current.capabilities).toEqual({
-      thinkingLevels: ["none", "minimal", "low", "medium", "high", "xhigh"],
-      planMode: false,
-      blockingTools: false,
-      completions: true,
-      goals: true,
-    });
-  });
-
-  it("returns fallback capabilities when loading with no models", () => {
-    mockApi.get.mockReturnValue(new Promise(() => {}));
-    const { result } = renderHook(() => useModels());
-
-    // While loading, models is empty, should use fallback
-    expect(result.current.capabilities).toEqual({
-      thinkingLevels: ["low", "medium", "high", "xhigh", "max"],
-      planMode: true,
-      blockingTools: true,
-      completions: true,
-      goals: false,
-    });
-  });
-
-  it("returns undefined capabilities when models loaded but selected model not found", async () => {
-    mockApi.get.mockResolvedValue(MOCK_CATALOG);
-    const { result } = renderHook(() => useModels());
-
-    await waitFor(() => expect(result.current.isLoading).toBe(false));
-
-    act(() => {
-      result.current.setSelectedModelId("nonexistent:model");
-    });
-
-    expect(result.current.selectedModel).toBeUndefined();
-    expect(result.current.capabilities).toBeUndefined();
-  });
-
-  it("handles API error gracefully", async () => {
-    mockApi.get.mockRejectedValue(new Error("Network error"));
-    const { result } = renderHook(() => useModels());
-
-    await waitFor(() => expect(result.current.isLoading).toBe(false));
-
-    expect(result.current.models).toEqual([]);
-    expect(result.current.defaultModelId).toBe("");
-  });
-
-  it("setSelectedModelId updates the selected model", async () => {
-    mockApi.get.mockResolvedValue(MOCK_CATALOG);
-    const { result } = renderHook(() => useModels());
-
-    await waitFor(() => expect(result.current.isLoading).toBe(false));
-
-    act(() => {
-      result.current.setSelectedModelId("claude:sonnet-4-6");
-    });
-
-    expect(result.current.selectedModelId).toBe("claude:sonnet-4-6");
-    expect(result.current.selectedModel?.label).toBe("Sonnet 4.6");
-  });
-
-  it("selects locked provider default when lockedProvider is set", async () => {
-    mockApi.get.mockResolvedValue(MOCK_CATALOG);
-    const { result } = renderHook(() => useModels("codex"));
-
-    await waitFor(() => expect(result.current.isLoading).toBe(false));
-
-    expect(result.current.selectedModelId).toBe("codex:gpt-5.5");
-    expect(result.current.selectedModel?.provider).toBe("codex");
-  });
-
-  it("falls back to global default when lockedProvider has no models", async () => {
-    mockApi.get.mockResolvedValue(MOCK_CATALOG);
-    const { result } = renderHook(() => useModels("unknown-provider"));
-
-    await waitFor(() => expect(result.current.isLoading).toBe(false));
-
-    expect(result.current.selectedModelId).toBe("codex:gpt-5.5");
-  });
-
-  it("seeds preferredModelId when it exists in the catalog", async () => {
-    mockApi.get.mockResolvedValue(MOCK_CATALOG);
-    const { result } = renderHook(() => useModels(undefined, "claude:sonnet-4-6"));
-
-    await waitFor(() => expect(result.current.isLoading).toBe(false));
-
-    expect(result.current.selectedModelId).toBe("claude:sonnet-4-6");
-  });
-
-  it("ignores preferredModelId that conflicts with lockedProvider", async () => {
-    mockApi.get.mockResolvedValue(MOCK_CATALOG);
-    // Prefer a claude model but the session is locked to codex.
-    const { result } = renderHook(() => useModels("codex", "claude:sonnet-4-6"));
-
-    await waitFor(() => expect(result.current.isLoading).toBe(false));
-
-    expect(result.current.selectedModelId).toBe("codex:gpt-5.5");
-  });
-
-  it("falls back to default when preferredModelId is not in the catalog", async () => {
-    mockApi.get.mockResolvedValue(MOCK_CATALOG);
-    const { result } = renderHook(() => useModels(undefined, "claude:removed-model"));
-
-    await waitFor(() => expect(result.current.isLoading).toBe(false));
-
-    expect(result.current.selectedModelId).toBe("codex:gpt-5.5");
-  });
-
-  it("refreshModelCatalog pushes the refetched catalog to mounted hooks, keeping a surviving selection", async () => {
-    mockApi.get.mockResolvedValue(MOCK_CATALOG);
-    const { result } = renderHook(() => useModels());
-    await waitFor(() => expect(result.current.isLoading).toBe(false));
-
-    act(() => {
-      result.current.setSelectedModelId("claude:sonnet-4-6");
-    });
-
-    const refreshed: ModelCatalogResponse = {
-      ...MOCK_CATALOG,
-      models: [
-        ...MOCK_CATALOG.models,
-        {
-          id: "kimi:k3",
-          label: "K3",
-          provider: "kimi",
-          providerLabel: "Kimi",
-          isDefault: true,
-          capabilities: { thinkingLevels: ["low", "high", "max"], planMode: true, blockingTools: true, completions: true, goals: false },
-        },
-      ],
-    };
-    mockApi.get.mockResolvedValue(refreshed);
-    await act(() => refreshModelCatalog());
-
-    expect(mockApi.get).toHaveBeenCalledTimes(2);
-    expect(result.current.models).toHaveLength(4);
-    // The previous selection survives the refresh, so it is kept.
-    expect(result.current.selectedModelId).toBe("claude:sonnet-4-6");
-  });
-
-  it("refreshModelCatalog reseeds the selection when it vanished from the catalog", async () => {
-    mockApi.get.mockResolvedValue(MOCK_CATALOG);
-    const { result } = renderHook(() => useModels());
-    await waitFor(() => expect(result.current.isLoading).toBe(false));
-
-    act(() => {
-      result.current.setSelectedModelId("claude:sonnet-4-6");
-    });
-
-    const refreshed: ModelCatalogResponse = {
-      ...MOCK_CATALOG,
-      models: MOCK_CATALOG.models.filter((m) => m.id !== "claude:sonnet-4-6"),
-    };
-    mockApi.get.mockResolvedValue(refreshed);
-    await act(() => refreshModelCatalog());
-
-    expect(result.current.selectedModelId).toBe("codex:gpt-5.5");
-  });
-
-  it("a stale in-flight initial load cannot overwrite a completed refresh", async () => {
-    let resolveInitial!: (value: ModelCatalogResponse) => void;
-    mockApi.get.mockReturnValueOnce(new Promise((resolve) => { resolveInitial = resolve; }));
-    const { result } = renderHook(() => useModels());
-    expect(result.current.isLoading).toBe(true);
-
-    // The Kimi key was saved while the slow initial request was in flight:
-    // the refresh fetches a newer catalog and completes first.
-    const refreshed: ModelCatalogResponse = {
-      ...MOCK_CATALOG,
-      models: [
-        ...MOCK_CATALOG.models,
-        {
-          id: "kimi:k3",
-          label: "K3",
-          provider: "kimi",
-          providerLabel: "Kimi",
-          capabilities: { thinkingLevels: ["low", "high", "max"], planMode: true, blockingTools: true, completions: true, goals: false },
-        },
-      ],
-    };
-    mockApi.get.mockResolvedValue(refreshed);
-    await act(() => refreshModelCatalog());
-    expect(result.current.models).toHaveLength(4);
-
-    // The superseded initial request finally resolves with the stale catalog.
-    await act(async () => { resolveInitial(MOCK_CATALOG); });
-
-    // The fresh catalog wins in the mounted hook…
-    expect(result.current.models).toHaveLength(4);
-    // …and in the cache later mounts seed from (no third fetch).
-    const second = renderHook(() => useModels());
-    expect(second.result.current.models).toHaveLength(4);
-    expect(mockApi.get).toHaveBeenCalledTimes(2);
-  });
-
-  it("stops receiving catalog refreshes after unmount", async () => {
-    mockApi.get.mockResolvedValue(MOCK_CATALOG);
-    const { result, unmount } = renderHook(() => useModels());
-    await waitFor(() => expect(result.current.isLoading).toBe(false));
-
-    unmount();
-
-    const refreshed: ModelCatalogResponse = { ...MOCK_CATALOG, models: [] };
-    mockApi.get.mockResolvedValue(refreshed);
-    await act(() => refreshModelCatalog());
-
-    // The unmounted hook kept its last render; no update (or React warning) fired.
-    expect(result.current.models).toHaveLength(3);
-  });
-
-  it("seeds synchronously from the cache on a remount (no second fetch)", async () => {
-    mockApi.get.mockResolvedValue(MOCK_CATALOG);
-    const first = renderHook(() => useModels());
-    await waitFor(() => expect(first.result.current.isLoading).toBe(false));
+    const second = renderHook(() => useModels(), { wrapper: wrapperFor(queryClient) });
+    expect(second.result.current.models).toHaveLength(3);
     expect(mockApi.get).toHaveBeenCalledTimes(1);
+  });
 
-    // Simulate a fresh mount (e.g. ChatInput remounted on session switch).
-    const second = renderHook(() => useModels(undefined, "claude:sonnet-4-6"));
-    expect(second.result.current.isLoading).toBe(false);
-    expect(second.result.current.selectedModelId).toBe("claude:sonnet-4-6");
-    expect(mockApi.get).toHaveBeenCalledTimes(1); // still cached
+  it("seeds and enforces a locked provider", async () => {
+    mockApi.get.mockResolvedValue(MOCK_CATALOG);
+    const queryClient = createQueryClient();
+    const { result, rerender } = renderHook(
+      ({ provider }: { provider?: string }) =>
+        useModels(provider, "claude:sonnet-4-6"),
+      { initialProps: { provider: "claude" }, wrapper: wrapperFor(queryClient) },
+    );
+
+    await waitFor(() => expect(result.current.selectedModelId).toBe("claude:sonnet-4-6"));
+
+    rerender({ provider: "codex" });
+    await waitFor(() => expect(result.current.selectedModelId).toBe("codex:gpt-5.5"));
+  });
+
+  it("keeps a surviving local selection across catalog refreshes", async () => {
+    mockApi.get.mockResolvedValue(MOCK_CATALOG);
+    const queryClient = createQueryClient();
+    const { result } = renderHook(() => useModels(), { wrapper: wrapperFor(queryClient) });
+    await waitFor(() => expect(result.current.models).toHaveLength(3));
+
+    act(() => result.current.setSelectedModelId("claude:sonnet-4-6"));
+    const refreshed: ModelCatalogResponse = {
+      ...MOCK_CATALOG,
+      models: [...MOCK_CATALOG.models, {
+        id: "kimi:k3",
+        label: "K3",
+        provider: "kimi",
+        providerLabel: "Kimi",
+        capabilities: { thinkingLevels: ["low", "high", "max"], planMode: true, blockingTools: true, completions: true, goals: false },
+      }],
+    };
+    mockApi.get.mockResolvedValue(refreshed);
+
+    await act(() => refreshModelCatalog(queryClient));
+
+    await waitFor(() => expect(result.current.models).toHaveLength(4));
+    expect(result.current.selectedModelId).toBe("claude:sonnet-4-6");
+  });
+
+  it("reseeds when a refresh removes the selected model", async () => {
+    mockApi.get.mockResolvedValue(MOCK_CATALOG);
+    const queryClient = createQueryClient();
+    const { result } = renderHook(() => useModels(), { wrapper: wrapperFor(queryClient) });
+    await waitFor(() => expect(result.current.models).toHaveLength(3));
+    act(() => result.current.setSelectedModelId("claude:sonnet-4-6"));
+
+    mockApi.get.mockResolvedValue({
+      ...MOCK_CATALOG,
+      models: MOCK_CATALOG.models.filter((model) => model.id !== "claude:sonnet-4-6"),
+    });
+    await act(() => refreshModelCatalog(queryClient));
+
+    await waitFor(() => expect(result.current.selectedModelId).toBe("codex:gpt-5.5"));
+  });
+
+  it("retains stale models after a refresh failure and recovers on retry", async () => {
+    mockApi.get.mockResolvedValue(MOCK_CATALOG);
+    const queryClient = createQueryClient();
+    const { result } = renderHook(() => useModels(), { wrapper: wrapperFor(queryClient) });
+    await waitFor(() => expect(result.current.models).toHaveLength(3));
+
+    mockApi.get.mockRejectedValue(new Error("catalog unavailable"));
+    await act(() => refreshModelCatalog(queryClient));
+
+    await waitFor(() => expect(result.current.isError).toBe(true));
+    expect(result.current.models).toEqual(MOCK_CATALOG.models);
+    expect(result.current.selectedModel?.id).toBe("codex:gpt-5.5");
+
+    mockApi.get.mockResolvedValue(MOCK_CATALOG);
+    act(() => result.current.retry());
+
+    await waitFor(() => expect(result.current.isError).toBe(false));
+    expect(result.current.models).toEqual(MOCK_CATALOG.models);
+  });
+
+  it("patches the cached default for future composers", async () => {
+    mockApi.get.mockResolvedValue(MOCK_CATALOG);
+    const queryClient = createQueryClient();
+    await prefetchModelCatalog(queryClient);
+
+    setCachedDefaultModelId(queryClient, "claude:opus-4-7");
+
+    expect(queryClient.getQueryData<ModelCatalogResponse>(MODEL_CATALOG_QUERY_KEY)?.defaultModelId)
+      .toBe("claude:opus-4-7");
+    const { result } = renderHook(() => useModels(), { wrapper: wrapperFor(queryClient) });
+    expect(result.current.selectedModelId).toBe("claude:opus-4-7");
+  });
+
+  it("exposes an initial error and retries directly", async () => {
+    mockApi.get.mockRejectedValue(new Error("offline"));
+    const queryClient = createQueryClient();
+    const { result } = renderHook(() => useModels(), { wrapper: wrapperFor(queryClient) });
+
+    await waitFor(() => expect(result.current.isError).toBe(true));
+    expect(result.current.models).toEqual([]);
+
+    mockApi.get.mockResolvedValue(MOCK_CATALOG);
+    act(() => result.current.retry());
+    await waitFor(() => expect(result.current.models).toHaveLength(3));
+  });
+
+  it("drops the previous server catalog when the QueryClient is reset", async () => {
+    mockApi.get.mockResolvedValue(MOCK_CATALOG);
+    const queryClient = createQueryClient();
+    const { result } = renderHook(() => useModels(), { wrapper: wrapperFor(queryClient) });
+    await waitFor(() => expect(result.current.models).toHaveLength(3));
+
+    const nextServerCatalog: ModelCatalogResponse = {
+      models: [MOCK_CATALOG.models[0]],
+      defaultModelId: "claude:opus-4-7",
+    };
+    mockApi.get.mockResolvedValue(nextServerCatalog);
+    await act(() => queryClient.resetQueries());
+
+    await waitFor(() => expect(result.current.models).toEqual(nextServerCatalog.models));
+    expect(result.current.selectedModelId).toBe("claude:opus-4-7");
   });
 });

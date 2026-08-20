@@ -6,41 +6,25 @@ import { tmpdir } from "node:os";
 import { modelRoutes } from "./models.js";
 import { getModelCatalog, markProviderAvailable } from "../agents/providers/registry.js";
 import { loadConfig, saveConfig } from "../state/config.js";
-import type { SetupToolId } from "@hive/shared/setup-types";
-import type { DetectDeps } from "../services/setup/detect.js";
+import type { ToolAuthenticationState } from "../services/setup/detect.js";
+import type { ProviderAuthenticationReader } from "../services/setup/provider-authentication.js";
 
 let tempDir: string;
 let app: ReturnType<typeof Fastify>;
-let authenticated: Partial<Record<SetupToolId, boolean>>;
+let authenticationStates: Record<string, ToolAuthenticationState>;
 
 beforeEach(async () => {
   tempDir = await mkdtemp(join(tmpdir(), "hive-models-api-test-"));
   markProviderAvailable("claude");
   markProviderAvailable("codex");
-  authenticated = { claude: true, codex: false };
-  const detect: DetectDeps = {
-    run: vi.fn(async (command) => {
-      const signedIn = authenticated[command as SetupToolId] === true;
-      if (command === "claude") {
-        return {
-          stdout: JSON.stringify({ loggedIn: signedIn }),
-          stderr: "",
-          exitCode: 0,
-          timedOut: false,
-        };
-      }
-      return {
-        stdout: signedIn ? "Logged in using ChatGPT" : "Not logged in",
-        stderr: "",
-        exitCode: 0,
-        timedOut: false,
-      };
-    }),
+  authenticationStates = { claude: "authenticated", codex: "unauthenticated" };
+  const authentication: ProviderAuthenticationReader = {
+    getState: vi.fn((providerId) => authenticationStates[providerId] ?? "unknown"),
   };
 
   app = Fastify();
   await app.register((instance: FastifyInstance) =>
-    modelRoutes(instance, { dataDir: tempDir, detect }),
+    modelRoutes(instance, { dataDir: tempDir, authentication }),
   );
   await app.ready();
 });
@@ -117,7 +101,12 @@ describe("GET /api/models", () => {
       providers: [],
     },
   ])("returns models for $name", async ({ authentication, providers }) => {
-    authenticated = authentication;
+    authenticationStates = Object.fromEntries(
+      Object.entries(authentication).map(([providerId, signedIn]) => [
+        providerId,
+        signedIn ? "authenticated" : "unauthenticated",
+      ]),
+    );
 
     const res = await app.inject({ method: "GET", url: "/api/models" });
     const body = res.json();
@@ -132,11 +121,11 @@ describe("GET /api/models", () => {
     }
   });
 
-  it("re-probes authentication on every request", async () => {
-    authenticated = { claude: true, codex: false };
+  it("uses the current authentication snapshot on every request", async () => {
+    authenticationStates = { claude: "authenticated", codex: "unauthenticated" };
     const first = await app.inject({ method: "GET", url: "/api/models" });
 
-    authenticated = { claude: false, codex: true };
+    authenticationStates = { claude: "unauthenticated", codex: "authenticated" };
     const second = await app.inject({ method: "GET", url: "/api/models" });
 
     expect(new Set(first.json().models.map((model: { provider: string }) => model.provider)))
@@ -145,8 +134,19 @@ describe("GET /api/models", () => {
       .toEqual(new Set(["codex"]));
   });
 
+  it("keeps installed providers visible when authentication is unknown", async () => {
+    authenticationStates = { claude: "unknown", codex: "unknown" };
+
+    const res = await app.inject({ method: "GET", url: "/api/models" });
+    const providers = new Set(
+      res.json().models.map((model: { provider: string }) => model.provider),
+    );
+
+    expect(providers).toEqual(new Set(["claude", "codex"]));
+  });
+
   it("keeps Kimi available with its key when Claude is not authenticated", async () => {
-    authenticated = { claude: false, codex: false };
+    authenticationStates = { claude: "unauthenticated", codex: "unauthenticated" };
     markProviderAvailable("kimi");
     const config = await loadConfig(tempDir);
     await saveConfig({ ...config, kimi: { apiKey: "sk-kimi" } }, tempDir);

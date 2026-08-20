@@ -7,6 +7,21 @@ import { runCommand, type RunCommand } from "./command.js";
 /** Probes must never hold up a status request; they answer or they are absent. */
 const PROBE_TIMEOUT_MS = 5_000;
 
+export type ToolAuthenticationState =
+  | "authenticated"
+  | "unauthenticated"
+  | "unknown";
+
+export type AuthenticationProbeFailureCategory =
+  | "timeout"
+  | "command_failed"
+  | "invalid_output";
+
+export interface ToolAuthenticationProbe {
+  state: ToolAuthenticationState;
+  failureCategory?: AuthenticationProbeFailureCategory;
+}
+
 export interface ToolDetection {
   installed: boolean;
   version: string | null;
@@ -35,51 +50,74 @@ async function probeVersion(
   };
 }
 
-/**
- * Whether the tool is signed in. Every probe fails closed: an unrecognised
- * output shape reads as "not authenticated", which understates rather than
- * claiming a sign-in that is not there.
- */
+/** Probe authentication without confusing a broken probe with a signed-out CLI. */
+export async function probeToolAuthentication(
+  id: SetupToolId,
+  deps: DetectDeps = defaultDetectDeps(),
+): Promise<ToolAuthenticationProbe> {
+  try {
+    switch (id) {
+      case "claude": {
+        const result = await deps.run("claude", ["auth", "status"], {
+          timeoutMs: PROBE_TIMEOUT_MS,
+          // Authentication belongs to Claude Code's credential store. Ignore
+          // tokens inherited by the Hive service so detection matches agent runs.
+          env: buildWorkspaceEnv(),
+        });
+        if (result.timedOut) return { state: "unknown", failureCategory: "timeout" };
+        try {
+          const status = JSON.parse(result.stdout) as unknown;
+          if (
+            typeof status === "object" &&
+            status !== null &&
+            "loggedIn" in status &&
+            typeof status.loggedIn === "boolean"
+          ) {
+            if (status.loggedIn === false) return { state: "unauthenticated" };
+            if (result.exitCode === 0) return { state: "authenticated" };
+          }
+        } catch {
+          // Categorised below without exposing the CLI output.
+        }
+        return {
+          state: "unknown",
+          failureCategory: result.exitCode === 0 ? "invalid_output" : "command_failed",
+        };
+      }
+      case "codex": {
+        const result = await deps.run("codex", ["login", "status"], {
+          timeoutMs: PROBE_TIMEOUT_MS,
+        });
+        if (result.timedOut) return { state: "unknown", failureCategory: "timeout" };
+        const status = `${result.stdout}\n${result.stderr}`;
+        if (/\bnot logged in\b/i.test(status)) return { state: "unauthenticated" };
+        if (result.exitCode === 0 && /\blogged in\b/i.test(status)) {
+          return { state: "authenticated" };
+        }
+        return {
+          state: "unknown",
+          failureCategory: result.exitCode === 0 ? "invalid_output" : "command_failed",
+        };
+      }
+      case "gh": {
+        const result = await deps.run("gh", ["auth", "status"], {
+          timeoutMs: PROBE_TIMEOUT_MS,
+        });
+        if (result.timedOut) return { state: "unknown", failureCategory: "timeout" };
+        return { state: result.exitCode === 0 ? "authenticated" : "unauthenticated" };
+      }
+    }
+  } catch {
+    return { state: "unknown", failureCategory: "command_failed" };
+  }
+}
+
+/** Boolean compatibility for setup status and authentication flows. */
 export async function detectToolAuthentication(
   id: SetupToolId,
   deps: DetectDeps = defaultDetectDeps(),
 ): Promise<boolean> {
-  switch (id) {
-    case "claude": {
-      const result = await deps.run("claude", ["auth", "status"], {
-        timeoutMs: PROBE_TIMEOUT_MS,
-        // Authentication belongs to Claude Code's credential store. Ignore
-        // tokens inherited by the Hive service so detection matches agent runs.
-        env: buildWorkspaceEnv(),
-      });
-      if (result.exitCode !== 0) return false;
-      try {
-        const status = JSON.parse(result.stdout) as unknown;
-        return (
-          typeof status === "object" &&
-          status !== null &&
-          "loggedIn" in status &&
-          status.loggedIn === true
-        );
-      } catch {
-        return false;
-      }
-    }
-    case "codex": {
-      const result = await deps.run("codex", ["login", "status"], {
-        timeoutMs: PROBE_TIMEOUT_MS,
-      });
-      if (result.exitCode !== 0) return false;
-      const status = `${result.stdout}\n${result.stderr}`;
-      return /\blogged in\b/i.test(status) && !/\bnot logged in\b/i.test(status);
-    }
-    case "gh": {
-      const result = await deps.run("gh", ["auth", "status"], {
-        timeoutMs: PROBE_TIMEOUT_MS,
-      });
-      return result.exitCode === 0;
-    }
-  }
+  return (await probeToolAuthentication(id, deps)).state === "authenticated";
 }
 
 export async function detectTool(

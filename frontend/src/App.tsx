@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import AppLayout from "@/components/AppLayout";
 import AddProjectDialog from "@/components/AddProjectDialog";
 import WorkspaceLauncher from "@/components/WorkspaceLauncher";
@@ -19,6 +20,7 @@ import { ServerUpdatePrompt } from "@/components/ServerUpdatePrompt";
 import { wsTransport } from "@/lib/ws-transport";
 import { HiveToaster } from "@/components/ui/toaster";
 import { useAppResync } from "@/hooks/useAppResync";
+import { prefetchModelCatalog } from "@/hooks/useModels";
 
 const AutomationDetail = lazy(() => import("@/pages/AutomationDetail"));
 const WorkspaceView = lazy(() => import("@/pages/WorkspaceView"));
@@ -106,6 +108,7 @@ function ConfiguredApp({
   onOpenInstaller: () => void;
   onCloseInstaller: () => void;
 }) {
+  const queryClient = useQueryClient();
   const { projects, loading, fetchProjects, createProjectWithWorkspace, createNewProjectWithWorkspace } = useProjects();
   const isResyncing = useAppResync();
   const [showAddProject, setShowAddProject] = useState(false);
@@ -124,6 +127,10 @@ function ConfiguredApp({
       ),
     [projects],
   );
+
+  useEffect(() => {
+    void prefetchModelCatalog(queryClient);
+  }, [queryClient]);
 
   useEffect(() => {
     if (loading) return;

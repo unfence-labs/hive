@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { CheckIcon } from "lucide-react";
+import { CheckIcon, Loader2, RefreshCw } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -19,6 +19,9 @@ interface ModelSelectorProps {
   selectedModelId: string;
   onSelect: (modelId: string) => void;
   lockedProvider?: string;
+  isLoading?: boolean;
+  isError?: boolean;
+  onRetry?: () => void;
 }
 
 export interface ModelProviderGroup {
@@ -40,11 +43,49 @@ export function groupModelsByProvider(models: ModelCatalogEntry[]): ModelProvide
   return Array.from(map.values());
 }
 
-export function ModelSelector({ models, selectedModelId, onSelect, lockedProvider }: ModelSelectorProps) {
+export function ModelSelector({
+  models,
+  selectedModelId,
+  onSelect,
+  lockedProvider,
+  isLoading = false,
+  isError = false,
+  onRetry,
+}: ModelSelectorProps) {
   const selected = models.find((m) => m.id === selectedModelId);
   const label = selected?.label ?? "Select model";
 
   const grouped = useMemo(() => groupModelsByProvider(models), [models]);
+
+  if (isLoading && models.length === 0) {
+    return (
+      <PromptInputButton
+        aria-label="Loading models"
+        variant="ghost"
+        size="xs"
+        disabled
+        className="h-5 gap-1 text-[11px] text-muted-foreground"
+      >
+        <Loader2 className="size-3 animate-spin" />
+        <span aria-live="polite">Loading models…</span>
+      </PromptInputButton>
+    );
+  }
+
+  if (isError) {
+    return (
+      <PromptInputButton
+        aria-label="Retry models"
+        variant="ghost"
+        size="xs"
+        onClick={onRetry}
+        className="h-5 gap-1 text-[11px] text-muted-foreground"
+      >
+        <RefreshCw className="size-3" />
+        <span aria-live="polite">Retry models</span>
+      </PromptInputButton>
+    );
+  }
 
   return (
     <DropdownMenu>

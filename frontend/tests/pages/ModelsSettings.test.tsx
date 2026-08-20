@@ -2,7 +2,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import ModelsSettings from "@/pages/settings/ModelsSettings";
-import { __resetModelCatalogCacheForTests } from "@/hooks/useModels";
 import { PROVIDER_USAGE_QUERY_KEY } from "@/hooks/useProviderUsage";
 import type { ModelCatalogResponse } from "@/types";
 import { createWrapper } from "../test-utils";
@@ -53,7 +52,6 @@ function renderModelsSettings() {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  __resetModelCatalogCacheForTests();
 });
 
 describe("ModelsSettings", () => {

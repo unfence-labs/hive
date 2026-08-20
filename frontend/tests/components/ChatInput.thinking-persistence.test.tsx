@@ -38,6 +38,8 @@ vi.mock("@/hooks/useModels", () => ({
     capabilities: { thinkingLevels: ["low", "medium", "high", "xhigh", "max"], planMode: true, blockingTools: true, completions: true },
     setSelectedModelId: vi.fn(),
     isLoading: false,
+    isError: false,
+    retry: vi.fn(),
   })),
 }));
 
