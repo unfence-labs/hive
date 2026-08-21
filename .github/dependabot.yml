@@ -10,11 +10,6 @@ updates:
     groups:
       npm-minor-and-patch:
         update-types: [minor, patch]
-    ignore:
-      - dependency-name: "@pierre/diffs"
-        versions: ["1.3.x"]
-      - dependency-name: "diff"
-        versions: ["9.x"]
 
   - package-ecosystem: cargo
     directory: /frontend/src-tauri
