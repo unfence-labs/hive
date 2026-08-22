@@ -16,7 +16,7 @@ import {
   convertSessionToTerminal,
   sendMessage,
   hardDeleteSession,
-  endSession,
+  stopAllSessions,
   _clearActiveSessions,
 } from "../agents/agent-manager.js";
 import type { SessionOptions } from "../agents/agent-manager.js";
@@ -66,9 +66,9 @@ beforeEach(async () => {
 
 afterEach(async () => {
   clearScripts();
-  _clearActiveSessions();
-  await new Promise((r) => setTimeout(r, 100));
   await app.close();
+  await stopAllSessions();
+  _clearActiveSessions();
   await rm(tempDir, { recursive: true, force: true });
 });
 
@@ -434,7 +434,6 @@ describe("WS /ws/hub", () => {
     expect(messages.some((m) => m.type === "history")).toBe(false);
 
     ws.close();
-    await endSession(wsId, dataDir);
   });
 
   it("bootstraps the default non-empty chat when the active loaded session is terminal", async () => {
@@ -458,12 +457,11 @@ describe("WS /ws/hub", () => {
     expect(status).not.toEqual(expect.objectContaining({ sessionId: terminalActive.sessionId }));
 
     ws.close();
-    await endSession(wsId, dataDir);
   });
 
   it("bootstraps a streaming default session as busy (never idle) when the active session is empty", async () => {
     const fakeClaudePath = join(tempDir, "fake-claude-stream-default.sh");
-    await writeFile(fakeClaudePath, "#!/bin/sh\nsleep 5\n", "utf-8");
+    await writeFile(fakeClaudePath, "#!/bin/sh\nexec sleep 5\n", "utf-8");
     await chmod(fakeClaudePath, 0o755);
     const slowCmd = { command: fakeClaudePath, systemPrompt: false as const };
     const local = await startWsApp(undefined, slowCmd);
@@ -501,7 +499,6 @@ describe("WS /ws/hub", () => {
 
     ws.close();
     await local.app.close();
-    await endSession(wsId, dataDir).catch(() => {});
   });
 
   it("sends idle status when session exists but is not streaming", async () => {
@@ -520,12 +517,11 @@ describe("WS /ws/hub", () => {
     }
 
     ws.close();
-    await endSession(wsId, dataDir);
   });
 
   it("includes streamingStartedAt in bootstrap status when session is already streaming", async () => {
     const fakeClaudePath = join(tempDir, "fake-claude-bootstrap.sh");
-    await writeFile(fakeClaudePath, "#!/bin/sh\nsleep 5\n", "utf-8");
+    await writeFile(fakeClaudePath, "#!/bin/sh\nexec sleep 5\n", "utf-8");
     await chmod(fakeClaudePath, 0o755);
     const slowCmd = { command: fakeClaudePath, systemPrompt: false as const };
     const local = await startWsApp(undefined, slowCmd);
@@ -564,12 +560,11 @@ describe("WS /ws/hub", () => {
 
     ws.close();
     await local.app.close();
-    await endSession(wsId, dataDir).catch(() => {});
   });
 
   it("replays streaming snapshot during bootstrap", async () => {
     const fakeClaudePath = join(tempDir, "fake-claude-activity-bootstrap.sh");
-    await writeFile(fakeClaudePath, "#!/bin/sh\nsleep 5\n", "utf-8");
+    await writeFile(fakeClaudePath, "#!/bin/sh\nexec sleep 5\n", "utf-8");
     await chmod(fakeClaudePath, 0o755);
     const slowCmd = { command: fakeClaudePath, systemPrompt: false as const };
     const local = await startWsApp(undefined, slowCmd);
@@ -628,12 +623,11 @@ describe("WS /ws/hub", () => {
 
     ws.close();
     await local.app.close();
-    await endSession(wsId, dataDir).catch(() => {});
   });
 
   it("replays snapshots and attaches listeners for non-active streaming sessions during bootstrap", async () => {
     const fakeClaudePath = join(tempDir, "fake-claude-multi-bootstrap.sh");
-    await writeFile(fakeClaudePath, "#!/bin/sh\nsleep 5\n", "utf-8");
+    await writeFile(fakeClaudePath, "#!/bin/sh\nexec sleep 5\n", "utf-8");
     await chmod(fakeClaudePath, 0o755);
     const slowCmd = { command: fakeClaudePath, systemPrompt: false as const };
     const local = await startWsApp(undefined, slowCmd);
@@ -689,7 +683,6 @@ describe("WS /ws/hub", () => {
 
     ws.close();
     await local.app.close();
-    await endSession(wsId, dataDir).catch(() => {});
   });
 
   it("auto-creates session on user_message", async () => {
@@ -714,7 +707,6 @@ describe("WS /ws/hub", () => {
     ).toBe(true);
 
     ws.close();
-    await endSession(wsId, dataDir).catch(() => {});
   });
 
   it("authorizes a user_message that races the subscribe bootstrap on the same socket", async () => {
@@ -747,7 +739,6 @@ describe("WS /ws/hub", () => {
     ).toBe(false);
 
     ws.close();
-    await endSession(wsId, dataDir).catch(() => {});
   });
 
   it("returns an error when user_message targets a deleted session id", async () => {
@@ -884,12 +875,11 @@ describe("WS /ws/hub", () => {
     expect(typeof busy.streamingStartedAt).toBe("number");
 
     ws.close();
-    await endSession(wsId, dataDir).catch(() => {});
   });
 
   it("switches sessions without interrupting an already streaming session", async () => {
     const fakeClaudePath = join(tempDir, "fake-claude-sleep.sh");
-    await writeFile(fakeClaudePath, "#!/bin/sh\nsleep 5\n", "utf-8");
+    await writeFile(fakeClaudePath, "#!/bin/sh\nexec sleep 5\n", "utf-8");
     await chmod(fakeClaudePath, 0o755);
     const slowCmd = { command: fakeClaudePath, systemPrompt: false as const };
 
@@ -959,7 +949,6 @@ describe("WS /ws/hub", () => {
 
     ws.close();
     await local.app.close();
-    await endSession(wsId, dataDir).catch(() => {});
   });
 
   it("accepts tool_input_response and keeps stream status busy", async () => {
@@ -991,7 +980,6 @@ describe("WS /ws/hub", () => {
     expect(messages.some((m) => m.type === "tool_input_resolved")).toBe(true);
 
     ws.close();
-    await endSession(wsId, dataDir).catch(() => {});
   });
 
   it("routes dismiss responses to the originating session after handoff", async () => {
@@ -1052,7 +1040,6 @@ describe("WS /ws/hub", () => {
     expect(newRespondSpy).not.toHaveBeenCalled();
 
     ws.close();
-    await endSession(wsId, dataDir).catch(() => {});
   });
 
   it("broadcasts user_message event to all connected hub clients", async () => {
@@ -1093,7 +1080,6 @@ describe("WS /ws/hub", () => {
 
     ws1.close();
     ws2.close();
-    await endSession(wsId, dataDir).catch(() => {});
   });
 
   it("handles invalid JSON from client", async () => {
@@ -1116,7 +1102,6 @@ describe("WS /ws/hub", () => {
     }
 
     ws.close();
-    await endSession(wsId, dataDir);
   });
 
   it("replies pong to an application-level ping", async () => {
@@ -1136,7 +1121,6 @@ describe("WS /ws/hub", () => {
     expect(raw.some(isPong)).toBe(true);
 
     ws.close();
-    await endSession(wsId, dataDir);
   });
 
   it("never sends a WS history frame at bootstrap for a loaded non-streaming session", async () => {
@@ -1162,7 +1146,6 @@ describe("WS /ws/hub", () => {
     expect(received.some((m) => m.type === "history")).toBe(false);
 
     ws.close();
-    await endSession(wsId, dataDir);
   });
 
   it("handles stop command without error", async () => {
@@ -1179,7 +1162,6 @@ describe("WS /ws/hub", () => {
     expect(ws.readyState).toBe(WebSocket.OPEN);
 
     ws.close();
-    await endSession(wsId, dataDir);
   });
 
   it("broadcasts session events to multiple connected clients", async () => {
@@ -1208,12 +1190,11 @@ describe("WS /ws/hub", () => {
 
     ws1.close();
     ws2.close();
-    await endSession(wsId, dataDir);
   });
 
   it("broadcasts all session events to all hub sockets regardless of which session each initiated", async () => {
     const fakeClaudePath = join(tempDir, "fake-claude-focus.sh");
-    await writeFile(fakeClaudePath, "#!/bin/sh\nsleep 6\n", "utf-8");
+    await writeFile(fakeClaudePath, "#!/bin/sh\nexec sleep 6\n", "utf-8");
     await chmod(fakeClaudePath, 0o755);
     const slowCmd = { command: fakeClaudePath, systemPrompt: false as const };
 
@@ -1294,7 +1275,6 @@ describe("WS /ws/hub", () => {
     ws1.close();
     ws2.close();
     await local.app.close();
-    await endSession(wsId, dataDir).catch(() => {});
   });
 
   it("keeps workspace channels isolated across workspaces on the same hub", async () => {
@@ -1333,8 +1313,6 @@ describe("WS /ws/hub", () => {
     expect(leakedToOtherWorkspace).toBe(false);
 
     ws.close();
-    await endSession(wsId, dataDir).catch(() => {});
-    await endSession(otherWorkspace.id, dataDir).catch(() => {});
   });
 
   it("keeps a workspace channel until the last hub socket unsubscribes, then removes it", async () => {
@@ -1403,7 +1381,7 @@ describe("WS /ws/hub", () => {
 
   it("does not broadcast stale idle status when a session is replaced", async () => {
     const fakeClaudePath = join(tempDir, "fake-claude.sh");
-    await writeFile(fakeClaudePath, "#!/bin/sh\nsleep 5\n", "utf-8");
+    await writeFile(fakeClaudePath, "#!/bin/sh\nexec sleep 5\n", "utf-8");
     await chmod(fakeClaudePath, 0o755);
 
     const local = await startWsApp(undefined, { command: fakeClaudePath, systemPrompt: false });
@@ -1431,7 +1409,6 @@ describe("WS /ws/hub", () => {
 
     ws.close();
     await local.app.close();
-    await endSession(wsId, dataDir).catch(() => {});
   });
 
   it("rejects unauthorized websocket connections when auth token is configured", async () => {
@@ -1955,7 +1932,6 @@ describe("WS /ws/hub", () => {
 
     ws.close();
     await local.app.close();
-    await endSession(wsId, dataDir).catch(() => {});
   });
 
   it("sync_workspaces adds and removes workspace subscriptions dynamically", async () => {
@@ -2052,7 +2028,6 @@ describe("WS /ws/hub", () => {
 
     resolvePr({ pr: null });
     ws.close();
-    await endSession(otherWorkspace.id, dataDir).catch(() => {});
     await local.app.close();
   });
 
@@ -2128,7 +2103,7 @@ describe("WS /ws/hub", () => {
 
   it("replays the streaming snapshot when an already-subscribed workspace enters focus (C13)", async () => {
     const fakeClaudePath = join(tempDir, "fake-claude-focus-replay.sh");
-    await writeFile(fakeClaudePath, "#!/bin/sh\nsleep 5\n", "utf-8");
+    await writeFile(fakeClaudePath, "#!/bin/sh\nexec sleep 5\n", "utf-8");
     await chmod(fakeClaudePath, 0o755);
     const slowCmd = { command: fakeClaudePath, systemPrompt: false as const };
     const local = await startWsApp(undefined, slowCmd);
@@ -2165,12 +2140,11 @@ describe("WS /ws/hub", () => {
 
     ws.close();
     await local.app.close();
-    await endSession(other.id, dataDir).catch(() => {});
   });
 
   it("does not replay the streaming snapshot when focusWorkspaces is unchanged", async () => {
     const fakeClaudePath = join(tempDir, "fake-claude-same-focus.sh");
-    await writeFile(fakeClaudePath, "#!/bin/sh\nsleep 5\n", "utf-8");
+    await writeFile(fakeClaudePath, "#!/bin/sh\nexec sleep 5\n", "utf-8");
     await chmod(fakeClaudePath, 0o755);
     const slowCmd = { command: fakeClaudePath, systemPrompt: false as const };
     const local = await startWsApp(undefined, slowCmd);
@@ -2197,12 +2171,11 @@ describe("WS /ws/hub", () => {
 
     ws.close();
     await local.app.close();
-    await endSession(wsId, dataDir).catch(() => {});
   });
 
   it("resends the streaming snapshot exactly once for a focused workspace on forceBootstrap", async () => {
     const fakeClaudePath = join(tempDir, "fake-claude-force-bootstrap-focus.sh");
-    await writeFile(fakeClaudePath, "#!/bin/sh\nsleep 5\n", "utf-8");
+    await writeFile(fakeClaudePath, "#!/bin/sh\nexec sleep 5\n", "utf-8");
     await chmod(fakeClaudePath, 0o755);
     const slowCmd = { command: fakeClaudePath, systemPrompt: false as const };
     const local = await startWsApp(undefined, slowCmd);
@@ -2235,12 +2208,11 @@ describe("WS /ws/hub", () => {
 
     ws.close();
     await local.app.close();
-    await endSession(wsId, dataDir).catch(() => {});
   });
 
   it("replays the streaming snapshot only for the targeted workspace via request_stream_snapshots", async () => {
     const fakeClaudePath = join(tempDir, "fake-claude-request-stream-snapshots.sh");
-    await writeFile(fakeClaudePath, "#!/bin/sh\nsleep 5\n", "utf-8");
+    await writeFile(fakeClaudePath, "#!/bin/sh\nexec sleep 5\n", "utf-8");
     await chmod(fakeClaudePath, 0o755);
     const slowCmd = { command: fakeClaudePath, systemPrompt: false as const };
     const local = await startWsApp(undefined, slowCmd);
@@ -2299,8 +2271,6 @@ describe("WS /ws/hub", () => {
 
     ws.close();
     await local.app.close();
-    await endSession(wsId, dataDir).catch(() => {});
-    await endSession(other.id, dataDir).catch(() => {});
   });
 
   it("request_stream_snapshots on an idle workspace emits nothing and does not create or activate a session", async () => {
