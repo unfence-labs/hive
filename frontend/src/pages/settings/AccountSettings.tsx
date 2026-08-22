@@ -104,7 +104,7 @@ export default function AccountSettings() {
                       <p className="mt-0.5 text-xs text-muted-foreground">{state.user.email}</p>
                     )}
                     <p className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground">
-                      <Github className="h-3 w-3" />
+                      <Github className="h-4 w-4" />
                       {state.user.login}
                     </p>
                   </div>
