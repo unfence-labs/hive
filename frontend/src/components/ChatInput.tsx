@@ -11,7 +11,7 @@ import {
   usePromptInputAttachments,
   type AttachmentsContext,
 } from "@/components/ai-elements/prompt-input";
-import type { ChatMessage, CompletionItem, FileMention, ImageAttachment, MessageOptions, QueuedMessage, ThinkingLevel } from "@/types";
+import type { ChatMessage, CompletionItem, FileMention, ImageAttachment, MessageOptions, OutputStyle, QueuedMessage, ThinkingLevel } from "@/types";
 import { cn } from "@/lib/utils";
 import { BookOpenIcon, PlusIcon, SquareIcon, ZapIcon } from "lucide-react";
 import { AttachmentPreview } from "@/components/chat/AttachmentPreview";
@@ -21,6 +21,7 @@ import { MentionHighlightOverlay } from "@/components/chat/MentionHighlightOverl
 import { ContextRing } from "@/components/chat/ContextRing";
 import { ModelSelector } from "@/components/chat/ModelSelector";
 import { ThinkingSelector } from "@/components/chat/ThinkingSelector";
+import { OutputStyleSelector } from "@/components/chat/OutputStyleSelector";
 import { useCompletions } from "@/hooks/useCompletions";
 import { useFileCompletions } from "@/hooks/useFileCompletions";
 import { useContextUsage } from "@/hooks/useContextUsage";
@@ -63,6 +64,7 @@ interface AutocompleteState {
 }
 
 const DEFAULT_THINKING_LEVEL: ThinkingLevel = "high";
+const DEFAULT_OUTPUT_STYLE: OutputStyle = "default";
 
 /** Bridge component: syncs PromptInput's internal attachment state to the parent. */
 function ChatInputAttachments({
@@ -120,6 +122,11 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput
       ?? lastRunOptions?.fastMode
       ?? false,
   );
+  const [outputStyle, setOutputStyle] = useState<OutputStyle>(
+    () => lastRunOptions?.outputStyle
+      ?? getStoredComposeOptions(wsId, sessionId)?.outputStyle
+      ?? DEFAULT_OUTPUT_STYLE,
+  );
   const [fileCount, setFileCount] = useState(0);
   const [autocomplete, setAutocomplete] = useState<AutocompleteState | null>(null);
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -162,6 +169,14 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput
   const supportsPlanMode = capabilities?.planMode ?? true;
   const supportsCompletions = capabilities?.completions ?? true;
   const supportsFastMode = selectedModel?.supportsFastMode ?? false;
+  const outputStyles = selectedModel?.capabilities.outputStyles ?? [];
+  const supportsOutputStyles = outputStyles.length > 0;
+  const effectiveOutputStyle = supportsOutputStyles
+    ? (outputStyles.includes(outputStyle)
+        ? outputStyle
+        : (outputStyles.includes(DEFAULT_OUTPUT_STYLE) ? DEFAULT_OUTPUT_STYLE : outputStyles[0]))
+    : undefined;
+  const isOutputStyleLocked = messages.some((message) => message.role === "user");
   // Never send fastMode when the selected model can't use it (e.g. Sonnet/Haiku).
   const effectiveFastMode = supportsFastMode && fastMode;
 
@@ -202,8 +217,14 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput
   // Persist composer toggles per conversation so switching sessions and back
   // restores the user's last choice instead of snapping to model defaults.
   useEffect(() => {
-    setStoredComposeOptions(wsId, sessionId, { thinkingLevel, planMode, fastMode });
-  }, [wsId, sessionId, thinkingLevel, planMode, fastMode]);
+    setStoredComposeOptions(wsId, sessionId, { thinkingLevel, planMode, fastMode, outputStyle });
+  }, [wsId, sessionId, thinkingLevel, planMode, fastMode, outputStyle]);
+
+  useEffect(() => {
+    if (effectiveOutputStyle && effectiveOutputStyle !== outputStyle) {
+      setOutputStyle(effectiveOutputStyle);
+    }
+  }, [effectiveOutputStyle, outputStyle]);
 
   const completionItems = useCompletions(wsId, completionProvider, supportsCompletions);
   const filePaths = useFileCompletions(wsId);
@@ -339,6 +360,7 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput
       ...(supportsPlanMode && { planMode }),
       ...(supportsThinking && { thinkingLevel: effectiveThinkingLevel }),
       ...(effectiveFastMode && { fastMode: true }),
+      ...(effectiveOutputStyle && { outputStyle: effectiveOutputStyle }),
     };
 
     const mentions: FileMention[] | undefined = fileMentions.length > 0
@@ -418,6 +440,14 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput
               isError={modelsError}
               onRetry={retryModels}
             />
+            {effectiveOutputStyle && (
+              <OutputStyleSelector
+                styles={outputStyles}
+                selectedStyle={effectiveOutputStyle}
+                onSelect={setOutputStyle}
+                disabled={isOutputStyleLocked}
+              />
+            )}
             {supportsThinking && (
               <ThinkingSelector
                 levels={thinkingLevels}
@@ -498,6 +528,7 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput
                   model: selectedModelId || undefined,
                   ...(supportsPlanMode && { planMode: false }),
                   ...(supportsThinking && { thinkingLevel: "low" as ThinkingLevel }),
+                  ...(effectiveOutputStyle && { outputStyle: effectiveOutputStyle }),
                 };
                 if (isStreaming) {
                   onQueue({ content: text, options });

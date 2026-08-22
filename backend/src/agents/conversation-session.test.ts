@@ -1601,9 +1601,13 @@ describe("ConversationSession", () => {
     const messages: WsOutgoing[] = [];
     session.on("message", (msg) => messages.push(msg));
 
-    session.sendMessage("  /goal Ship backend support", { model: "codex:gpt-5.5" });
+    session.sendMessage("  /goal Ship backend support", {
+      model: "codex:gpt-5.5",
+      outputStyle: "friendly",
+    });
 
     await respondToAppServerThreadStart(mockProc, "thread-goal-1");
+    expect(getStdinMethod(mockProc, "thread/start").params).toMatchObject({ personality: "friendly" });
 
     const goalSet = await waitForStdinMethod(mockProc, "thread/goal/set");
     expect(goalSet.params).toEqual({
@@ -2006,7 +2010,11 @@ describe("ConversationSession", () => {
     const messages: WsOutgoing[] = [];
     session.on("message", (msg) => messages.push(msg));
 
-    session.sendMessage("Hello Codex", { model: "codex:gpt-5.5", thinkingLevel: "low" });
+    session.sendMessage("Hello Codex", {
+      model: "codex:gpt-5.5",
+      thinkingLevel: "low",
+      outputStyle: "friendly",
+    });
 
     expect(mockSpawn).toHaveBeenCalledWith(
       "codex",
@@ -2028,6 +2036,7 @@ describe("ConversationSession", () => {
       approvalPolicy: "never",
       sandbox: "danger-full-access",
       model: "gpt-5.5",
+      personality: "friendly",
     });
     mockProc._stdout.push(appServerResponse(threadStart.id, {
       thread: { id: "thread-app-1" },
@@ -4326,7 +4335,104 @@ describe("ConversationSession", () => {
       planMode: false,
       thinkingLevel: "low",
       fastMode: true,
+      outputStyle: "default",
     });
+  });
+
+  it("defaults, persists, and locks Claude output style for the conversation", () => {
+    const session = createSession({ sessionId: "lock-output-style" });
+
+    session.sendMessage("First", { model: "claude:opus-5", outputStyle: "explanatory" });
+    expect(session.metadata.lastRunOptions?.outputStyle).toBe("explanatory");
+
+    mockProc._stdout.push(assistantLine("OK"));
+    mockProc._stdout.push(resultLine());
+    mockProc._emitClose(0);
+
+    const mockProc2 = createMockProcess();
+    mockSpawn.mockReturnValue(mockProc2);
+
+    expect(() => session.sendMessage("Second", { model: "claude:sonnet-5" })).not.toThrow();
+    expect(session.metadata.lastRunOptions?.outputStyle).toBe("explanatory");
+  });
+
+  it("rejects changing Claude output style after the first user message", () => {
+    const session = createSession({ sessionId: "reject-output-style-change" });
+
+    session.sendMessage("First", { model: "claude:opus-5", outputStyle: "learning" });
+    mockProc._stdout.push(resultLine());
+    mockProc._emitClose(0);
+
+    expect(() => session.sendMessage("Second", {
+      model: "claude:opus-5",
+      outputStyle: "concise",
+    })).toThrow('Output style mismatch: session locked to "learning"');
+  });
+
+  it("uses Default output style when Claude clients omit a selection", () => {
+    const session = createSession({ sessionId: "default-output-style" });
+
+    session.sendMessage("Hello", { model: "claude:sonnet-5" });
+
+    expect(session.metadata.lastRunOptions?.outputStyle).toBe("default");
+  });
+
+  it("rejects Codex personalities on models that do not support them", () => {
+    const session = createSession({ sessionId: "reject-unsupported-codex-personality" });
+
+    expect(() => session.sendMessage("Hello", {
+      model: "codex:gpt-5.6-sol",
+      outputStyle: "friendly",
+    })).toThrow('Output style "friendly" is not supported by model "codex:gpt-5.6-sol"');
+  });
+
+  it("rejects switching a locked Codex personality to an unsupported model", async () => {
+    const session = createSession({ sessionId: "reject-locked-codex-personality-model" });
+    const messages: WsOutgoing[] = [];
+    session.on("message", (message) => messages.push(message));
+
+    session.sendMessage("First", { model: "codex:gpt-5.5", outputStyle: "pragmatic" });
+    await completeAppServerTurn(mockProc, "thread-codex-style", "turn-codex-style");
+    await waitForMessages(messages, "done");
+
+    expect(() => session.sendMessage("Second", { model: "codex:gpt-5.6-terra" }))
+      .toThrow('Output style "pragmatic" is not supported by model "codex:gpt-5.6-terra"');
+  });
+
+  it("allows the native Codex default across models and omits personality", async () => {
+    const session = createSession({ sessionId: "codex-default-model-switch" });
+    const messages: WsOutgoing[] = [];
+    session.on("message", (message) => messages.push(message));
+
+    session.sendMessage("First", { model: "codex:gpt-5.5", outputStyle: "default" });
+    await respondToAppServerThreadStart(mockProc, "thread-codex-default");
+    expect(getStdinMethod(mockProc, "thread/start").params).not.toHaveProperty("personality");
+    const turnStart = await waitForStdinMethod(mockProc, "turn/start");
+    mockProc._stdout.push(appServerResponse(turnStart.id, { turn: { id: "turn-codex-default" } }));
+    mockProc._stdout.push(appServerNotification("turn/completed", {
+      threadId: "thread-codex-default",
+      turn: { id: "turn-codex-default", status: "completed" },
+    }));
+    await waitForMessages(messages, "done");
+
+    expect(() => session.sendMessage("Second", { model: "codex:gpt-5.6-sol" })).not.toThrow();
+    expect(session.metadata.lastRunOptions?.outputStyle).toBe("default");
+  });
+
+  it("settles on Default when switching from unsupported Codex to gpt-5.5", async () => {
+    const session = createSession({ sessionId: "codex-add-default-after-switch" });
+    const messages: WsOutgoing[] = [];
+    session.on("message", (message) => messages.push(message));
+
+    session.sendMessage("First", { model: "codex:gpt-5.6-sol" });
+    await completeAppServerTurn(mockProc, "thread-codex-unsupported", "turn-codex-unsupported");
+    await waitForMessages(messages, "done");
+
+    expect(() => session.sendMessage("Second", {
+      model: "codex:gpt-5.5",
+      outputStyle: "default",
+    })).not.toThrow();
+    expect(session.metadata.lastRunOptions?.outputStyle).toBe("default");
   });
 
   it("defaults to claude provider when no model specified", () => {
@@ -4388,7 +4494,7 @@ describe("ConversationSession", () => {
   it("persists lockedProvider in metadata.json", async () => {
     const session = createSession({ sessionId: "lock-persist" });
 
-    session.sendMessage("Hello", { model: "claude:opus-4-7" });
+    session.sendMessage("Hello", { model: "claude:opus-4-7", outputStyle: "explanatory" });
     mockProc._stdout.push(assistantLine("OK"));
     mockProc._stdout.push(resultLine());
     mockProc._emitClose(0);
@@ -4404,6 +4510,7 @@ describe("ConversationSession", () => {
       planMode: false,
       thinkingLevel: "high",
       fastMode: false,
+      outputStyle: "explanatory",
     });
   });
 

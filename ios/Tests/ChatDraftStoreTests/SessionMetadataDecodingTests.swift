@@ -23,7 +23,8 @@ struct SessionMetadataDecodingTests {
             "planMode": false,
             "model": "codex:gpt-5.5",
             "thinkingLevel": "low",
-            "fastMode": false
+            "fastMode": false,
+            "outputStyle": "pragmatic"
           }
         }
         """.data(using: .utf8)!
@@ -46,6 +47,7 @@ struct SessionMetadataDecodingTests {
         #expect(metadata.lastRunOptions?.thinkingLevel == .low)
         #expect(metadata.lastRunOptions?.planMode == false)
         #expect(metadata.lastRunOptions?.fastMode == false)
+        #expect(metadata.lastRunOptions?.outputStyle == .pragmatic)
         #expect(metadata.id == "session-1")
     }
 

@@ -11,6 +11,7 @@ import { splitPendingSeparatorTail, stripReasoningSeparators } from "../reasonin
 import type { NormalizedAgentEvent } from "../agent-event-normalizer.js";
 import type { StreamParserEvent } from "../stream-parser.js";
 import type { ThinkingLevel } from "./types.js";
+import type { CodexPersonality } from "./codex.js";
 import { buildWorkspaceEnv } from "../../utils/env.js";
 import { addBounded } from "../../utils/bounded-set.js";
 import {
@@ -189,6 +190,7 @@ interface CodexAppServerThreadOptions {
   systemPrompt?: string;
   threadId?: string;
   env?: Record<string, string>;
+  personality?: CodexPersonality;
   /**
    * Enforce read-only execution for the thread/turn: the read-only sandbox
    * replaces full access so an agent can inspect but not modify the workspace.
@@ -453,6 +455,7 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
         approvalPolicy: "never",
         sandbox,
         ...(options.model ? { model: options.model } : {}),
+        ...(options.personality ? { personality: options.personality } : {}),
         ...(options.systemPrompt ? { developerInstructions: options.systemPrompt } : {}),
       });
       return resumed.thread.id;
@@ -465,6 +468,7 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
       approvalPolicy: "never",
       sandbox,
       ...(options.model ? { model: options.model } : {}),
+      ...(options.personality ? { personality: options.personality } : {}),
       ...(options.systemPrompt ? { developerInstructions: options.systemPrompt } : {}),
     });
     return started.thread.id;

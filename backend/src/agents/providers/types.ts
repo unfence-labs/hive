@@ -1,8 +1,8 @@
 import type { EventEmitter } from "node:events";
 import type { StreamParserEvent } from "../stream-parser.js";
-import type { ThinkingLevel } from "../../types.js";
+import type { OutputStyle, ThinkingLevel } from "../../types.js";
 
-export type { ThinkingLevel };
+export type { OutputStyle, ThinkingLevel };
 
 // ── Model & capability definitions ──────────────────────────────────
 
@@ -26,6 +26,8 @@ export interface ModelDefinition {
    * ceiling). Absent means the provider's thinkingLevels apply.
    */
   thinkingLevels?: ThinkingLevel[];
+  /** Native response styles for this model when they differ from the provider default. */
+  outputStyles?: OutputStyle[];
 }
 
 /** Resolve a model by ID, honoring retired-ID aliases. */
@@ -41,6 +43,8 @@ export interface ProviderCapabilities {
   blockingTools: boolean;
   completions: boolean;
   goals: boolean;
+  /** Native response styles supported by every model from this provider. */
+  outputStyles?: OutputStyle[];
 }
 
 // ── Session state passed to arg builders ────────────────────────────
@@ -72,6 +76,7 @@ export interface ProviderMessageOptions {
   planMode?: boolean;
   thinkingLevel?: ThinkingLevel;
   fastMode?: boolean;
+  outputStyle?: OutputStyle;
 }
 
 // ── Stream adapter ──────────────────────────────────────────────────

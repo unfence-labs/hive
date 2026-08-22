@@ -36,6 +36,15 @@ const CLAUDE_CAPABILITIES: ProviderCapabilities = {
   blockingTools: true,
   completions: true,
   goals: false,
+  outputStyles: ["default", "proactive", "concise", "explanatory", "learning"],
+};
+
+const CLAUDE_OUTPUT_STYLE_SETTINGS: Partial<Record<NonNullable<ProviderMessageOptions["outputStyle"]>, string>> = {
+  default: "Default",
+  proactive: "Proactive",
+  concise: "Concise",
+  explanatory: "Explanatory",
+  learning: "Learning",
 };
 
 export class ClaudeProvider implements AgentProvider {
@@ -57,6 +66,13 @@ export class ClaudeProvider implements AgentProvider {
     // `--fast` flag in headless mode, so we override the `fastMode` setting for
     // this session via inline `--settings` JSON (merges over settings.json).
     const fastMode = !!options.fastMode && !!model?.supportsFastMode;
+    const outputStyle = options.outputStyle && this.capabilities.outputStyles?.includes(options.outputStyle)
+      ? options.outputStyle
+      : undefined;
+    const settings = {
+      ...(outputStyle ? { outputStyle: CLAUDE_OUTPUT_STYLE_SETTINGS[outputStyle] ?? "Default" } : {}),
+      ...(fastMode ? { fastMode: true } : {}),
+    };
     // Always suppress the harness-only scheduling tools (see above). On top of
     // that, agent-run enforcement strips interactive tools (no human can answer
     // unattended), and for read-only agents blocks the edit tools while keeping
@@ -75,7 +91,7 @@ export class ClaudeProvider implements AgentProvider {
       "--verbose",
       ...(model ? ["--model", model.cliValue] : []),
       ...(options.thinkingLevel ? ["--effort", options.thinkingLevel] : []),
-      ...(fastMode ? ["--settings", JSON.stringify({ fastMode: true })] : []),
+      ...(Object.keys(settings).length > 0 ? ["--settings", JSON.stringify(settings)] : []),
       ...(disallowedTools.length > 0 ? ["--disallowedTools", disallowedTools.join(" ")] : []),
       ...(options.planMode
         ? ["--permission-mode", "plan"]

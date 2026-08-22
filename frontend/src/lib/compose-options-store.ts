@@ -1,13 +1,14 @@
-import type { ThinkingLevel } from "@/types";
+import type { OutputStyle, ThinkingLevel } from "@/types";
 import { SessionScopedStore } from "./session-scoped-store";
 
 export interface StoredComposeOptions {
   thinkingLevel?: ThinkingLevel;
   planMode?: boolean;
   fastMode?: boolean;
+  outputStyle?: OutputStyle;
 }
 
-// Per-conversation composer toggles (thinking level, plan/fast mode). Kept in
+// Per-conversation composer controls (thinking level, plan/fast mode, output style). Kept in
 // memory so switching conversations and back restores the user's last choice
 // instead of snapping back to the model defaults. Resets on full reload, where
 // the session's persisted lastRunOptions takes over as the seed.

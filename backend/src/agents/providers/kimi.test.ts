@@ -75,7 +75,14 @@ describe("KimiProvider", () => {
       blockingTools: true,
       completions: true,
       goals: false,
+      outputStyles: ["default", "proactive", "concise", "explanatory", "learning"],
     });
+  });
+
+  it("applies native output styles through Claude Code settings", () => {
+    const args = provider.buildArgs("Hello", { model: "k3", outputStyle: "learning" }, baseSession());
+    const settingsIndex = args.indexOf("--settings");
+    expect(JSON.parse(args[settingsIndex + 1])).toEqual({ outputStyle: "Learning" });
   });
 
   // ── buildArgs (inherited from ClaudeProvider) ──────────────────────

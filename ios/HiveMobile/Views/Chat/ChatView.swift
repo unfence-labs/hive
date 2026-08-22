@@ -17,6 +17,7 @@ struct ChatView: View {
     @State private var planModeEnabled = false
     @State private var thinkingLevel: ThinkingLevel = .high
     @State private var fastModeEnabled = false
+    @State private var outputStyle: OutputStyle = .default
     @State private var selectedModelId: String = ""
     @State private var draftAttachments: [ImageAttachment] = []
     @State private var isNearScrollBottom = true
@@ -83,10 +84,19 @@ struct ChatView: View {
         planModeEnabled = session.lastRunOptions?.planMode ?? false
         thinkingLevel = session.lastRunOptions?.thinkingLevel ?? .high
         fastModeEnabled = session.lastRunOptions?.fastMode ?? false
+        outputStyle = session.lastRunOptions?.outputStyle ?? .default
     }
 
     private var selectedCapabilities: ProviderCapabilities? {
         selectedModel?.capabilities
+    }
+
+    private var effectiveOutputStyle: OutputStyle? {
+        outputStyle.resolved(in: selectedCapabilities?.outputStyles ?? [])
+    }
+
+    private var isOutputStyleLocked: Bool {
+        session.assistantMessageCount > 0 || store.hasUserMessage
     }
 
     private var contextUsage: ContextUsageData {
@@ -360,6 +370,10 @@ struct ChatView: View {
                 selectedModelId = initialModelId()
             }
         }
+        .onChange(of: selectedModelId) {
+            guard !isOutputStyleLocked else { return }
+            outputStyle = effectiveOutputStyle ?? .default
+        }
         .onChange(of: store.agentPlanMode) { _, active in
             if let active {
                 planModeEnabled = active
@@ -486,6 +500,8 @@ struct ChatView: View {
                 planModeEnabled: $planModeEnabled,
                 thinkingLevel: $thinkingLevel,
                 fastModeEnabled: $fastModeEnabled,
+                outputStyle: $outputStyle,
+                isOutputStyleLocked: isOutputStyleLocked,
                 models: modelCatalog.models,
                 groupedModels: modelCatalog.groupedByProvider,
                 selectedModelId: selectedModelId,
@@ -730,7 +746,8 @@ struct ChatView: View {
             planMode: supportsPlanMode ? (planModeEnabled ? true : nil) : nil,
             model: selectedModelId.isEmpty ? nil : selectedModelId,
             thinkingLevel: supportsThinking ? effectiveThinking : nil,
-            fastMode: (supportsFastMode && fastModeEnabled) ? true : nil
+            fastMode: (supportsFastMode && fastModeEnabled) ? true : nil,
+            outputStyle: effectiveOutputStyle
         )
 
         // Show the message in the transcript immediately; the server echo

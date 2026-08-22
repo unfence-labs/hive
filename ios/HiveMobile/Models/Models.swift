@@ -4,6 +4,7 @@ import Foundation
 
 struct ProviderCapabilities: Codable, Equatable {
     let thinkingLevels: [ThinkingLevel]
+    let outputStyles: [OutputStyle]?
     let planMode: Bool
     let blockingTools: Bool
     let completions: Bool
@@ -565,12 +566,27 @@ enum ThinkingLevel: String, Codable, CaseIterable {
     }
 }
 
+enum OutputStyle: String, Codable, CaseIterable {
+    case `default`, proactive, concise, explanatory, learning, friendly, pragmatic, none
+
+    var label: String { rawValue.capitalized }
+
+    func resolved(in supported: [OutputStyle]) -> OutputStyle? {
+        guard !supported.isEmpty else { return nil }
+        if supported.contains(self) { return self }
+        if supported.contains(.default) { return .default }
+        return supported[0]
+    }
+}
+
 struct MessageOptions: Codable, Hashable {
     let planMode: Bool?
     let model: String?
     let thinkingLevel: ThinkingLevel?
     /// Claude fast mode: high-speed Opus configuration (lower latency, higher cost). Opus-only.
     let fastMode: Bool?
+    /// Provider-native response style, fixed when the conversation starts.
+    let outputStyle: OutputStyle?
 }
 
 // MARK: - Automation

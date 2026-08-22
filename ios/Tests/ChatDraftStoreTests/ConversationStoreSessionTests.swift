@@ -762,6 +762,47 @@ struct ConversationStoreSessionTests {
     }
 
     @Test @MainActor
+    func userMessageEncodesSelectedOutputStyle() throws {
+        let message = WsIncoming.userMessage(
+            content: "Explain this",
+            images: nil,
+            fileMentions: nil,
+            options: MessageOptions(
+                planMode: nil,
+                model: "claude:sonnet-5",
+                thinkingLevel: nil,
+                fastMode: nil,
+                outputStyle: .explanatory
+            ),
+            sessionId: "session-1",
+            clientMessageId: "local-1"
+        )
+        let data = try JSONEncoder().encode(message)
+        let object = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let options = try #require(object["options"] as? [String: Any])
+
+        #expect(options["model"] as? String == "claude:sonnet-5")
+        #expect(options["outputStyle"] as? String == "explanatory")
+    }
+
+    @Test @MainActor
+    func optimisticFirstMessageLocksConversationControls() {
+        let store = ConversationStore()
+        store.setFocusedSessionId("session-1")
+
+        #expect(!store.hasUserMessage)
+
+        store.appendOptimisticUserMessage(
+            content: "Hello",
+            images: nil,
+            options: nil,
+            sessionId: "session-1"
+        )
+
+        #expect(store.hasUserMessage)
+    }
+
+    @Test @MainActor
     func markReadEncodesRenderedAssistantCount() throws {
         let message = HubIncoming.workspaceEvent(
             workspaceId: "ws-1",

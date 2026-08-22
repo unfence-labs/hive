@@ -256,6 +256,37 @@ describe("ClaudeProvider", () => {
 
   // ── fast mode (--settings) ─────────────────────────────────────────
 
+  it("exposes Claude Code's native output styles", () => {
+    expect(provider.capabilities.outputStyles).toEqual([
+      "default", "proactive", "concise", "explanatory", "learning",
+    ]);
+  });
+
+  it("explicitly applies Default output style", () => {
+    const args = provider.buildArgs(
+      "Hello",
+      { model: "sonnet-5", outputStyle: "default" },
+      baseSession(),
+    );
+    const idx = args.indexOf("--settings");
+    expect(JSON.parse(args[idx + 1])).toEqual({ outputStyle: "Default" });
+  });
+
+  it("does not override the saved output style when no selection is provided", () => {
+    const args = provider.buildArgs("Hello", { model: "sonnet-5" }, baseSession());
+    expect(args).not.toContain("--settings");
+  });
+
+  it("translates the selected native output style", () => {
+    const args = provider.buildArgs(
+      "Hello",
+      { model: "sonnet-5", outputStyle: "explanatory" },
+      baseSession(),
+    );
+    const idx = args.indexOf("--settings");
+    expect(JSON.parse(args[idx + 1])).toEqual({ outputStyle: "Explanatory" });
+  });
+
   it("marks Opus as supporting fast mode and the others as not", () => {
     const fable = provider.models.find((m) => m.id === "fable-5");
     const opus = provider.models.find((m) => m.id === "opus-5");
@@ -281,16 +312,26 @@ describe("ClaudeProvider", () => {
     }
   });
 
-  it("omits --settings when fastMode is on but the model does not support it", () => {
+  it("keeps a single style-only settings override when the model does not support fast mode", () => {
     for (const model of ["sonnet-5", "haiku-4-5"]) {
-      const args = provider.buildArgs("Hello", { model, fastMode: true }, baseSession());
-      expect(args).not.toContain("--settings");
+      const args = provider.buildArgs(
+        "Hello",
+        { model, fastMode: true, outputStyle: "default" },
+        baseSession(),
+      );
+      expect(args.filter((arg) => arg === "--settings")).toHaveLength(1);
+      expect(JSON.parse(args[args.indexOf("--settings") + 1])).toEqual({ outputStyle: "Default" });
     }
   });
 
-  it("omits --settings when fastMode is off", () => {
-    const args = provider.buildArgs("Hello", { model: "opus-5" }, baseSession());
-    expect(args).not.toContain("--settings");
+  it("keeps a single style-only settings override when fastMode is off", () => {
+    const args = provider.buildArgs(
+      "Hello",
+      { model: "opus-5", outputStyle: "default" },
+      baseSession(),
+    );
+    expect(args.filter((arg) => arg === "--settings")).toHaveLength(1);
+    expect(JSON.parse(args[args.indexOf("--settings") + 1])).toEqual({ outputStyle: "Default" });
   });
 
   // ── buildEnv ───────────────────────────────────────────────────────

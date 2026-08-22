@@ -16,6 +16,7 @@ struct ModelCatalogDecodingTests {
                   "providerLabel": "Kimi",
                   "capabilities": {
                     "thinkingLevels": ["low", "high", "max"],
+                    "outputStyles": ["default", "proactive", "concise", "explanatory", "learning"],
                     "planMode": true,
                     "blockingTools": true,
                     "completions": true,
@@ -30,6 +31,7 @@ struct ModelCatalogDecodingTests {
                   "providerLabel": "Kimi",
                   "capabilities": {
                     "thinkingLevels": ["low", "high", "max"],
+                    "outputStyles": ["default", "proactive", "concise", "explanatory", "learning"],
                     "planMode": true,
                     "blockingTools": true,
                     "completions": true,
@@ -44,6 +46,7 @@ struct ModelCatalogDecodingTests {
                   "providerLabel": "Kimi",
                   "capabilities": {
                     "thinkingLevels": [],
+                    "outputStyles": ["default", "proactive", "concise", "explanatory", "learning"],
                     "planMode": true,
                     "blockingTools": true,
                     "completions": true,
@@ -58,6 +61,7 @@ struct ModelCatalogDecodingTests {
                   "providerLabel": "Kimi",
                   "capabilities": {
                     "thinkingLevels": [],
+                    "outputStyles": ["default", "proactive", "concise", "explanatory", "learning"],
                     "planMode": true,
                     "blockingTools": true,
                     "completions": true,
@@ -83,5 +87,35 @@ struct ModelCatalogDecodingTests {
         #expect(catalog.models[1].capabilities.thinkingLevels == [.low, .high, .max])
         #expect(catalog.models[2].capabilities.thinkingLevels.isEmpty)
         #expect(catalog.models[3].capabilities.thinkingLevels.isEmpty)
+        #expect(catalog.models.allSatisfy {
+            $0.capabilities.outputStyles == [.default, .proactive, .concise, .explanatory, .learning]
+        })
+    }
+
+    @Test(arguments: [
+        OutputStyle.default,
+        .proactive,
+        .concise,
+        .explanatory,
+        .learning,
+        .friendly,
+        .pragmatic,
+        .none,
+    ])
+    func decodesEveryNativeOutputStyle(_ expected: OutputStyle) throws {
+        let data = Data("\"\(expected.rawValue)\"".utf8)
+
+        #expect(try JSONDecoder().decode(OutputStyle.self, from: data) == expected)
+    }
+
+    @Test
+    func resolvesStyleWhenSwitchingModels() {
+        let claudeStyles: [OutputStyle] = [.default, .proactive, .concise, .explanatory, .learning]
+        let codexStyles: [OutputStyle] = [.default, .friendly, .pragmatic, .none]
+
+        #expect(OutputStyle.learning.resolved(in: claudeStyles) == .learning)
+        #expect(OutputStyle.learning.resolved(in: codexStyles) == .default)
+        #expect(OutputStyle.friendly.resolved(in: []) == nil)
+        #expect(OutputStyle.default.resolved(in: [.friendly, .pragmatic]) == .friendly)
     }
 }
