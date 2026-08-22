@@ -1,6 +1,6 @@
 {
   "scripts": {
-    "setup": "npm install",
+    "setup": "npm ci",
     "run": {
       "backend": "cd backend && HOST=0.0.0.0 DATA_DIR=~/.hive-dev HIVE_AUTH_TOKEN=dev npm run dev",
       "frontend": "cd frontend && npm run dev -- --host"

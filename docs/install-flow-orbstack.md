@@ -71,7 +71,7 @@ export HIVE_DEV_RELEASE_TARBALL="$PWD/dist-release/hive-backend-0.0.0-dev-linux-
 
 ```bash
 cd frontend
-npm install
+npm ci
 npm run tauri dev
 ```
 

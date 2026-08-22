@@ -17,7 +17,8 @@ and code. Support is provided on a best-effort basis.
 ```bash
 git clone https://github.com/unfence-labs/hive.git
 cd hive
-npm install
+nvm install
+npm ci
 cd backend && npm run dev      # → http://127.0.0.1:3000
 cd frontend && npm run dev     # → http://localhost:5173
 ```

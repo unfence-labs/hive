@@ -6,7 +6,7 @@ For the product overview, read `README.md`. Architecture notes and the API surfa
 
 ## Commands
 
-- Root: `npm install`, `npm run lint`, `npm run typecheck`, `npm run test` (covers backend + frontend; never iOS).
+- Root: `npm ci`, `npm run lint`, `npm run typecheck`, `npm run test` (covers backend + frontend; never iOS).
 - Each package (`backend/`, `frontend/`) has its own `dev`, `build`, `lint`, `typecheck`, `test` scripts; frontend adds `npm run tauri dev` / `npm run tauri build`.
 - iOS: `cd ios && swift test` — run for Swift changes when the toolchain is available.
 
