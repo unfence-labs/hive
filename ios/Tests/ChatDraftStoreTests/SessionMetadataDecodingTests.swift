@@ -75,4 +75,30 @@ struct SessionMetadataDecodingTests {
         #expect(metadata.lastRunOptions == nil)
         #expect(metadata.draftPrompt == nil)
     }
+
+    @Test
+    func ignoresUnknownRunOptionsWithoutDroppingSessionMetadata() throws {
+        let data = """
+        {
+          "sessionId": "session-future",
+          "workspaceId": "workspace-1",
+          "createdAt": "2026-01-03T00:00:00.000Z",
+          "updatedAt": "2026-01-04T00:00:00.000Z",
+          "assistantMessageCount": 1,
+          "readAssistantMessageCount": 0,
+          "lastRunOptions": {
+            "model": "claude:future",
+            "thinkingLevel": "future-effort",
+            "outputStyle": "future-style"
+          }
+        }
+        """.data(using: .utf8)!
+
+        let metadata = try JSONDecoder().decode(SessionMetadata.self, from: data)
+
+        #expect(metadata.sessionId == "session-future")
+        #expect(metadata.lastRunOptions?.model == "claude:future")
+        #expect(metadata.lastRunOptions?.thinkingLevel == nil)
+        #expect(metadata.lastRunOptions?.outputStyle == nil)
+    }
 }

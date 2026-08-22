@@ -4377,6 +4377,19 @@ describe("ConversationSession", () => {
     expect(session.metadata.lastRunOptions?.outputStyle).toBe("default");
   });
 
+  it("does not apply output styles to automation sessions", () => {
+    const session = createSession({
+      sessionId: "automation-output-style",
+      sessionKind: "automation",
+    });
+
+    session.sendMessage("Hello", { model: "claude:sonnet-5" });
+
+    expect(session.metadata.lastRunOptions?.outputStyle).toBeUndefined();
+    const args = mockSpawn.mock.calls[0]?.[1] as string[];
+    expect(args).not.toContain("--settings");
+  });
+
   it("rejects Codex personalities on models that do not support them", () => {
     const session = createSession({ sessionId: "reject-unsupported-codex-personality" });
 

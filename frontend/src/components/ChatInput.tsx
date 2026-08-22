@@ -360,7 +360,7 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput
       ...(supportsPlanMode && { planMode }),
       ...(supportsThinking && { thinkingLevel: effectiveThinkingLevel }),
       ...(effectiveFastMode && { fastMode: true }),
-      ...(effectiveOutputStyle && { outputStyle: effectiveOutputStyle }),
+      ...(!isOutputStyleLocked && effectiveOutputStyle && { outputStyle: effectiveOutputStyle }),
     };
 
     const mentions: FileMention[] | undefined = fileMentions.length > 0
@@ -528,7 +528,7 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput
                   model: selectedModelId || undefined,
                   ...(supportsPlanMode && { planMode: false }),
                   ...(supportsThinking && { thinkingLevel: "low" as ThinkingLevel }),
-                  ...(effectiveOutputStyle && { outputStyle: effectiveOutputStyle }),
+                  ...(!isOutputStyleLocked && effectiveOutputStyle && { outputStyle: effectiveOutputStyle }),
                 };
                 if (isStreaming) {
                   onQueue({ content: text, options });

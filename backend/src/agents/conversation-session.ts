@@ -368,7 +368,9 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
           ? msgOptions.thinkingLevel
           : (thinkingLevels.includes("high") ? "high" : thinkingLevels[0]))
       : undefined;
-    const outputStyles = model?.outputStyles ?? provider.capabilities.outputStyles ?? [];
+    const outputStyles = isInteractiveSessionKind(this.sessionKind)
+      ? (model?.outputStyles ?? provider.capabilities.outputStyles ?? [])
+      : [];
     const persistedOutputStyle = this._metadata.lastRunOptions?.outputStyle;
     const requestedOutputStyle = msgOptions?.outputStyle;
     let outputStyle: MessageOptions["outputStyle"];

@@ -347,9 +347,10 @@ describe("ChatInput", () => {
     }, undefined);
   });
 
-  it("restores and simply disables the output-style dropdown after the first message", () => {
+  it("restores and disables the output style without resending the locked value", async () => {
     modelMock.models[0].capabilities.outputStyles = ["default", "learning"];
-    const { rerender } = renderChatInput({
+    const user = userEvent.setup();
+    const { onSend, rerender } = renderChatInput({
       lastRunOptions: { model: "claude:opus-4-7", outputStyle: "learning" },
       messages: [{
         id: "user-1",
@@ -363,6 +364,18 @@ describe("ChatInput", () => {
 
     expect(screen.getByRole("button", { name: "Output style: Learning" })).toBeDisabled();
     expect(screen.queryByText(/fixed for this conversation/i)).not.toBeInTheDocument();
+
+    await user.type(
+      screen.getByPlaceholderText("Send message, #mention files, @call agents, run /commands"),
+      "Follow up",
+    );
+    await user.click(screen.getByRole("button", { name: "Send" }));
+
+    expect(onSend).toHaveBeenCalledWith("Follow up", undefined, {
+      model: "claude:opus-4-7",
+      planMode: false,
+      thinkingLevel: "high",
+    }, undefined);
   });
 
   it("shows Fast only for models that support it", () => {

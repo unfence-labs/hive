@@ -747,7 +747,7 @@ struct ChatView: View {
             model: selectedModelId.isEmpty ? nil : selectedModelId,
             thinkingLevel: supportsThinking ? effectiveThinking : nil,
             fastMode: (supportsFastMode && fastModeEnabled) ? true : nil,
-            outputStyle: effectiveOutputStyle
+            outputStyle: isOutputStyleLocked ? nil : effectiveOutputStyle
         )
 
         // Show the message in the transcript immediately; the server echo

@@ -118,4 +118,34 @@ struct ModelCatalogDecodingTests {
         #expect(OutputStyle.friendly.resolved(in: []) == nil)
         #expect(OutputStyle.default.resolved(in: [.friendly, .pragmatic]) == .friendly)
     }
+
+    @Test
+    func ignoresUnknownCatalogOptions() throws {
+        let data = Data(
+            """
+            {
+              "models": [{
+                "id": "claude:future",
+                "label": "Future",
+                "provider": "claude",
+                "providerLabel": "Claude Code",
+                "capabilities": {
+                  "thinkingLevels": ["low", "future-effort"],
+                  "outputStyles": ["default", "future-style"],
+                  "planMode": true,
+                  "blockingTools": true,
+                  "completions": true,
+                  "goals": false
+                }
+              }],
+              "defaultModelId": "claude:future"
+            }
+            """.utf8
+        )
+
+        let catalog = try JSONDecoder().decode(ModelCatalogResponse.self, from: data)
+
+        #expect(catalog.models[0].capabilities.thinkingLevels == [.low])
+        #expect(catalog.models[0].capabilities.outputStyles == [.default])
+    }
 }
