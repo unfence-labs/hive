@@ -10,7 +10,7 @@ All backend environment variables are documented in **[Configuration](configurat
 
 The backend runs a startup preflight and exits if a required dependency is missing:
 
-- **Node.js** 20 or newer
+- **Node.js** 24 LTS
 - **Git** 2.17 or newer
 - **Claude CLI** (`claude`), installed and authenticated
 - **GitHub CLI** (`gh`), installed and authenticated for GitHub-backed flows
@@ -30,7 +30,7 @@ npm install --global pm2
 ```bash
 git clone https://github.com/unfence-labs/hive.git
 cd hive
-npm install
+npm ci
 cd backend
 npm run build
 ```

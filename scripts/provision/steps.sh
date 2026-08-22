@@ -21,9 +21,9 @@ APT_BASELINE="ca-certificates curl git xz-utils iproute2"
 # the major requires a planned migration or a fresh install.
 # Digests are pinned rather than fetched from SHASUMS256.txt so a compromised
 # mirror cannot serve a matching tarball/checksum pair over the same TLS session.
-NODE_VERSION="24.18.1"
-NODE_SHA256_X64="d6c664df3f3f61458e8c277585571328522d705166723a7c7823a9253a4d15a0"
-NODE_SHA256_ARM64="7201e3a09dc825bac57867c81913e2b8f0ef87d04cb9082af4cda82f6ff3d88c"
+NODE_VERSION="24.19.0"
+NODE_SHA256_X64="14b342e71204f811bde6153be8e04b62aef63c236fef92b55f9c83154b409647"
+NODE_SHA256_ARM64="01443c1e1a29e531ccad5a46fefa6df490d2189c49f7955904aecdbb0fe86fdc"
 
 # GitHub CLI, installed from its official release tarball for the same reason:
 # no vendor apt repository is added to the operator's machine.

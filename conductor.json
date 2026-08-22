@@ -1,6 +1,0 @@
-{
-    "scripts": {
-        "setup": "npm install",
-        "run": "cd backend && PORT=3000 npm run dev"
-    }
-}
