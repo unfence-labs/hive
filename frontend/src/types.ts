@@ -414,6 +414,16 @@ export interface QuestionInput {
 
 export type ThinkingLevel = "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max" | "ultra";
 
+export type OutputStyle =
+  | "default"
+  | "proactive"
+  | "concise"
+  | "explanatory"
+  | "learning"
+  | "friendly"
+  | "pragmatic"
+  | "none";
+
 /** Per-message options that control agent CLI behavior. */
 export interface MessageOptions {
   planMode?: boolean;
@@ -423,6 +433,8 @@ export interface MessageOptions {
   thinkingLevel?: ThinkingLevel;
   /** Claude fast mode: high-speed Opus configuration (lower latency, higher cost). Opus-only. */
   fastMode?: boolean;
+  /** Provider-native response style, fixed when the conversation starts. */
+  outputStyle?: OutputStyle;
 }
 
 // ── Model catalog types ─────────────────────────────────────────────
@@ -434,6 +446,8 @@ export interface ProviderCapabilities {
   blockingTools: boolean;
   completions: boolean;
   goals: boolean;
+  /** Native response styles accepted by this model. Empty when unsupported. */
+  outputStyles?: OutputStyle[];
 }
 
 export interface ModelCatalogEntry {

@@ -1,8 +1,24 @@
 import type {
   AgentProvider,
   ModelDefinition,
+  OutputStyle,
   ProviderCapabilities,
 } from "./types.js";
+
+export type CodexPersonality = "friendly" | "pragmatic" | "none";
+
+export function codexPersonalityFromOutputStyle(
+  outputStyle: OutputStyle | undefined,
+): CodexPersonality | undefined {
+  switch (outputStyle) {
+    case "friendly":
+    case "pragmatic":
+    case "none":
+      return outputStyle;
+    default:
+      return undefined;
+  }
+}
 
 // Mirrors the Codex CLI built-in catalog (models.json, requires CLI >= 0.144).
 // GPT-5.6 tiers each cap reasoning effort differently, so levels are per model;
@@ -31,7 +47,13 @@ const CODEX_MODELS: ModelDefinition[] = [
     contextWindow: 372_000,
     thinkingLevels: ["low", "medium", "high", "xhigh", "max"],
   },
-  { id: "gpt-5.5", label: "GPT-5.5", cliValue: "gpt-5.5", contextWindow: 272_000 },
+  {
+    id: "gpt-5.5",
+    label: "GPT-5.5",
+    cliValue: "gpt-5.5",
+    contextWindow: 272_000,
+    outputStyles: ["default", "friendly", "pragmatic", "none"],
+  },
 ];
 
 const CODEX_CAPABILITIES: ProviderCapabilities = {

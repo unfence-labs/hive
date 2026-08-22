@@ -185,6 +185,30 @@ function makeWorkspaceIds() {
 }
 
 describe("ChatInput draft persistence", () => {
+  it("restores the selected output style when the conversation composer remounts", async () => {
+    queryClient.setQueryData<ModelCatalogResponse>(MODEL_CATALOG_QUERY_KEY, {
+      ...MODEL_CATALOG,
+      models: MODEL_CATALOG.models.map((model) => ({
+        ...model,
+        capabilities: {
+          ...model.capabilities,
+          outputStyles: ["default", "proactive", "concise", "explanatory", "learning"],
+        },
+      })),
+    });
+    const user = userEvent.setup();
+    const sessionId = nextId("style-session");
+    const wsId = nextId("style-workspace");
+    const { unmount } = renderChatInput(sessionId, wsId);
+
+    await user.click(screen.getByRole("button", { name: "Output style: Default" }));
+    await user.click(screen.getByRole("menuitem", { name: "Learning" }));
+    unmount();
+    renderChatInput(sessionId, wsId);
+
+    expect(screen.getByRole("button", { name: "Output style: Learning" })).toBeInTheDocument();
+  });
+
   it("seeds a server-owned session draft on mount", () => {
     const sessionId = nextId("draft-session");
 

@@ -23,6 +23,7 @@ const KIMI_CAPABILITIES: ProviderCapabilities = {
   blockingTools: true,
   completions: true,
   goals: false,
+  outputStyles: ["default", "proactive", "concise", "explanatory", "learning"],
 };
 
 const DEFAULT_CONTEXT_WINDOW = 262_144;

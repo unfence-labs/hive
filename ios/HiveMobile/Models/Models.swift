@@ -4,10 +4,30 @@ import Foundation
 
 struct ProviderCapabilities: Codable, Equatable {
     let thinkingLevels: [ThinkingLevel]
+    let outputStyles: [OutputStyle]?
     let planMode: Bool
     let blockingTools: Bool
     let completions: Bool
     let goals: Bool?
+}
+
+extension ProviderCapabilities {
+    private enum CodingKeys: String, CodingKey {
+        case thinkingLevels, outputStyles, planMode, blockingTools, completions, goals
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let rawThinkingLevels = try container.decode([String].self, forKey: .thinkingLevels)
+        let rawOutputStyles = try container.decodeIfPresent([String].self, forKey: .outputStyles)
+
+        thinkingLevels = rawThinkingLevels.compactMap(ThinkingLevel.init(rawValue:))
+        outputStyles = rawOutputStyles?.compactMap(OutputStyle.init(rawValue:))
+        planMode = try container.decode(Bool.self, forKey: .planMode)
+        blockingTools = try container.decode(Bool.self, forKey: .blockingTools)
+        completions = try container.decode(Bool.self, forKey: .completions)
+        goals = try container.decodeIfPresent(Bool.self, forKey: .goals)
+    }
 }
 
 struct ModelCatalogEntry: Codable, Identifiable, Equatable {
@@ -565,12 +585,45 @@ enum ThinkingLevel: String, Codable, CaseIterable {
     }
 }
 
+enum OutputStyle: String, Codable, CaseIterable {
+    case `default`, proactive, concise, explanatory, learning, friendly, pragmatic, none
+
+    var label: String { rawValue.capitalized }
+
+    func resolved(in supported: [OutputStyle]) -> OutputStyle? {
+        guard !supported.isEmpty else { return nil }
+        if supported.contains(self) { return self }
+        if supported.contains(.default) { return .default }
+        return supported[0]
+    }
+}
+
 struct MessageOptions: Codable, Hashable {
     let planMode: Bool?
     let model: String?
     let thinkingLevel: ThinkingLevel?
     /// Claude fast mode: high-speed Opus configuration (lower latency, higher cost). Opus-only.
     let fastMode: Bool?
+    /// Provider-native response style, fixed when the conversation starts.
+    let outputStyle: OutputStyle?
+}
+
+extension MessageOptions {
+    private enum CodingKeys: String, CodingKey {
+        case planMode, model, thinkingLevel, fastMode, outputStyle
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let rawThinkingLevel = try container.decodeIfPresent(String.self, forKey: .thinkingLevel)
+        let rawOutputStyle = try container.decodeIfPresent(String.self, forKey: .outputStyle)
+
+        planMode = try container.decodeIfPresent(Bool.self, forKey: .planMode)
+        model = try container.decodeIfPresent(String.self, forKey: .model)
+        thinkingLevel = rawThinkingLevel.flatMap(ThinkingLevel.init(rawValue:))
+        fastMode = try container.decodeIfPresent(Bool.self, forKey: .fastMode)
+        outputStyle = rawOutputStyle.flatMap(OutputStyle.init(rawValue:))
+    }
 }
 
 // MARK: - Automation

@@ -184,6 +184,7 @@ export function getModelCatalog(options: ModelCatalogOptions = {}): ModelCatalog
         capabilities: {
           ...provider.capabilities,
           thinkingLevels: modelThinkingLevels(provider, model),
+          outputStyles: model.outputStyles ?? provider.capabilities.outputStyles ?? [],
         },
         // This is keyed off provider.id ("codex"), not model.id. Catalog IDs are compound
         // values like "codex:gpt-5.5". We still hide Codex context windows here because

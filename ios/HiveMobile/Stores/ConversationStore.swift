@@ -117,6 +117,7 @@ final class ConversationStore {
     var activeToolCalls: [ToolCall] { activeStream?.activeToolCalls ?? [] }
     var activeAgentActivities: [AgentActivity] { activeStream?.activeAgentActivities ?? [] }
     var pendingToolInputs: [PendingToolInput] { activeStream?.pendingToolInputs ?? [] }
+    var hasUserMessage: Bool { messages.contains { $0.role == .user } }
 
     /// Store-owned failed send for the focused session, if any.
     var failedSend: FailedSend? { activeStream?.failedSend }

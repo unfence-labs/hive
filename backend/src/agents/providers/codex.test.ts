@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { CodexProvider } from "./codex.js";
+import { CodexProvider, codexPersonalityFromOutputStyle } from "./codex.js";
 import { findModel } from "./types.js";
 
 describe("CodexProvider", () => {
@@ -54,6 +54,21 @@ describe("CodexProvider", () => {
     expect(levels("gpt-5.6-luna")).toEqual(["low", "medium", "high", "xhigh", "max"]);
     // gpt-5.5 inherits the provider baseline.
     expect(levels("gpt-5.5")).toBeUndefined();
+  });
+
+  it("exposes native personalities only for gpt-5.5", () => {
+    expect(provider.models.find((model) => model.id === "gpt-5.5")?.outputStyles)
+      .toEqual(["default", "friendly", "pragmatic", "none"]);
+    for (const id of ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"]) {
+      expect(provider.models.find((model) => model.id === id)?.outputStyles).toBeUndefined();
+    }
+  });
+
+  it("maps non-default styles to Codex personalities", () => {
+    expect(codexPersonalityFromOutputStyle("friendly")).toBe("friendly");
+    expect(codexPersonalityFromOutputStyle("pragmatic")).toBe("pragmatic");
+    expect(codexPersonalityFromOutputStyle("none")).toBe("none");
+    expect(codexPersonalityFromOutputStyle("default")).toBeUndefined();
   });
 
   it("does not support plan mode", () => {
