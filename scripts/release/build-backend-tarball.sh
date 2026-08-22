@@ -89,6 +89,12 @@ pkg="$staging/pkg"
 mkdir -p "$pkg"
 cp -R "$ROOT/backend/dist" "$pkg/dist"
 cp -R "$install_root/node_modules" "$pkg/node_modules"
+# npm keeps conflicting workspace dependencies under the workspace itself.
+# The archive root is the backend package, so merge those dependencies into
+# its node_modules instead of leaving them behind in the temporary workspace.
+if [ -d "$install_root/backend/node_modules" ]; then
+  cp -R "$install_root/backend/node_modules/." "$pkg/node_modules/"
+fi
 cp "$ROOT/LICENSE" "$pkg/"
 # The runtime reads this file to answer GET /api/server/version when no
 # explicit version is configured (manual PM2 installations configure one).
@@ -126,6 +132,11 @@ cp "$ROOT/shared/package.json" "$pkg/node_modules/@hive/shared/package.json"
   echo "compiled @hive/shared is incomplete" >&2
   exit 1
 }
+
+# Validate the complete production dependency tree from the layout that will
+# actually be archived. Native addon smoke tests below remain useful because
+# npm ls cannot prove that a compiled binary loads on the target ABI.
+( cd "$pkg" && npm ls --omit=dev --all >/dev/null )
 
 # Both addons must load out of the staged tree before anything is published.
 RELEASE_DIR="$pkg" node -e 'require(process.env.RELEASE_DIR + "/node_modules/node-pty")'
