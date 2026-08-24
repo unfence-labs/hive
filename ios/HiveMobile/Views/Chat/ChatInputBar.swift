@@ -28,7 +28,6 @@ struct ChatInputBar: View {
     @State private var selectedItems: [PhotosPickerItem] = []
     @State private var showAttachmentError = false
     @State private var showModelMenu = false
-    @State private var showOutputStyleMenu = false
     @State private var showEffortMenu = false
 
     private var hiveAccent: Color {
@@ -97,6 +96,21 @@ struct ChatInputBar: View {
         models.first { $0.id == selectedModelId }?.supportsFastMode ?? false
     }
 
+    private var selectedProvider: String? {
+        models.first { $0.id == selectedModelId }?.provider
+    }
+
+    /// Whether any model of the selected provider supports fast mode; gates the Fast row.
+    private var providerHasFastMode: Bool {
+        guard let selectedProvider else { return false }
+        return models.contains { $0.provider == selectedProvider && $0.supportsFastMode == true }
+    }
+
+    private var isOptionsMenuActive: Bool {
+        if let effectiveOutputStyle, effectiveOutputStyle != .default { return true }
+        return supportsFastMode && fastModeEnabled
+    }
+
     /// Clamp the bound `thinkingLevel` to a value the current provider supports;
     /// prefer the user's current selection, else `.high`, else the provider's first level.
     private var effectiveThinkingLevel: ThinkingLevel {
@@ -136,32 +150,6 @@ struct ChatInputBar: View {
                 .presentationCompactAdaptation(.popover)
             }
 
-            if let effectiveOutputStyle {
-                ControlMenuButton(
-                    systemImage: "bubble.left",
-                    label: effectiveOutputStyle.label,
-                    highlightColor: hiveAccent
-                ) {
-                    showOutputStyleMenu = true
-                }
-                .accessibilityLabel("Output style: \(effectiveOutputStyle.label)")
-                .disabled(isOutputStyleLocked)
-                .opacity(isOutputStyleLocked ? 0.5 : 1)
-                .popover(isPresented: $showOutputStyleMenu, attachmentAnchor: .rect(.bounds), arrowEdge: .bottom) {
-                    SelectionMenu(
-                        options: outputStyles,
-                        selectedOption: effectiveOutputStyle,
-                        accent: hiveAccent,
-                        label: \OutputStyle.label
-                    ) { style in
-                        Haptics.selection()
-                        outputStyle = style
-                        showOutputStyleMenu = false
-                    }
-                    .presentationCompactAdaptation(.popover)
-                }
-            }
-
             if supportsThinking {
                 ControlMenuButton(systemImage: "brain", label: effectiveThinkingLevel.label, highlightColor: hiveAccent) {
                     showEffortMenu = true
@@ -183,8 +171,8 @@ struct ChatInputBar: View {
             if supportsPlanMode {
                 ModeToggle(systemImage: "doc.text", label: "Plan", isActive: $planModeEnabled, highlightColor: hiveAccent)
             }
-            if supportsFastMode {
-                ModeToggle(systemImage: "bolt.fill", label: "Fast", isActive: $fastModeEnabled, highlightColor: hiveAccent)
+            if effectiveOutputStyle != nil || providerHasFastMode {
+                optionsMenu
             }
 
             Spacer()
@@ -192,6 +180,54 @@ struct ChatInputBar: View {
             ContextRingView(usage: contextUsage)
         }
         .padding(.horizontal, 16)
+    }
+
+    /// Overflow menu grouping the output style picker and the fast mode toggle.
+    private var optionsMenu: some View {
+        Menu {
+            if let effectiveOutputStyle {
+                Menu {
+                    ForEach(outputStyles, id: \.self) { style in
+                        Button {
+                            Haptics.selection()
+                            outputStyle = style
+                        } label: {
+                            if style == effectiveOutputStyle {
+                                Label(style.label, systemImage: "checkmark")
+                            } else {
+                                Text(style.label)
+                            }
+                        }
+                    }
+                } label: {
+                    Text("Output")
+                    Text(effectiveOutputStyle.label)
+                }
+                .disabled(isOutputStyleLocked)
+            }
+            if providerHasFastMode {
+                Button {
+                    Haptics.selection()
+                    fastModeEnabled.toggle()
+                } label: {
+                    if supportsFastMode && fastModeEnabled {
+                        Label("Fast mode", systemImage: "checkmark")
+                    } else if supportsFastMode {
+                        Text("Fast mode")
+                    } else {
+                        Text("Fast mode")
+                        Text("Opus only")
+                    }
+                }
+                .disabled(!supportsFastMode)
+            }
+        } label: {
+            Image(systemName: "slider.horizontal.3")
+                .font(.caption)
+                .foregroundStyle(isOptionsMenuActive ? hiveAccent : WhisperColor.textSecondary)
+        }
+        .frame(minHeight: 44)
+        .accessibilityLabel("More options")
     }
 
     // MARK: - Attachment Chip Tray

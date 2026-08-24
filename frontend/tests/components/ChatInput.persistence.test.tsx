@@ -201,12 +201,14 @@ describe("ChatInput draft persistence", () => {
     const wsId = nextId("style-workspace");
     const { unmount } = renderChatInput(sessionId, wsId);
 
-    await user.click(screen.getByRole("button", { name: "Output style: Default" }));
-    await user.click(screen.getByRole("menuitem", { name: "Learning" }));
+    await user.click(screen.getByRole("button", { name: "More options" }));
+    await user.click(screen.getByRole("menuitem", { name: /^Output/ }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Learning" }));
     unmount();
     renderChatInput(sessionId, wsId);
 
-    expect(screen.getByRole("button", { name: "Output style: Learning" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "More options" }));
+    expect(screen.getByRole("menuitem", { name: /^Output/ })).toHaveTextContent("Learning");
   });
 
   it("seeds a server-owned session draft on mount", () => {

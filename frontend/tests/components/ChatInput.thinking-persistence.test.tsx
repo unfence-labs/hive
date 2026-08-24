@@ -126,7 +126,9 @@ describe("ChatInput thinking-level persistence", () => {
     );
 
     await user.click(screen.getByRole("button", { name: "Toggle plan mode" }));
-    await user.click(screen.getByRole("button", { name: "Toggle fast mode (faster Opus, higher cost)" }));
+    await user.click(screen.getByRole("button", { name: "More options" }));
+    await user.click(screen.getByRole("menuitem", { name: "Fast mode" }));
+    await user.keyboard("{Escape}");
 
     unmount();
 
@@ -173,7 +175,9 @@ describe("ChatInput thinking-level persistence", () => {
     );
 
     await user.click(screen.getByRole("button", { name: "Toggle plan mode" }));
-    await user.click(screen.getByRole("button", { name: "Toggle fast mode (faster Opus, higher cost)" }));
+    await user.click(screen.getByRole("button", { name: "More options" }));
+    await user.click(screen.getByRole("menuitem", { name: "Fast mode" }));
+    await user.keyboard("{Escape}");
 
     unmount();
 

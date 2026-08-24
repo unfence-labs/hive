@@ -13,7 +13,7 @@ import {
 } from "@/components/ai-elements/prompt-input";
 import type { ChatMessage, CompletionItem, FileMention, ImageAttachment, MessageOptions, OutputStyle, QueuedMessage, ThinkingLevel } from "@/types";
 import { cn } from "@/lib/utils";
-import { BookOpenIcon, PlusIcon, SquareIcon, ZapIcon } from "lucide-react";
+import { BookOpenIcon, PlusIcon, SquareIcon } from "lucide-react";
 import { AttachmentPreview } from "@/components/chat/AttachmentPreview";
 import { AutocompletePopup } from "@/components/chat/AutocompletePopup";
 import { FileAutocompletePopup } from "@/components/chat/FileAutocompletePopup";
@@ -21,7 +21,7 @@ import { MentionHighlightOverlay } from "@/components/chat/MentionHighlightOverl
 import { ContextRing } from "@/components/chat/ContextRing";
 import { ModelSelector } from "@/components/chat/ModelSelector";
 import { ThinkingSelector } from "@/components/chat/ThinkingSelector";
-import { OutputStyleSelector } from "@/components/chat/OutputStyleSelector";
+import { ComposerOptionsMenu } from "@/components/chat/ComposerOptionsMenu";
 import { useCompletions } from "@/hooks/useCompletions";
 import { useFileCompletions } from "@/hooks/useFileCompletions";
 import { useContextUsage } from "@/hooks/useContextUsage";
@@ -179,6 +179,14 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput
   const isOutputStyleLocked = messages.some((message) => message.role === "user");
   // Never send fastMode when the selected model can't use it (e.g. Sonnet/Haiku).
   const effectiveFastMode = supportsFastMode && fastMode;
+  // The Fast row stays visible (grayed) while any model of the provider has it,
+  // so the menu doesn't jump when switching e.g. Opus <-> Sonnet.
+  const providerHasFastMode = models.some(
+    (m) => m.provider === selectedModel?.provider && m.supportsFastMode,
+  );
+  const optionsMenuActive =
+    (effectiveOutputStyle !== undefined && effectiveOutputStyle !== DEFAULT_OUTPUT_STYLE) ||
+    effectiveFastMode;
 
   const effectiveThinkingLevel: ThinkingLevel = supportsThinking
     ? (thinkingLevels.includes(thinkingLevel)
@@ -440,14 +448,6 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput
               isError={modelsError}
               onRetry={retryModels}
             />
-            {effectiveOutputStyle && (
-              <OutputStyleSelector
-                styles={outputStyles}
-                selectedStyle={effectiveOutputStyle}
-                onSelect={setOutputStyle}
-                disabled={isOutputStyleLocked}
-              />
-            )}
             {supportsThinking && (
               <ThinkingSelector
                 levels={thinkingLevels}
@@ -468,19 +468,17 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput
                 Plan
               </PromptInputButton>
             )}
-            {supportsFastMode && (
-              <PromptInputButton
-                aria-label="Toggle fast mode (faster Opus, higher cost)"
-                title="Fast mode: faster Opus responses at a higher cost per token"
-                variant="ghost"
-                size="xs"
-                onClick={() => setFastMode((v) => !v)}
-                className={cn("h-5 text-[11px] transition-colors", fastMode && activeStyle)}
-              >
-                <ZapIcon className="size-3" />
-                Fast
-              </PromptInputButton>
-            )}
+            <ComposerOptionsMenu
+              styles={outputStyles}
+              selectedStyle={effectiveOutputStyle}
+              onSelectStyle={setOutputStyle}
+              styleLocked={isOutputStyleLocked}
+              showFastMode={providerHasFastMode}
+              fastModeSupported={supportsFastMode}
+              fastMode={fastMode}
+              onToggleFastMode={() => setFastMode((v) => !v)}
+              className={cn(optionsMenuActive && activeStyle)}
+            />
           </PromptInputTools>
           <PromptInputTools className="gap-2">
             <ContextRing usage={contextUsage} />

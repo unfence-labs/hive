@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { act, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createRef, type ComponentProps } from "react";
@@ -257,8 +257,9 @@ describe("ChatInput", () => {
     const { onSend, rerender } = renderChatInput();
     rerender();
 
-    await user.click(screen.getByRole("button", { name: "Output style: Default" }));
-    await user.click(screen.getByRole("menuitem", { name: "Explanatory" }));
+    await user.click(screen.getByRole("button", { name: "More options" }));
+    await user.click(screen.getByRole("menuitem", { name: /^Output/ }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Explanatory" }));
     await user.type(screen.getByPlaceholderText("Send message, #mention files, @call agents, run /commands"), "hello");
     await user.click(screen.getByRole("button", { name: "Send" }));
 
@@ -290,8 +291,9 @@ describe("ChatInput", () => {
     const user = userEvent.setup();
     const { onSend } = renderChatInput();
 
-    await user.click(screen.getByRole("button", { name: "Output style: Default" }));
-    await user.click(screen.getByRole("menuitem", { name: "Friendly" }));
+    await user.click(screen.getByRole("button", { name: "More options" }));
+    await user.click(screen.getByRole("menuitem", { name: /^Output/ }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Friendly" }));
     await user.type(screen.getByPlaceholderText("Send message, #mention files, @call agents, run /commands"), "hello");
     await user.click(screen.getByRole("button", { name: "Send" }));
 
@@ -321,7 +323,7 @@ describe("ChatInput", () => {
 
     renderChatInput();
 
-    expect(screen.queryByRole("button", { name: /^Output style:/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "More options" })).not.toBeInTheDocument();
   });
 
   it("resets an incompatible output style to Default after switching models", async () => {
@@ -331,20 +333,22 @@ describe("ChatInput", () => {
     const { onSend, rerender } = renderChatInput();
     rerender();
 
-    await user.click(screen.getByRole("button", { name: "Output style: Default" }));
-    await user.click(screen.getByRole("menuitem", { name: "Explanatory" }));
+    await user.click(screen.getByRole("button", { name: "More options" }));
+    await user.click(screen.getByRole("menuitem", { name: /^Output/ }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Explanatory" }));
     modelMock.selectedModelId = "claude:sonnet-4-6";
     rerender();
     await user.type(screen.getByPlaceholderText("Send message, #mention files, @call agents, run /commands"), "hello");
     await user.click(screen.getByRole("button", { name: "Send" }));
 
-    expect(screen.getByRole("button", { name: "Output style: Default" })).toBeInTheDocument();
     expect(onSend).toHaveBeenCalledWith("hello", undefined, {
       model: "claude:sonnet-4-6",
       planMode: false,
       thinkingLevel: "high",
       outputStyle: "default",
     }, undefined);
+    await user.click(screen.getByRole("button", { name: "More options" }));
+    expect(screen.getByRole("menuitem", { name: /^Output/ })).toHaveTextContent("Default");
   });
 
   it("restores and disables the output style without resending the locked value", async () => {
@@ -362,8 +366,11 @@ describe("ChatInput", () => {
     });
     rerender();
 
-    expect(screen.getByRole("button", { name: "Output style: Learning" })).toBeDisabled();
-    expect(screen.queryByText(/fixed for this conversation/i)).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "More options" }));
+    const lockedRow = screen.getByRole("menuitem", { name: /^Output/ });
+    expect(lockedRow).toHaveTextContent("Learning");
+    expect(lockedRow).toHaveAttribute("aria-disabled", "true");
+    await user.keyboard("{Escape}");
 
     await user.type(
       screen.getByPlaceholderText("Send message, #mention files, @call agents, run /commands"),
@@ -378,21 +385,29 @@ describe("ChatInput", () => {
     }, undefined);
   });
 
-  it("shows Fast only for models that support it", () => {
+  it("keeps the Fast row visible but inert for non-fast models of the provider", async () => {
+    const user = userEvent.setup();
     const { rerender } = renderChatInput();
-    expect(screen.getByRole("button", { name: "Toggle fast mode (faster Opus, higher cost)" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "More options" }));
+    expect(screen.getByRole("menuitem", { name: "Fast mode" })).toBeInTheDocument();
+    await user.keyboard("{Escape}");
 
     modelMock.selectedModelId = "claude:sonnet-4-6";
     rerender();
 
-    expect(screen.queryByRole("button", { name: "Toggle fast mode (faster Opus, higher cost)" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "More options" }));
+    expect(screen.queryByRole("menuitem", { name: "Fast mode" })).not.toBeInTheDocument();
+    expect(screen.getByText("Fast mode")).toBeInTheDocument();
   });
 
   it("sends fastMode only after the Opus Fast toggle is enabled", async () => {
     const user = userEvent.setup();
     const { onSend } = renderChatInput();
 
-    await user.click(screen.getByRole("button", { name: "Toggle fast mode (faster Opus, higher cost)" }));
+    await user.click(screen.getByRole("button", { name: "More options" }));
+    await user.click(screen.getByRole("menuitem", { name: "Fast mode" }));
+    await user.keyboard("{Escape}");
     await user.type(screen.getByPlaceholderText("Send message, #mention files, @call agents, run /commands"), "hello");
     await user.click(screen.getByRole("button", { name: "Send" }));
 
@@ -409,7 +424,6 @@ describe("ChatInput", () => {
     const user = userEvent.setup();
     const { onSend } = renderChatInput();
 
-    expect(screen.queryByRole("button", { name: "Toggle fast mode (faster Opus, higher cost)" })).not.toBeInTheDocument();
     await user.type(screen.getByPlaceholderText("Send message, #mention files, @call agents, run /commands"), "hello");
     await user.click(screen.getByRole("button", { name: "Send" }));
 
