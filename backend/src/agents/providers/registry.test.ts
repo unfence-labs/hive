@@ -174,6 +174,18 @@ describe("getModelCatalog", () => {
     }
   });
 
+  it("advertises native output styles for every Claude model", () => {
+    markProviderAvailable("claude");
+    const claudeModels = getModelCatalog().models.filter((model) => model.provider === "claude");
+
+    expect(claudeModels.length).toBeGreaterThan(0);
+    for (const model of claudeModels) {
+      expect(model.capabilities.outputStyles).toEqual([
+        "default", "proactive", "concise", "explanatory", "learning",
+      ]);
+    }
+  });
+
   it("includes codex models when codex is available", () => {
     markProviderAvailable("codex");
     const catalog = getModelCatalog();
@@ -183,6 +195,17 @@ describe("getModelCatalog", () => {
 
     for (const model of codexModels) {
       expect(model.id).toMatch(/^codex:/);
+    }
+  });
+
+  it("advertises Codex personalities only for gpt-5.5", () => {
+    markProviderAvailable("codex");
+    const codexModels = getModelCatalog().models.filter((model) => model.provider === "codex");
+
+    expect(codexModels.find((model) => model.id === "codex:gpt-5.5")?.capabilities.outputStyles)
+      .toEqual(["default", "friendly", "pragmatic", "none"]);
+    for (const model of codexModels.filter((model) => model.id.startsWith("codex:gpt-5.6-"))) {
+      expect(model.capabilities.outputStyles).toEqual([]);
     }
   });
 
@@ -394,6 +417,9 @@ describe("kimi in catalog", () => {
     expect(k3.capabilities.thinkingLevels).toEqual(["low", "high", "max"]);
     expect(k3.capabilities.planMode).toBe(true);
     expect(k3.supportsFastMode).toBeUndefined();
+    expect(k3.capabilities.outputStyles).toEqual([
+      "default", "proactive", "concise", "explanatory", "learning",
+    ]);
     expect(byId.get("kimi:k3-1m")?.contextWindow).toBe(1_048_576);
     expect(byId.get("kimi:k3-1m")?.capabilities.thinkingLevels).toEqual(["low", "high", "max"]);
     expect(byId.get("kimi:kimi-for-coding")).toMatchObject({

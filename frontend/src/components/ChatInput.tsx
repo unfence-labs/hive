@@ -11,9 +11,9 @@ import {
   usePromptInputAttachments,
   type AttachmentsContext,
 } from "@/components/ai-elements/prompt-input";
-import type { ChatMessage, CompletionItem, FileMention, ImageAttachment, MessageOptions, QueuedMessage, ThinkingLevel } from "@/types";
+import type { ChatMessage, CompletionItem, FileMention, ImageAttachment, MessageOptions, OutputStyle, QueuedMessage, ThinkingLevel } from "@/types";
 import { cn } from "@/lib/utils";
-import { BookOpenIcon, PlusIcon, SquareIcon, ZapIcon } from "lucide-react";
+import { BookOpenIcon, PlusIcon, SquareIcon } from "lucide-react";
 import { AttachmentPreview } from "@/components/chat/AttachmentPreview";
 import { AutocompletePopup } from "@/components/chat/AutocompletePopup";
 import { FileAutocompletePopup } from "@/components/chat/FileAutocompletePopup";
@@ -21,6 +21,7 @@ import { MentionHighlightOverlay } from "@/components/chat/MentionHighlightOverl
 import { ContextRing } from "@/components/chat/ContextRing";
 import { ModelSelector } from "@/components/chat/ModelSelector";
 import { ThinkingSelector } from "@/components/chat/ThinkingSelector";
+import { ComposerOptionsMenu } from "@/components/chat/ComposerOptionsMenu";
 import { useCompletions } from "@/hooks/useCompletions";
 import { useFileCompletions } from "@/hooks/useFileCompletions";
 import { useContextUsage } from "@/hooks/useContextUsage";
@@ -63,6 +64,7 @@ interface AutocompleteState {
 }
 
 const DEFAULT_THINKING_LEVEL: ThinkingLevel = "high";
+const DEFAULT_OUTPUT_STYLE: OutputStyle = "default";
 
 /** Bridge component: syncs PromptInput's internal attachment state to the parent. */
 function ChatInputAttachments({
@@ -120,6 +122,11 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput
       ?? lastRunOptions?.fastMode
       ?? false,
   );
+  const [outputStyle, setOutputStyle] = useState<OutputStyle>(
+    () => lastRunOptions?.outputStyle
+      ?? getStoredComposeOptions(wsId, sessionId)?.outputStyle
+      ?? DEFAULT_OUTPUT_STYLE,
+  );
   const [fileCount, setFileCount] = useState(0);
   const [autocomplete, setAutocomplete] = useState<AutocompleteState | null>(null);
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -162,8 +169,24 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput
   const supportsPlanMode = capabilities?.planMode ?? true;
   const supportsCompletions = capabilities?.completions ?? true;
   const supportsFastMode = selectedModel?.supportsFastMode ?? false;
+  const outputStyles = selectedModel?.capabilities.outputStyles ?? [];
+  const supportsOutputStyles = outputStyles.length > 0;
+  const effectiveOutputStyle = supportsOutputStyles
+    ? (outputStyles.includes(outputStyle)
+        ? outputStyle
+        : (outputStyles.includes(DEFAULT_OUTPUT_STYLE) ? DEFAULT_OUTPUT_STYLE : outputStyles[0]))
+    : undefined;
+  const isOutputStyleLocked = messages.some((message) => message.role === "user");
   // Never send fastMode when the selected model can't use it (e.g. Sonnet/Haiku).
   const effectiveFastMode = supportsFastMode && fastMode;
+  // The Fast row stays visible (grayed) while any model of the provider has it,
+  // so the menu doesn't jump when switching e.g. Opus <-> Sonnet.
+  const providerHasFastMode = models.some(
+    (m) => m.provider === selectedModel?.provider && m.supportsFastMode,
+  );
+  const optionsMenuActive =
+    (effectiveOutputStyle !== undefined && effectiveOutputStyle !== DEFAULT_OUTPUT_STYLE) ||
+    effectiveFastMode;
 
   const effectiveThinkingLevel: ThinkingLevel = supportsThinking
     ? (thinkingLevels.includes(thinkingLevel)
@@ -202,8 +225,14 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput
   // Persist composer toggles per conversation so switching sessions and back
   // restores the user's last choice instead of snapping to model defaults.
   useEffect(() => {
-    setStoredComposeOptions(wsId, sessionId, { thinkingLevel, planMode, fastMode });
-  }, [wsId, sessionId, thinkingLevel, planMode, fastMode]);
+    setStoredComposeOptions(wsId, sessionId, { thinkingLevel, planMode, fastMode, outputStyle });
+  }, [wsId, sessionId, thinkingLevel, planMode, fastMode, outputStyle]);
+
+  useEffect(() => {
+    if (effectiveOutputStyle && effectiveOutputStyle !== outputStyle) {
+      setOutputStyle(effectiveOutputStyle);
+    }
+  }, [effectiveOutputStyle, outputStyle]);
 
   const completionItems = useCompletions(wsId, completionProvider, supportsCompletions);
   const filePaths = useFileCompletions(wsId);
@@ -339,6 +368,7 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput
       ...(supportsPlanMode && { planMode }),
       ...(supportsThinking && { thinkingLevel: effectiveThinkingLevel }),
       ...(effectiveFastMode && { fastMode: true }),
+      ...(!isOutputStyleLocked && effectiveOutputStyle && { outputStyle: effectiveOutputStyle }),
     };
 
     const mentions: FileMention[] | undefined = fileMentions.length > 0
@@ -438,19 +468,17 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput
                 Plan
               </PromptInputButton>
             )}
-            {supportsFastMode && (
-              <PromptInputButton
-                aria-label="Toggle fast mode (faster Opus, higher cost)"
-                title="Fast mode: faster Opus responses at a higher cost per token"
-                variant="ghost"
-                size="xs"
-                onClick={() => setFastMode((v) => !v)}
-                className={cn("h-5 text-[11px] transition-colors", fastMode && activeStyle)}
-              >
-                <ZapIcon className="size-3" />
-                Fast
-              </PromptInputButton>
-            )}
+            <ComposerOptionsMenu
+              styles={outputStyles}
+              selectedStyle={effectiveOutputStyle}
+              onSelectStyle={setOutputStyle}
+              styleLocked={isOutputStyleLocked}
+              showFastMode={providerHasFastMode}
+              fastModeSupported={supportsFastMode}
+              fastMode={fastMode}
+              onToggleFastMode={() => setFastMode((v) => !v)}
+              className={cn(optionsMenuActive && activeStyle)}
+            />
           </PromptInputTools>
           <PromptInputTools className="gap-2">
             <ContextRing usage={contextUsage} />
@@ -498,6 +526,7 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput
                   model: selectedModelId || undefined,
                   ...(supportsPlanMode && { planMode: false }),
                   ...(supportsThinking && { thinkingLevel: "low" as ThinkingLevel }),
+                  ...(!isOutputStyleLocked && effectiveOutputStyle && { outputStyle: effectiveOutputStyle }),
                 };
                 if (isStreaming) {
                   onQueue({ content: text, options });

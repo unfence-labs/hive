@@ -5,6 +5,7 @@ import {
   type CodexGoalSetParams,
 } from "../providers/codex-app-server.js";
 import type { ThinkingLevel } from "../providers/types.js";
+import type { CodexPersonality } from "../providers/codex.js";
 import type { AgentRunner, AgentRunnerEvent, StopReason } from "./types.js";
 
 interface CodexAppServerRunnerThread {
@@ -13,6 +14,7 @@ interface CodexAppServerRunnerThread {
   systemPrompt?: string;
   threadId?: string;
   env?: Record<string, string>;
+  personality?: CodexPersonality;
 }
 
 interface CodexAppServerRunnerTurn extends CodexAppServerRunnerThread {

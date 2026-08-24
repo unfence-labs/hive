@@ -460,9 +460,21 @@ export interface MessageOptions {
   thinkingLevel?: ThinkingLevel;
   /** Claude fast mode: high-speed Opus configuration (lower latency, higher cost). Opus-only. */
   fastMode?: boolean;
+  /** Provider-native response style, fixed when the conversation starts. */
+  outputStyle?: OutputStyle;
 }
 
 export type ThinkingLevel = "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max" | "ultra";
+
+export type OutputStyle =
+  | "default"
+  | "proactive"
+  | "concise"
+  | "explanatory"
+  | "learning"
+  | "friendly"
+  | "pragmatic"
+  | "none";
 
 export type BrowserSessionState = "registered" | "active" | "closed" | "error";
 

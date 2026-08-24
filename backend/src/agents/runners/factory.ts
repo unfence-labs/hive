@@ -5,6 +5,7 @@ import { findModel, type AgentProvider, type StreamAdapter } from "../providers/
 import type { AgentRunner } from "./types.js";
 import { CodexAppServerRunner } from "./codex-app-server-runner.js";
 import { buildCodexAppServerArgs } from "../providers/codex-app-server.js";
+import { codexPersonalityFromOutputStyle, type CodexPersonality } from "../providers/codex.js";
 import { ProcessAgentRunner } from "./process-agent-runner.js";
 
 export interface CreateAgentRunnerInput {
@@ -52,6 +53,7 @@ type CodexAppServerStartRunner = AgentRunner & {
     systemPrompt?: string;
     threadId?: string;
     env?: Record<string, string>;
+    personality?: CodexPersonality;
     readOnly?: boolean;
   }): void;
 };
@@ -94,6 +96,7 @@ export function createAgentRunner(input: CreateAgentRunnerInput): CreatedAgentRu
         systemPrompt: input.systemPrompt,
         threadId: input.providerSessionId,
         env,
+        personality: codexPersonalityFromOutputStyle(input.msgOptions?.outputStyle),
         readOnly: input.readOnly,
       }),
     };

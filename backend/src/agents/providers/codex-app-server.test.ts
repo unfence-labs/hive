@@ -168,6 +168,64 @@ describe("CodexAppServerSession request handling", () => {
     expect((threadStart?.params as { sandbox?: string }).sandbox).toBe("danger-full-access");
     expect((turnStart?.params as { sandboxPolicy?: { type?: string } }).sandboxPolicy?.type).toBe("dangerFullAccess");
     expect((turnStart?.params as { summary?: string }).summary).toBe("auto");
+    expect((threadStart?.params as { personality?: string }).personality).toBeUndefined();
+  });
+
+  it("sets the selected personality on thread/start", async () => {
+    const proc = createMockProcess();
+    mockSpawn.mockReturnValue(proc);
+    const session = new CodexAppServerSession();
+
+    const started = session.startTurn({
+      cwd: "/tmp/project",
+      content: "hello",
+      model: "gpt-5.5",
+      personality: "friendly",
+    });
+    const initialize = await waitForMethod(proc, "initialize");
+    proc._stdout.push(appServerResponse(initialize.id, {
+      userAgent: "codex-test",
+      codexHome: "/tmp/codex",
+      platformFamily: "unix",
+      platformOs: "linux",
+    }));
+    const threadStart = await waitForMethod(proc, "thread/start");
+    expect(parseWrites(proc).find((write) => write.method === "thread/start")?.params)
+      .toMatchObject({ personality: "friendly" });
+    proc._stdout.push(appServerResponse(threadStart.id, { thread: { id: "thread-friendly" } }));
+    const turnStart = await waitForMethod(proc, "turn/start");
+    proc._stdout.push(appServerResponse(turnStart.id, { turn: { id: "turn-friendly" } }));
+
+    await started;
+  });
+
+  it("sets the selected personality on thread/resume", async () => {
+    const proc = createMockProcess();
+    mockSpawn.mockReturnValue(proc);
+    const session = new CodexAppServerSession();
+
+    const started = session.startTurn({
+      cwd: "/tmp/project",
+      content: "continue",
+      model: "gpt-5.5",
+      threadId: "thread-existing",
+      personality: "pragmatic",
+    });
+    const initialize = await waitForMethod(proc, "initialize");
+    proc._stdout.push(appServerResponse(initialize.id, {
+      userAgent: "codex-test",
+      codexHome: "/tmp/codex",
+      platformFamily: "unix",
+      platformOs: "linux",
+    }));
+    const threadResume = await waitForMethod(proc, "thread/resume");
+    expect(parseWrites(proc).find((write) => write.method === "thread/resume")?.params)
+      .toMatchObject({ threadId: "thread-existing", personality: "pragmatic" });
+    proc._stdout.push(appServerResponse(threadResume.id, { thread: { id: "thread-existing" } }));
+    const turnStart = await waitForMethod(proc, "turn/start");
+    proc._stdout.push(appServerResponse(turnStart.id, { turn: { id: "turn-pragmatic" } }));
+
+    await started;
   });
 
   it("uses the read-only sandbox on thread/start and turn/start when readOnly", async () => {

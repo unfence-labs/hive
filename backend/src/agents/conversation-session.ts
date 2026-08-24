@@ -10,6 +10,7 @@ import { AgentEventNormalizer, type NormalizedAgentEvent } from "./agent-event-n
 import { parseReasoningThoughts } from "./reasoning-thoughts.js";
 import { appendBoundedAgentOutput, boundAgentOutput } from "./bounded-output.js";
 import type { CodexGoalResult, CodexGoalSetParams, CodexGoalStatus } from "./providers/codex-app-server.js";
+import { codexPersonalityFromOutputStyle, type CodexPersonality } from "./providers/codex.js";
 import { resolveProvider } from "./providers/registry.js";
 import { findModel, type AgentProvider } from "./providers/types.js";
 import { createAgentRunner, type AgentRunnerFactory } from "./runners/factory.js";
@@ -111,6 +112,7 @@ type CodexGoalRunnerOptions = {
   systemPrompt?: string;
   threadId?: string;
   env?: Record<string, string>;
+  personality?: CodexPersonality;
 };
 
 function parseCodexGoalCommand(content: string): CodexGoalCommand | null {
@@ -366,12 +368,36 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
           ? msgOptions.thinkingLevel
           : (thinkingLevels.includes("high") ? "high" : thinkingLevels[0]))
       : undefined;
+    const outputStyles = isInteractiveSessionKind(this.sessionKind)
+      ? (model?.outputStyles ?? provider.capabilities.outputStyles ?? [])
+      : [];
+    const persistedOutputStyle = this._metadata.lastRunOptions?.outputStyle;
+    const requestedOutputStyle = msgOptions?.outputStyle;
+    let outputStyle: MessageOptions["outputStyle"];
+
+    if (this.userMessageCount > 0) {
+      outputStyle = persistedOutputStyle ?? outputStyles[0];
+      if (requestedOutputStyle && requestedOutputStyle !== outputStyle) {
+        throw new Error(`Output style mismatch: session locked to "${outputStyle}"`);
+      }
+      if (outputStyle && outputStyle !== "default" && !outputStyles.includes(outputStyle)) {
+        throw new Error(`Output style "${outputStyle}" is not supported by model "${provider.id}:${model?.id ?? modelId}"`);
+      }
+    } else if (requestedOutputStyle) {
+      if (!outputStyles.includes(requestedOutputStyle)) {
+        throw new Error(`Output style "${requestedOutputStyle}" is not supported by model "${provider.id}:${model?.id ?? modelId}"`);
+      }
+      outputStyle = requestedOutputStyle;
+    } else {
+      outputStyle = outputStyles[0];
+    }
 
     return {
       model: `${provider.id}:${model?.id ?? modelId}`,
       planMode: provider.capabilities.planMode ? msgOptions?.planMode === true : false,
       ...(thinkingLevel ? { thinkingLevel } : {}),
       fastMode: !!msgOptions?.fastMode && !!model?.supportsFastMode,
+      ...(outputStyle ? { outputStyle } : {}),
     };
   }
 
@@ -465,15 +491,20 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
 
     // Lock provider on first message, validate on subsequent messages
     let resolved: { provider: AgentProvider; modelId: string } | undefined;
+    let effectiveMsgOptions = msgOptions;
     if (!this.testCommand) {
       resolved = resolveProvider(msgOptions?.model);
 
-      if (!this._metadata.lockedProvider) {
-        this._metadata.lockedProvider = resolved.provider.id;
-      } else if (this._metadata.lockedProvider !== resolved.provider.id) {
+      if (this._metadata.lockedProvider && this._metadata.lockedProvider !== resolved.provider.id) {
         throw new Error(`Provider mismatch: session locked to "${this._metadata.lockedProvider}"`);
       }
-      this._metadata.lastRunOptions = this.normalizeRunOptions(msgOptions, resolved);
+      const normalizedOptions = this.normalizeRunOptions(msgOptions, resolved);
+      this._metadata.lockedProvider ??= resolved.provider.id;
+      this._metadata.lastRunOptions = normalizedOptions;
+      effectiveMsgOptions = {
+        ...msgOptions,
+        outputStyle: this._metadata.lastRunOptions.outputStyle,
+      };
       this._metadata.updatedAt = new Date().toISOString();
       this.enqueueMetadataPersist();
     }
@@ -486,7 +517,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
       this.stopReason = null;
       this._lastPlanMode = false;
       this.emitUserMessage(content, undefined, fileMentions, true, clientMessageId);
-      this.startCodexGoalCommand(goalCommand, msgOptions, resolved);
+      this.startCodexGoalCommand(goalCommand, effectiveMsgOptions, resolved);
       return;
     }
 
@@ -510,7 +541,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
         this.emitUserMessage(content, urlImages, fileMentions, undefined, clientMessageId);
         this.startAgentTurn(
           useNativeCodexImages ? promptContent : this.buildPromptWithImages(promptContent, imagePaths),
-          msgOptions,
+          effectiveMsgOptions,
           resolved,
           useNativeCodexImages ? imagePaths : undefined,
         );
@@ -521,7 +552,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
       });
     } else {
       this.emitUserMessage(content, undefined, fileMentions, undefined, clientMessageId);
-      this.startAgentTurn(promptContent, msgOptions, resolved);
+      this.startAgentTurn(promptContent, effectiveMsgOptions, resolved);
     }
   }
 
@@ -873,6 +904,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
       systemPrompt: this.systemPrompt,
       threadId: this.cliSessionId,
       env,
+      personality: codexPersonalityFromOutputStyle(msgOptions?.outputStyle),
     };
 
     const execute = async (): Promise<CodexGoalResult> => {

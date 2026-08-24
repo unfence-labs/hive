@@ -23,7 +23,8 @@ struct SessionMetadataDecodingTests {
             "planMode": false,
             "model": "codex:gpt-5.5",
             "thinkingLevel": "low",
-            "fastMode": false
+            "fastMode": false,
+            "outputStyle": "pragmatic"
           }
         }
         """.data(using: .utf8)!
@@ -46,6 +47,7 @@ struct SessionMetadataDecodingTests {
         #expect(metadata.lastRunOptions?.thinkingLevel == .low)
         #expect(metadata.lastRunOptions?.planMode == false)
         #expect(metadata.lastRunOptions?.fastMode == false)
+        #expect(metadata.lastRunOptions?.outputStyle == .pragmatic)
         #expect(metadata.id == "session-1")
     }
 
@@ -72,5 +74,31 @@ struct SessionMetadataDecodingTests {
         #expect(metadata.kind == nil)
         #expect(metadata.lastRunOptions == nil)
         #expect(metadata.draftPrompt == nil)
+    }
+
+    @Test
+    func ignoresUnknownRunOptionsWithoutDroppingSessionMetadata() throws {
+        let data = """
+        {
+          "sessionId": "session-future",
+          "workspaceId": "workspace-1",
+          "createdAt": "2026-01-03T00:00:00.000Z",
+          "updatedAt": "2026-01-04T00:00:00.000Z",
+          "assistantMessageCount": 1,
+          "readAssistantMessageCount": 0,
+          "lastRunOptions": {
+            "model": "claude:future",
+            "thinkingLevel": "future-effort",
+            "outputStyle": "future-style"
+          }
+        }
+        """.data(using: .utf8)!
+
+        let metadata = try JSONDecoder().decode(SessionMetadata.self, from: data)
+
+        #expect(metadata.sessionId == "session-future")
+        #expect(metadata.lastRunOptions?.model == "claude:future")
+        #expect(metadata.lastRunOptions?.thinkingLevel == nil)
+        #expect(metadata.lastRunOptions?.outputStyle == nil)
     }
 }

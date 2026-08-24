@@ -8,6 +8,8 @@ struct ChatInputBar: View {
     @Binding var planModeEnabled: Bool
     @Binding var thinkingLevel: ThinkingLevel
     @Binding var fastModeEnabled: Bool
+    @Binding var outputStyle: OutputStyle
+    let isOutputStyleLocked: Bool
     let models: [ModelCatalogEntry]
     let groupedModels: [ModelProviderGroup]
     let selectedModelId: String
@@ -86,10 +88,27 @@ struct ChatInputBar: View {
 
     private var thinkingLevels: [ThinkingLevel] { capabilities?.thinkingLevels ?? [] }
     private var supportsThinking: Bool { !thinkingLevels.isEmpty }
+    private var outputStyles: [OutputStyle] { capabilities?.outputStyles ?? [] }
+    private var effectiveOutputStyle: OutputStyle? { outputStyle.resolved(in: outputStyles) }
     private var supportsPlanMode: Bool { capabilities?.planMode ?? true }
     /// Fast mode is gated per-model (Opus-only), not by provider capabilities.
     private var supportsFastMode: Bool {
         models.first { $0.id == selectedModelId }?.supportsFastMode ?? false
+    }
+
+    private var selectedProvider: String? {
+        models.first { $0.id == selectedModelId }?.provider
+    }
+
+    /// Whether any model of the selected provider supports fast mode; gates the Fast row.
+    private var providerHasFastMode: Bool {
+        guard let selectedProvider else { return false }
+        return models.contains { $0.provider == selectedProvider && $0.supportsFastMode == true }
+    }
+
+    private var isOptionsMenuActive: Bool {
+        if let effectiveOutputStyle, effectiveOutputStyle != .default { return true }
+        return supportsFastMode && fastModeEnabled
     }
 
     /// Clamp the bound `thinkingLevel` to a value the current provider supports;
@@ -132,11 +151,16 @@ struct ChatInputBar: View {
             }
 
             if supportsThinking {
-                LevelCycleButton(systemImage: "brain", label: effectiveThinkingLevel.label, highlightColor: hiveAccent) {
+                ControlMenuButton(systemImage: "brain", label: effectiveThinkingLevel.label, highlightColor: hiveAccent) {
                     showEffortMenu = true
                 }
                 .popover(isPresented: $showEffortMenu, attachmentAnchor: .rect(.bounds), arrowEdge: .bottom) {
-                    EffortMenu(levels: thinkingLevels, selectedLevel: effectiveThinkingLevel, accent: hiveAccent) { level in
+                    SelectionMenu(
+                        options: Array(thinkingLevels.reversed()),
+                        selectedOption: effectiveThinkingLevel,
+                        accent: hiveAccent,
+                        label: \ThinkingLevel.label
+                    ) { level in
                         Haptics.selection()
                         thinkingLevel = level
                         showEffortMenu = false
@@ -147,8 +171,8 @@ struct ChatInputBar: View {
             if supportsPlanMode {
                 ModeToggle(systemImage: "doc.text", label: "Plan", isActive: $planModeEnabled, highlightColor: hiveAccent)
             }
-            if supportsFastMode {
-                ModeToggle(systemImage: "bolt.fill", label: "Fast", isActive: $fastModeEnabled, highlightColor: hiveAccent)
+            if effectiveOutputStyle != nil || providerHasFastMode {
+                optionsMenu
             }
 
             Spacer()
@@ -156,6 +180,54 @@ struct ChatInputBar: View {
             ContextRingView(usage: contextUsage)
         }
         .padding(.horizontal, 16)
+    }
+
+    /// Overflow menu grouping the output style picker and the fast mode toggle.
+    private var optionsMenu: some View {
+        Menu {
+            if let effectiveOutputStyle {
+                Menu {
+                    ForEach(outputStyles, id: \.self) { style in
+                        Button {
+                            Haptics.selection()
+                            outputStyle = style
+                        } label: {
+                            if style == effectiveOutputStyle {
+                                Label(style.label, systemImage: "checkmark")
+                            } else {
+                                Text(style.label)
+                            }
+                        }
+                    }
+                } label: {
+                    Text("Output")
+                    Text(effectiveOutputStyle.label)
+                }
+                .disabled(isOutputStyleLocked)
+            }
+            if providerHasFastMode {
+                Button {
+                    Haptics.selection()
+                    fastModeEnabled.toggle()
+                } label: {
+                    if supportsFastMode && fastModeEnabled {
+                        Label("Fast mode", systemImage: "checkmark")
+                    } else if supportsFastMode {
+                        Text("Fast mode")
+                    } else {
+                        Text("Fast mode")
+                        Text("Opus only")
+                    }
+                }
+                .disabled(!supportsFastMode)
+            }
+        } label: {
+            Image(systemName: "slider.horizontal.3")
+                .font(.caption)
+                .foregroundStyle(isOptionsMenuActive ? hiveAccent : WhisperColor.textSecondary)
+        }
+        .frame(minHeight: 44)
+        .accessibilityLabel("More options")
     }
 
     // MARK: - Attachment Chip Tray
@@ -406,25 +478,26 @@ private struct ModelMenu: View {
     }
 }
 
-private struct EffortMenu: View {
-    let levels: [ThinkingLevel]
-    let selectedLevel: ThinkingLevel
+private struct SelectionMenu<Option: Hashable>: View {
+    let options: [Option]
+    let selectedOption: Option
     let accent: Color
-    let onSelect: (ThinkingLevel) -> Void
+    let label: KeyPath<Option, String>
+    let onSelect: (Option) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 1) {
-            ForEach(levels.reversed(), id: \.self) { level in
+            ForEach(options, id: \.self) { option in
                 Button {
-                    onSelect(level)
+                    onSelect(option)
                 } label: {
                     HStack(spacing: 8) {
                         Image(systemName: "checkmark")
                             .font(.footnote.weight(.semibold))
                             .foregroundStyle(accent)
-                            .opacity(level == selectedLevel ? 1 : 0)
+                            .opacity(option == selectedOption ? 1 : 0)
                             .frame(width: 15)
-                        Text(level.label)
+                        Text(option[keyPath: label])
                             .foregroundStyle(.primary)
                         Spacer(minLength: 8)
                     }
@@ -472,9 +545,9 @@ private struct ModeToggle: View {
     }
 }
 
-// MARK: - Level Cycle Button
+// MARK: - Control Menu Button
 
-private struct LevelCycleButton: View {
+private struct ControlMenuButton: View {
     let systemImage: String
     let label: String
     var highlightColor: Color = .white
@@ -488,6 +561,7 @@ private struct LevelCycleButton: View {
             HStack(spacing: 4) {
                 Image(systemName: systemImage)
                 Text(label)
+                    .lineLimit(1)
             }
             .font(.caption)
             .foregroundStyle(highlightColor)
@@ -577,11 +651,11 @@ private extension ImageAttachment {
     let sampleModels: [ModelCatalogEntry] = [
         .init(id: "claude:opus-4-7", label: "Opus 4.7", provider: "claude", providerLabel: "Claude Code",
               isDefault: true,
-              capabilities: .init(thinkingLevels: [.low, .medium, .high, .xhigh, .max], planMode: true, blockingTools: true, completions: true, goals: false),
+              capabilities: .init(thinkingLevels: [.low, .medium, .high, .xhigh, .max], outputStyles: [.default, .proactive, .concise, .explanatory, .learning], planMode: true, blockingTools: true, completions: true, goals: false),
               contextWindow: 1_000_000, supportsFastMode: true),
         .init(id: "claude:sonnet-4-6", label: "Sonnet 4.6", provider: "claude", providerLabel: "Claude Code",
               isDefault: nil,
-              capabilities: .init(thinkingLevels: [.low, .medium, .high, .xhigh, .max], planMode: true, blockingTools: true, completions: true, goals: false),
+              capabilities: .init(thinkingLevels: [.low, .medium, .high, .xhigh, .max], outputStyles: [.default, .proactive, .concise, .explanatory, .learning], planMode: true, blockingTools: true, completions: true, goals: false),
               contextWindow: 1_000_000, supportsFastMode: nil),
     ]
     let grouped = [ModelProviderGroup(provider: "claude", providerLabel: "Claude Code", models: sampleModels)]
@@ -595,12 +669,14 @@ private extension ImageAttachment {
             planModeEnabled: .constant(false),
             thinkingLevel: .constant(.high),
             fastModeEnabled: .constant(false),
+            outputStyle: .constant(.default),
+            isOutputStyleLocked: false,
             models: sampleModels,
             groupedModels: grouped,
             selectedModelId: "claude:opus-4-7",
             defaultModelId: "claude:opus-4-7",
             lockedProvider: nil,
-            capabilities: .init(thinkingLevels: [.low, .medium, .high, .xhigh, .max], planMode: true, blockingTools: true, completions: true, goals: false),
+            capabilities: .init(thinkingLevels: [.low, .medium, .high, .xhigh, .max], outputStyles: [.default, .proactive, .concise, .explanatory, .learning], planMode: true, blockingTools: true, completions: true, goals: false),
             onModelSelect: { _ in },
             contextUsage: ContextUsageData(inputTokens: 62_000, contextWindow: 200_000),
             onDraftAttachmentsChange: { _ in },
@@ -613,12 +689,14 @@ private extension ImageAttachment {
             planModeEnabled: .constant(true),
             thinkingLevel: .constant(.low),
             fastModeEnabled: .constant(true),
+            outputStyle: .constant(.explanatory),
+            isOutputStyleLocked: true,
             models: sampleModels,
             groupedModels: grouped,
             selectedModelId: "claude:sonnet-4-6",
             defaultModelId: "claude:opus-4-7",
             lockedProvider: "claude",
-            capabilities: .init(thinkingLevels: [.low, .medium, .high, .xhigh, .max], planMode: true, blockingTools: true, completions: true, goals: false),
+            capabilities: .init(thinkingLevels: [.low, .medium, .high, .xhigh, .max], outputStyles: [.default, .proactive, .concise, .explanatory, .learning], planMode: true, blockingTools: true, completions: true, goals: false),
             onModelSelect: { _ in },
             contextUsage: ContextUsageData(inputTokens: 170_000, contextWindow: 200_000),
             onDraftAttachmentsChange: { _ in },
