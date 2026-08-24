@@ -1679,6 +1679,72 @@ describe("WS /ws/hub", () => {
     ws.close();
   });
 
+  it("drops a workspace archived after subscription on a forced re-bootstrap", async () => {
+    const archivedWorkspace = await createWorkspace(projectId, dataDir);
+    const { wsReady, allEnvelopes, hubMessages } = connectHub(
+      [archivedWorkspace.id, wsId],
+      {
+        collectAll: true,
+        focusWorkspaces: [archivedWorkspace.id, wsId],
+        prWorkspaces: [archivedWorkspace.id, wsId],
+      },
+    );
+    const ws = await wsReady;
+
+    await waitForCondition(() =>
+      allEnvelopes.some((message) =>
+        message.workspaceId === archivedWorkspace.id && message.event.type === "status"
+      ) &&
+      allEnvelopes.some((message) =>
+        message.workspaceId === wsId && message.event.type === "status"
+      ) &&
+      _getChannelsForTests().get(archivedWorkspace.id)?.hubSockets.size === 1,
+    );
+
+    await archiveWorkspace(archivedWorkspace.id, dataDir);
+    const messageCountBeforeRefresh = hubMessages.length;
+    syncWorkspaces(
+      ws,
+      [archivedWorkspace.id, wsId],
+      [archivedWorkspace.id, wsId],
+      [archivedWorkspace.id, wsId],
+      true,
+      "refresh-after-subscription-archive",
+    );
+
+    await waitForCondition(() => hubMessages.some((message) =>
+      "type" in message &&
+      message.type === "sync_complete" &&
+      message.requestId === "refresh-after-subscription-archive"
+    ));
+
+    const validBootstrapIndex = hubMessages.findIndex((message, index) =>
+      index >= messageCountBeforeRefresh &&
+      "workspaceId" in message &&
+      message.workspaceId === wsId &&
+      message.event.type === "status"
+    );
+    const ackIndex = hubMessages.findIndex((message) =>
+      "type" in message &&
+      message.type === "sync_complete" &&
+      message.requestId === "refresh-after-subscription-archive"
+    );
+    expect(validBootstrapIndex).toBeGreaterThanOrEqual(messageCountBeforeRefresh);
+    expect(ackIndex).toBeGreaterThan(validBootstrapIndex);
+
+    const hub = [..._getHubSocketsForTests()].find((candidate) =>
+      candidate.subscribedWorkspaces.has(wsId)
+    );
+    expect(hub?.subscribedWorkspaces.has(archivedWorkspace.id)).toBe(false);
+    expect(hub?.requestedWorkspaces?.has(archivedWorkspace.id)).toBe(false);
+    expect(hub?.focusWorkspaces?.has(archivedWorkspace.id)).toBe(false);
+    expect(hub?.prWorkspaces.has(archivedWorkspace.id)).toBe(false);
+    expect(_getChannelsForTests().has(archivedWorkspace.id)).toBe(false);
+    expect(_getChannelsForTests().get(wsId)?.hubSockets.has(hub!)).toBe(true);
+
+    ws.close();
+  });
+
   it("acknowledges a correlated bootstrap without waiting for its requested PR refresh", async () => {
     let resolveRefresh!: (value: { pr: null }) => void;
     const deferredRefresh = new Promise<{ pr: null }>((resolve) => {

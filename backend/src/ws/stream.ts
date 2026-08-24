@@ -316,6 +316,18 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
     channel.pendingToolRequests.clear();
   };
 
+  const removeHubFromChannel = (
+    wsId: string,
+    channel: WorkspaceChannel,
+    hub: HubSocket,
+  ): void => {
+    channel.hubSockets.delete(hub);
+    if (channel.hubSockets.size === 0) {
+      detachAllSessionListeners(channel);
+      channels.delete(wsId);
+    }
+  };
+
   const attachSessionListeners = (
     workspaceId: string,
     channel: WorkspaceChannel,
@@ -545,11 +557,7 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
       hub.requestedWorkspaces?.delete(wsId);
       hub.focusWorkspaces?.delete(wsId);
       hub.prWorkspaces.delete(wsId);
-      channel.hubSockets.delete(hub);
-      if (channel.hubSockets.size === 0) {
-        detachAllSessionListeners(channel);
-        channels.delete(wsId);
-      }
+      removeHubFromChannel(wsId, channel, hub);
       app.log.info(
         { err, workspaceId: wsId },
         "Ignoring unavailable workspace during sync",
@@ -575,11 +583,7 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
       if (!desired.has(wsId)) {
         const channel = channels.get(wsId);
         if (channel) {
-          channel.hubSockets.delete(hub);
-          if (channel.hubSockets.size === 0) {
-            detachAllSessionListeners(channel);
-            channels.delete(wsId);
-          }
+          removeHubFromChannel(wsId, channel, hub);
         }
       }
     }
@@ -612,7 +616,7 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
           channel.hubSockets.add(hub);
           // Join before reading unread state so any concurrent completion also
           // reaches this socket through the same serialized snapshot queue.
-          await queueUnreadStateBroadcast(wsId);
+          await broadcastUnreadState(wsId, dataDir);
         }
       } catch (err: unknown) {
         if (!(err instanceof NotFoundError)) throw err;
@@ -631,7 +635,7 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
         if (channel) {
           try {
             await sendWorkspaceBootstrap(hub, wsId, channel);
-            await queueUnreadStateBroadcast(wsId);
+            await broadcastUnreadState(wsId, dataDir);
           } catch (err: unknown) {
             if (!(err instanceof NotFoundError)) throw err;
             dropUnavailableWorkspace(wsId, channel, err);
@@ -909,11 +913,7 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
         ])) {
           const channel = channels.get(wsId);
           if (channel) {
-            channel.hubSockets.delete(hub);
-            if (channel.hubSockets.size === 0) {
-              detachAllSessionListeners(channel);
-              channels.delete(wsId);
-            }
+            removeHubFromChannel(wsId, channel, hub);
           }
         }
         hubSockets.delete(hub);
