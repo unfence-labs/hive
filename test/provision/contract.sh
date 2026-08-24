@@ -327,11 +327,17 @@ paths_out="$(bash -c '
 managed_env_keys="$(sed -n '/^--env--$/,/^--uninstall--$/p' <<<"$paths_out" \
   | sed '1d;$d' | sed -n 's/^\([A-Z][A-Z0-9_]*\)=.*/\1/p' | sort)"
 expected_managed_env_keys="$(printf '%s\n' \
-  AGENT_BROWSER_ARGS DATA_DIR HIVE_ALLOWED_HOSTS HIVE_ALLOWED_ORIGINS \
+  AGENT_BROWSER_ARGS AGENT_BROWSER_SOCKET_DIR DATA_DIR HIVE_ALLOWED_HOSTS HIVE_ALLOWED_ORIGINS \
   HIVE_AUTH_TOKEN_SHA256 HIVE_AUTOMATION_TIMEOUT_SEC HIVE_UPDATE_METHOD \
   HOME HOST NODE_ENV PATH PORT)"
 expect "managed hive.env key changes require an explicit update decision" \
   test "$managed_env_keys" = "$expected_managed_env_keys"
+expect "the service uses a browser socket directory owned by the hive account" \
+  grep -q '^AGENT_BROWSER_SOCKET_DIR=/home/hive/.agent-browser$' <<<"$paths_out"
+expect "service-account commands override an inherited browser socket directory" \
+  bash -c 'sed -n "/^as_hive()/,/^}/p" "$1" |
+             grep -q "AGENT_BROWSER_SOCKET_DIR=\"\\\$HIVE_HOME/.agent-browser\""' \
+    _ "$PROV/steps.sh"
 
 # A step that creates the install directory without stamping the marker first
 # makes the install unresumable: the next run sees a directory it did not
