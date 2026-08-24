@@ -37,10 +37,12 @@ vi.mock("sonner", () => ({ toast: { custom: mocks.toastCustom, dismiss: vi.fn() 
 
 function deferred() {
   let resolve!: () => void;
-  const promise = new Promise<void>((done) => {
+  let reject!: (error: unknown) => void;
+  const promise = new Promise<void>((done, fail) => {
     resolve = done;
+    reject = fail;
   });
-  return { promise, resolve };
+  return { promise, reject, resolve };
 }
 
 describe("useAppResync", () => {
@@ -59,6 +61,7 @@ describe("useAppResync", () => {
   });
 
   afterEach(() => {
+    vi.restoreAllMocks();
     vi.useRealTimers();
   });
 
@@ -152,6 +155,7 @@ describe("useAppResync", () => {
     const { queryClient, wrapper } = createWrapper();
     vi.spyOn(queryClient, "refetchQueries").mockResolvedValue();
     const cancel = vi.spyOn(queryClient, "cancelQueries").mockResolvedValue();
+    vi.spyOn(console, "warn").mockImplementation(() => {});
     const { result } = renderHook(() => useAppResync(), { wrapper });
 
     act(() => window.dispatchEvent(new Event("blur")));
@@ -162,16 +166,48 @@ describe("useAppResync", () => {
     await act(async () => vi.advanceTimersByTime(RESYNC_TIMEOUT_MS));
 
     expect(resyncSignal?.aborted).toBe(true);
-    expect(cancel).toHaveBeenCalledTimes(1);
+    expect(cancel).not.toHaveBeenCalled();
     expect(result.current).toBe(false);
     expect(mocks.reconnectActivePtyTerminals).not.toHaveBeenCalled();
     expect(mocks.reconnectActiveBrowserStreams).not.toHaveBeenCalled();
     expect(mocks.toastCustom).toHaveBeenCalledTimes(1);
   });
 
-  it("keeps auxiliary transports intact when the core resync fails", async () => {
+  it("completes the hub resync when an active REST query fails", async () => {
+    const restRequest = deferred();
+    const restError = new Error("REST unavailable");
     const { queryClient, wrapper } = createWrapper();
-    vi.spyOn(queryClient, "refetchQueries").mockRejectedValue(new Error("REST unavailable"));
+    vi.spyOn(queryClient, "refetchQueries").mockReturnValue(restRequest.promise);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { result } = renderHook(() => useAppResync(), { wrapper });
+
+    act(() => window.dispatchEvent(new Event("blur")));
+    act(() => vi.advanceTimersByTime(FULL_RESYNC_AFTER_MS));
+    await act(async () => window.dispatchEvent(new Event("focus")));
+
+    expect(result.current).toBe(false);
+    expect(mocks.reconnectActivePtyTerminals).toHaveBeenCalledTimes(1);
+    expect(mocks.reconnectActiveBrowserStreams).toHaveBeenCalledTimes(1);
+    expect(mocks.toastCustom).not.toHaveBeenCalled();
+
+    await act(async () => {
+      restRequest.reject(restError);
+      await Promise.resolve();
+    });
+
+    expect(warn).toHaveBeenCalledWith(
+      "[app-resync] Failed to refresh active queries:",
+      restError,
+    );
+    expect(mocks.toastCustom).not.toHaveBeenCalled();
+  });
+
+  it("offers manual reload when the hub resync is rejected", async () => {
+    const hubError = new Error("Hub unavailable");
+    mocks.requestFullResync.mockRejectedValue(hubError);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { queryClient, wrapper } = createWrapper();
+    vi.spyOn(queryClient, "refetchQueries").mockResolvedValue();
     const { result } = renderHook(() => useAppResync(), { wrapper });
 
     act(() => window.dispatchEvent(new Event("blur")));
@@ -182,6 +218,7 @@ describe("useAppResync", () => {
     expect(mocks.reconnectActivePtyTerminals).not.toHaveBeenCalled();
     expect(mocks.reconnectActiveBrowserStreams).not.toHaveBeenCalled();
     expect(mocks.toastCustom).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledWith("[app-resync] Hub resync failed:", hubError);
   });
 
   it("removes recovery listeners on unmount", () => {

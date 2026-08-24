@@ -57,26 +57,45 @@ export function useAppResync(): boolean {
       );
     });
 
-    const syncPromise = Promise.all([
-      queryClient.refetchQueries({ type: "active" }, { throwOnError: true }),
-      wsTransport.requestFullResync(abortController.signal),
-      import("@/components/BrowserPanel"),
-    ]).then(async ([, , { reconnectActiveBrowserStreams }]) => {
-      reconnectActivePtyTerminals();
-      reconnectActiveBrowserStreams();
-      // Inactive queries are cleared below, so warm the app-level catalog
-      // again after the rest of the resync has completed.
-      await prefetchModelCatalog(queryClient);
-    });
+    void queryClient
+      .refetchQueries({ type: "active" }, { throwOnError: true })
+      .catch((error) => {
+        console.warn("[app-resync] Failed to refresh active queries:", error);
+      });
 
     queryClient.removeQueries({ type: "inactive" });
 
-    const operation = Promise.race([syncPromise, abortPromise])
-      .then(() => undefined)
-      .catch(async () => {
-        await queryClient.cancelQueries();
-        if (mountedRef.current) showSyncFailureToast();
-      })
+    const operation = Promise.race([
+      wsTransport.requestFullResync(abortController.signal),
+      abortPromise,
+    ]).then(
+      () => {
+        void Promise.resolve()
+          .then(() => reconnectActivePtyTerminals())
+          .catch((error) => {
+            console.warn("[app-resync] Failed to reconnect PTY terminals:", error);
+          });
+        void import("@/components/BrowserPanel")
+          .then(({ reconnectActiveBrowserStreams }) => {
+            reconnectActiveBrowserStreams();
+          })
+          .catch((error) => {
+            console.warn("[app-resync] Failed to reconnect browser streams:", error);
+          });
+        // Inactive queries were cleared above, so warm the app-level catalog
+        // again without holding the hub resync open.
+        void Promise.resolve()
+          .then(() => prefetchModelCatalog(queryClient))
+          .catch((error) => {
+            console.warn("[app-resync] Failed to prefetch the model catalog:", error);
+          });
+      },
+      (error) => {
+        if (!mountedRef.current) return;
+        console.warn("[app-resync] Hub resync failed:", error);
+        showSyncFailureToast();
+      },
+    )
       .finally(() => {
         window.clearTimeout(timeoutId);
         if (abortRef.current === abortController) abortRef.current = null;

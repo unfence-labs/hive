@@ -13,7 +13,7 @@ import {
   stopStreaming,
 } from "../agents/session-dispatch.js";
 import type { SessionOptions } from "../agents/agent-manager.js";
-import { errorMessage } from "../utils/errors.js";
+import { errorMessage, NotFoundError } from "../utils/errors.js";
 import { isAuthorized, type AuthExpectation } from "../utils/auth.js";
 import type { WsIncoming, WsOutgoing, HubIncoming, HubOutgoing } from "../types.js";
 import { getScriptStatus } from "../services/script-runner.js";
@@ -437,7 +437,10 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
       ? isLoadedDefaultSessionCandidate(wsId, session)
       : false;
     const defaultSessionId = !session || !sessionIsDefaultCandidate
-      ? await getDefaultSessionId(wsId, dataDir).catch(() => undefined)
+      ? await getDefaultSessionId(wsId, dataDir).catch((err: unknown) => {
+          if (err instanceof NotFoundError) throw err;
+          return undefined;
+        })
       : undefined;
 
     if (session && (sessionIsDefaultCandidate || !defaultSessionId)) {
@@ -533,6 +536,26 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
     hub.focusWorkspaces = focusWorkspaces ? new Set(focusWorkspaces) : undefined;
     hub.prWorkspaces = new Set(prWorkspaces ?? []);
 
+    const dropUnavailableWorkspace = (
+      wsId: string,
+      channel: WorkspaceChannel,
+      err: NotFoundError,
+    ): void => {
+      desired.delete(wsId);
+      hub.requestedWorkspaces?.delete(wsId);
+      hub.focusWorkspaces?.delete(wsId);
+      hub.prWorkspaces.delete(wsId);
+      channel.hubSockets.delete(hub);
+      if (channel.hubSockets.size === 0) {
+        detachAllSessionListeners(channel);
+        channels.delete(wsId);
+      }
+      app.log.info(
+        { err, workspaceId: wsId },
+        "Ignoring unavailable workspace during sync",
+      );
+    };
+
     // A forced refresh resends full bootstrap below, which already covers the
     // streaming snapshot replay -- skip the focus-only replay here to avoid
     // sending the snapshot twice.
@@ -581,14 +604,19 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
     hub.subscribedWorkspaces = desired;
 
     for (const [wsId, channel] of newlySubscribed) {
-      await sendWorkspaceBootstrap(hub, wsId, channel);
-      // The socket may close while a bootstrap awaits; adding it then would
-      // resurrect membership the close handler already cleaned up.
-      if (hub.ws.readyState === hub.ws.OPEN) {
-        channel.hubSockets.add(hub);
-        // Join before reading unread state so any concurrent completion also
-        // reaches this socket through the same serialized snapshot queue.
-        await queueUnreadStateBroadcast(wsId);
+      try {
+        await sendWorkspaceBootstrap(hub, wsId, channel);
+        // The socket may close while a bootstrap awaits; adding it then would
+        // resurrect membership the close handler already cleaned up.
+        if (hub.ws.readyState === hub.ws.OPEN) {
+          channel.hubSockets.add(hub);
+          // Join before reading unread state so any concurrent completion also
+          // reaches this socket through the same serialized snapshot queue.
+          await queueUnreadStateBroadcast(wsId);
+        }
+      } catch (err: unknown) {
+        if (!(err instanceof NotFoundError)) throw err;
+        dropUnavailableWorkspace(wsId, channel, err);
       }
     }
 
@@ -601,8 +629,13 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
         if (!previouslySubscribed.has(wsId)) continue;
         const channel = channels.get(wsId);
         if (channel) {
-          await sendWorkspaceBootstrap(hub, wsId, channel);
-          await queueUnreadStateBroadcast(wsId);
+          try {
+            await sendWorkspaceBootstrap(hub, wsId, channel);
+            await queueUnreadStateBroadcast(wsId);
+          } catch (err: unknown) {
+            if (!(err instanceof NotFoundError)) throw err;
+            dropUnavailableWorkspace(wsId, channel, err);
+          }
         }
       }
     }
