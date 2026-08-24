@@ -19,6 +19,8 @@ import { createAgentRunner, type AgentRunnerFactory } from "./runners/factory.js
 import type { AgentRunner, AgentRunnerEvent } from "./runners/types.js";
 
 const mockSpawn = vi.mocked(spawn);
+const KIMI_UNRECOGNIZED_MODEL_WARNING =
+  '[claude-code:unrecognized_model] {"model":"k3","query_source":"sdk"}';
 
 /** Simple EventEmitter-based mock for stdio streams. */
 function createMockStream(): EventEmitter & { push(data: string): void } {
@@ -3166,6 +3168,24 @@ describe("ConversationSession", () => {
     }
   });
 
+  it("suppresses the benign Kimi unrecognized-model notice but keeps real errors", () => {
+    const session = createSession();
+    const messages: WsOutgoing[] = [];
+    session.on("message", (msg) => messages.push(msg));
+
+    session.sendMessage("Hi", { model: "kimi:k3" });
+    mockProc._stderr.push(KIMI_UNRECOGNIZED_MODEL_WARNING);
+    expect(messages.filter((m) => m.type === "error")).toHaveLength(0);
+
+    mockProc._stderr.push(`${KIMI_UNRECOGNIZED_MODEL_WARNING}\nreal failure`);
+    const errors = messages.filter((m) => m.type === "error");
+    expect(errors).toHaveLength(1);
+    if (errors[0].type === "error") {
+      expect(errors[0].message).toContain("real failure");
+      expect(errors[0].message).not.toContain("unrecognized_model");
+    }
+  });
+
   it("defaults command to claude", () => {
     const session = createSession();
     session.sendMessage("Hi");
@@ -3257,6 +3277,23 @@ describe("ConversationSession", () => {
     });
     expect(assistantMsg.errorDetail).toContain("exit code 1");
     expect(assistantMsg.errorDetail).toContain("stderr: permission denied");
+  });
+
+  it("does not persist the benign Kimi model notice in cancellation diagnostics", async () => {
+    const session = createSession({ sessionId: "cancel-kimi-model-notice" });
+
+    session.sendMessage("Hi", { model: "kimi:k3" });
+    mockProc._stderr.push(KIMI_UNRECOGNIZED_MODEL_WARNING);
+    mockProc._emitClose(143);
+
+    await session.drain();
+
+    const messagesPath = join(tempDir, "sessions", "cancel-kimi-model-notice", "messages.jsonl");
+    const raw = await readFile(messagesPath, "utf-8");
+    const lines = raw.split("\n").filter(Boolean);
+    const assistantMsg = JSON.parse(lines[1]);
+    expect(assistantMsg.cancelled).toBe(true);
+    expect(assistantMsg.errorDetail).toBe("exit code 143");
   });
 
   it("persists user message on send", async () => {
