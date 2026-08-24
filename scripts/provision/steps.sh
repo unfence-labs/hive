@@ -153,9 +153,11 @@ assert_safe_archive() {
 }
 
 as_hive() {
-  # Run a command as the service account with Hive's own PATH and HOME. stdin
-  # is /dev/null so a child can never consume a `curl | bash` script body.
-  runuser -u "$HIVE_USER" -- env HOME="$HIVE_HOME" PATH="$HIVE_SERVICE_PATH" "$@" </dev/null
+  # Run a command as the service account with Hive's own PATH, HOME, and browser
+  # socket directory. stdin is /dev/null so a child can never consume a
+  # `curl | bash` script body.
+  runuser -u "$HIVE_USER" -- env HOME="$HIVE_HOME" PATH="$HIVE_SERVICE_PATH" \
+    AGENT_BROWSER_SOCKET_DIR="$HIVE_HOME/.agent-browser" "$@" </dev/null
 }
 
 # --- Read-only inspection ---------------------------------------------------
@@ -977,12 +979,13 @@ step_generate_token() {
 title_write_secrets() { echo "Write the service configuration"; }
 
 hive_env_base() {
-  # AGENT_BROWSER_ARGS: Chromium's sandbox cannot work under the hive unit —
-  # NoNewPrivileges blocks the setuid helper and Ubuntu 24.04 restricts
-  # unprivileged user namespaces — so the browser the agents drive through
-  # `agent-browser` must run without it. Deliberately not HIVE_-prefixed: the
-  # backend strips HIVE_* from agent environments (backend/src/utils/env.ts)
-  # and this variable must reach them.
+  # Chromium's sandbox cannot work under the hive unit — NoNewPrivileges blocks
+  # the setuid helper and Ubuntu 24.04 restricts unprivileged user namespaces —
+  # so the browser the agents drive through `agent-browser` must run without it.
+  # The socket directory must also be independent of any ambient
+  # XDG_RUNTIME_DIR. Deliberately not HIVE_-prefixed: the backend strips HIVE_*
+  # from agent environments (backend/src/utils/env.ts), and both variables must
+  # reach them.
   cat <<EOF
 NODE_ENV=production
 HOST=0.0.0.0
@@ -994,6 +997,7 @@ HIVE_UPDATE_METHOD=provisioner
 HOME=$HIVE_HOME
 PATH=$HIVE_SERVICE_PATH
 AGENT_BROWSER_ARGS=--no-sandbox
+AGENT_BROWSER_SOCKET_DIR=$HIVE_HOME/.agent-browser
 EOF
   [ -z "${OPT_ALLOWED_HOST:-}" ] || echo "HIVE_ALLOWED_HOSTS=$OPT_ALLOWED_HOST"
   # A prerelease install is a developer's test server. The webview of a debug

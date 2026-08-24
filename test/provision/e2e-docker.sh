@@ -161,11 +161,15 @@ peer_can_reach() { from_peer "$@" >/dev/null 2>&1; }
 # Run the generated provision.sh over stdin, exactly as `curl | bash` would.
 # shellcheck disable=SC2120  # most callers deliberately pass no options
 run_provision() {
+  local runtime_env=()
+  [ -z "${PROVISION_XDG_RUNTIME_DIR:-}" ] || \
+    runtime_env=(-e "XDG_RUNTIME_DIR=$PROVISION_XDG_RUNTIME_DIR")
   docker exec -i \
     -e "HIVE_RELEASE_BASE_URL=http://$RELEASE_HOST" \
     -e "HIVE_TEST_DIE_AFTER=${DIE_AFTER:-}" \
     -e "HIVE_TEST_DIE_DURING=${DIE_DURING:-}" \
     -e "HIVE_HEALTH_ATTEMPTS=${HEALTH_ATTEMPTS:-}" \
+    "${runtime_env[@]}" \
     "$CID" bash -s -- "$@" <"$PROV/dist/provision.sh"
 }
 
@@ -237,6 +241,8 @@ assert_provisioned() {
     || die "the browser state directory is not owned by the service account"
   sh_server 'grep -q "^AGENT_BROWSER_ARGS=--no-sandbox$" /etc/hive/hive.env' \
     || die "the service environment does not disable the Chrome sandbox"
+  sh_server 'grep -q "^AGENT_BROWSER_SOCKET_DIR=/home/hive/.agent-browser$" /etc/hive/hive.env' \
+    || die "the service environment does not use the hive-owned browser socket directory"
   echo "OK: agent-browser and its Chrome live under /home/hive, sandbox flag configured"
   fi
 
@@ -290,8 +296,9 @@ assert_provisioned() {
 mode_install() {
   build_release; build_provision; start_stack
 
-  log "Fresh install succeeds and writes both durable markers"
-  run_provision --port "$PORT" --ssh-public-key "$TEST_SSH_KEY" >"$WORK/fresh.ndjson" \
+  log "Fresh install succeeds with an inaccessible operator runtime directory"
+  PROVISION_XDG_RUNTIME_DIR=/root/hive-operator-runtime \
+    run_provision --port "$PORT" --ssh-public-key "$TEST_SSH_KEY" >"$WORK/fresh.ndjson" \
     || { tail -30 "$WORK/fresh.ndjson" >&2; die "fresh provisioning failed"; }
   assert_run_ok "$WORK/fresh.ndjson"
   assert_provisioned "$WORK/fresh.ndjson"
