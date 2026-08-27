@@ -1,3 +1,4 @@
+import { useCallback, useRef } from "react";
 import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { api } from "@/hooks/useApi";
 import {
@@ -94,7 +95,15 @@ export function fetchAndMergeSessionMessages(
 export function useSessionMessages(
   workspaceId: string | undefined,
   sessionId: string | undefined,
-): { messages: ChatMessage[]; isLoading: boolean; error: string | undefined } {
+): {
+  messages: ChatMessage[];
+  isLoading: boolean;
+  isFetching: boolean;
+  hasData: boolean;
+  error: string | undefined;
+  errorUpdatedAt: number;
+  retry: () => void;
+} {
   const queryClient = useQueryClient();
   const key = sessionMessagesKey(workspaceId, sessionId);
   const query = useQuery({
@@ -106,10 +115,44 @@ export function useSessionMessages(
     // policy in query-client.ts. So inherit the global staleTime default instead
     // of forcing a full-transcript refetch on every workspace switch-back.
   });
+  // A manual refetch clears Query's error while it is in flight when no data
+  // exists. Retain that last error so the recoverable empty state can show
+  // "Retrying…" instead of briefly turning blank.
+  const retainedErrorRef = useRef<{
+    workspaceId: string | undefined;
+    sessionId: string | undefined;
+    message: string;
+  } | undefined>(undefined);
+  const queryError = historyErrorMessage(query.error);
+  if (query.data !== undefined) {
+    retainedErrorRef.current = undefined;
+  } else if (queryError) {
+    retainedErrorRef.current = { workspaceId, sessionId, message: queryError };
+  } else if (
+    retainedErrorRef.current &&
+    (retainedErrorRef.current.workspaceId !== workspaceId ||
+      retainedErrorRef.current.sessionId !== sessionId)
+  ) {
+    retainedErrorRef.current = undefined;
+  }
+  const retainedErrorEntry = retainedErrorRef.current;
+  const retainedError = retainedErrorEntry && retainedErrorEntry.workspaceId === workspaceId &&
+    retainedErrorEntry.sessionId === sessionId
+    ? retainedErrorEntry.message
+    : undefined;
+  const { refetch } = query;
+  const retry = useCallback(() => {
+    void refetch();
+  }, [refetch]);
+
   return {
     messages: query.data ?? EMPTY_MESSAGES,
     isLoading: query.isLoading,
-    error: historyErrorMessage(query.error),
+    isFetching: query.isFetching,
+    hasData: query.data !== undefined,
+    error: queryError ?? retainedError,
+    errorUpdatedAt: query.errorUpdatedAt,
+    retry,
   };
 }
 

@@ -10,6 +10,10 @@ vi.mock("@/components/ChatConversation", () => ({
 vi.mock("@/components/ConversationTabs", () => ({
   ConversationTabs: () => <div data-testid="tabs">tabs</div>,
 }));
+vi.mock("@/components/chat/ConversationErrorChip", () => ({
+  ConversationErrorChip: ({ message }: { message?: string }) =>
+    message ? <div data-testid="conversation-error-chip">{message}</div> : null,
+}));
 vi.mock("@/components/TaskTracker", () => ({
   default: () => <div data-testid="task-tracker">tasks</div>,
 }));
@@ -32,6 +36,7 @@ function baseProps(overrides: Partial<ConversationPaneProps> = {}): Conversation
     activeAgentActivities: [],
     pendingToolInputs: [],
     switchCounter: 0,
+    onDismissError: vi.fn(),
     scrollToBottomTrigger: 0,
     tasks: [],
     currentTask: undefined,
@@ -63,6 +68,14 @@ describe("ConversationPane", () => {
     const chat = screen.getByTestId("chat-conversation");
     // Body is still mounted but inside a `.hidden` container.
     expect(chat.closest(".hidden")).not.toBeNull();
+  });
+
+  it("keeps the error chip outside the hidden chat body when a file tab is active", () => {
+    render(<ConversationPane {...baseProps({ isFileTabActive: true, error: "Connection lost" })} />);
+
+    const chip = screen.getByTestId("conversation-error-chip");
+    expect(chip).toHaveTextContent("Connection lost");
+    expect(chip.closest(".hidden")).toBeNull();
   });
 
   it("renders the chat input footer when there is no pending question", () => {
@@ -110,6 +123,32 @@ describe("ConversationPane", () => {
     expect(screen.getByTestId("terminal-view")).toBeInTheDocument();
     expect(screen.queryByTestId("chat-conversation")).not.toBeInTheDocument();
     expect(screen.queryByTestId("chat-input")).not.toBeInTheDocument();
+  });
+
+  it("keeps the error chip visible over a terminal session", () => {
+    render(
+      <ConversationPane
+        {...baseProps({
+          activeSessionId: "term-1",
+          error: "Terminal session failed",
+          sessions: [
+            {
+              sessionId: "term-1",
+              workspaceId: "ws-1",
+              kind: "terminal",
+              createdAt: "2026-02-12T00:00:00.000Z",
+              updatedAt: "2026-02-12T00:00:00.000Z",
+              assistantMessageCount: 0,
+              readAssistantMessageCount: 0,
+            },
+          ],
+          terminalView: <div data-testid="terminal-view">terminal</div>,
+        })}
+      />,
+    );
+
+    expect(screen.getByTestId("conversation-error-chip")).toBeInTheDocument();
+    expect(screen.getByTestId("terminal-view")).toBeInTheDocument();
   });
 
   it("renders the chat (not the terminalView) when the active session is a regular chat", () => {

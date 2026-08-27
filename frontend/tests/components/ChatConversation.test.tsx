@@ -151,10 +151,11 @@ describe("ChatConversation empty states", () => {
     expect(screen.queryByText("Send a message to start a conversation.")).not.toBeInTheDocument();
   });
 
-  it("suppresses empty states when history failed to load", () => {
+  it("renders a harmonized recoverable state when history failed to load", () => {
+    const onRetryHistory = vi.fn();
     renderConversation({
-      isHistoryError: true,
-      error: "Failed to load conversation history: network down",
+      historyError: "network down",
+      onRetryHistory,
       messages: [],
       isStreaming: false,
       workspaceName: "san-antonio",
@@ -163,9 +164,24 @@ describe("ChatConversation empty states", () => {
       defaultBranch: "main",
     });
 
-    expect(screen.getByText("Failed to load conversation history: network down")).toBeInTheDocument();
+    expect(screen.getByText("We couldn't load this conversation")).toBeInTheDocument();
+    expect(screen.getByText("network down")).toBeInTheDocument();
     expect(screen.queryByText(/You're in a new copy of/i)).not.toBeInTheDocument();
     expect(screen.queryByText("Send a message to start a conversation.")).not.toBeInTheDocument();
+
+    screen.getByRole("button", { name: "retry loading the conversation" }).click();
+    expect(onRetryHistory).toHaveBeenCalledOnce();
+  });
+
+  it("shows retry progress without hiding the history error state", () => {
+    renderConversation({
+      historyError: "network down",
+      isHistoryRetrying: true,
+    });
+
+    expect(screen.getByText("We couldn't load this conversation")).toBeInTheDocument();
+    expect(screen.getByText("Retrying…")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /retry loading/i })).not.toBeInTheDocument();
   });
 
   it("defaults fileCount to 0 when not provided", () => {
@@ -304,38 +320,6 @@ describe("ChatConversation streaming timer", () => {
     });
     expect(screen.getByText("0.0s")).toBeInTheDocument();
     vi.useRealTimers();
-  });
-});
-
-describe("ChatConversation error banner", () => {
-  it("renders error banner when error prop is provided", () => {
-    renderConversation({ error: "Something went wrong" });
-
-    const banner = screen.getByText("Something went wrong");
-    expect(banner).toBeInTheDocument();
-    expect(banner.closest("div")).toHaveClass("text-destructive");
-  });
-
-  it("does not render error banner when error is undefined", () => {
-    renderConversation({ error: undefined });
-
-    expect(screen.queryByText(/went wrong/i)).not.toBeInTheDocument();
-  });
-
-  it("renders both error banner and messages together", () => {
-    renderConversation({
-      error: "Connection lost",
-      messages: [{
-        id: "u1",
-        sessionId: "sess-1",
-        role: "user",
-        content: "hello",
-        timestamp: "2026-02-12T00:00:00.000Z",
-      }],
-    });
-
-    expect(screen.getByText("Connection lost")).toBeInTheDocument();
-    expect(screen.getByTestId("msg-u1")).toHaveTextContent("hello");
   });
 });
 

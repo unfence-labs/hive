@@ -154,7 +154,9 @@ export default function WorkspaceView() {
   const {
     messages,
     isHistoryLoading,
-    isHistoryError,
+    historyError,
+    isHistoryRetrying,
+    retryHistory,
     isStreaming,
     streamingStartedAt,
     currentStreamingText,
@@ -164,6 +166,7 @@ export default function WorkspaceView() {
     pendingToolInputs,
     connectionStatus,
     error,
+    dismissError,
     sessionId,
     sendStates,
     sendMessage,
@@ -494,7 +497,9 @@ export default function WorkspaceView() {
             onConversationActivate={() => sessionId && activateTab(`session:${sessionId}`)}
             messages={messages}
             isHistoryLoading={isHistoryLoading}
-            isHistoryError={isHistoryError}
+            historyError={historyError}
+            isHistoryRetrying={isHistoryRetrying}
+            onRetryHistory={retryHistory}
             streamingStartedAt={streamingStartedAt}
             currentStreamingText={currentStreamingText}
             currentReasoningSegments={currentReasoningSegments}
@@ -514,6 +519,7 @@ export default function WorkspaceView() {
             switchCounter={switchCounter}
             agentPlanMode={agentPlanMode}
             error={error}
+            onDismissError={dismissError}
             queuedMessage={queuedMessage}
             onClearQueue={() => setQueuedMessage(null)}
             scrollToBottomTrigger={scrollToBottomTrigger}

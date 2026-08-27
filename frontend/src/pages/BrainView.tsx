@@ -113,7 +113,9 @@ export default function BrainView() {
   const {
     messages,
     isHistoryLoading,
-    isHistoryError,
+    historyError,
+    isHistoryRetrying,
+    retryHistory,
     isStreaming,
     streamingStartedAt,
     currentStreamingText,
@@ -123,6 +125,7 @@ export default function BrainView() {
     pendingToolInputs,
     connectionStatus,
     error,
+    dismissError,
     sessionId,
     sendStates,
     sendMessage,
@@ -375,7 +378,9 @@ export default function BrainView() {
               onConversationActivate={() => sessionId && activateTab(`session:${sessionId}`)}
               messages={messages}
               isHistoryLoading={isHistoryLoading}
-              isHistoryError={isHistoryError}
+              historyError={historyError}
+              isHistoryRetrying={isHistoryRetrying}
+              onRetryHistory={retryHistory}
               streamingStartedAt={streamingStartedAt}
               currentStreamingText={currentStreamingText}
               currentReasoningSegments={currentReasoningSegments}
@@ -392,6 +397,7 @@ export default function BrainView() {
               switchCounter={switchCounter}
               agentPlanMode={agentPlanMode}
               error={error}
+              onDismissError={dismissError}
               queuedMessage={queuedMessage}
               onClearQueue={() => setQueuedMessage(null)}
               scrollToBottomTrigger={scrollToBottomTrigger}

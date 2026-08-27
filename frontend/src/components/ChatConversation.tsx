@@ -16,7 +16,7 @@ import { AgentActivityList, getInlineAgentActivities } from "@/components/chat/A
 import { WorkspaceWelcome } from "@/components/WorkspaceWelcome";
 import { formatElapsed } from "@/lib/time";
 import { getFallbackInteractiveAssistantIndex, hasExitPlanModeTool } from "@/lib/plan-state";
-import { Trash2Icon } from "lucide-react";
+import { CircleAlertIcon, RefreshCwIcon, Trash2Icon } from "lucide-react";
 import type { AgentActivity, ChatMessage as ChatMessageType, QueuedMessage, ReasoningSegment, ToolCall, QuestionAnswer } from "@/types";
 import type { PendingToolInput } from "@/hooks/useConversation";
 import type { PlanStatus } from "@/components/chat/PlanProposal";
@@ -30,7 +30,9 @@ interface ChatConversationProps {
    * the empty state before the fetched messages arrive.
    */
   isHistoryLoading?: boolean;
-  isHistoryError?: boolean;
+  historyError?: string;
+  isHistoryRetrying?: boolean;
+  onRetryHistory?: () => void;
   isStreaming: boolean;
   streamingStartedAt?: number | null;
   currentStreamingText: string;
@@ -51,7 +53,6 @@ interface ChatConversationProps {
   defaultBranch?: string;
   fileCount?: number;
   switchCounter: number;
-  error?: string;
   agentPlanMode?: boolean;
   queuedMessage?: QueuedMessage | null;
   onClearQueue?: () => void;
@@ -64,10 +65,60 @@ interface ChatConversationProps {
   emptyState?: ReactNode;
 }
 
+function ConversationHistoryError({
+  error,
+  isRetrying,
+  onRetry,
+}: {
+  error: string;
+  isRetrying: boolean;
+  onRetry?: () => void;
+}) {
+  return (
+    <div role="alert" className="flex w-full max-w-lg flex-col gap-6">
+      <div className="w-full rounded-xl border border-border/50 bg-sidebar px-5 py-4">
+        <p className="text-center text-sm text-foreground">
+          We couldn&apos;t load this conversation
+        </p>
+      </div>
+
+      <div className="flex flex-col gap-4 text-sm text-muted-foreground">
+        <div className="flex items-start gap-3">
+          <CircleAlertIcon aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-destructive" />
+          <span className="min-w-0 break-words">{error}</span>
+        </div>
+        <div className="flex items-center gap-3">
+          <RefreshCwIcon
+            aria-hidden="true"
+            className={`size-4 shrink-0${isRetrying ? " animate-spin motion-reduce:animate-none" : ""}`}
+          />
+          {isRetrying ? (
+            <span>Retrying…</span>
+          ) : (
+            <span>
+              You can{" "}
+              <button
+                type="button"
+                onClick={onRetry}
+                disabled={!onRetry}
+                className="cursor-pointer font-medium text-foreground underline decoration-border underline-offset-4 transition-colors hover:decoration-foreground focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                retry loading the conversation
+              </button>
+            </span>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function ChatConversation({
   messages,
   isHistoryLoading = false,
-  isHistoryError = false,
+  historyError,
+  isHistoryRetrying = false,
+  onRetryHistory,
   isStreaming,
   streamingStartedAt,
   currentStreamingText,
@@ -87,7 +138,6 @@ export default function ChatConversation({
   fileCount,
   switchCounter,
   agentPlanMode,
-  error,
   queuedMessage,
   onClearQueue,
   scrollToBottomTrigger = 0,
@@ -221,16 +271,17 @@ export default function ChatConversation({
       className={`flex-1${isHydrating ? " invisible" : ""}`}
       resize={settled ? "smooth" : "instant"}
     >
-      {error && (
-        <div className="border-b bg-destructive/10 px-4 py-2 text-sm text-destructive">
-          {error}
-        </div>
-      )}
       <ConversationContent className="gap-4 px-8 py-4">
-        {!hasContent &&
-          !isHistoryLoading &&
-          !isHistoryError &&
-          (workspaceName && projectName && branch && defaultBranch ? (
+        {!hasContent && historyError ? (
+          <ConversationEmptyState className="py-20">
+            <ConversationHistoryError
+              error={historyError}
+              isRetrying={isHistoryRetrying}
+              onRetry={onRetryHistory}
+            />
+          </ConversationEmptyState>
+        ) : !hasContent && !isHistoryLoading ? (
+          workspaceName && projectName && branch && defaultBranch ? (
             <ConversationEmptyState className="py-20">
               <WorkspaceWelcome
                 projectName={projectName}
@@ -251,7 +302,8 @@ export default function ChatConversation({
               title="Send a message to start a conversation."
               description=""
             />
-          ))}
+          )
+        ) : null}
         {messages.map((msg, i) => {
           // Hide "Question dismissed." user bubbles — the CANCELLED badge already conveys this
           if (msg.role === "user" && msg.content === "Question dismissed.") return null;
