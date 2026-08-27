@@ -139,10 +139,17 @@ export function ConversationErrorChip({ message, onDismiss }: ConversationErrorC
         onPointerUpCapture={() => {
           isPointerFocusRef.current = false;
         }}
+        onPointerCancelCapture={() => {
+          isPointerFocusRef.current = false;
+        }}
         // Mouse clicks focus buttons (on mousedown) and would pause the
-        // auto-dismiss forever; only keyboard-driven focus should pause.
+        // auto-dismiss forever; only keyboard-driven focus should pause. The
+        // flag only needs to live from pointerdown to the focus it causes, so
+        // it is consumed here; a gesture released outside the chip (no
+        // pointerup on it) then cannot leave the flag stuck.
         onFocusCapture={() => {
           if (!isPointerFocusRef.current) setHasFocus(true);
+          isPointerFocusRef.current = false;
         }}
         onBlurCapture={handleBlur}
         className={cn(

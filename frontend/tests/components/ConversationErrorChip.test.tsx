@@ -158,4 +158,24 @@ describe("ConversationErrorChip", () => {
     act(() => vi.advanceTimersByTime(5_000));
     expect(onDismiss).toHaveBeenCalledWith("A very long error message");
   });
+
+  it("still pauses on keyboard focus after an interrupted pointer gesture", () => {
+    vi.useFakeTimers();
+    const onDismiss = vi.fn();
+    render(<ConversationErrorChip message="Connection lost" onDismiss={onDismiss} />);
+    const alert = screen.getByRole("alert");
+    const dismiss = screen.getByRole("button", { name: "Dismiss error" });
+
+    // A cancelled gesture never delivers pointerup to the chip.
+    fireEvent.pointerDown(alert);
+    fireEvent.pointerCancel(alert);
+
+    fireEvent.focus(dismiss);
+    act(() => vi.advanceTimersByTime(10_000));
+    expect(onDismiss).not.toHaveBeenCalled();
+
+    fireEvent.blur(dismiss, { relatedTarget: null });
+    act(() => vi.advanceTimersByTime(5_000));
+    expect(onDismiss).toHaveBeenCalledOnce();
+  });
 });
