@@ -202,7 +202,7 @@ struct ChatInputBar: View {
                         lineWidth: 0.5
                     )
                 )
-                .frame(width: 44, height: 44)
+                .frame(width: 44, height: 44, alignment: .leading)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
