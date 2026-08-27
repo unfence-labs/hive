@@ -1,15 +1,17 @@
-import { useCallback, useEffect, useRef, useState, type FocusEvent } from "react";
-import { CircleAlertIcon, XIcon } from "lucide-react";
-import { cn } from "@/lib/utils";
 import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type FocusEvent,
+} from "react";
+import { flushSync } from "react-dom";
+import { XIcon } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 const DISPLAY_DURATION_MS = 5_000;
-const EXIT_DURATION_MS = 180;
+const EXIT_DURATION_MS = 200;
 
 interface ConversationErrorChipProps {
   message?: string;
@@ -19,12 +21,17 @@ interface ConversationErrorChipProps {
 export function ConversationErrorChip({ message, onDismiss }: ConversationErrorChipProps) {
   const [displayedMessage, setDisplayedMessage] = useState(message);
   const [isVisible, setIsVisible] = useState(!!message);
+  const [isExpanded, setIsExpanded] = useState(false);
+  const [isTruncated, setIsTruncated] = useState(false);
   const [isPointerOver, setIsPointerOver] = useState(false);
   const [hasFocus, setHasFocus] = useState(false);
   const [isWindowInactive, setIsWindowInactive] = useState(
     () => typeof document !== "undefined" && document.visibilityState === "hidden",
   );
   const remainingMsRef = useRef(DISPLAY_DURATION_MS);
+  const messageRef = useRef<HTMLSpanElement>(null);
+  const chipRef = useRef<HTMLDivElement>(null);
+  const isPointerFocusRef = useRef(false);
 
   useEffect(() => {
     if (message) {
@@ -40,7 +47,14 @@ export function ConversationErrorChip({ message, onDismiss }: ConversationErrorC
 
   useEffect(() => {
     remainingMsRef.current = DISPLAY_DURATION_MS;
+    setIsExpanded(false);
   }, [message]);
+
+  useLayoutEffect(() => {
+    if (isExpanded) return;
+    const element = messageRef.current;
+    setIsTruncated(!!element && element.scrollWidth > element.clientWidth);
+  }, [displayedMessage, isExpanded]);
 
   useEffect(() => {
     const updateVisibility = () => setIsWindowInactive(document.visibilityState === "hidden");
@@ -56,7 +70,7 @@ export function ConversationErrorChip({ message, onDismiss }: ConversationErrorC
     };
   }, []);
 
-  const isPaused = isPointerOver || hasFocus || isWindowInactive;
+  const isPaused = isPointerOver || hasFocus || isWindowInactive || isExpanded;
   useEffect(() => {
     if (!message || isPaused) return;
 
@@ -75,50 +89,102 @@ export function ConversationErrorChip({ message, onDismiss }: ConversationErrorC
     if (!event.currentTarget.contains(event.relatedTarget)) setHasFocus(false);
   }, []);
 
+  // FLIP: measure the height around the synchronous re-render, then morph
+  // height and border-radius together so the pill-to-card change is one motion.
+  // The pill radius is height/2 because rounded-full computes to an
+  // un-animatable near-infinite value; the card radius is read from the theme.
+  const toggleExpanded = useCallback(() => {
+    const chip = chipRef.current;
+    const nextExpanded = !isExpanded;
+    const fromHeight = chip?.offsetHeight;
+    const preRadius = chip ? getComputedStyle(chip).borderRadius : "";
+    flushSync(() => setIsExpanded(nextExpanded));
+    if (!chip || !fromHeight || typeof chip.animate !== "function") return;
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    const toHeight = chip.offsetHeight;
+    if (toHeight === fromHeight) return;
+    const [fromRadius, toRadius] = nextExpanded
+      ? [`${fromHeight / 2}px`, getComputedStyle(chip).borderRadius]
+      : [preRadius, `${toHeight / 2}px`];
+    chip.animate(
+      [
+        { height: `${fromHeight}px`, borderRadius: fromRadius },
+        { height: `${toHeight}px`, borderRadius: toRadius },
+      ],
+      { duration: 200, easing: "ease-out" },
+    );
+  }, [isExpanded]);
+
   if (!displayedMessage) return null;
+
+  const messageText = (
+    <span
+      ref={messageRef}
+      className={cn("block text-sm leading-5", isExpanded ? "break-words" : "truncate")}
+    >
+      {displayedMessage}
+    </span>
+  );
 
   return (
     <div className="pointer-events-none absolute inset-x-0 top-12 z-40 flex justify-center px-4">
-      <TooltipProvider delayDuration={300}>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <div
-              role="alert"
-              tabIndex={0}
-              onPointerEnter={() => setIsPointerOver(true)}
-              onPointerLeave={() => setIsPointerOver(false)}
-              onFocusCapture={() => setHasFocus(true)}
-              onBlurCapture={handleBlur}
-              className={cn(
-                "pointer-events-auto flex max-w-xl min-w-0 items-start gap-2 rounded-lg bg-destructive px-3 py-2 text-destructive-foreground shadow-lg",
-                "transition-[opacity,transform] duration-200 ease-out focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-destructive/30",
-                "motion-reduce:transform-none motion-reduce:transition-none",
-                isVisible ? "translate-y-0 opacity-100" : "-translate-y-2 opacity-0",
-              )}
-            >
-              <CircleAlertIcon aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
-              <span className="line-clamp-2 min-w-0 flex-1 break-words text-sm leading-5">
-                {displayedMessage}
-              </span>
-              <button
-                type="button"
-                aria-label="Dismiss error"
-                onClick={() => onDismiss(displayedMessage)}
-                className="-m-1 flex size-7 shrink-0 cursor-pointer items-center justify-center rounded text-destructive-foreground/70 transition-colors hover:bg-destructive-foreground/10 hover:text-destructive-foreground focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-destructive-foreground/40"
-              >
-                <XIcon className="size-3.5" />
-              </button>
-            </div>
-          </TooltipTrigger>
-          <TooltipContent
-            side="bottom"
-            sideOffset={6}
-            className="max-w-[min(36rem,calc(100vw-2rem))] break-words text-left"
+      <div
+        ref={chipRef}
+        role="alert"
+        onPointerEnter={() => setIsPointerOver(true)}
+        onPointerLeave={() => setIsPointerOver(false)}
+        onPointerDownCapture={() => {
+          isPointerFocusRef.current = true;
+        }}
+        onPointerUpCapture={() => {
+          isPointerFocusRef.current = false;
+        }}
+        // Mouse clicks focus buttons (on mousedown) and would pause the
+        // auto-dismiss forever; only keyboard-driven focus should pause.
+        onFocusCapture={() => {
+          if (!isPointerFocusRef.current) setHasFocus(true);
+        }}
+        onBlurCapture={handleBlur}
+        className={cn(
+          "pointer-events-auto flex max-w-xl min-w-0 items-start gap-2.5 overflow-hidden border border-background/15 bg-foreground py-2 pr-1.5 pl-3.5 text-background shadow-xl",
+          isExpanded ? "rounded-2xl" : "rounded-full",
+          // animation-duration (not duration-*) so transition-duration stays 0
+          // and no stray "transition: all" fights the expand/collapse morph.
+          isVisible
+            ? "animate-in fade-in slide-in-from-top-2 [animation-duration:300ms]"
+            : "animate-out fade-out slide-out-to-top-2 fill-mode-forwards [animation-duration:200ms]",
+          "motion-reduce:animate-none",
+        )}
+      >
+        <span
+          aria-hidden="true"
+          className="mt-1.5 size-2 shrink-0 rounded-full"
+          style={{
+            background: "var(--toast-error)",
+            boxShadow: "0 0 0 3px color-mix(in oklch, var(--toast-error) 18%, transparent)",
+          }}
+        />
+        {isTruncated || isExpanded ? (
+          <button
+            type="button"
+            aria-expanded={isExpanded}
+            onClick={toggleExpanded}
+            className="min-w-0 flex-1 cursor-pointer rounded-sm text-left focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-background/40"
           >
-            {displayedMessage}
-          </TooltipContent>
-        </Tooltip>
-      </TooltipProvider>
+            {messageText}
+          </button>
+        ) : (
+          <span className="min-w-0 flex-1">{messageText}</span>
+        )}
+        <button
+          type="button"
+          aria-label="Dismiss error"
+          onClick={() => onDismiss(displayedMessage)}
+          className="-my-1 flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-full text-background opacity-60 transition-[background-color,opacity] hover:bg-background/10 hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-background/40"
+        >
+          <XIcon className="size-3.5" />
+        </button>
+      </div>
     </div>
   );
 }

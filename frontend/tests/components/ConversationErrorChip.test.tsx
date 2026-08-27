@@ -5,6 +5,7 @@ import { ConversationErrorChip } from "@/components/chat/ConversationErrorChip";
 describe("ConversationErrorChip", () => {
   afterEach(() => {
     vi.useRealTimers();
+    vi.restoreAllMocks();
   });
 
   it("renders an accessible themed error and dismisses after five active seconds", () => {
@@ -14,7 +15,7 @@ describe("ConversationErrorChip", () => {
 
     const alert = screen.getByRole("alert");
     expect(alert).toHaveTextContent("Connection lost");
-    expect(alert).toHaveClass("bg-destructive", "text-destructive-foreground");
+    expect(alert).toHaveClass("bg-foreground", "text-background", "rounded-full");
 
     act(() => vi.advanceTimersByTime(4_999));
     expect(onDismiss).not.toHaveBeenCalled();
@@ -107,11 +108,54 @@ describe("ConversationErrorChip", () => {
     );
 
     rerender(<ConversationErrorChip message={undefined} onDismiss={vi.fn()} />);
-    expect(screen.getByRole("alert")).toHaveClass("opacity-0");
+    expect(screen.getByRole("alert")).toHaveClass("animate-out", "fill-mode-forwards");
 
-    act(() => vi.advanceTimersByTime(179));
+    act(() => vi.advanceTimersByTime(199));
     expect(screen.getByRole("alert")).toBeInTheDocument();
     act(() => vi.advanceTimersByTime(1));
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("expands a truncated message on click and pauses auto-dismiss while expanded", () => {
+    vi.useFakeTimers();
+    vi.spyOn(HTMLElement.prototype, "scrollWidth", "get").mockReturnValue(600);
+    vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(300);
+    const onDismiss = vi.fn();
+    render(<ConversationErrorChip message="A very long error message" onDismiss={onDismiss} />);
+
+    const expand = screen.getByRole("button", { name: "A very long error message" });
+    expect(expand).toHaveAttribute("aria-expanded", "false");
+
+    fireEvent.click(expand);
+    expect(expand).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByRole("alert")).toHaveClass("rounded-2xl");
+    act(() => vi.advanceTimersByTime(10_000));
+    expect(onDismiss).not.toHaveBeenCalled();
+
+    fireEvent.click(expand);
+    act(() => vi.advanceTimersByTime(5_000));
+    expect(onDismiss).toHaveBeenCalledWith("A very long error message");
+  });
+
+  it("resumes auto-dismiss after a mouse click leaves focus on the chip", () => {
+    vi.useFakeTimers();
+    vi.spyOn(HTMLElement.prototype, "scrollWidth", "get").mockReturnValue(600);
+    vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(300);
+    const onDismiss = vi.fn();
+    render(<ConversationErrorChip message="A very long error message" onDismiss={onDismiss} />);
+
+    const alert = screen.getByRole("alert");
+    const expand = screen.getByRole("button", { name: "A very long error message" });
+
+    // A mouse click focuses the button on pointerdown; that focus must not
+    // pause the timer the way keyboard focus does.
+    fireEvent.pointerDown(alert);
+    fireEvent.focus(expand);
+    fireEvent.pointerUp(alert);
+    fireEvent.click(expand);
+    fireEvent.click(expand);
+
+    act(() => vi.advanceTimersByTime(5_000));
+    expect(onDismiss).toHaveBeenCalledWith("A very long error message");
   });
 });
