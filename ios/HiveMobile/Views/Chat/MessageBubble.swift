@@ -1058,6 +1058,28 @@ private struct AskUserQuestionContent: View {
 
 // MARK: - Whisper Chat Markdown Theme
 
+/// Caps a table cell's width so prose cells wrap at a readable measure.
+/// `frame(maxWidth:)` cannot do this here: it only clamps the size it reports
+/// and never proposes the cap to its child, so the table grid measures row
+/// heights as if every cell were a single line and wrapped cells overlap the
+/// rows below. A Layout proposes the cap during measurement, so the reported
+/// height is the wrapped height.
+private struct TableCellWidthCap: Layout {
+    let maxWidth: CGFloat
+
+    private func childProposal(_ proposal: ProposedViewSize) -> ProposedViewSize {
+        ProposedViewSize(width: min(proposal.width ?? maxWidth, maxWidth), height: proposal.height)
+    }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        subviews[0].sizeThatFits(childProposal(proposal))
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        subviews[0].place(at: bounds.origin, anchor: .topLeading, proposal: childProposal(proposal))
+    }
+}
+
 private let whisperLinkColor = Color.accentColor
 
 extension Theme {
@@ -1156,6 +1178,37 @@ extension Theme {
             .background(WhisperColor.codeBlockBg, in: RoundedRectangle(cornerRadius: 8))
             .markdownMargin(top: .em(0.4), bottom: .em(0.4))
         }
+        // ── Tables ──
+        // The stock table style squeezes columns into the bubble width, which
+        // collapses wide tables to one character per line. Let the grid take
+        // its natural width inside a horizontal scroll instead.
+        .table { configuration in
+            ScrollView(.horizontal) {
+                configuration.label
+                    .fixedSize(horizontal: true, vertical: true)
+                    .markdownTableBorderStyle(.init(color: WhisperColor.border))
+                    .markdownTableBackgroundStyle(
+                        .alternatingRows(Color.clear, WhisperColor.codeBlockBg)
+                    )
+            }
+            .markdownMargin(top: .em(0.4), bottom: .em(0.4))
+        }
+        .tableCell { configuration in
+            TableCellWidthCap(maxWidth: 260) {
+                configuration.label
+                    .markdownTextStyle {
+                        if configuration.row == 0 {
+                            FontWeight(.semibold)
+                        }
+                        BackgroundColor(nil)
+                        FontSize(.em(12.0 / 14))
+                    }
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(.vertical, 6)
+            .padding(.horizontal, 10)
+            .relativeLineSpacing(.em(0.25))
+        }
         // ── Blockquotes ──
         .blockquote { configuration in
             HStack(spacing: 0) {
@@ -1230,6 +1283,19 @@ extension Theme {
             ))
             MessageBubble(message: ChatMessage(
                 id: "3", sessionId: "s1", role: .assistant,
+                content: """
+                Findings summary:
+
+                | # | Finding | Category | Tag | Impact | Effort | Risk | Evidence |
+                | --- | --- | --- | --- | --- | --- | --- | --- |
+                | 1 | `tickets.md` sits untracked at repo root and leaks planning context into every session | housekeeping | intro | Low | Low | None | `tickets.md` at repo root |
+                | 2 | Retained error ref in session store keys on workspace+session so a blocking error can bleed | correctness | store | High | Medium | Low | `useSessionStore.ts` |
+                """,
+                images: nil, toolCalls: nil,
+                timestamp: "2026-02-17T12:00:30.000Z", cancelled: nil, durationMs: nil
+            ))
+            MessageBubble(message: ChatMessage(
+                id: "4", sessionId: "s1", role: .assistant,
                 content: "This was cancelled midway.",
                 images: nil, toolCalls: nil,
                 timestamp: "2026-02-17T12:01:00.000Z", cancelled: true, durationMs: 1500
