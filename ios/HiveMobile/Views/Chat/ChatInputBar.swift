@@ -29,6 +29,7 @@ struct ChatInputBar: View {
     @State private var showAttachmentError = false
     @State private var showModelMenu = false
     @State private var showEffortMenu = false
+    @State private var showOptionsMenu = false
 
     private var hiveAccent: Color {
         AccentOption(rawValue: accentId)?.color ?? AccentOption.violet.color
@@ -182,52 +183,46 @@ struct ChatInputBar: View {
         .padding(.horizontal, 16)
     }
 
-    /// Overflow menu grouping the output style picker and the fast mode toggle.
+    /// Compact popover grouping the output style picker and the fast mode toggle.
     private var optionsMenu: some View {
-        Menu {
-            if let effectiveOutputStyle {
-                Menu {
-                    ForEach(outputStyles, id: \.self) { style in
-                        Button {
-                            Haptics.selection()
-                            outputStyle = style
-                        } label: {
-                            if style == effectiveOutputStyle {
-                                Label(style.label, systemImage: "checkmark")
-                            } else {
-                                Text(style.label)
-                            }
-                        }
-                    }
-                } label: {
-                    Text("Output")
-                    Text(effectiveOutputStyle.label)
-                }
-                .disabled(isOutputStyleLocked)
-            }
-            if providerHasFastMode {
-                Button {
-                    Haptics.selection()
-                    fastModeEnabled.toggle()
-                } label: {
-                    if supportsFastMode && fastModeEnabled {
-                        Label("Fast mode", systemImage: "checkmark")
-                    } else if supportsFastMode {
-                        Text("Fast mode")
-                    } else {
-                        Text("Fast mode")
-                        Text("Opus only")
-                    }
-                }
-                .disabled(!supportsFastMode)
-            }
+        Button {
+            Haptics.selection()
+            showOptionsMenu = true
         } label: {
             Image(systemName: "slider.horizontal.3")
                 .font(.caption)
                 .foregroundStyle(isOptionsMenuActive ? hiveAccent : WhisperColor.textSecondary)
+                .frame(width: 28, height: 28)
+                .background(
+                    Capsule().fill(isOptionsMenuActive ? hiveAccent.opacity(0.15) : .clear)
+                )
+                .overlay(
+                    Capsule().stroke(
+                        isOptionsMenuActive ? hiveAccent.opacity(0.3) : .clear,
+                        lineWidth: 0.5
+                    )
+                )
         }
-        .frame(minHeight: 44)
+        .buttonStyle(.plain)
+        .frame(width: 44, height: 44)
+        .contentShape(Rectangle())
         .accessibilityLabel("More options")
+        .accessibilityValue(isOptionsMenuActive ? "Active" : "Inactive")
+        .popover(isPresented: $showOptionsMenu, attachmentAnchor: .rect(.bounds), arrowEdge: .bottom) {
+            ComposerOptionsPopover(
+                outputStyles: outputStyles,
+                outputStyle: $outputStyle,
+                selectedOutputStyle: effectiveOutputStyle,
+                isOutputStyleLocked: isOutputStyleLocked,
+                showsFastMode: providerHasFastMode,
+                supportsFastMode: supportsFastMode,
+                fastModeEnabled: $fastModeEnabled,
+                accent: hiveAccent
+            ) {
+                showOptionsMenu = false
+            }
+            .presentationCompactAdaptation(.popover)
+        }
     }
 
     // MARK: - Attachment Chip Tray
@@ -512,6 +507,211 @@ private struct SelectionMenu<Option: Hashable>: View {
         .padding(.vertical, 5)
         .frame(width: 180)
         .fixedSize(horizontal: false, vertical: true)
+    }
+}
+
+private struct ComposerOptionsPopover: View {
+    private enum Page: Equatable {
+        case options
+        case outputStyles
+    }
+
+    let outputStyles: [OutputStyle]
+    @Binding var outputStyle: OutputStyle
+    let selectedOutputStyle: OutputStyle?
+    let isOutputStyleLocked: Bool
+    let showsFastMode: Bool
+    let supportsFastMode: Bool
+    @Binding var fastModeEnabled: Bool
+    let accent: Color
+    let onDismiss: () -> Void
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var page = Page.options
+
+    var body: some View {
+        ZStack(alignment: .topLeading) {
+            switch page {
+            case .options:
+                optionsPage
+                    .transition(
+                        .asymmetric(
+                            insertion: .move(edge: .leading).combined(with: .opacity),
+                            removal: .move(edge: .leading).combined(with: .opacity)
+                        )
+                    )
+            case .outputStyles:
+                outputStylesPage
+                    .transition(
+                        .asymmetric(
+                            insertion: .move(edge: .trailing).combined(with: .opacity),
+                            removal: .move(edge: .trailing).combined(with: .opacity)
+                        )
+                    )
+            }
+        }
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.18), value: page)
+        .frame(width: 234)
+        .fixedSize(horizontal: false, vertical: true)
+        .clipped()
+        .onDisappear {
+            page = .options
+        }
+    }
+
+    private var optionsPage: some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Text("Options")
+                .font(.caption2)
+                .foregroundStyle(WhisperColor.textMuted)
+                .padding(.horizontal, 14)
+                .padding(.top, 12)
+                .padding(.bottom, 3)
+
+            if let selectedOutputStyle {
+                Button {
+                    page = .outputStyles
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "bubble.left")
+                            .foregroundStyle(WhisperColor.textSecondary)
+                            .frame(width: 15)
+
+                        Text("Output")
+                            .foregroundStyle(WhisperColor.text)
+
+                        Spacer(minLength: 8)
+
+                        Text(selectedOutputStyle.label)
+                            .foregroundStyle(WhisperColor.textMuted)
+                            .lineLimit(1)
+
+                        Image(systemName: isOutputStyleLocked ? "lock.fill" : "chevron.right")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(WhisperColor.textMuted)
+                            .frame(width: 12)
+                    }
+                    .font(.subheadline)
+                    .padding(.horizontal, 14)
+                    .frame(minHeight: 44)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .disabled(isOutputStyleLocked)
+                .opacity(isOutputStyleLocked ? 0.55 : 1)
+                .accessibilityLabel(
+                    isOutputStyleLocked
+                        ? "Output, \(selectedOutputStyle.label), locked"
+                        : "Output, \(selectedOutputStyle.label)"
+                )
+                .accessibilityHint(
+                    isOutputStyleLocked
+                        ? "Output style is fixed after the first message."
+                        : "Shows output styles."
+                )
+            }
+
+            if selectedOutputStyle != nil && showsFastMode {
+                Divider()
+                    .overlay(WhisperColor.hubSeparator)
+                    .padding(.leading, 37)
+            }
+
+            if showsFastMode {
+                Button {
+                    Haptics.selection()
+                    fastModeEnabled.toggle()
+                    onDismiss()
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "bolt.fill")
+                            .foregroundStyle(WhisperColor.textSecondary)
+                            .frame(width: 15)
+
+                        Text("Fast mode")
+                            .foregroundStyle(WhisperColor.text)
+
+                        Spacer(minLength: 8)
+
+                        if supportsFastMode {
+                            Image(systemName: "checkmark")
+                                .font(.footnote.weight(.semibold))
+                                .foregroundStyle(accent)
+                                .opacity(fastModeEnabled ? 1 : 0)
+                                .frame(width: 15)
+                        } else {
+                            Text("Opus only")
+                                .font(.caption)
+                                .foregroundStyle(WhisperColor.textMuted)
+                        }
+                    }
+                    .font(.subheadline)
+                    .padding(.horizontal, 14)
+                    .frame(minHeight: 44)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .disabled(!supportsFastMode)
+                .opacity(supportsFastMode ? 1 : 0.55)
+                .accessibilityLabel("Fast mode")
+                .accessibilityValue(supportsFastMode ? (fastModeEnabled ? "On" : "Off") : "Unavailable")
+                .accessibilityHint(supportsFastMode ? "Toggles Fast mode." : "Available for Opus only.")
+            }
+        }
+        .padding(.bottom, 5)
+    }
+
+    private var outputStylesPage: some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Button {
+                page = .options
+            } label: {
+                HStack(spacing: 5) {
+                    Image(systemName: "chevron.left")
+                        .font(.caption2.weight(.semibold))
+                    Text("Options")
+                }
+                .font(.caption)
+                .foregroundStyle(WhisperColor.textSecondary)
+                .padding(.horizontal, 14)
+                .frame(minHeight: 44)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Back to options")
+
+            Divider()
+                .overlay(WhisperColor.hubSeparator)
+
+            ForEach(outputStyles, id: \.self) { style in
+                Button {
+                    Haptics.selection()
+                    outputStyle = style
+                    onDismiss()
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "checkmark")
+                            .font(.footnote.weight(.semibold))
+                            .foregroundStyle(accent)
+                            .opacity(style == selectedOutputStyle ? 1 : 0)
+                            .frame(width: 15)
+
+                        Text(style.label)
+                            .foregroundStyle(WhisperColor.text)
+
+                        Spacer(minLength: 8)
+                    }
+                    .font(.subheadline)
+                    .padding(.horizontal, 14)
+                    .frame(minHeight: 44)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(style.label)
+                .accessibilityValue(style == selectedOutputStyle ? "Selected" : "")
+            }
+        }
+        .padding(.bottom, 5)
     }
 }
 
