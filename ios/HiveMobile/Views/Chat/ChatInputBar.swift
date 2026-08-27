@@ -202,10 +202,10 @@ struct ChatInputBar: View {
                         lineWidth: 0.5
                     )
                 )
+                .frame(width: 44, height: 44)
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .frame(width: 44, height: 44)
-        .contentShape(Rectangle())
         .accessibilityLabel("More options")
         .accessibilityValue(isOptionsMenuActive ? "Active" : "Inactive")
         .popover(isPresented: $showOptionsMenu, attachmentAnchor: .rect(.bounds), arrowEdge: .bottom) {
@@ -439,20 +439,11 @@ private struct ModelMenu: View {
                     Button {
                         onSelect(model.id)
                     } label: {
-                        HStack(spacing: 8) {
-                            Image(systemName: "checkmark")
-                                .font(.footnote.weight(.semibold))
-                                .foregroundStyle(accent)
-                                .opacity(model.id == selectedModelId ? 1 : 0)
-                                .frame(width: 15)
-                            Text(model.label)
-                                .foregroundStyle(.primary)
-                            Spacer(minLength: 8)
-                        }
-                        .font(.subheadline)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 9)
-                        .contentShape(Rectangle())
+                        PopoverCheckRow(
+                            label: model.label,
+                            isSelected: model.id == selectedModelId,
+                            accent: accent
+                        )
                     }
                     .buttonStyle(.plain)
                 }
@@ -486,20 +477,11 @@ private struct SelectionMenu<Option: Hashable>: View {
                 Button {
                     onSelect(option)
                 } label: {
-                    HStack(spacing: 8) {
-                        Image(systemName: "checkmark")
-                            .font(.footnote.weight(.semibold))
-                            .foregroundStyle(accent)
-                            .opacity(option == selectedOption ? 1 : 0)
-                            .frame(width: 15)
-                        Text(option[keyPath: label])
-                            .foregroundStyle(.primary)
-                        Spacer(minLength: 8)
-                    }
-                    .font(.subheadline)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 9)
-                    .contentShape(Rectangle())
+                    PopoverCheckRow(
+                        label: option[keyPath: label],
+                        isSelected: option == selectedOption,
+                        accent: accent
+                    )
                 }
                 .buttonStyle(.plain)
             }
@@ -689,29 +671,43 @@ private struct ComposerOptionsPopover: View {
                     outputStyle = style
                     onDismiss()
                 } label: {
-                    HStack(spacing: 8) {
-                        Image(systemName: "checkmark")
-                            .font(.footnote.weight(.semibold))
-                            .foregroundStyle(accent)
-                            .opacity(style == selectedOutputStyle ? 1 : 0)
-                            .frame(width: 15)
-
-                        Text(style.label)
-                            .foregroundStyle(WhisperColor.text)
-
-                        Spacer(minLength: 8)
-                    }
-                    .font(.subheadline)
-                    .padding(.horizontal, 14)
-                    .frame(minHeight: 44)
-                    .contentShape(Rectangle())
+                    PopoverCheckRow(
+                        label: style.label,
+                        isSelected: style == selectedOutputStyle,
+                        accent: accent
+                    )
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel(style.label)
-                .accessibilityValue(style == selectedOutputStyle ? "Selected" : "")
             }
         }
         .padding(.bottom, 5)
+    }
+}
+
+private struct PopoverCheckRow: View {
+    let label: String
+    let isSelected: Bool
+    let accent: Color
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "checkmark")
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(accent)
+                .opacity(isSelected ? 1 : 0)
+                .frame(width: 15)
+
+            Text(label)
+                .foregroundStyle(WhisperColor.text)
+
+            Spacer(minLength: 8)
+        }
+        .font(.subheadline)
+        .padding(.horizontal, 14)
+        .frame(minHeight: 44)
+        .contentShape(Rectangle())
+        .accessibilityLabel(label)
+        .accessibilityValue(isSelected ? "Selected" : "")
     }
 }
 
