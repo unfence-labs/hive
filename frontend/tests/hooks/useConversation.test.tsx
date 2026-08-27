@@ -1872,7 +1872,7 @@ describe("useConversation", () => {
     expect(result.current.isStreaming).toBe(false);
   });
 
-  it("surfaces REST history errors for the active session", async () => {
+  it("separates an initial REST history failure from transient errors", async () => {
     const { __apiMock } = await getApiMock();
     __apiMock.getMock.mockRejectedValue(new Error("network down"));
 
@@ -1883,10 +1883,53 @@ describe("useConversation", () => {
     });
 
     await waitFor(() => {
-      expect(result.current.error).toBe("Failed to load conversation history: network down");
+      expect(result.current.historyError).toBe("network down");
     });
-    expect(result.current.isHistoryError).toBe(true);
+    expect(result.current.error).toBeUndefined();
+    expect(result.current.isHistoryRetrying).toBe(false);
     expect(result.current.messages).toEqual([]);
+  });
+
+  it("surfaces a cached history refresh failure as transient and clears it on recovery", async () => {
+    const { __apiMock } = await getApiMock();
+    const { result, queryClient } = renderConversation("ws-1");
+    const key = sessionMessagesKey("ws-1", "sess-1");
+    queryClient.setQueryData(key, [
+      {
+        id: "a1",
+        sessionId: "sess-1",
+        role: "assistant",
+        content: "cached",
+        timestamp: "2026-02-12T00:00:00.000Z",
+      },
+    ]);
+    await activateSession("ws-1", "sess-1");
+    __apiMock.getMock.mockRejectedValueOnce(new Error("network down"));
+
+    await act(async () => {
+      await queryClient.invalidateQueries({ queryKey: key });
+    });
+
+    await waitFor(() => {
+      expect(result.current.error).toBe("Failed to refresh conversation history: network down");
+    });
+    expect(result.current.historyError).toBeUndefined();
+    expect(result.current.messages).toHaveLength(1);
+
+    __apiMock.getMock.mockResolvedValueOnce([
+      {
+        id: "a1",
+        sessionId: "sess-1",
+        role: "assistant",
+        content: "recovered",
+        timestamp: "2026-02-12T00:00:00.000Z",
+      },
+    ]);
+    await act(async () => {
+      await queryClient.invalidateQueries({ queryKey: key });
+    });
+
+    await waitFor(() => expect(result.current.error).toBeUndefined());
   });
 
   it("restores cached messages synchronously when switching to a previously-viewed session", async () => {
@@ -2972,6 +3015,41 @@ describe("useConversation", () => {
     expect(result.current.error).toBe("Connection lost");
     expect(result.current.isStreaming).toBe(false);
     expect(result.current.streamingStartedAt).toBeNull();
+  });
+
+  it("dismisses an error and allows the same message to appear again later", async () => {
+    const { __wsMock } = await getWsMock();
+    const { result } = renderConversation("ws-1");
+
+    act(() => {
+      __wsMock.emit("ws-1", { type: "error", message: "Connection lost" });
+    });
+    act(() => result.current.dismissError("Connection lost"));
+    expect(result.current.error).toBeUndefined();
+
+    act(() => {
+      __wsMock.emit("ws-1", { type: "error", message: "Connection lost" });
+    });
+    expect(result.current.error).toBe("Connection lost");
+  });
+
+  it("clears the active error when the session resumes streaming", async () => {
+    const { __wsMock } = await getWsMock();
+    const { result } = renderConversation("ws-1");
+
+    act(() => {
+      __wsMock.emit("ws-1", { type: "status", status: "idle", sessionId: "sess-1" });
+      __wsMock.emit("ws-1", { type: "error", sessionId: "sess-1", message: "Connection lost" });
+      __wsMock.emit("ws-1", {
+        type: "status",
+        status: "busy",
+        sessionId: "sess-1",
+        streaming: true,
+      });
+    });
+
+    expect(result.current.error).toBeUndefined();
+    expect(result.current.isStreaming).toBe(true);
   });
 
   // ── Stale error filtering on buffer replay ─────────────────────────

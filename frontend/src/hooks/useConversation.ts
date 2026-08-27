@@ -52,7 +52,10 @@ const emptyStreamState: SessionStreamState = {
 interface ConversationState {
   sessionStreams: Record<string, SessionStreamState>;
   workspaceStatus?: "idle" | "busy";
-  error?: string;
+  error?: {
+    message: string;
+    source: "runtime" | "history";
+  };
   sessionId?: string;
   lockedProvider?: string;
   switchCounter: number;
@@ -64,6 +67,9 @@ const TERMINAL_STATUS_RESYNC_DELAY_MS = 300;
 type LocalAction =
   | { type: "reset" }
   | { type: "clear_chat" }
+  | { type: "show_history_error"; message: string }
+  | { type: "clear_history_error" }
+  | { type: "clear_error"; message: string }
   | { type: "prepare_session_switch"; sessionId: string; preserveComposer?: boolean }
   | { type: "prepare_workspace_switch" }
   | { type: "clear_pending_tool_inputs" }
@@ -80,6 +86,15 @@ const initialState: ConversationState = {
   sessionId: undefined,
   switchCounter: 0,
 };
+
+function showError(
+  state: ConversationState,
+  message: string,
+  source: "runtime" | "history",
+): ConversationState {
+  if (state.error?.message === message && state.error.source === source) return state;
+  return { ...state, error: { message, source } };
+}
 
 // Replace the contiguous run of segments belonging to a reasoning block
 // (segment ids are `${blockId}:${index}`), or append when the block is new.
@@ -337,8 +352,10 @@ function reducer(state: ConversationState, action: Action): ConversationState {
       const sid = action.sessionId;
       const existing = state.sessionStreams[sid] ?? { ...emptyStreamState };
       const backendStartedAt = normalizeStreamingStartedAt(action.streamingStartedAt);
+      const isActive = !state.sessionId || sid === state.sessionId;
       return {
         ...state,
+        error: isActive ? undefined : state.error,
         sessionId: state.sessionId ?? sid,
         sessionStreams: {
           ...state.sessionStreams,
@@ -382,7 +399,16 @@ function reducer(state: ConversationState, action: Action): ConversationState {
       if (action.sessionId && state.sessionId && action.sessionId !== state.sessionId) {
         return state;
       }
-      return { ...state, error: action.message };
+      return showError(state, action.message, "runtime");
+
+    case "show_history_error":
+      return showError(state, action.message, "history");
+
+    case "clear_history_error":
+      return state.error?.source === "history" ? { ...state, error: undefined } : state;
+
+    case "clear_error":
+      return state.error?.message === action.message ? { ...state, error: undefined } : state;
 
     case "status": {
       const sid = action.sessionId ?? state.sessionId;
@@ -427,6 +453,7 @@ function reducer(state: ConversationState, action: Action): ConversationState {
 
       return {
         ...state,
+        error: newIsStreaming && sid === newSessionId ? undefined : state.error,
         workspaceStatus: action.status,
         sessionId: newSessionId,
         sessionStreams: newStreams,
@@ -573,8 +600,13 @@ export function useConversation(workspaceId: string | undefined) {
   const {
     messages,
     isLoading: isHistoryLoading,
+    isFetching: isHistoryFetching,
+    hasData: hasHistoryData,
     error: historyError,
+    errorUpdatedAt: historyErrorUpdatedAt,
+    retry: retryHistory,
   } = useSessionMessages(workspaceId, state.sessionId);
+  const historyRefreshErrorRef = useRef<string | undefined>(undefined);
 
   // Track latest state so the WS handler (set up once per workspace) can read the
   // current stream content and session id without re-subscribing.
@@ -707,6 +739,19 @@ export function useConversation(workspaceId: string | undefined) {
     dispatch({ type: "reconcile_history", sessionId: state.sessionId, messages });
   }, [messages, state.sessionId]);
 
+  useEffect(() => {
+    if (historyError && hasHistoryData) {
+      const message = `Failed to refresh conversation history: ${historyError}`;
+      historyRefreshErrorRef.current = message;
+      dispatch({ type: "show_history_error", message });
+      return;
+    }
+    if (historyRefreshErrorRef.current) {
+      historyRefreshErrorRef.current = undefined;
+      dispatch({ type: "clear_history_error" });
+    }
+  }, [hasHistoryData, historyError, historyErrorUpdatedAt]);
+
   const sendMessage = useCallback((
     content: string,
     images?: ImageAttachment[],
@@ -817,10 +862,7 @@ export function useConversation(workspaceId: string | undefined) {
 
   // Derive active session's stream state for the public API
   const activeStream = state.sessionId ? state.sessionStreams[state.sessionId] : undefined;
-  const historyErrorMessage = historyError
-    ? `Failed to load conversation history: ${historyError}`
-    : undefined;
-  const isHistoryError = !!historyError;
+  const blockingHistoryError = historyError && !hasHistoryData ? historyError : undefined;
 
   const answerQuestion = useCallback((toolCallId: string, answers: QuestionAnswer[]) => {
     if (!workspaceId) return;
@@ -901,10 +943,16 @@ export function useConversation(workspaceId: string | undefined) {
     }
   }, [workspaceId, activeStream?.pendingToolInputs, state.sessionId]);
 
+  const dismissError = useCallback((message: string) => {
+    dispatch({ type: "clear_error", message });
+  }, []);
+
   return {
     messages,
     isHistoryLoading,
-    isHistoryError,
+    historyError: blockingHistoryError,
+    isHistoryRetrying: !!blockingHistoryError && isHistoryFetching,
+    retryHistory,
     isStreaming: activeStream?.isStreaming ?? false,
     streamingStartedAt: activeStream?.streamingStartedAt ?? null,
     workspaceStatus: state.workspaceStatus,
@@ -914,7 +962,7 @@ export function useConversation(workspaceId: string | undefined) {
     activeAgentActivities: activeStream?.activeAgentActivities ?? [],
     pendingToolInputs: activeStream?.pendingToolInputs ?? [],
     connectionStatus,
-    error: state.error ?? historyErrorMessage,
+    error: state.error?.message,
     sessionId: state.sessionId,
     agentPlanMode: activeStream?.agentPlanMode,
     lockedProvider: state.lockedProvider,
@@ -930,5 +978,6 @@ export function useConversation(workspaceId: string | undefined) {
     approvePlan,
     rejectToolInput,
     dismissPlan,
+    dismissError,
   };
 }

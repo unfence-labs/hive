@@ -121,6 +121,43 @@ describe("useSessionMessages", () => {
       expect(result.current.error).toBe("network down");
     });
     expect(result.current.messages).toEqual([]);
+    expect(result.current.hasData).toBe(false);
+    expect(result.current.errorUpdatedAt).toBeGreaterThan(0);
+  });
+
+  it("retries an initial history failure and replaces it with loaded messages", async () => {
+    const { __apiMock } = await getApiMock();
+    __apiMock.getMock
+      .mockRejectedValueOnce(new Error("network down"))
+      .mockResolvedValueOnce([message("a1", "recovered")]);
+
+    const queryClient = newClient();
+    const { result } = renderHook(() => useSessionMessages("ws-1", "sess-1"), {
+      wrapper: wrapperFor(queryClient),
+    });
+    await waitFor(() => expect(result.current.error).toBe("network down"));
+
+    act(() => result.current.retry());
+
+    await waitFor(() => expect(result.current.messages).toEqual([message("a1", "recovered")]));
+    expect(result.current.error).toBeUndefined();
+    expect(result.current.hasData).toBe(true);
+  });
+
+  it("treats a failed refresh of cached empty history as non-blocking", async () => {
+    const { __apiMock } = await getApiMock();
+    const queryClient = newClient();
+    const key = sessionMessagesKey("ws-1", "sess-1");
+    queryClient.setQueryData<ChatMessage[]>(key, []);
+    __apiMock.getMock.mockRejectedValue(new Error("refresh failed"));
+
+    const { result } = renderHook(() => useSessionMessages("ws-1", "sess-1"), {
+      wrapper: wrapperFor(queryClient),
+    });
+
+    await waitFor(() => expect(result.current.error).toBe("refresh failed"));
+    expect(result.current.messages).toEqual([]);
+    expect(result.current.hasData).toBe(true);
   });
 
   it("does not fetch when there is no workspaceId", async () => {

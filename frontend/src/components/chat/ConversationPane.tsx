@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import ChatConversation from "@/components/ChatConversation";
 import QuestionPanel from "@/components/chat/QuestionPanel";
+import { ConversationErrorChip } from "@/components/chat/ConversationErrorChip";
 import { ConversationTabs } from "@/components/ConversationTabs";
 import TaskTracker from "@/components/TaskTracker";
 import type { GoalState } from "@/hooks/useGoalState";
@@ -57,8 +58,10 @@ export interface ConversationPaneProps {
   messages: ChatMessage[];
   /** True only on a cache-miss first history load; suppresses the empty state. */
   isHistoryLoading?: boolean;
-  /** True when the active REST history query failed; suppresses the empty state. */
-  isHistoryError?: boolean;
+  /** Initial REST history failure, shown as a recoverable conversation state. */
+  historyError?: string;
+  isHistoryRetrying?: boolean;
+  onRetryHistory?: () => void;
   streamingStartedAt?: number | null;
   currentStreamingText: string;
   currentReasoningSegments: ReasoningSegment[];
@@ -73,6 +76,7 @@ export interface ConversationPaneProps {
   switchCounter: number;
   agentPlanMode?: boolean;
   error?: string;
+  onDismissError: (message: string) => void;
   queuedMessage?: QueuedMessage | null;
   onClearQueue?: () => void;
   scrollToBottomTrigger: number;
@@ -128,7 +132,9 @@ export function ConversationPane({
   activeProvider,
   messages,
   isHistoryLoading,
-  isHistoryError,
+  historyError,
+  isHistoryRetrying,
+  onRetryHistory,
   streamingStartedAt,
   currentStreamingText,
   currentReasoningSegments,
@@ -142,6 +148,7 @@ export function ConversationPane({
   switchCounter,
   agentPlanMode,
   error,
+  onDismissError,
   queuedMessage,
   onClearQueue,
   scrollToBottomTrigger,
@@ -188,6 +195,10 @@ export function ConversationPane({
         onConversationActivate={onConversationActivate}
         activeProvider={activeProvider}
       />
+      <ConversationErrorChip
+        message={error}
+        onDismiss={onDismissError}
+      />
       <div className={!isFileTabActive ? "flex min-h-0 flex-1 flex-col" : "hidden"}>
         {activeIsTerminal ? (
           terminalView
@@ -196,7 +207,9 @@ export function ConversationPane({
             <ChatConversation
               messages={messages}
               isHistoryLoading={isHistoryLoading}
-              isHistoryError={isHistoryError}
+              historyError={historyError}
+              isHistoryRetrying={isHistoryRetrying}
+              onRetryHistory={onRetryHistory}
               isStreaming={isStreaming}
               streamingStartedAt={streamingStartedAt}
               currentStreamingText={currentStreamingText}
@@ -217,7 +230,6 @@ export function ConversationPane({
               emptyState={emptyState}
               switchCounter={switchCounter}
               agentPlanMode={agentPlanMode}
-              error={error}
               queuedMessage={queuedMessage}
               onClearQueue={onClearQueue}
               scrollToBottomTrigger={scrollToBottomTrigger}
