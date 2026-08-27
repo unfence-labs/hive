@@ -1058,6 +1058,28 @@ private struct AskUserQuestionContent: View {
 
 // MARK: - Whisper Chat Markdown Theme
 
+/// Caps a table cell's width so prose cells wrap at a readable measure.
+/// `frame(maxWidth:)` cannot do this here: it only clamps the size it reports
+/// and never proposes the cap to its child, so the table grid measures row
+/// heights as if every cell were a single line and wrapped cells overlap the
+/// rows below. A Layout proposes the cap during measurement, so the reported
+/// height is the wrapped height.
+private struct TableCellWidthCap: Layout {
+    let maxWidth: CGFloat
+
+    private func childProposal(_ proposal: ProposedViewSize) -> ProposedViewSize {
+        ProposedViewSize(width: min(proposal.width ?? maxWidth, maxWidth), height: proposal.height)
+    }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        subviews[0].sizeThatFits(childProposal(proposal))
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        subviews[0].place(at: bounds.origin, anchor: .topLeading, proposal: childProposal(proposal))
+    }
+}
+
 private let whisperLinkColor = Color.accentColor
 
 extension Theme {
@@ -1172,19 +1194,20 @@ extension Theme {
             .markdownMargin(top: .em(0.4), bottom: .em(0.4))
         }
         .tableCell { configuration in
-            configuration.label
-                .markdownTextStyle {
-                    if configuration.row == 0 {
-                        FontWeight(.semibold)
+            TableCellWidthCap(maxWidth: 260) {
+                configuration.label
+                    .markdownTextStyle {
+                        if configuration.row == 0 {
+                            FontWeight(.semibold)
+                        }
+                        BackgroundColor(nil)
+                        FontSize(.em(12.0 / 14))
                     }
-                    BackgroundColor(nil)
-                    FontSize(.em(12.0 / 14))
-                }
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: 260, alignment: .leading)
-                .padding(.vertical, 6)
-                .padding(.horizontal, 10)
-                .relativeLineSpacing(.em(0.25))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(.vertical, 6)
+            .padding(.horizontal, 10)
+            .relativeLineSpacing(.em(0.25))
         }
         // ── Blockquotes ──
         .blockquote { configuration in
