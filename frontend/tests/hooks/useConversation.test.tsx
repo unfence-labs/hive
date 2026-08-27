@@ -793,14 +793,16 @@ describe("useConversation", () => {
       __wsMock.emit("ws-1", { type: "status", status: "idle", sessionId: "sess-1", streaming: false });
     });
 
+    // The stale stream slot is cleared by the reconcile_history effect that
+    // runs after the messages render, so wait for it alongside the messages.
     await waitFor(() => {
       expect(result.current.messages).toEqual([
         expect.objectContaining({ id: "u1" }),
         expect.objectContaining({ id: "a1", content: "final answer from persistence" }),
       ]);
+      expect(result.current.activeToolCalls).toEqual([]);
+      expect(result.current.isStreaming).toBe(false);
     });
-    expect(result.current.activeToolCalls).toEqual([]);
-    expect(result.current.isStreaming).toBe(false);
     expect(__apiMock.getMock).toHaveBeenCalledTimes(2);
   });
 
