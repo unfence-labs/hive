@@ -727,17 +727,11 @@ private struct ReasoningThoughtRow: View {
     let thought: ReasoningSegment
 
     private var line: Text {
-        var result = Text("")
-        if let headline = thought.headline {
-            result = result + Text(headline).foregroundColor(WhisperColor.text)
-        }
-        if thought.headline != nil, thought.body != nil {
-            result = result + Text(" — ").foregroundColor(WhisperColor.textMuted)
-        }
-        if let body = thought.body {
-            result = result + Text(body).foregroundColor(WhisperColor.textSecondary)
-        }
-        return result
+        let headline = Text(thought.headline ?? "").foregroundColor(WhisperColor.text)
+        let separator = Text(thought.headline != nil && thought.body != nil ? " — " : "")
+            .foregroundColor(WhisperColor.textMuted)
+        let body = Text(thought.body ?? "").foregroundColor(WhisperColor.textSecondary)
+        return Text("\(headline)\(separator)\(body)")
     }
 
     var body: some View {
