@@ -238,9 +238,10 @@ struct ScriptLogView: View {
 
     private func lineText(_ line: AnsiLine) -> some View {
         let text = line.spans.reduce(Text("")) { partial, span in
-            partial + Text(span.text)
+            let styledSpan = Text(span.text)
                 .foregroundColor(color(for: span.color))
                 .fontWeight(span.bold ? .bold : .regular)
+            return Text("\(partial)\(styledSpan)")
         }
         return text
             .font(WhisperFont.mono(12))
