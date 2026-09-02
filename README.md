@@ -56,7 +56,7 @@ Hive runs on your own server, keeping your projects, workspaces, and agent sessi
 
 | Provider | Runtime | Models |
 |---|---|---|
-| Anthropic | Claude Code | Fable 5, Opus 5, Sonnet 5, Haiku 4.5 |
+| Anthropic | Claude Code | Fable 5.1, Opus 5, Sonnet 5, Haiku 4.5 |
 | OpenAI | Codex | GPT-5.6 Sol, GPT-5.6 Terra, GPT-5.6 Luna, GPT-5.5 |
 | Moonshot | Claude Code | K3, K3 1M, K2.7 Coding, K2.7 Coding Highspeed |
 

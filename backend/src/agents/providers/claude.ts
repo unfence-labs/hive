@@ -10,11 +10,12 @@ import {
 } from "./types.js";
 
 const CLAUDE_MODELS: ModelDefinition[] = [
-  // Fable 5 and Sonnet 5 ship with a 1M context window by default, so their
-  // cliValues need no explicit `[1m]` opt-in (unlike Opus 5). Fable 5's
-  // adaptive thinking is always on and depth is controlled via --effort; it
-  // has no fast mode.
-  { id: "fable-5", label: "Fable 5", cliValue: "claude-fable-5", contextWindow: 1_000_000 },
+  // Fable 5.1 and Sonnet 5 ship with a 1M context window by default, so their
+  // cliValues need no explicit `[1m]` opt-in (unlike Opus 5). Fable's adaptive
+  // thinking is always on and depth is controlled via --effort; it has no fast
+  // mode on the first-party API. The API rejects claude-fable-5-1 from Claude
+  // Code CLIs older than 2.1.251 with a 400.
+  { id: "fable-5-1", label: "Fable 5.1", cliValue: "claude-fable-5-1", aliases: ["fable-5"], contextWindow: 1_000_000 },
   { id: "opus-5", label: "Opus 5", cliValue: "claude-opus-5[1m]", aliases: ["opus-4-8", "opus-4-7"], isDefault: true, contextWindow: 1_000_000, supportsFastMode: true },
   { id: "sonnet-5", label: "Sonnet 5", cliValue: "claude-sonnet-5", aliases: ["sonnet-4-6"], contextWindow: 1_000_000 },
   { id: "haiku-4-5", label: "Haiku 4.5", cliValue: "claude-haiku-4-5", contextWindow: 200_000 },
