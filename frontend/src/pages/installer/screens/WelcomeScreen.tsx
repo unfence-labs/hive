@@ -187,7 +187,7 @@ export function WelcomeScreen({ onInstall, onConnected, onCancel }: WelcomeScree
                   onClick={() => setShowForm(true)}
                   className="cursor-pointer"
                 >
-                  I already have a server
+                  I already have a Hive instance
                 </Button>
               </div>
             </>
