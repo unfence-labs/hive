@@ -199,11 +199,13 @@ describe("Installer", () => {
     vi.useRealTimers();
   });
 
-  it("offers installing or connecting to an existing server, and nothing else", () => {
+  it("offers installing Hive or connecting to an existing instance, and nothing else", () => {
     render(<Installer client={createMockProvisionClient()} />);
 
     expect(screen.getByRole("button", { name: "Install on a server" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "I already have a server" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "I already have a Hive instance" }),
+    ).toBeInTheDocument();
     // The second path is the skip; there is no separate skip control, and with
     // no server configured there is no way to abandon the installer either.
     expect(screen.queryByRole("button", { name: /skip/i })).not.toBeInTheDocument();
@@ -232,7 +234,7 @@ describe("Installer", () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     render(<Installer client={createMockProvisionClient()} onClose={onClose} />);
 
-    await user.click(screen.getByRole("button", { name: "I already have a server" }));
+    await user.click(screen.getByRole("button", { name: "I already have a Hive instance" }));
     expectTransportSecurityWarning();
     await user.type(screen.getByLabelText("Address"), "100.64.0.10");
     await user.type(screen.getByLabelText("Access token"), "issued-token");
@@ -262,7 +264,7 @@ describe("Installer", () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     render(<Installer client={createMockProvisionClient()} onClose={onClose} />);
 
-    await user.click(screen.getByRole("button", { name: "I already have a server" }));
+    await user.click(screen.getByRole("button", { name: "I already have a Hive instance" }));
     await user.type(screen.getByLabelText("Address"), "100.64.0.10");
     await user.click(screen.getByRole("button", { name: "Connect" }));
 
