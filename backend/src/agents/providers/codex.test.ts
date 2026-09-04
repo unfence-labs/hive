@@ -17,9 +17,10 @@ describe("CodexProvider", () => {
 
   // ── Models ─────────────────────────────────────────────────────────
 
-  it("exposes the GPT-5.6 tiers and gpt-5.5", () => {
+  it("exposes the Codex 0.153 model catalog", () => {
     expect(provider.models.map((m) => m.id)).toEqual([
-      "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.5",
+      "gpt-6-astra", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna",
+      "gpt-5.3-codex-spark", "gpt-5.5",
     ]);
   });
 
@@ -28,15 +29,18 @@ describe("CodexProvider", () => {
     expect(defaults.map((m) => m.id)).toEqual(["gpt-5.6-sol"]);
   });
 
-  it("tracks the catalog context windows (372K for 5.6 tiers, 272K for 5.5)", () => {
-    for (const id of ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"]) {
-      expect(provider.models.find((m) => m.id === id)?.contextWindow).toBe(372_000);
+  it("tracks the catalog context windows", () => {
+    for (const id of ["gpt-6-astra", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.5"]) {
+      expect(provider.models.find((m) => m.id === id)?.contextWindow).toBe(272_000);
     }
-    expect(provider.models.find((m) => m.id === "gpt-5.5")?.contextWindow).toBe(272_000);
+    expect(provider.models.find((m) => m.id === "gpt-5.3-codex-spark")?.contextWindow)
+      .toBe(128_000);
   });
 
-  it("aliases retired gpt-5.3-codex to gpt-5.6-sol", () => {
+  it("aliases retired models to their catalog replacements", () => {
     expect(findModel(provider.models, "gpt-5.3-codex")?.id).toBe("gpt-5.6-sol");
+    expect(findModel(provider.models, "gpt-5.4")?.id).toBe("gpt-5.6-terra");
+    expect(findModel(provider.models, "gpt-5.4-mini")?.id).toBe("gpt-5.6-luna");
   });
 
   // ── Capabilities ───────────────────────────────────────────────────
@@ -47,19 +51,23 @@ describe("CodexProvider", () => {
     ]);
   });
 
-  it("exposes per-model effort ceilings for the GPT-5.6 tiers", () => {
+  it("exposes per-model effort ceilings for Astra and the GPT-5.6 tiers", () => {
     const levels = (id: string) => provider.models.find((m) => m.id === id)?.thinkingLevels;
+    expect(levels("gpt-6-astra")).toEqual(["low", "medium", "high", "xhigh", "max", "ultra"]);
     expect(levels("gpt-5.6-sol")).toEqual(["low", "medium", "high", "xhigh", "max", "ultra"]);
     expect(levels("gpt-5.6-terra")).toEqual(["low", "medium", "high", "xhigh", "max", "ultra"]);
     expect(levels("gpt-5.6-luna")).toEqual(["low", "medium", "high", "xhigh", "max"]);
-    // gpt-5.5 inherits the provider baseline.
+    // Codex Spark and GPT-5.5 inherit the provider baseline.
+    expect(levels("gpt-5.3-codex-spark")).toBeUndefined();
     expect(levels("gpt-5.5")).toBeUndefined();
   });
 
   it("exposes native personalities only for gpt-5.5", () => {
     expect(provider.models.find((model) => model.id === "gpt-5.5")?.outputStyles)
       .toEqual(["default", "friendly", "pragmatic", "none"]);
-    for (const id of ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"]) {
+    for (const id of [
+      "gpt-6-astra", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.3-codex-spark",
+    ]) {
       expect(provider.models.find((model) => model.id === id)?.outputStyles).toBeUndefined();
     }
   });

@@ -204,7 +204,7 @@ describe("getModelCatalog", () => {
 
     expect(codexModels.find((model) => model.id === "codex:gpt-5.5")?.capabilities.outputStyles)
       .toEqual(["default", "friendly", "pragmatic", "none"]);
-    for (const model of codexModels.filter((model) => model.id.startsWith("codex:gpt-5.6-"))) {
+    for (const model of codexModels.filter((model) => model.id !== "codex:gpt-5.5")) {
       expect(model.capabilities.outputStyles).toEqual([]);
     }
   });
@@ -273,7 +273,8 @@ describe("getModelCatalog", () => {
 
     const codexIds = catalog.models.filter((m) => m.provider === "codex").map((m) => m.id);
     expect(codexIds).toEqual([
-      "codex:gpt-5.6-sol", "codex:gpt-5.6-terra", "codex:gpt-5.6-luna", "codex:gpt-5.5",
+      "codex:gpt-6-astra", "codex:gpt-5.6-sol", "codex:gpt-5.6-terra",
+      "codex:gpt-5.6-luna", "codex:gpt-5.3-codex-spark", "codex:gpt-5.5",
     ]);
   });
 
@@ -282,9 +283,13 @@ describe("getModelCatalog", () => {
     const catalog = getModelCatalog();
 
     const byId = new Map(catalog.models.map((m) => [m.id, m]));
+    expect(byId.get("codex:gpt-6-astra")?.capabilities.thinkingLevels).toContain("ultra");
     expect(byId.get("codex:gpt-5.6-sol")?.capabilities.thinkingLevels).toContain("ultra");
     expect(byId.get("codex:gpt-5.6-luna")?.capabilities.thinkingLevels).not.toContain("ultra");
     expect(byId.get("codex:gpt-5.5")?.capabilities.thinkingLevels).toEqual([
+      "low", "medium", "high", "xhigh",
+    ]);
+    expect(byId.get("codex:gpt-5.3-codex-spark")?.capabilities.thinkingLevels).toEqual([
       "low", "medium", "high", "xhigh",
     ]);
   });
