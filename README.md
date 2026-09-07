@@ -23,19 +23,31 @@
 
 ---
 
-<!-- TODO(release): hero screenshot — drop the image into .github/assets/screenshot-hero.png
-     (workspace chat with a live diff is the money shot), then uncomment:
-
-<p align="center">
-  <img src=".github/assets/screenshot-hero.png" alt="A Hive workspace running an agent session" width="90%" />
-</p>
--->
-
 ## What is Hive?
 
-Hive is a control plane for AI coding agents. It manages your projects as **bare git repositories**, spins up **isolated workspaces** as git worktrees and branches, and keeps every agent conversation as a **resumable session** — so multiple agents can work in parallel without stepping on each other.
+Hive is a control plane for AI coding agents that you host yourself. It manages your projects as **bare git repositories**, spins up **isolated workspaces** as git worktrees and branches, and keeps every agent conversation as a **resumable session** — so multiple agents can work in parallel without stepping on each other. All of it runs on a server you own, a VPS or a machine at home. There is no Hive cloud: your repositories, workspaces, and agent sessions stay on infrastructure you control.
 
-Hive runs on your own server, keeping your projects, workspaces, and agent sessions under your control. Through an encrypted private network, that server is easily accessible from any Hive client: the web app, the Tauri desktop app, or the native SwiftUI iOS app. Every client uses the same REST and WebSocket protocols, so your work is available wherever you need it.
+<p align="center">
+  <img src=".github/assets/screenshots/hive-desktop.png" alt="Hive desktop workspace showing an agent session, live file changes, scripts, terminal output, and pull request status" width="100%" />
+</p>
+
+<p align="center">
+  <sub><strong>Desktop and web.</strong> Follow an agent's conversation, file changes, scripts, terminal output, and pull request status from one workspace.</sub>
+</p>
+
+<br />
+
+<p align="center">
+  <a href=".github/assets/screenshots/hive-mobile-hub.png"><img src=".github/assets/screenshots/hive-mobile-hub.png" alt="Hive iOS Hub showing projects and active workspaces" width="240" /></a>
+  <a href=".github/assets/screenshots/hive-mobile-workspace.png"><img src=".github/assets/screenshots/hive-mobile-workspace.png" alt="Hive iOS workspace overview showing git changes, pull request status, scripts, and conversations" width="240" /></a>
+  <a href=".github/assets/screenshots/hive-mobile-session.png"><img src=".github/assets/screenshots/hive-mobile-session.png" alt="Hive iOS agent conversation with reasoning, tool calls, model selection, and message composer" width="240" /></a>
+</p>
+
+<p align="center">
+  <sub><strong>iOS.</strong> Browse projects, track workspaces, and keep the conversation going from anywhere.</sub>
+</p>
+
+Through an encrypted private network, your Hive server is easily accessible from any client: the web app, the Tauri desktop app, or the native SwiftUI iOS app. Every client uses the same REST and WebSocket protocols, so you can start work from your desktop and pick it back up on your phone.
 
 <p align="center">
   <img src=".github/assets/hive-how-it-works.png" alt="Hive clients connect to the backend over an encrypted private network; the backend runs parallel agent workspaces and talks to GitHub" width="90%" />
