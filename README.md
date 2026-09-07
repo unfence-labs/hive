@@ -25,7 +25,7 @@
 
 ## What is Hive?
 
-Hive is a control plane for AI coding agents. It manages your projects as **bare git repositories**, spins up **isolated workspaces** as git worktrees and branches, and keeps every agent conversation as a **resumable session** — so multiple agents can work in parallel without stepping on each other.
+Hive is a control plane for AI coding agents that you host yourself. It manages your projects as **bare git repositories**, spins up **isolated workspaces** as git worktrees and branches, and keeps every agent conversation as a **resumable session** — so multiple agents can work in parallel without stepping on each other. All of it runs on a server you own, a VPS or a machine at home. There is no Hive cloud: your repositories, workspaces, and agent sessions stay on infrastructure you control.
 
 <p align="center">
   <img src=".github/assets/screenshots/hive-desktop.png" alt="Hive desktop workspace showing an agent session, live file changes, scripts, terminal output, and pull request status" width="100%" />
@@ -47,7 +47,7 @@ Hive is a control plane for AI coding agents. It manages your projects as **bare
   <sub><strong>iOS.</strong> Browse projects, track workspaces, and keep the conversation going from anywhere.</sub>
 </p>
 
-Hive runs on your own server, keeping your projects, workspaces, and agent sessions under your control. Through an encrypted private network, that server is easily accessible from any Hive client: the web app, the Tauri desktop app, or the native SwiftUI iOS app. Every client uses the same REST and WebSocket protocols, so you can start work from your desktop and pick it back up on your phone.
+Through an encrypted private network, your Hive server is easily accessible from any client: the web app, the Tauri desktop app, or the native SwiftUI iOS app. Every client uses the same REST and WebSocket protocols, so you can start work from your desktop and pick it back up on your phone.
 
 <p align="center">
   <img src=".github/assets/hive-how-it-works.png" alt="Hive clients connect to the backend over an encrypted private network; the backend runs parallel agent workspaces and talks to GitHub" width="90%" />
