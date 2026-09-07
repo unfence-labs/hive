@@ -17,7 +17,7 @@
 [![SwiftUI](https://img.shields.io/badge/SwiftUI-iOS-F05138?logo=swift&logoColor=white)](https://developer.apple.com/xcode/swiftui/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.9-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org)
 
-[Screenshots](#one-workspace-every-screen) · [Features](#features) · [Supported Models](#supported-models) · [Getting Started](#getting-started) · [Documentation](#documentation) · [Contributing](#contributing)
+[Features](#features) · [Supported Models](#supported-models) · [Getting Started](#getting-started) · [Documentation](#documentation) · [Contributing](#contributing)
 
 </div>
 
@@ -28,48 +28,30 @@
 </p>
 
 <p align="center">
-  <sub>Run an agent and follow its conversation, file changes, scripts, terminal output, and pull request status from one workspace.</sub>
+  <sub><strong>Desktop and web.</strong> Follow an agent's conversation, file changes, scripts, terminal output, and pull request status from one workspace.</sub>
+</p>
+
+<br />
+
+<p align="center">
+  <a href=".github/assets/screenshots/hive-mobile-hub.png"><img src=".github/assets/screenshots/hive-mobile-hub.png" alt="Hive iOS Hub showing projects and active workspaces" width="240" /></a>
+  <a href=".github/assets/screenshots/hive-mobile-workspace.png"><img src=".github/assets/screenshots/hive-mobile-workspace.png" alt="Hive iOS workspace overview showing git changes, pull request status, scripts, and conversations" width="240" /></a>
+  <a href=".github/assets/screenshots/hive-mobile-session.png"><img src=".github/assets/screenshots/hive-mobile-session.png" alt="Hive iOS agent conversation with reasoning, tool calls, model selection, and message composer" width="240" /></a>
+</p>
+
+<p align="center">
+  <sub><strong>iOS.</strong> Browse projects, track workspaces, and keep the conversation going from anywhere.</sub>
 </p>
 
 ## What is Hive?
 
 Hive is a control plane for AI coding agents. It manages your projects as **bare git repositories**, spins up **isolated workspaces** as git worktrees and branches, and keeps every agent conversation as a **resumable session** — so multiple agents can work in parallel without stepping on each other.
 
-Hive runs on your own server, keeping your projects, workspaces, and agent sessions under your control. Through an encrypted private network, that server is easily accessible from any Hive client: the web app, the Tauri desktop app, or the native SwiftUI iOS app. Every client uses the same REST and WebSocket protocols, so your work is available wherever you need it.
+Hive runs on your own server, keeping your projects, workspaces, and agent sessions under your control. Through an encrypted private network, that server is easily accessible from any Hive client: the web app, the Tauri desktop app, or the native SwiftUI iOS app. Every client uses the same REST and WebSocket protocols, so you can start work from your desktop and pick it back up on your phone.
 
 <p align="center">
   <img src=".github/assets/hive-how-it-works.png" alt="Hive clients connect to the backend over an encrypted private network; the backend runs parallel agent workspaces and talks to GitHub" width="90%" />
 </p>
-
-## One workspace, every screen
-
-Start work from your desktop or browser, then monitor it and keep the conversation going from the native iOS app. Every client connects to the same projects, workspaces, and sessions.
-
-<table>
-  <tr>
-    <td align="center" width="33%">
-      <a href=".github/assets/screenshots/hive-mobile-hub.png">
-        <img src=".github/assets/screenshots/hive-mobile-hub.png" alt="Hive iOS Hub showing projects and active workspaces" width="100%" />
-      </a>
-      <br />
-      <sub><strong>Browse projects</strong><br />See every workspace and its status.</sub>
-    </td>
-    <td align="center" width="33%">
-      <a href=".github/assets/screenshots/hive-mobile-workspace.png">
-        <img src=".github/assets/screenshots/hive-mobile-workspace.png" alt="Hive iOS workspace overview showing git changes, pull request status, scripts, and conversations" width="100%" />
-      </a>
-      <br />
-      <sub><strong>Track workspaces</strong><br />Check changes, scripts, and pull requests.</sub>
-    </td>
-    <td align="center" width="33%">
-      <a href=".github/assets/screenshots/hive-mobile-session.png">
-        <img src=".github/assets/screenshots/hive-mobile-session.png" alt="Hive iOS agent conversation with reasoning, tool calls, model selection, and message composer" width="100%" />
-      </a>
-      <br />
-      <sub><strong>Continue sessions</strong><br />Follow agents and respond from anywhere.</sub>
-    </td>
-  </tr>
-</table>
 
 ## Features
 
