@@ -226,8 +226,9 @@ export default function RestoreWorkspaceDialog({
                     <Button
                       variant="ghost"
                       size="icon-xs"
+                      // Same affordance as the sidebar archive button: muted, red on hover.
                       className={cn(
-                        "shrink-0 opacity-0 transition-opacity focus-visible:opacity-100 group-hover/row:opacity-100",
+                        "shrink-0 text-muted-foreground opacity-0 transition-[opacity,color] hover:bg-transparent hover:text-destructive focus-visible:opacity-100 group-hover/row:opacity-100",
                         selected && "opacity-100",
                       )}
                       disabled={restoringId !== null || deleteArchive.isPending}

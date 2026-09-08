@@ -17,9 +17,20 @@ export function useArchivedWorkspaces(projectId: string | undefined, enabled: bo
 export function useRestoreWorkspace(projectId: string | undefined) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (wsId: string) => api.post<Workspace>(`/api/workspaces/${wsId}/restore`),
+    mutationFn: async (wsId: string) => {
+      const workspace = await api.post<Workspace>(`/api/workspaces/${wsId}/restore`);
+      // The picker keeps its row spinner until this settles, so land the
+      // sidebar row and warm the workspace view before the dialog closes.
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["projects"] }),
+        queryClient.prefetchQuery({
+          queryKey: ["workspace", workspace.id],
+          queryFn: () => api.get<Workspace>(`/api/workspaces/${workspace.id}`),
+        }),
+      ]);
+      return workspace;
+    },
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["projects"] });
       void queryClient.invalidateQueries({ queryKey: ["project-archives", projectId] });
       invalidateWorkspaceSources(queryClient, projectId);
     },
