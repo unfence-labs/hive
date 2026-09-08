@@ -40,12 +40,14 @@ final class ProjectStore {
     private let archiveWorkspaceClosure: @MainActor (String) async throws -> Void
     private var hasFetchedOnce = false
     private var lastRefreshedAt = Date.distantPast
-    /// Tombstones for archived workspaces, kept only until a refresh confirms
-    /// the server no longer returns them. They guard against a stale snapshot
-    /// fetched before the archive completed. Once a refresh payload omits an
-    /// id, the tombstone is dropped, so a later refresh that contains the id
-    /// again (the workspace was restored elsewhere) shows the workspace.
-    private var archivedIds: Set<String> = []
+    /// Tombstones for archived workspaces, keyed by the refresh generation
+    /// that was current when the archive completed. Only a fetch that started
+    /// before the archive completed can carry a stale copy of the workspace, so
+    /// a tombstone is dropped as soon as a later refresh returns, whatever its
+    /// payload says. A workspace restored elsewhere with the same id therefore
+    /// shows up on the next refresh.
+    private var archivedIds: [String: Int] = [:]
+    private var refreshGeneration = 0
 
     init(
         storeCache: ConversationStoreCache,
@@ -204,7 +206,7 @@ final class ProjectStore {
         do {
             try await archiveWorkspaceClosure(id)
             pendingArchiveIds.remove(id)
-            archivedIds.insert(id)
+            archivedIds[id] = refreshGeneration
             syncMonitoredWorkspaces()
         } catch {
             pendingArchiveIds.remove(id)
@@ -259,12 +261,19 @@ final class ProjectStore {
         isLoading = true
         errorMessage = nil
         refreshFailedWithCachedData = false
+        refreshGeneration += 1
+        let generation = refreshGeneration
+        defer {
+            if generation == refreshGeneration { isLoading = false }
+        }
         do {
             async let projectsTask = fetchProjectsClosure()
             async let preferencesTask = fetchPreferencesClosure()
 
             var fresh = try await projectsTask
             let preferences = (try? await preferencesTask) ?? .empty
+            // A newer request owns the snapshot and its loading/error state.
+            guard generation == refreshGeneration else { return }
 
             // Enrich workspaces with parent project metadata for downstream views.
             for i in fresh.indices {
@@ -275,13 +284,12 @@ final class ProjectStore {
             }
             // A refresh must not resurrect an archived workspace: neither one
             // whose archive is still in flight, nor one from a stale snapshot
-            // fetched before an archive completed. Once the payload omits an
-            // archived id, the server has confirmed the removal and the
-            // tombstone is dropped so a restore elsewhere can show it again.
-            let hiddenIds = pendingArchiveIds.union(archivedIds)
+            // fetched before an archive completed. Tombstones from earlier
+            // generations predate this fetch, so this payload is authoritative
+            // for them and they are dropped.
+            archivedIds = archivedIds.filter { $0.value >= generation }
+            let hiddenIds = pendingArchiveIds.union(archivedIds.keys)
             if !hiddenIds.isEmpty {
-                let fetchedIds = Set(fresh.flatMap(\.workspaces).map(\.id))
-                archivedIds = archivedIds.intersection(fetchedIds)
                 for i in fresh.indices {
                     fresh[i].workspaces.removeAll { hiddenIds.contains($0.id) }
                 }
@@ -296,12 +304,12 @@ final class ProjectStore {
         } catch is CancellationError {
             // View disappeared — ignore
         } catch {
+            guard generation == refreshGeneration else { return }
             fetchFailure = Self.classify(error)
             if !projects.isEmpty, userInitiated {
                 refreshFailedWithCachedData = true
             }
         }
-        isLoading = false
     }
 
     /// Dismiss the transient pull-to-refresh failure notice.

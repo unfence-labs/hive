@@ -603,6 +603,32 @@ describe("restoreWorkspace", () => {
     expect((await getWorkspace(ws.id, dataDir))?.workspace.id).toBe(ws.id);
   });
 
+  it("allows retry after project persistence fails with all sessions already moved", async () => {
+    const ws = await createWorkspace(projectId, dataDir);
+    await writeSessionFixture(ws.id, "session-a");
+    await archiveWorkspace(ws.id, dataDir);
+    const save = vi.spyOn(stateStore, "saveProject").mockRejectedValueOnce(new Error("save failed"));
+    await expect(restoreWorkspace(ws.id, dataDir)).rejects.toThrow("save failed");
+    save.mockRestore();
+
+    await restoreWorkspace(ws.id, dataDir);
+    expect((await listWorkspaceSessions(ws.id, dataDir)).map((s) => s.sessionId)).toEqual(["session-a"]);
+    expect(await listWorkspaces(projectId, dataDir)).toHaveLength(1);
+  });
+
+  it("hides and protects a residual archive of an active workspace", async () => {
+    const ws = await createWorkspace(projectId, dataDir);
+    // Leftover archive metadata for a live workspace (archive cleanup that
+    // never completed) must neither be listed nor deletable.
+    const archiveDir = join(dataDir, projectId, "archive", ws.id);
+    await mkdir(archiveDir, { recursive: true });
+    await writeFile(join(archiveDir, "workspace.json"), JSON.stringify(ws), "utf-8");
+
+    expect(await listArchivedWorkspaceItems(projectId, dataDir)).toEqual([]);
+    await expect(deleteArchivedWorkspace(ws.id, dataDir)).rejects.toThrow("active workspace");
+    expect(existsSync(archiveDir)).toBe(true);
+  });
+
   it("refuses when the branch was deleted and keeps the archive", async () => {
     const ws = await createWorkspace(projectId, dataDir);
     await archiveWorkspace(ws.id, dataDir);
@@ -698,6 +724,20 @@ describe("deleteArchivedWorkspace", () => {
 
   it("throws NotFoundError for an unknown id", async () => {
     await expect(deleteArchivedWorkspace("nonexistent", dataDir)).rejects.toThrow("not found");
+  });
+
+  it("only resolves listed archive ids, never a path built from the request", async () => {
+    const ws = await createWorkspace(projectId, dataDir);
+    await archiveWorkspace(ws.id, dataDir);
+    const archiveDir = join(dataDir, projectId, "archive", ws.id);
+
+    // Both ids name existing directories once joined under archive/; the
+    // project dir must survive the delete attempt.
+    await expect(deleteArchivedWorkspace("..", dataDir)).rejects.toThrow("not found");
+    await expect(deleteArchivedWorkspace(`../archive/${ws.id}`, dataDir)).rejects.toThrow("not found");
+    await expect(restoreWorkspace(`../archive/${ws.id}`, dataDir)).rejects.toThrow("not found");
+    expect(existsSync(archiveDir)).toBe(true);
+    expect(existsSync(join(dataDir, projectId, "state.json"))).toBe(true);
   });
 });
 

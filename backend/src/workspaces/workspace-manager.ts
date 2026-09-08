@@ -80,7 +80,7 @@ export async function listArchivedWorkspaceItems(
   const bare = bareRepoPath(dataDir, projectId);
   const archived = await listArchivedWorkspaces(projectId, dataDir);
   const items = await Promise.all(
-    archived.map(async (ws) => {
+    archived.filter((ws) => !findWorkspace(state, ws.id)).map(async (ws) => {
       const branchExists = await localBranchExists(bare, ws.branch);
       return {
         id: ws.id,
@@ -526,11 +526,14 @@ export async function archiveWorkspace(
   );
 }
 
-/** Archives are keyed by workspace id under each project; find the owning project. */
+/**
+ * Find the project owning an archive. Matching against the listed archive ids
+ * keeps a request-supplied id from naming any path outside the archive root.
+ */
 async function findArchiveProjectId(wsId: string, dataDir: string): Promise<string | undefined> {
   for (const project of await loadAllProjects(dataDir)) {
-    const entry = await stat(join(dataDir, project.id, "archive", wsId)).catch(() => null);
-    if (entry?.isDirectory()) return project.id;
+    const archived = await listArchivedWorkspaces(project.id, dataDir);
+    if (archived.some((ws) => ws.id === wsId)) return project.id;
   }
   return undefined;
 }
@@ -559,6 +562,11 @@ export async function deleteArchivedWorkspace(
     projectId,
     async () => {
       const archiveDir = join(dataDir, projectId, "archive", wsId);
+      const state = await loadProject(projectId, dataDir);
+      if (!state) throw new NotFoundError(`Project ${projectId} not found`);
+      if (findWorkspace(state, wsId)) {
+        throw new ConflictError("Cannot delete the archive of an active workspace");
+      }
       const archived = await readArchivedWorkspace(archiveDir, wsId);
       await deleteOwnedBranch(bareRepoPath(dataDir, projectId), archived);
       await rm(archiveDir, { recursive: true, force: true });
@@ -615,8 +623,8 @@ export async function restoreWorkspace(
         let entries: Dirent[] = [];
         try {
           entries = await readdir(archivedSessionsDir, { withFileTypes: true });
-        } catch {
-          // No archived sessions
+        } catch (err) {
+          if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
         }
         if (entries.length > 0) await mkdir(sessionsRoot, { recursive: true });
         for (const entry of entries) {
@@ -627,7 +635,8 @@ export async function restoreWorkspace(
         latest.workspaces.push(workspace);
         await saveProject(latest, dataDir);
       } catch (err) {
-        // Keep the archive intact when a post-worktree step fails
+        // Keep the archive metadata when a post-worktree step fails. Sessions
+        // already moved stay in place; the next restore attempt completes them.
         await removeWorktreeOrDeleteDirectory(bare, wsPath);
         throw err;
       }
