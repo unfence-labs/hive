@@ -76,6 +76,7 @@ interface AppLayoutProps {
   isResyncing?: boolean;
   onAddProject: () => void;
   onNewWorkspaceFrom?: (projectId: string) => void;
+  onRestoreWorkspace?: (projectId: string) => void;
   onAddAutomation?: () => void;
 }
 
@@ -84,6 +85,7 @@ export default function AppLayout({
   onAddProject,
   onAddAutomation,
   onNewWorkspaceFrom,
+  onRestoreWorkspace,
 }: AppLayoutProps) {
   const { pathname } = useLocation();
   const isSettings = pathname.startsWith("/settings");
@@ -175,6 +177,7 @@ export default function AppLayout({
               onAddProject={onAddProject}
               onAddAutomation={onAddAutomation}
               onNewWorkspaceFrom={onNewWorkspaceFrom}
+              onRestoreWorkspace={onRestoreWorkspace}
             />
           )}
         </Panel>

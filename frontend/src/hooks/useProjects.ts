@@ -1,5 +1,5 @@
 import { useCallback } from "react";
-import { useQuery, useMutation, useMutationState, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useMutation, useMutationState, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { api } from "./useApi";
 import type { CreateWorkspaceSource, Project, Workspace } from "@/types";
@@ -83,15 +83,15 @@ function formatProjectsError(error: unknown): string {
   return "Unable to load repositories.";
 }
 
+/** Drop cached picker lists whose workspace annotations just changed. */
+export function invalidateWorkspaceSources(queryClient: QueryClient, projectId?: string) {
+  for (const key of ["project-branches", "project-pulls"]) {
+    void queryClient.invalidateQueries({ queryKey: projectId ? [key, projectId] : [key] });
+  }
+}
+
 export function useProjects() {
   const queryClient = useQueryClient();
-
-  /** Drop cached picker lists whose workspace annotations just changed. */
-  function invalidateWorkspaceSources(projectId?: string) {
-    for (const key of ["project-branches", "project-pulls"]) {
-      void queryClient.invalidateQueries({ queryKey: projectId ? [key, projectId] : [key] });
-    }
-  }
 
   const query = useQuery({
     queryKey: ["projects"],
@@ -166,7 +166,7 @@ export function useProjects() {
             : { ...p, workspaces: [...p.workspaces, workspace] },
         ) ?? [],
       );
-      invalidateWorkspaceSources(projectId);
+      invalidateWorkspaceSources(queryClient, projectId);
     },
   });
 
@@ -220,7 +220,8 @@ export function useProjects() {
           workspaces: p.workspaces.filter((ws) => ws.id !== wsId),
         })) ?? [],
       );
-      invalidateWorkspaceSources();
+      invalidateWorkspaceSources(queryClient);
+      void queryClient.invalidateQueries({ queryKey: ["project-archives"] });
     },
     onError: (err, _wsId, removed) => {
       toast.error(

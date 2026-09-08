@@ -131,6 +131,7 @@ function SettingsStateProbe() {
 }
 
 const onNewWorkspaceFromMock = vi.fn();
+const onRestoreWorkspaceMock = vi.fn();
 
 function SidebarRoute({ isResyncing = false }: { isResyncing?: boolean }) {
   const location = useLocation();
@@ -140,6 +141,7 @@ function SidebarRoute({ isResyncing = false }: { isResyncing?: boolean }) {
         isResyncing={isResyncing}
         onAddProject={vi.fn()}
         onNewWorkspaceFrom={onNewWorkspaceFromMock}
+        onRestoreWorkspace={onRestoreWorkspaceMock}
       />
       <div data-testid="location-path">{location.pathname}</div>
     </>
@@ -1289,6 +1291,19 @@ describe("Sidebar", () => {
 
     expect(onNewWorkspaceFromMock).toHaveBeenCalledWith("p1");
     expect(api.post).not.toHaveBeenCalledWith("/api/projects/p1/workspaces");
+  });
+
+  it("offers 'Restore workspace…' in the add button context menu", async () => {
+    onRestoreWorkspaceMock.mockClear();
+    const user = userEvent.setup();
+    renderSidebar("/projects", projects);
+    await screen.findByText(withTextContent("acme/alpha"));
+
+    fireEvent.contextMenu(screen.getByRole("button", { name: "Add workspace to acme/alpha" }));
+    await user.click(await screen.findByText("Restore workspace…"));
+
+    expect(onRestoreWorkspaceMock).toHaveBeenCalledWith("p1");
+    expect(api.post).not.toHaveBeenCalled();
   });
 
   it("shows the streaming indicator on a streaming workspace and hides it when idle", async () => {

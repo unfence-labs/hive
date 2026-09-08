@@ -77,18 +77,25 @@ struct ProjectStoreArchiveTests {
         )
     }
 
-    private func sampleProject() -> Project {
+    private func sampleProject(workspaceIds: [String] = ["w1", "w2", "w3"]) -> Project {
         Project(
             id: "p1",
             name: "Project p1",
             url: nil,
             createdAt: "2026-01-01T00:00:00.000Z",
-            workspaces: [
-                sampleWorkspace(id: "w1"),
-                sampleWorkspace(id: "w2"),
-                sampleWorkspace(id: "w3")
-            ]
+            workspaces: workspaceIds.map { sampleWorkspace(id: $0) }
         )
+    }
+
+    /// Builds a fetch closure that returns `payloads` in order, repeating the
+    /// last one once the sequence is exhausted.
+    private func sequencedFetch(_ payloads: [[Project]]) -> @MainActor () async throws -> [Project] {
+        let fetchCount = Counter()
+        return {
+            let index = min(fetchCount.value, payloads.count - 1)
+            fetchCount.value += 1
+            return payloads[index]
+        }
     }
 
     private func makeStore(
@@ -222,6 +229,111 @@ struct ProjectStoreArchiveTests {
 
         // A failed archive leaves the workspace alive server-side; it must
         // survive subsequent refreshes, not be treated as archived.
+        await store.refresh(force: true)
+        #expect(workspaceIds(store) == ["w1", "w2", "w3"])
+    }
+
+    @Test(arguments: [false, true])
+    func olderRefreshCannotOverwriteNewerSnapshotOrErrorState(fails: Bool) async {
+        let fetchGate = ArchiveGate()
+        let fetchCount = Counter()
+        let original = [sampleProject()]
+        let archived = [sampleProject(workspaceIds: ["w1", "w3"])]
+        let (store, _) = makeStore(
+            archiveWorkspace: { _ in },
+            fetchProjects: {
+                fetchCount.value += 1
+                if fetchCount.value == 2 {
+                    try await fetchGate.wait()
+                    return original
+                }
+                return fetchCount.value == 1 ? original : archived
+            }
+        )
+        await store.refresh()
+        let oldRefresh = Task { await store.refresh(force: true, userInitiated: true) }
+        await fetchGate.entered()
+        await store.archiveWorkspace(id: "w2")
+
+        // This authoritative response drops the tombstone before the old fetch returns.
+        await store.refresh(force: true)
+        #expect(workspaceIds(store) == ["w1", "w3"])
+        fetchGate.resume(fails ? .failure(ArchiveError()) : .success(()))
+        await oldRefresh.value
+
+        #expect(workspaceIds(store) == ["w1", "w3"])
+        #expect(store.fetchFailure == nil)
+        #expect(store.refreshFailedWithCachedData == false)
+        #expect(store.isLoading == false)
+    }
+
+    @Test
+    func olderRefreshDoesNotClearLoadingWhileNewerFetchIsPending() async {
+        let oldGate = ArchiveGate()
+        let newGate = ArchiveGate()
+        let fetchCount = Counter()
+        let snapshot = [sampleProject()]
+        let (store, _) = makeStore(
+            archiveWorkspace: { _ in },
+            fetchProjects: {
+                fetchCount.value += 1
+                let call = fetchCount.value
+                if call == 2 { try await oldGate.wait() }
+                if call == 3 { try await newGate.wait() }
+                return snapshot
+            }
+        )
+        await store.refresh()
+        let oldRefresh = Task { await store.refresh(force: true) }
+        await oldGate.entered()
+        let newRefresh = Task { await store.refresh(force: true) }
+        await newGate.entered()
+
+        oldGate.resume()
+        await oldRefresh.value
+        #expect(store.isLoading)
+        newGate.resume()
+        await newRefresh.value
+        #expect(store.isLoading == false)
+    }
+
+    @Test
+    func tombstoneDropsOnceServerConfirmsRemovalSoRestoreShowsWorkspace() async {
+        let (store, _) = makeStore(
+            archiveWorkspace: { _ in },
+            fetchProjects: sequencedFetch([
+                [sampleProject()],
+                [sampleProject(workspaceIds: ["w1", "w3"])],
+                [sampleProject()]
+            ])
+        )
+        await store.refresh()
+        #expect(workspaceIds(store) == ["w1", "w2", "w3"])
+
+        await store.archiveWorkspace(id: "w2")
+        #expect(workspaceIds(store) == ["w1", "w3"])
+
+        // The server no longer returns w2: the archive is confirmed and the
+        // tombstone is dropped.
+        await store.refresh(force: true)
+        #expect(workspaceIds(store) == ["w1", "w3"])
+
+        // w2 was restored on another client with the same id; it must show.
+        await store.refresh(force: true)
+        #expect(workspaceIds(store) == ["w1", "w2", "w3"])
+    }
+
+    @Test
+    func refreshStartedAfterArchiveShowsWorkspaceRestoredElsewhere() async {
+        let (store, _) = makeStore(archiveWorkspace: { _ in })
+        await store.refresh()
+
+        await store.archiveWorkspace(id: "w2")
+        #expect(workspaceIds(store) == ["w1", "w3"])
+
+        // No refresh observed the archived state before w2 was restored on
+        // another client. A fetch started after the archive completed is
+        // authoritative, so the returned w2 must show.
         await store.refresh(force: true)
         #expect(workspaceIds(store) == ["w1", "w2", "w3"])
     }

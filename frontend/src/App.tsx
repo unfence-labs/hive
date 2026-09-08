@@ -116,6 +116,7 @@ function ConfiguredApp({
   // "New workspace from…" picker — owned here so both the global shortcuts
   // (WorkspaceLauncher) and the sidebar "+" context menu can open it.
   const [workspaceFrom, setWorkspaceFrom] = useState<{ open: boolean; projectId?: string }>({ open: false });
+  const [restoreWorkspace, setRestoreWorkspace] = useState<{ open: boolean; projectId?: string }>({ open: false });
   const workspaceIds = useMemo(
     () =>
       Array.from(
@@ -156,6 +157,11 @@ function ConfiguredApp({
           onPickerOpenChange={(open) =>
             setWorkspaceFrom((prev) => (open ? { ...prev, open: true } : { open: false }))
           }
+          restoreOpen={restoreWorkspace.open}
+          restoreProjectId={restoreWorkspace.projectId}
+          onRestoreOpenChange={(open) =>
+            setRestoreWorkspace((prev) => (open ? { ...prev, open: true } : { open: false }))
+          }
         />
         <NotificationToastsBridge projects={projects} />
         <ServerUpdatePrompt />
@@ -185,6 +191,7 @@ function ConfiguredApp({
                   onAddProject={() => setShowAddProject(true)}
                   onAddAutomation={() => setShowAddAutomation(true)}
                   onNewWorkspaceFrom={(projectId) => setWorkspaceFrom({ open: true, projectId })}
+                  onRestoreWorkspace={(projectId) => setRestoreWorkspace({ open: true, projectId })}
                 />
               }
             >

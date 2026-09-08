@@ -21,6 +21,24 @@ export interface Workspace {
   draftPrompt?: string;
 }
 
+/** Metadata persisted in `<dataDir>/<projectId>/archive/<wsId>/workspace.json`. */
+export interface ArchivedWorkspace extends Workspace {
+  archivedAt: string;
+}
+
+/** Item of `GET /api/projects/:id/archives`. */
+export interface ArchivedWorkspaceItem {
+  id: string;
+  name: string;
+  branch: string;
+  source?: WorkspaceSource;
+  archivedAt: string;
+  /** False when the kept branch no longer exists in the bare repo; restore is refused. */
+  branchExists: boolean;
+  /** True when deleting the archive also deletes the branch (Hive-owned branch that still exists). */
+  deletesBranch: boolean;
+}
+
 export type WorkspaceSourceKind = "branch" | "pr" | "issue";
 
 export interface WorkspaceSource {

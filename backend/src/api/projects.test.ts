@@ -56,6 +56,41 @@ async function createFixtureRepoWithFile(
   return bareDir;
 }
 
+describe("GET /api/projects/:id/archives", () => {
+  it("returns 404 for a non-existent project", async () => {
+    const res = await app.inject({ method: "GET", url: "/api/projects/nonexistent/archives" });
+    expect(res.statusCode).toBe(404);
+  });
+
+  it("lists archived workspaces newest first with branchExists", async () => {
+    const projectRes = await app.inject({ method: "POST", url: "/api/projects", payload: { url: fixtureRepoUrl } });
+    const projectId = projectRes.json().id;
+    const empty = await app.inject({ method: "GET", url: `/api/projects/${projectId}/archives` });
+    expect(empty.json()).toEqual([]);
+
+    const older = (await app.inject({ method: "POST", url: `/api/projects/${projectId}/workspaces` })).json();
+    const newer = (await app.inject({ method: "POST", url: `/api/projects/${projectId}/workspaces` })).json();
+    await app.inject({ method: "POST", url: `/api/workspaces/${older.id}/archive` });
+    await app.inject({ method: "POST", url: `/api/workspaces/${newer.id}/archive` });
+    // Archive timestamps can land in the same millisecond; pin them apart.
+    const olderMeta = join(dataDir, projectId, "archive", older.id, "workspace.json");
+    const { readFile } = await import("node:fs/promises");
+    await writeFile(
+      olderMeta,
+      JSON.stringify({ ...JSON.parse(await readFile(olderMeta, "utf-8")), archivedAt: "2020-01-01T00:00:00.000Z" }),
+      "utf-8",
+    );
+    await git(["branch", "-D", older.branch], join(dataDir, projectId, "repo.git"));
+
+    const res = await app.inject({ method: "GET", url: `/api/projects/${projectId}/archives` });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual([
+      { id: newer.id, name: newer.name, branch: newer.branch, archivedAt: expect.any(String), branchExists: true, deletesBranch: true },
+      { id: older.id, name: older.name, branch: older.branch, archivedAt: "2020-01-01T00:00:00.000Z", branchExists: false, deletesBranch: false },
+    ]);
+  });
+});
+
 describe("POST /api/projects", () => {
   it("creates a project and returns 201", async () => {
     const res = await app.inject({

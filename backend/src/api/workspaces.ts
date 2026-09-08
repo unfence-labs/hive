@@ -11,6 +11,8 @@ import {
   getWorkspaceFileEntry,
   mergeWorkspace,
   archiveWorkspace,
+  restoreWorkspace,
+  deleteArchivedWorkspace,
 } from "../workspaces/workspace-manager.js";
 import { git } from "../utils/git.js";
 import { endSession } from "../agents/agent-manager.js";
@@ -234,6 +236,28 @@ export async function workspaceRoutes(app: FastifyInstance, dataDir?: string) {
       return reply
         .status(errorStatus(err))
         .send({ error: errorMessage(err, "Archive failed") });
+    }
+  });
+
+  app.delete<{ Params: { wsId: string } }>("/api/workspaces/:wsId/archive", async (req, reply) => {
+    try {
+      await deleteArchivedWorkspace(req.params.wsId, dataDir);
+      return reply.status(204).send();
+    } catch (err: unknown) {
+      return reply
+        .status(errorStatus(err))
+        .send({ error: errorMessage(err, "Delete failed") });
+    }
+  });
+
+  app.post<{ Params: { wsId: string } }>("/api/workspaces/:wsId/restore", async (req, reply) => {
+    try {
+      const workspace = await restoreWorkspace(req.params.wsId, dataDir);
+      return reply.send(workspace);
+    } catch (err: unknown) {
+      return reply
+        .status(errorStatus(err))
+        .send({ error: errorMessage(err, "Restore failed") });
     }
   });
 }

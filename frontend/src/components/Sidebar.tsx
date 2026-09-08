@@ -67,6 +67,7 @@ interface SidebarProps {
   onAddProject: () => void;
   onAddAutomation?: () => void;
   onNewWorkspaceFrom?: (projectId: string) => void;
+  onRestoreWorkspace?: (projectId: string) => void;
 }
 
 type SidebarDropTarget = { type: "folder"; folderId: string };
@@ -170,6 +171,7 @@ export default function Sidebar({
   onAddProject,
   onAddAutomation,
   onNewWorkspaceFrom,
+  onRestoreWorkspace,
 }: SidebarProps) {
   const {
     projects,
@@ -523,6 +525,7 @@ export default function Sidebar({
         projectInsertIndicator={projectInsertIndicator}
         onAddWorkspace={(projectId) => { void handleAddWorkspace(projectId); }}
         onAddWorkspaceFrom={onNewWorkspaceFrom}
+        onRestoreWorkspace={onRestoreWorkspace}
         onArchiveWorkspace={(wsId) => { void handleArchiveClick(wsId); }}
         onProjectDragStart={handleProjectDragStart}
         onProjectDragEnd={handleProjectDragEnd}

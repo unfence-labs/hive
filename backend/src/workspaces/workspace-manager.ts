@@ -1,5 +1,5 @@
-import type { Stats } from "node:fs";
-import { readdir, readFile, stat, mkdir, writeFile, rename } from "node:fs/promises";
+import type { Dirent, Stats } from "node:fs";
+import { readdir, readFile, stat, mkdir, writeFile, rename, rm } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { nanoid } from "nanoid";
 import { git } from "../utils/git.js";
@@ -28,7 +28,73 @@ import { copyProjectEnvToWorkspace } from "../state/project-env.js";
 import { BadRequestError, ConflictError, NotFoundError } from "../utils/errors.js";
 import { stopAllForWorkspace } from "../services/script-runner.js";
 import { stopAllTerminalsForWorkspace } from "../services/terminal-runner.js";
-import type { Workspace, WorkspaceSource, CreateWorkspaceSourceInput, ProjectState, WorkspaceFileTreeNode, DiffFileStat, DiffFileStatus, DiffScope, DiffResponse, DiffStatResponse } from "../types.js";
+import type { Workspace, ArchivedWorkspace, ArchivedWorkspaceItem, WorkspaceSource, CreateWorkspaceSourceInput, ProjectState, WorkspaceFileTreeNode, DiffFileStat, DiffFileStatus, DiffScope, DiffResponse, DiffStatResponse } from "../types.js";
+
+/**
+ * Read the archived workspace metadata of a project. Entries written before
+ * `archivedAt` existed get the archive directory's mtime instead.
+ */
+export async function listArchivedWorkspaces(
+  projectId: string,
+  dataDir = getDataDir(),
+): Promise<ArchivedWorkspace[]> {
+  const archiveRoot = join(dataDir, projectId, "archive");
+  let entries: string[];
+  try {
+    entries = await readdir(archiveRoot);
+  } catch {
+    return [];
+  }
+  const archived: ArchivedWorkspace[] = [];
+  for (const entry of entries) {
+    const dir = join(archiveRoot, entry);
+    try {
+      const raw = await readFile(join(dir, "workspace.json"), "utf-8");
+      const meta = JSON.parse(raw) as Workspace & { archivedAt?: string };
+      if (typeof meta.id !== "string" || typeof meta.name !== "string") continue;
+      const archivedAt = meta.archivedAt ?? (await stat(dir)).mtime.toISOString();
+      archived.push({ ...meta, archivedAt });
+    } catch {
+      // Skip entries without readable metadata
+    }
+  }
+  return archived;
+}
+
+async function localBranchExists(bare: string, branch: string): Promise<boolean> {
+  return git(["show-ref", "--verify", "--quiet", `refs/heads/${branch}`], bare)
+    .then(() => true)
+    .catch(() => false);
+}
+
+/**
+ * Archived workspaces of a project as the API exposes them, newest first,
+ * flagged with whether their kept branch still exists in the bare repo.
+ */
+export async function listArchivedWorkspaceItems(
+  projectId: string,
+  dataDir = getDataDir(),
+): Promise<ArchivedWorkspaceItem[]> {
+  const state = await loadProject(projectId, dataDir);
+  if (!state) throw new NotFoundError(`Project ${projectId} not found`);
+  const bare = bareRepoPath(dataDir, projectId);
+  const archived = await listArchivedWorkspaces(projectId, dataDir);
+  const items = await Promise.all(
+    archived.filter((ws) => !findWorkspace(state, ws.id)).map(async (ws) => {
+      const branchExists = await localBranchExists(bare, ws.branch);
+      return {
+        id: ws.id,
+        name: ws.name,
+        branch: ws.branch,
+        source: ws.source,
+        archivedAt: ws.archivedAt,
+        branchExists,
+        deletesBranch: branchExists && !keepsBranchOnDelete(ws),
+      };
+    }),
+  );
+  return items.sort((a, b) => b.archivedAt.localeCompare(a.archivedAt));
+}
 
 function findWorkspace(state: ProjectState, wsId: string): Workspace | undefined {
   return state.workspaces.find((ws) => ws.id === wsId);
@@ -106,10 +172,7 @@ async function addWorktreeOnBranch(
   branch: string,
   fetchedRef: string | null,
 ): Promise<void> {
-  const hasLocal = await git(["show-ref", "--verify", `refs/heads/${branch}`], bare)
-    .then(() => true)
-    .catch(() => false);
-  if (hasLocal) {
+  if (await localBranchExists(bare, branch)) {
     if (fetchedRef) {
       // Fast-forward to the remote tip when possible; keep a diverged local ref.
       try {
@@ -173,10 +236,7 @@ async function checkoutPullRequestHead(
     // A stale pr/<n> branch (e.g. from an archived workspace) may only be
     // reset when the PR head already contains its commits; otherwise deleting
     // it would destroy unpushed local work.
-    const hasStale = await git(["show-ref", "--verify", `refs/heads/${branch}`], bare)
-      .then(() => true)
-      .catch(() => false);
-    if (hasStale) {
+    if (await localBranchExists(bare, branch)) {
       try {
         await git(["merge-base", "--is-ancestor", `refs/heads/${branch}`, fetchedRef], bare);
       } catch {
@@ -222,8 +282,10 @@ export async function createWorkspace(
 
       const bare = bareRepoPath(dataDir, projectId);
 
-      // Archived workspaces keep their workspace/<city> branch for restore;
-      // exclude those cities too or `worktree add -b` collides. Full refnames
+      // Archived workspaces reserve their city so a restore lands on the
+      // original path, whatever branch they were on. The workspace/<city>
+      // ref scan additionally covers branches that outlived their archive,
+      // where `worktree add -b` would collide. Full refnames
       // (%(refname:short) is ambiguous next to a same-named tag), first path
       // segment only (a nested workspace/<city>/x ref blocks workspace/<city>).
       const { stdout: branchRefs } = await git(
@@ -234,7 +296,8 @@ export async function createWorkspace(
         .split("\n")
         .filter(Boolean)
         .map((ref) => ref.slice("refs/heads/workspace/".length).split("/")[0]);
-      const usedNames = [...state.workspaces.map((ws) => ws.name), ...branchCities];
+      const archivedNames = (await listArchivedWorkspaces(projectId, dataDir)).map((ws) => ws.name);
+      const usedNames = [...state.workspaces.map((ws) => ws.name), ...branchCities, ...archivedNames];
       const cityName = pickCityName(usedNames);
       const wsPath = join(workspacesDir(dataDir, projectId), cityName);
 
@@ -339,6 +402,25 @@ export async function getWorkspace(
   return { projectState: found.state, workspace: found.workspace };
 }
 
+/**
+ * Branches that pre-existed the workspace (created from an existing branch or
+ * a same-repo PR head) outlive it. Cross-repo PR checkouts live on the
+ * Hive-owned `pr/<n>` branch and are deleted with the workspace.
+ */
+function keepsBranchOnDelete(workspace: Pick<Workspace, "branch" | "source">): boolean {
+  const src = workspace.source;
+  return src?.kind === "branch" || (src?.kind === "pr" && workspace.branch !== prBranchName(src.number!));
+}
+
+async function deleteOwnedBranch(bare: string, workspace: Pick<Workspace, "branch" | "source">): Promise<void> {
+  if (keepsBranchOnDelete(workspace)) return;
+  try {
+    await git(["branch", "-D", workspace.branch], bare);
+  } catch {
+    // Branch may not exist
+  }
+}
+
 export async function deleteWorkspace(
   wsId: string,
   dataDir = getDataDir()
@@ -364,21 +446,7 @@ export async function deleteWorkspace(
       // Remove the worktree
       await removeWorktreeOrDeleteDirectory(bare, wsPath);
 
-      // Remove the branch — but keep branches that pre-existed the workspace
-      // (created from an existing branch or a same-repo PR head). Cross-repo PR
-      // checkouts live on the Hive-owned `pr/<n>` branch and are deleted with
-      // the workspace.
-      const src = workspace.source;
-      const keepBranch =
-        src?.kind === "branch" ||
-        (src?.kind === "pr" && workspace.branch !== prBranchName(src.number!));
-      if (!keepBranch) {
-        try {
-          await git(["branch", "-D", workspace.branch], bare);
-        } catch {
-          // Branch may not exist
-        }
-      }
+      await deleteOwnedBranch(bare, workspace);
 
       // Update state
       latest.workspaces = latest.workspaces.filter((ws) => ws.id !== wsId);
@@ -415,9 +483,10 @@ export async function archiveWorkspace(
       await mkdir(archiveDir, { recursive: true });
 
       // Save workspace metadata
+      const archived: ArchivedWorkspace = { ...workspace, archivedAt: new Date().toISOString() };
       await writeFile(
         join(archiveDir, "workspace.json"),
-        JSON.stringify(workspace, null, 2),
+        JSON.stringify(archived, null, 2),
         "utf-8",
       );
 
@@ -452,6 +521,128 @@ export async function archiveWorkspace(
       // Update state — remove workspace from project
       latest.workspaces = latest.workspaces.filter((ws) => ws.id !== wsId);
       await saveProject(latest, dataDir);
+    },
+    dataDir,
+  );
+}
+
+/**
+ * Find the project owning an archive. Matching against the listed archive ids
+ * keeps a request-supplied id from naming any path outside the archive root.
+ */
+async function findArchiveProjectId(wsId: string, dataDir: string): Promise<string | undefined> {
+  for (const project of await loadAllProjects(dataDir)) {
+    const archived = await listArchivedWorkspaces(project.id, dataDir);
+    if (archived.some((ws) => ws.id === wsId)) return project.id;
+  }
+  return undefined;
+}
+
+async function readArchivedWorkspace(archiveDir: string, wsId: string): Promise<ArchivedWorkspace> {
+  try {
+    return JSON.parse(await readFile(join(archiveDir, "workspace.json"), "utf-8"));
+  } catch {
+    throw new NotFoundError(`Archived workspace ${wsId} not found`);
+  }
+}
+
+/**
+ * Permanently drop an archived workspace: its metadata, its archived
+ * sessions, and the kept branch unless it pre-existed the workspace. Frees
+ * the city name for new workspaces.
+ */
+export async function deleteArchivedWorkspace(
+  wsId: string,
+  dataDir = getDataDir(),
+): Promise<void> {
+  const projectId = await findArchiveProjectId(wsId, dataDir);
+  if (!projectId) throw new NotFoundError(`Archived workspace ${wsId} not found`);
+
+  await withProjectStateLock(
+    projectId,
+    async () => {
+      const archiveDir = join(dataDir, projectId, "archive", wsId);
+      const state = await loadProject(projectId, dataDir);
+      if (!state) throw new NotFoundError(`Project ${projectId} not found`);
+      if (findWorkspace(state, wsId)) {
+        throw new ConflictError("Cannot delete the archive of an active workspace");
+      }
+      const archived = await readArchivedWorkspace(archiveDir, wsId);
+      await deleteOwnedBranch(bareRepoPath(dataDir, projectId), archived);
+      await rm(archiveDir, { recursive: true, force: true });
+    },
+    dataDir,
+  );
+}
+
+/**
+ * Bring an archived workspace back under its original id, name, and branch:
+ * recreate the worktree, move its sessions back, re-add it to the project
+ * state, and drop the archive directory.
+ */
+export async function restoreWorkspace(
+  wsId: string,
+  dataDir = getDataDir(),
+): Promise<Workspace> {
+  const projectId = await findArchiveProjectId(wsId, dataDir);
+  if (!projectId) throw new NotFoundError(`Archived workspace ${wsId} not found`);
+
+  return withProjectStateLock(
+    projectId,
+    async () => {
+      const latest = await loadProject(projectId, dataDir);
+      if (!latest) throw new NotFoundError(`Project ${projectId} not found`);
+
+      const archiveDir = join(dataDir, projectId, "archive", wsId);
+      const archived = await readArchivedWorkspace(archiveDir, wsId);
+
+      const bare = bareRepoPath(dataDir, projectId);
+      const wsPath = join(workspacesDir(dataDir, projectId), archived.name);
+
+      // All guards run before anything is mutated.
+      if (!(await localBranchExists(bare, archived.branch))) {
+        throw new ConflictError(
+          `Branch "${archived.branch}" no longer exists; the workspace cannot be restored`,
+        );
+      }
+      if (await stat(wsPath).catch(() => null)) {
+        throw new ConflictError(`Workspace path "${archived.name}" is already in use`);
+      }
+      await assertBranchNotCheckedOut(latest, bare, archived.branch, dataDir);
+
+      await addWorktreeFromBranch(bare, wsPath, archived.branch);
+
+      const { archivedAt: _archivedAt, ...kept } = archived;
+      const workspace: Workspace = { ...kept, projectId, status: "idle" };
+      try {
+        await copyProjectEnvToWorkspace(projectId, wsPath, dataDir);
+
+        // Move session directories back next to the project's live sessions
+        const archivedSessionsDir = join(archiveDir, "sessions");
+        const sessionsRoot = join(dataDir, projectId, "sessions");
+        let entries: Dirent[] = [];
+        try {
+          entries = await readdir(archivedSessionsDir, { withFileTypes: true });
+        } catch (err) {
+          if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+        }
+        if (entries.length > 0) await mkdir(sessionsRoot, { recursive: true });
+        for (const entry of entries) {
+          if (!entry.isDirectory()) continue;
+          await rename(join(archivedSessionsDir, entry.name), join(sessionsRoot, entry.name));
+        }
+
+        latest.workspaces.push(workspace);
+        await saveProject(latest, dataDir);
+      } catch (err) {
+        // Keep the archive metadata when a post-worktree step fails. Sessions
+        // already moved stay in place; the next restore attempt completes them.
+        await removeWorktreeOrDeleteDirectory(bare, wsPath);
+        throw err;
+      }
+
+      await rm(archiveDir, { recursive: true, force: true });
+      return workspace;
     },
     dataDir,
   );
