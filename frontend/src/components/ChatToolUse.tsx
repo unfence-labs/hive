@@ -130,7 +130,7 @@ interface ToolDisplay {
   hideOutput?: boolean;
 }
 
-function getToolDisplay(tool: ToolCall): ToolDisplay {
+export function getToolDisplay(tool: ToolCall): ToolDisplay {
   let input: Record<string, unknown>;
   try {
     input = JSON.parse(tool.input);
@@ -440,7 +440,7 @@ function getOutputSummary(tool: ToolCall): string | undefined {
   return undefined;
 }
 
-function getBashMetadata(tool: ToolCall): { exitCode?: number; failed: boolean } | null {
+export function getBashMetadata(tool: ToolCall): { exitCode?: number; failed: boolean } | null {
   if (tool.name !== "Bash") return null;
 
   try {
@@ -502,13 +502,13 @@ const ChatToolUse = memo(function ChatToolUse({ tool, isExecuting, onClick }: Ch
         {stats?.type === "plain" && (
           <span className="truncate text-xs font-normal text-muted-foreground/60">{stats.label}</span>
         )}
-        {bashMetadata?.failed && (
+        {(tool.isError || bashMetadata?.failed) && (
           <XCircleIcon
             className="size-3.5 shrink-0 text-destructive"
             aria-label={
-              bashMetadata.exitCode !== undefined
+              bashMetadata?.exitCode !== undefined
                 ? `Bash failed with exit code ${bashMetadata.exitCode}`
-                : "Bash failed"
+                : `${tool.name} failed`
             }
           />
         )}

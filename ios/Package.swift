@@ -25,6 +25,7 @@ let package = Package(
                 "Models/AgentActivity.swift",
                 "Models/BrainModels.swift",
                 "Models/ConversationSurfaceModels.swift",
+                "Models/ConversationTimeline.swift",
                 "Models/Models.swift",
                 "Models/WebSocketTypes.swift",
                 "Services/APIClient.swift",

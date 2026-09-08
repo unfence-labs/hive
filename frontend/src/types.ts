@@ -1,3 +1,5 @@
+import type { ConversationTimelineEntry } from "@hive/shared/conversation-timeline";
+export type { ConversationTimelineEntry } from "@hive/shared/conversation-timeline";
 import type { AgentActivity } from "@hive/shared/agent-activity";
 export type { AgentActivity, AgentActivityFile } from "@hive/shared/agent-activity";
 
@@ -290,6 +292,7 @@ export interface ToolCall {
   input: string;
   output?: string;
   parentToolUseId?: string;
+  isError?: boolean;
 }
 
 export interface ReasoningSegment {
@@ -319,6 +322,7 @@ export interface ChatMessage {
   goalCommand?: boolean;
   reasoningSegments?: ReasoningSegment[];
   reasoningBlocks?: ReasoningBlock[];
+  timeline?: ConversationTimelineEntry[];
   timestamp: string;
   cancelled?: boolean;
   /** Extra diagnostics for interrupted turns (stderr summary, exit code). */
@@ -500,7 +504,8 @@ export interface UnreadSessionState {
 
 /** Backend -> Frontend */
 export type WsOutgoing =
-  | { type: "text_delta"; sessionId: string; text: string }
+  | { type: "text_delta"; sessionId: string; text: string; blockId?: string }
+  | { type: "timeline_entry"; sessionId: string; entry: ConversationTimelineEntry; messageId: string }
   | {
       type: "thinking";
       sessionId: string;
@@ -509,12 +514,14 @@ export type WsOutgoing =
       segments: ReasoningSegment[];
     }
   | { type: "tool_use"; sessionId: string; id: string; name: string; input: string; parentToolUseId?: string }
-  | { type: "tool_result"; sessionId: string; toolUseId: string; output: string }
+  | { type: "tool_result"; sessionId: string; toolUseId: string; output: string; isError?: boolean }
   | { type: "agent_activity"; sessionId: string; activity: AgentActivity }
   | {
       type: "stream_snapshot";
       sessionId: string;
       text: string;
+      timeline?: ConversationTimelineEntry[];
+      messageId?: string;
       reasoningSegments: ReasoningSegment[];
       toolCalls: ToolCall[];
       agentActivities: AgentActivity[];

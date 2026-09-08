@@ -44,7 +44,7 @@ describe("AgentEventNormalizer", () => {
     }));
 
     expect(events).toEqual([
-      { type: "text_delta", text: "Hello" },
+      { type: "text_delta", text: "Hello", blockId: "text:msg-1:0" },
       {
         type: "tool_started",
         id: "tool-1",
@@ -54,6 +54,31 @@ describe("AgentEventNormalizer", () => {
         parentToolUseId: undefined,
       },
       { type: "usage_updated", inputTokens: 14, outputTokens: 2 },
+    ]);
+  });
+
+  it("keeps text block identities and excludes nested agent prose from the root", () => {
+    const normalizer = new AgentEventNormalizer();
+    expect(normalizer.handleAssistant(assistant([
+      { type: "text", text: "Before" },
+      { type: "tool_use", id: "read", name: "Read", input: {} },
+      { type: "text", text: "After" },
+    ])).filter((event) => event.type === "text_delta")).toEqual([
+      { type: "text_delta", blockId: "text:msg-1:0", text: "Before" },
+      { type: "text_delta", blockId: "text:msg-1:2", text: "After" },
+    ]);
+    expect(normalizer.handleAssistant(assistant([
+      { type: "text", text: "Child progress" },
+      { type: "thinking", thinking: "Child reasoning" },
+    ], undefined, { parent_tool_use_id: "agent" }))).toEqual([]);
+  });
+
+  it("preserves explicit tool failures", () => {
+    const normalizer = new AgentEventNormalizer();
+    expect(normalizer.handleUser(user([
+      { type: "tool_result", tool_use_id: "read", content: "Permission denied", is_error: true },
+    ]))).toEqual([
+      { type: "tool_completed", id: "read", output: "Permission denied", isError: true },
     ]);
   });
 
@@ -113,7 +138,7 @@ describe("AgentEventNormalizer", () => {
       { type: "text", text: "Answer" },
     ]));
 
-    expect(events).toEqual([{ type: "text_delta", text: "Answer" }]);
+    expect(events).toEqual([{ type: "text_delta", text: "Answer", blockId: "text:msg-1:1" }]);
   });
 
   it("nests a subagent's tool under its parent via the native parent_tool_use_id", () => {

@@ -61,6 +61,7 @@ interface HubSocket {
 
 const HIGH_FREQUENCY_EVENTS: ReadonlySet<WsOutgoing["type"]> = new Set([
   "text_delta",
+  "timeline_entry",
   "thinking",
   "tool_use",
   "tool_result",
@@ -287,6 +288,8 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
       type: "stream_snapshot",
       sessionId: session.sessionId,
       text: snapshot.text,
+      messageId: snapshot.messageId,
+      timeline: snapshot.timeline,
       reasoningSegments: snapshot.reasoningSegments,
       toolCalls: snapshot.toolCalls,
       agentActivities: snapshot.agentActivities,

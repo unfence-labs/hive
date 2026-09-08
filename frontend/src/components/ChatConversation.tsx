@@ -17,7 +17,7 @@ import { WorkspaceWelcome } from "@/components/WorkspaceWelcome";
 import { formatElapsed } from "@/lib/time";
 import { getFallbackInteractiveAssistantIndex, hasExitPlanModeTool } from "@/lib/plan-state";
 import { CircleAlertIcon, RefreshCwIcon, Trash2Icon } from "lucide-react";
-import type { AgentActivity, ChatMessage as ChatMessageType, QueuedMessage, ReasoningSegment, ToolCall, QuestionAnswer } from "@/types";
+import type { AgentActivity, ChatMessage as ChatMessageType, ConversationTimelineEntry, QueuedMessage, ReasoningSegment, ToolCall, QuestionAnswer } from "@/types";
 import type { PendingToolInput } from "@/hooks/useConversation";
 import type { PlanStatus } from "@/components/chat/PlanProposal";
 import type { SendState } from "@/lib/optimistic-sends";
@@ -36,6 +36,8 @@ interface ChatConversationProps {
   isStreaming: boolean;
   streamingStartedAt?: number | null;
   currentStreamingText: string;
+  currentTimeline?: ConversationTimelineEntry[];
+  streamingMessageId?: string;
   currentReasoningSegments: ReasoningSegment[];
   activeToolCalls: ToolCall[];
   activeAgentActivities: AgentActivity[];
@@ -122,6 +124,8 @@ export default function ChatConversation({
   isStreaming,
   streamingStartedAt,
   currentStreamingText,
+  currentTimeline,
+  streamingMessageId,
   currentReasoningSegments,
   activeToolCalls,
   activeAgentActivities = [],
@@ -208,7 +212,8 @@ export default function ChatConversation({
     }
   }, [hydrated, settled]);
 
-  const hasContent = messages.length > 0 || isStreaming;
+  const hasRetainedTimeline = Boolean(streamingMessageId && currentTimeline?.length);
+  const hasContent = messages.length > 0 || isStreaming || hasRetainedTimeline;
 
   // A message is interactive if it contains tool calls that match pending tool inputs.
   // Fallback to the old heuristic (last assistant message, no user after) when no pending inputs.
@@ -257,6 +262,23 @@ export default function ChatConversation({
     return ids;
   }, [messages]);
 
+  // Keep the live row in the same keyed list as history so finalization preserves
+  // local expansion state throughout the tool and activity component tree, including
+  // the idle reconnect interval before REST replaces a retained stream.
+  const liveMessage: ChatMessageType | undefined = (isStreaming || hasRetainedTimeline) && currentTimeline !== undefined ? {
+    id: streamingMessageId ?? "live",
+    sessionId: "",
+    role: "assistant",
+    content: currentStreamingText,
+    timeline: currentTimeline,
+    toolCalls: activeToolCalls,
+    agentActivities: activeAgentActivities,
+    reasoningSegments: currentReasoningSegments,
+    timestamp: "",
+  } : undefined;
+  const displayedMessages = liveMessage && !messages.some((message) => message.id === liveMessage.id)
+    ? [...messages, liveMessage] : messages;
+
   return (
     <Conversation
       // Remount the scroll container on every switch. use-stick-to-bottom keeps
@@ -304,15 +326,16 @@ export default function ChatConversation({
             />
           )
         ) : null}
-        {messages.map((msg, i) => {
+        {displayedMessages.map((msg, i) => {
           // Hide "Question dismissed." user bubbles — the CANCELLED badge already conveys this
           if (msg.role === "user" && msg.content === "Question dismissed.") return null;
           return (
             <ChatMessage
               key={msg.id ?? `${msg.timestamp}-${i}`}
               message={msg}
-              isInteractive={isMessageInteractive(msg, i)}
-              planStatus={getPlanStatus(msg, i)}
+              streaming={msg === liveMessage && isStreaming}
+              isInteractive={(msg === liveMessage && isStreaming) || isMessageInteractive(msg, i)}
+              planStatus={msg === liveMessage ? undefined : getPlanStatus(msg, i)}
               dismissedToolCallIds={dismissedToolCallIds}
               onQuestionAnswer={onQuestionAnswer}
               onFileMentionClick={onFileMentionClick}
@@ -323,7 +346,7 @@ export default function ChatConversation({
         })}
 
         {/* Live streaming content */}
-        {isStreaming && (currentStreamingText || currentReasoningSegments.length > 0 || activeToolCalls.length > 0 || activeInlineAgentActivities.length > 0) && (
+        {isStreaming && currentTimeline === undefined && (currentStreamingText || currentReasoningSegments.length > 0 || activeToolCalls.length > 0 || activeInlineAgentActivities.length > 0) && (
           <div className="flex w-full justify-start">
             <div className="max-w-[85%] text-sm leading-relaxed text-foreground">
               <ThinkingBlock

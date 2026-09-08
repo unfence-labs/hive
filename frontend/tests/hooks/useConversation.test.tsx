@@ -202,6 +202,97 @@ describe("useConversation", () => {
     _resetOptimisticSends();
   });
 
+  it("preserves ordered blocks and the server message identity through a batched turn", async () => {
+    const { __wsMock } = await getWsMock();
+    const { result, queryClient } = renderConversation("ws-1");
+    act(() => {
+      __wsMock.emit("ws-1", { type: "status", sessionId: "s1", status: "busy", streaming: true });
+      __wsMock.emit("ws-1", { type: "timeline_entry", sessionId: "s1", messageId: "turn-1", entry: { type: "text", id: "intro", text: "" } });
+      __wsMock.emit("ws-1", { type: "text_delta", sessionId: "s1", blockId: "intro", text: "Checking." });
+      __wsMock.emit("ws-1", { type: "timeline_entry", sessionId: "s1", messageId: "turn-1", entry: { type: "tool", id: "read" } });
+      __wsMock.emit("ws-1", { type: "tool_use", sessionId: "s1", id: "read", name: "Read", input: "{}" });
+      __wsMock.emit("ws-1", { type: "timeline_entry", sessionId: "s1", messageId: "turn-1", entry: { type: "reasoning", id: "thought" } });
+      __wsMock.emit("ws-1", { type: "thinking", sessionId: "s1", blockId: "thought", segments: [{ id: "thought:0", body: "Found the cause." }] });
+      __wsMock.emit("ws-1", { type: "timeline_entry", sessionId: "s1", messageId: "turn-1", entry: { type: "text", id: "answer", text: "" } });
+      __wsMock.emit("ws-1", { type: "text_delta", sessionId: "s1", blockId: "answer", text: "Finished." });
+      __wsMock.emit("ws-1", { type: "tool_result", sessionId: "s1", toolUseId: "read", output: "Permission denied", isError: true });
+      __wsMock.emit("ws-1", { type: "done", sessionId: "s1", durationMs: 100 });
+    });
+    expect(result.current.isStreaming).toBe(false);
+    expect(getCachedSessionMessages(queryClient, "ws-1", "s1")).toEqual([
+      expect.objectContaining({
+        id: "turn-1",
+        content: "Checking.Finished.",
+        timeline: [
+          { type: "text", id: "intro", text: "Checking." },
+          { type: "tool", id: "read" },
+          { type: "reasoning", id: "thought" },
+          { type: "text", id: "answer", text: "Finished." },
+        ],
+        toolCalls: [expect.objectContaining({ id: "read", output: "Permission denied", isError: true })],
+        reasoningSegments: [{ id: "thought:0", body: "Found the cause." }],
+      }),
+    ]);
+  });
+
+  it("continues a restored timeline in place without duplicating entries", async () => {
+    const { __wsMock } = await getWsMock();
+    const { result, queryClient } = renderConversation("ws-1");
+    act(() => {
+      __wsMock.emit("ws-1", {
+        type: "stream_snapshot", sessionId: "s1", messageId: "turn-restored",
+        text: "Before", reasoningSegments: [], toolCalls: [], agentActivities: [], agentPlanMode: false,
+        timeline: [{ type: "text", id: "a", text: "Before" }],
+      });
+      __wsMock.emit("ws-1", { type: "timeline_entry", sessionId: "s1", messageId: "turn-restored", entry: { type: "text", id: "a", text: "" } });
+      __wsMock.emit("ws-1", { type: "text_delta", sessionId: "s1", blockId: "a", text: " and after" });
+    });
+    expect(result.current.currentTimeline).toEqual([{ type: "text", id: "a", text: "Before and after" }]);
+    expect(result.current.streamingMessageId).toBe("turn-restored");
+    act(() => __wsMock.emit("ws-1", { type: "cancelled", sessionId: "s1", userInitiated: true }));
+    expect(getCachedSessionMessages(queryClient, "ws-1", "s1")?.[0]).toMatchObject({
+      id: "turn-restored", cancelled: true,
+      timeline: [{ type: "text", id: "a", text: "Before and after" }],
+    });
+  });
+
+  it("keeps legacy streams without a timeline and clears ordered state for the next turn", async () => {
+    const { __wsMock } = await getWsMock();
+    const { result, queryClient } = renderConversation("ws-1");
+    act(() => {
+      __wsMock.emit("ws-1", {
+        type: "stream_snapshot", sessionId: "s1", messageId: "previous",
+        text: "old", reasoningSegments: [], toolCalls: [], agentActivities: [], agentPlanMode: false,
+        timeline: [{ type: "text", id: "old", text: "old" }],
+      });
+      __wsMock.emit("ws-1", { type: "user_message", message: {
+        id: "user-next", sessionId: "s1", role: "user", content: "Next", timestamp: new Date().toISOString(),
+      } });
+      __wsMock.emit("ws-1", { type: "text_delta", sessionId: "s1", text: "Legacy reply" });
+    });
+    expect(result.current.currentTimeline).toBeUndefined();
+    expect(result.current.streamingMessageId).toBeUndefined();
+    act(() => __wsMock.emit("ws-1", { type: "done", sessionId: "s1" }));
+    expect(getCachedSessionMessages(queryClient, "ws-1", "s1")?.at(-1)).toMatchObject({ content: "Legacy reply" });
+    expect(getCachedSessionMessages(queryClient, "ws-1", "s1")?.at(-1)?.timeline).toBeUndefined();
+  });
+
+  it("updates tool inputs without duplicating their position or dropping results", async () => {
+    const { __wsMock } = await getWsMock();
+    const { result } = renderConversation("ws-1");
+    act(() => {
+      __wsMock.emit("ws-1", { type: "status", sessionId: "s1", status: "busy", streaming: true });
+      __wsMock.emit("ws-1", { type: "timeline_entry", sessionId: "s1", messageId: "turn-tools", entry: { type: "tool", id: "t1" } });
+      __wsMock.emit("ws-1", { type: "tool_use", sessionId: "s1", id: "t1", name: "Bash", input: "{}", parentToolUseId: "parent" });
+      __wsMock.emit("ws-1", { type: "tool_result", sessionId: "s1", toolUseId: "t1", output: "Failed", isError: true });
+      __wsMock.emit("ws-1", { type: "tool_use", sessionId: "s1", id: "t1", name: "Bash", input: '{"command":"npm test"}' });
+    });
+    expect(result.current.currentTimeline).toEqual([{ type: "tool", id: "t1" }]);
+    expect(result.current.activeToolCalls).toEqual([expect.objectContaining({
+      id: "t1", parentToolUseId: "parent", input: '{"command":"npm test"}', output: "Failed", isError: true,
+    })]);
+  });
+
   it("connects on mount and keeps connection alive on unmount", async () => {
     const { __wsMock } = await getWsMock();
     const { unmount } = renderConversation("ws-1");

@@ -10,7 +10,7 @@ import type { PlanStatus } from "@/components/chat/PlanProposal";
 
 type SubagentActivity = Extract<AgentActivity, { kind: "subagent_activity" }>;
 type ContextCompactionActivity = Extract<AgentActivity, { kind: "context_compaction" }>;
-type InlineAgentActivity = Exclude<AgentActivity, { kind: "plan_update" } | { kind: "goal_update" }>;
+export type InlineAgentActivity = Exclude<AgentActivity, { kind: "plan_update" } | { kind: "goal_update" }>;
 
 interface AgentActivityListProps {
   activities: AgentActivity[];
@@ -90,7 +90,7 @@ function mergeToolCalls(toolCalls: ToolCall[], activities: InlineAgentActivity[]
   return [...toolCalls, ...activityToolCalls];
 }
 
-function activityToToolCalls(activity: InlineAgentActivity): ToolCall[] {
+export function activityToToolCalls(activity: InlineAgentActivity): ToolCall[] {
   switch (activity.kind) {
     case "command_execution":
       return [commandActivityToToolCall(activity)];
@@ -105,7 +105,7 @@ function activityToToolCalls(activity: InlineAgentActivity): ToolCall[] {
   }
 }
 
-const AgentActivityItem = memo(function AgentActivityItem({
+export const AgentActivityItem = memo(function AgentActivityItem({
   activity,
   showExecutingState,
 }: {

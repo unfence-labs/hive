@@ -14,6 +14,7 @@ interface ActivityShellProps {
   expandedContent?: ReactNode;
   belowContent?: ReactNode;
   defaultOpen?: boolean;
+  retainContent?: boolean;
   executing?: boolean;
   /**
    * Optional element rendered before the toggle button (e.g. an image
@@ -37,10 +38,12 @@ export function ActivityShell({
   expandedContent,
   belowContent,
   defaultOpen = false,
+  retainContent = false,
   executing,
   leading,
 }: ActivityShellProps) {
   const [open, setOpen] = useState(defaultOpen);
+  const [hasOpened, setHasOpened] = useState(defaultOpen);
   const canOpen = Boolean(expandedContent);
 
   return (
@@ -53,7 +56,11 @@ export function ActivityShell({
             "inline-flex max-w-full items-center gap-2 rounded-md py-1 pr-2.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted/80 hover:text-foreground",
             executing && "animate-shimmer",
           )}
-          onClick={() => canOpen && setOpen(!open)}
+          onClick={() => {
+            if (!canOpen) return;
+            setOpen(!open);
+            setHasOpened(true);
+          }}
           aria-expanded={canOpen ? open : undefined}
           title={tooltip}
         >
@@ -66,8 +73,8 @@ export function ActivityShell({
           {executing && <span className="inline-block size-1.5 animate-pulse rounded-full bg-primary" />}
         </button>
       </div>
-      {open && expandedContent && (
-        <ContentPanel>
+      {(open || (retainContent && hasOpened)) && expandedContent && (
+        <ContentPanel hidden={!open}>
           <ContentPanelBody>
             <ToolExpandedContent content={expandedContent} />
           </ContentPanelBody>

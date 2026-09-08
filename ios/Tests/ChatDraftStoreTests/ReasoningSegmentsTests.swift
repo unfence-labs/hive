@@ -73,7 +73,7 @@ struct ReasoningSegmentsTests {
         """.utf8)
 
         let event = try JSONDecoder().decode(WsOutgoing.self, from: data)
-        guard case .streamSnapshot(_, _, _, _, _, _, let segments) = event else {
+        guard case .streamSnapshot(_, _, _, _, _, _, let segments, _, _) = event else {
             Issue.record("Expected stream snapshot")
             return
         }

@@ -1,3 +1,5 @@
+import type { ConversationTimelineEntry } from "@hive/shared/conversation-timeline";
+export type { ConversationTimelineEntry } from "@hive/shared/conversation-timeline";
 import type { AgentActivity } from "@hive/shared/agent-activity";
 export type { AgentActivity, AgentActivityCommandAction, AgentActivityFile } from "@hive/shared/agent-activity";
 
@@ -289,6 +291,7 @@ export interface ToolCall {
   name: string;
   input: string;
   output?: string;
+  isError?: boolean;
   parentToolUseId?: string;
 }
 
@@ -322,6 +325,7 @@ export interface ChatMessage {
   goalCommand?: boolean;
   reasoningSegments?: ReasoningSegment[];
   reasoningBlocks?: ReasoningBlock[];
+  timeline?: ConversationTimelineEntry[];
   timestamp: string;
   cancelled?: boolean;
   /** Extra diagnostics for interrupted turns (stderr summary, exit code). */
@@ -361,6 +365,7 @@ export interface ToolResultBlock {
   type: "tool_result";
   tool_use_id: string;
   content: string;
+  is_error?: boolean;
 }
 
 export type CliJsonLine =
@@ -519,7 +524,8 @@ export type WsIncoming =
 
 /** Backend -> Frontend */
 export type WsOutgoing =
-  | { type: "text_delta"; sessionId: string; text: string }
+  | { type: "text_delta"; sessionId: string; text: string; blockId?: string }
+  | { type: "timeline_entry"; sessionId: string; messageId: string; entry: ConversationTimelineEntry }
   | {
       type: "thinking";
       sessionId: string;
@@ -528,11 +534,13 @@ export type WsOutgoing =
       segments: ReasoningSegment[];
     }
   | { type: "tool_use"; sessionId: string; id: string; name: string; input: string; parentToolUseId?: string }
-  | { type: "tool_result"; sessionId: string; toolUseId: string; output: string }
+  | { type: "tool_result"; sessionId: string; toolUseId: string; output: string; isError?: boolean }
   | { type: "agent_activity"; sessionId: string; activity: AgentActivity }
   | {
       type: "stream_snapshot";
       sessionId: string;
+      messageId?: string;
+      timeline?: ConversationTimelineEntry[];
       text: string;
       reasoningSegments: ReasoningSegment[];
       toolCalls: ToolCall[];

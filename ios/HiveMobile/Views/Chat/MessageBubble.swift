@@ -3,6 +3,7 @@ import SwiftUI
 
 struct MessageBubble: View, Equatable {
     let message: ChatMessage
+    var isStreaming = false
     var pendingToolUseIds: Set<String> = []
     var dismissedToolCallIds: Set<String> = []
     var sendState: ConversationStore.UserSendState? = nil
@@ -12,6 +13,7 @@ struct MessageBubble: View, Equatable {
 
     static func == (lhs: MessageBubble, rhs: MessageBubble) -> Bool {
         lhs.message == rhs.message
+            && lhs.isStreaming == rhs.isStreaming
             && lhs.pendingToolUseIds == rhs.pendingToolUseIds
             && lhs.dismissedToolCallIds == rhs.dismissedToolCallIds
             && lhs.sendState == rhs.sendState
@@ -46,31 +48,37 @@ struct MessageBubble: View, Equatable {
             if message.role == .user { Spacer(minLength: 60) }
 
             VStack(alignment: message.role == .user ? .trailing : .leading, spacing: 6) {
-                let reasoning = reasoningSegments
-                if message.role == .assistant, !reasoning.isEmpty {
-                    ReasoningDisclosure(
-                        segments: reasoning,
-                        streaming: message.id == "streaming"
-                    )
-                }
+                if message.role == .assistant, message.timeline != nil {
+                    chronologicalContent
+                    if message.cancelled == true { messageContent }
+                } else {
+                    let reasoning = reasoningSegments
+                    if message.role == .assistant, !reasoning.isEmpty {
+                        ReasoningDisclosure(
+                            segments: reasoning,
+                            streaming: isStreaming || message.id == "streaming"
+                        )
+                    }
 
-                messageContent
+                    messageContent
 
-                goalBadge
+                    goalBadge
 
-                let tools = mergedToolCalls
-                if message.role == .assistant, !tools.isEmpty {
-                    WhisperToolCallsBlock(
-                        toolCalls: tools,
-                        pendingToolUseIds: pendingToolUseIds,
-                        dismissedToolCallIds: dismissedToolCallIds,
-                        showExecutingState: message.id == "streaming"
-                    )
-                }
+                    let tools = mergedToolCalls
+                    if message.role == .assistant, !tools.isEmpty {
+                        WhisperToolCallsBlock(
+                            toolCalls: tools,
+                            pendingToolUseIds: pendingToolUseIds,
+                            dismissedToolCallIds: dismissedToolCallIds,
+                            showExecutingState: isStreaming || message.id == "streaming"
+                        )
+                    }
 
-                let activities = visibleActivities
-                if message.role == .assistant, !activities.isEmpty {
-                    AgentActivityList(activities: activities, showExecutingState: message.id == "streaming")
+                    let activities = visibleActivities
+                    if message.role == .assistant, !activities.isEmpty {
+                        AgentActivityList(activities: activities, showExecutingState: isStreaming || message.id == "streaming")
+                    }
+
                 }
 
                 deliveryStatus
@@ -81,6 +89,66 @@ struct MessageBubble: View, Equatable {
             }
 
             if message.role == .assistant { Spacer(minLength: 40) }
+        }
+    }
+
+    @ViewBuilder
+    private var chronologicalContent: some View {
+        ForEach(message.timelineGroups) { group in
+            Group {
+                if group.isActionGroup {
+                    TimelineActionGroup(
+                        message: message,
+                        group: group,
+                        allTools: mergedToolCalls,
+                        showExecutingState: isStreaming,
+                        pendingToolUseIds: pendingToolUseIds,
+                        dismissedToolCallIds: dismissedToolCallIds
+                    )
+                } else if let entry = group.entries.first {
+                    switch entry.type {
+                    case .text:
+                        if let text = entry.text, !text.isEmpty {
+                            let highlight = message.timelineHighlight(for: entry.id, highlight: findHighlight)
+                            if isStreaming {
+                                StreamingMarkdownView(text: text, baseSize: markdownBaseSize)
+                            } else if highlight == nil, markdownNeedsRichRenderer(text) {
+                                Markdown(text)
+                                    .markdownTextStyle { FontSize(markdownBaseSize) }
+                                    .markdownTheme(.whisperChat)
+                                    .textSelection(.enabled)
+                            } else {
+                                SelectableMarkdownText(markdown: text, findHighlight: highlight)
+                            }
+                        }
+                    case .reasoning:
+                        let segments = reasoningSegments.filter {
+                            $0.id == entry.id || $0.id.hasPrefix(entry.id + ":")
+                        }
+                        if !segments.isEmpty {
+                            ReasoningDisclosure(segments: segments, streaming: isStreaming)
+                        }
+                    case .tool:
+                        if let tool = message.toolCalls?.first(where: { $0.id == entry.id }) {
+                            WhisperToolCallRow(
+                                tool: tool, children: [], childrenByParentId: [:],
+                                isPending: pendingToolUseIds.contains(tool.id),
+                                isDismissed: dismissedToolCallIds.contains(tool.id),
+                                showExecutingState: isStreaming
+                            )
+                        }
+                    case .activity:
+                        if let activity = message.agentActivities?.first(where: { $0.id == entry.id }) {
+                            AgentActivityList(
+                                activities: visibleAgentActivities([activity]),
+                                showExecutingState: isStreaming
+                            )
+                        }
+                    }
+                }
+            }
+            .environment(\.timelineDisclosureKey, "\(message.sessionId):\(message.id):\(group.id)")
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
@@ -180,7 +248,7 @@ struct MessageBubble: View, Equatable {
                         }
                     )
             case .assistant:
-                if message.id == "streaming" {
+                if isStreaming || message.id == "streaming" {
                     StreamingMarkdownView(text: message.content, baseSize: markdownBaseSize)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 } else if findHighlight == nil, markdownNeedsRichRenderer(message.content) {
@@ -234,7 +302,7 @@ struct MessageBubble: View, Equatable {
 
     @ViewBuilder
     private var messageFooter: some View {
-        if message.id != "streaming" {
+        if !isStreaming && message.id != "streaming" {
             HStack(alignment: .center, spacing: 4) {
                 Text(formatTimestamp(message.timestamp))
                     .font(WhisperFont.mono(10))
@@ -690,12 +758,13 @@ private struct ReasoningDisclosure: View {
     let segments: [ReasoningSegment]
     let streaming: Bool
 
-    @State private var isExpanded = false
+    private var disclosure = TimelineDisclosureState()
+    private var isExpanded: Bool { disclosure.isExpanded("reasoning") }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Button {
-                withoutAnimation { isExpanded.toggle() }
+                withoutAnimation { disclosure.toggle("reasoning") }
             } label: {
                 ChatActivityRowLabel(
                     label: streaming ? "Reasoning…" : "Reasoning",
@@ -745,6 +814,60 @@ private struct ReasoningThoughtRow: View {
         .font(WhisperFont.mono(11))
         .lineSpacing(2)
         .accessibilityElement(children: .combine)
+    }
+}
+
+private struct TimelineActionGroup: View {
+    let message: ChatMessage
+    let group: ConversationTimelineGroup
+    let allTools: [ToolCall]
+    let showExecutingState: Bool
+    let pendingToolUseIds: Set<String>
+    let dismissedToolCallIds: Set<String>
+    private var disclosure = TimelineDisclosureState()
+
+    var body: some View {
+        let summary = ConversationTimelineActionSummary(message: message, group: group, streaming: showExecutingState)
+        let expanded = disclosure.isExpanded("group")
+        let children = buildChildrenMap(allTools)
+        VStack(alignment: .leading, spacing: 2) {
+            Button {
+                withoutAnimation { disclosure.toggle("group") }
+            } label: {
+                ChatActivityRowLabel(
+                    label: summary.label,
+                    badgeText: summary.failedCount > 0 ? "\(summary.failedCount) failed" : nil,
+                    badgeIcon: summary.failedCount > 0 ? "exclamationmark.triangle" : nil,
+                    isExpanded: expanded,
+                    executing: summary.runningToolName != nil
+                )
+            }
+            .buttonStyle(.plain)
+            .accessibilityValue(expanded ? "expanded" : "collapsed")
+            if expanded {
+                ForEach(group.entries, id: \.identity) { entry in
+                    let tools = message.timelineTools(for: entry)
+                    Group {
+                        if tools.isEmpty, entry.type == .activity,
+                           let activity = message.agentActivities?.first(where: { $0.id == entry.id }) {
+                            AgentActivityList(activities: visibleAgentActivities([activity]), showExecutingState: showExecutingState)
+                        } else {
+                            ForEach(tools) { tool in
+                                WhisperToolCallRow(
+                                    tool: tool,
+                                    children: children[tool.id] ?? [],
+                                    childrenByParentId: children,
+                                    isPending: pendingToolUseIds.contains(tool.id),
+                                    isDismissed: dismissedToolCallIds.contains(tool.id),
+                                    showExecutingState: showExecutingState
+                                )
+                            }
+                        }
+                    }
+                    .environment(\.timelineDisclosureKey, "\(message.sessionId):\(message.id):\(entry.identity)")
+                }
+            }
+        }
     }
 }
 
@@ -850,7 +973,8 @@ private struct WhisperToolCallRow: View {
     var isPending = false
     var isDismissed = false
     var showExecutingState = false
-    @State private var isExpanded = false
+    private var disclosure = TimelineDisclosureState()
+    private var isExpanded: Bool { disclosure.isExpanded("tool:" + tool.id) }
 
     var body: some View {
         let display = getToolDisplay(
@@ -865,7 +989,7 @@ private struct WhisperToolCallRow: View {
 
         VStack(alignment: .leading, spacing: 0) {
             Button {
-                withoutAnimation { isExpanded.toggle() }
+                withoutAnimation { disclosure.toggle("tool:" + tool.id) }
             } label: {
                 ChatActivityRowLabel(icon: display.icon, label: display.label, detail: display.detail, stats: display.stats, summary: summary, badgeText: display.badgeText, badgeIcon: display.badgeIcon, executing: display.executing)
             }

@@ -96,7 +96,14 @@ source checkouts managed through PM2 report their canonical checked-out version 
 - Auth: `Authorization: Bearer <token>`, `x-hive-token`, or `?token=<token>`.
 - Clients send hub-level `sync_workspaces` and `ping`; workspace events include `switch_session`, `user_message`, `stop`, `tool_input_response`.
 - Finalized history is fetched over REST for every client; the hub bootstrap sends only `status` and live stream snapshots and never a WS `history` frame.
-- Server workspace events: `status`, `user_message`, `text_delta`, `thinking`, `tool_use`, `tool_result`, `agent_activity`, `stream_snapshot`, `tool_input_required`, `tool_input_resolved`, `done`, `cancelled`, `error`, `branch_info`, `diff_stats`, `pr_status`, `script_status`, `browser_status`, `plan_mode_changed`, and legacy `history`.
+- Server workspace events: `status`, `user_message`, `timeline_entry`, `text_delta`, `thinking`, `tool_use`, `tool_result`, `agent_activity`, `stream_snapshot`, `tool_input_required`, `tool_input_resolved`, `done`, `cancelled`, `error`, `branch_info`, `diff_stats`, `pr_status`, `script_status`, `browser_status`, `plan_mode_changed`, and legacy `history`.
+
+New assistant turns carry an ordered `timeline`: text entries hold their block text; reasoning,
+tool, and activity entries reference the existing payloads by ID. `timeline_entry` announces each
+entry once, before its payload updates; `text_delta.blockId` identifies the text entry to append to.
+Updates never move an entry. Live snapshots include the timeline and the assistant `messageId`,
+which is retained when the turn is persisted so clients can preserve expanded details. Messages
+without a timeline keep the legacy grouped rendering; their original ordering is not reconstructed.
 
 **Script stream** — `ws://<host>/ws/script/:wsId?type=<scriptType>` · binary frames are PTY bytes; JSON control messages are `ready`, `exit`, `error`.
 

@@ -193,7 +193,8 @@ struct ActivityDisclosureRow: View {
     var expanded: AnyView? = nil
     var below: AnyView? = nil
 
-    @State private var isExpanded = false
+    private var disclosure = TimelineDisclosureState()
+    private var isExpanded: Bool { disclosure.isExpanded("activity") }
 
     private var canExpand: Bool { expanded != nil }
 
@@ -206,7 +207,7 @@ struct ActivityDisclosureRow: View {
 
                 Button {
                     guard canExpand else { return }
-                    withoutAnimation { isExpanded.toggle() }
+                    withoutAnimation { disclosure.toggle("activity") }
                 } label: {
                     ChatActivityRowLabel(
                         icon: icon,
@@ -233,6 +234,46 @@ struct ActivityDisclosureRow: View {
             if let below {
                 below
             }
+        }
+    }
+}
+
+private struct TimelineExpansionKey: EnvironmentKey {
+    static let defaultValue: ConversationTimelineExpansion? = nil
+}
+
+private struct TimelineDisclosureKey: EnvironmentKey {
+    static let defaultValue: String? = nil
+}
+
+extension EnvironmentValues {
+    var timelineExpansion: ConversationTimelineExpansion? {
+        get { self[TimelineExpansionKey.self] }
+        set { self[TimelineExpansionKey.self] = newValue }
+    }
+
+    var timelineDisclosureKey: String? {
+        get { self[TimelineDisclosureKey.self] }
+        set { self[TimelineDisclosureKey.self] = newValue }
+    }
+}
+
+/// Legacy rows keep local state; timeline rows use their stable event identity.
+struct TimelineDisclosureState: DynamicProperty {
+    @Environment(\.timelineExpansion) private var expansion
+    @Environment(\.timelineDisclosureKey) private var key
+    @State private var locallyExpanded = false
+
+    func isExpanded(_ suffix: String) -> Bool {
+        guard let expansion, let key else { return locallyExpanded }
+        return expansion.contains("\(key):\(suffix)")
+    }
+
+    func toggle(_ suffix: String) {
+        if let expansion, let key {
+            expansion.toggle("\(key):\(suffix)")
+        } else {
+            locallyExpanded.toggle()
         }
     }
 }

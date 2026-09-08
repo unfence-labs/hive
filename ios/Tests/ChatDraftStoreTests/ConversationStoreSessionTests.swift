@@ -268,7 +268,7 @@ struct ConversationStoreSessionTests {
 
         guard case .streamSnapshot(let sessionId, let text, let toolCalls,
                                    let activities, let agentPlanMode, let startedAt,
-                                   let reasoningSegments) = event else {
+                                   let reasoningSegments, _, _) = event else {
             Issue.record("Expected stream snapshot")
             return
         }

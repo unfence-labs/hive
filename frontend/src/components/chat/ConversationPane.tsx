@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import type { ConversationTimelineEntry } from "@hive/shared/conversation-timeline";
 import ChatConversation from "@/components/ChatConversation";
 import QuestionPanel from "@/components/chat/QuestionPanel";
 import { ConversationErrorChip } from "@/components/chat/ConversationErrorChip";
@@ -64,6 +65,8 @@ export interface ConversationPaneProps {
   onRetryHistory?: () => void;
   streamingStartedAt?: number | null;
   currentStreamingText: string;
+  currentTimeline?: ConversationTimelineEntry[];
+  streamingMessageId?: string;
   currentReasoningSegments: ReasoningSegment[];
   activeToolCalls: ToolCall[];
   activeAgentActivities: AgentActivity[];
@@ -137,6 +140,8 @@ export function ConversationPane({
   onRetryHistory,
   streamingStartedAt,
   currentStreamingText,
+  currentTimeline,
+  streamingMessageId,
   currentReasoningSegments,
   activeToolCalls,
   activeAgentActivities,
@@ -213,6 +218,8 @@ export function ConversationPane({
               isStreaming={isStreaming}
               streamingStartedAt={streamingStartedAt}
               currentStreamingText={currentStreamingText}
+              currentTimeline={currentTimeline}
+              streamingMessageId={streamingMessageId}
               currentReasoningSegments={currentReasoningSegments}
               activeToolCalls={activeToolCalls}
               activeAgentActivities={activeAgentActivities}

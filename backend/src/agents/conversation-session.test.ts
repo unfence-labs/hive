@@ -445,6 +445,7 @@ describe("ConversationSession", () => {
       type: "text_delta",
       sessionId: "fake-runner-session",
       text: "fake reply",
+      blockId: "text:msg-fake:0",
     });
     expect(session.metadata.providerSessionId).toBe("provider-fake");
     expect(mockSpawn).not.toHaveBeenCalled();
@@ -503,6 +504,7 @@ describe("ConversationSession", () => {
       cwd: "/tmp/test",
     });
     expect(assistant?.toolCalls?.[0]?.output).toBe("ok\n");
+    expect(assistant?.timeline).toEqual([{ type: "activity", id: "cmd-1" }]);
   });
 
   it("classifies Codex command action reads as Read compatibility tools", async () => {
@@ -2101,6 +2103,7 @@ describe("ConversationSession", () => {
       type: "text_delta",
       sessionId: "codex-app-chat",
       text: "Hi from app-server",
+      blockId: expect.any(String),
     });
     expect(session.metadata.providerSessionId).toBe("thread-app-1");
   });
@@ -2177,6 +2180,7 @@ describe("ConversationSession", () => {
       type: "text_delta",
       sessionId: "codex-goal-continuation",
       text: "Continuation output.",
+      blockId: expect.any(String),
     });
     expect(messages).toContainEqual(expect.objectContaining({
       type: "agent_activity",
@@ -2668,6 +2672,7 @@ describe("ConversationSession", () => {
       type: "text_delta",
       sessionId: "codex-app-stop-restart",
       text: "Restarted",
+      blockId: expect.any(String),
     });
   });
 
@@ -2835,7 +2840,70 @@ describe("ConversationSession", () => {
 
     const textDeltas = messages.filter((m) => m.type === "text_delta");
     expect(textDeltas).toHaveLength(1);
-    expect(textDeltas[0]).toEqual({ type: "text_delta", sessionId: "sess-text-delta", text: "Hello!" });
+    expect(textDeltas[0]).toEqual({ type: "text_delta", sessionId: "sess-text-delta", text: "Hello!", blockId: "text:msg-1:0" });
+  });
+
+  it("preserves interleaved block order and stable identity through updates, snapshots and reload", async () => {
+    const session = createSession({ sessionId: "chronological-turn" });
+    const messages: WsOutgoing[] = [];
+    session.on("message", (msg) => messages.push(msg));
+    session.sendMessage("Inspect and explain");
+    expect(session.getStreamingSnapshot()?.timeline).toEqual([]);
+
+    const emitBlocks = (id: string, content: unknown[], parent?: string) => {
+      mockProc._stdout.push(JSON.stringify({
+        type: "assistant", parent_tool_use_id: parent,
+        message: { id, role: "assistant", content },
+      }) + "\n");
+    };
+    emitBlocks("intro", [{ type: "text", text: "Checking " }]);
+    emitBlocks("tools", [{ type: "tool_use", id: "read", name: "Read", input: { file_path: "a.ts" } }]);
+    emitBlocks("intro", [{ type: "text", text: "configuration." }]);
+    emitBlocks("thought", [{ type: "thinking", thinking: "Need validation." }]);
+    emitBlocks("answer", [{ type: "text", text: "Here is the result." }]);
+    emitBlocks("tools", [{ type: "tool_use", id: "read", name: "Read", input: { file_path: "b.ts" } }]);
+    emitBlocks("child", [
+      { type: "text", text: "Private child progress" },
+      { type: "thinking", thinking: "Private child reasoning" },
+      { type: "tool_use", id: "child-read", name: "Read", input: {} },
+    ], "read");
+
+    mockProc._stdout.push(JSON.stringify({
+      type: "user", message: { role: "user", content: [
+        { type: "tool_result", tool_use_id: "read", content: "Permission denied", is_error: true },
+      ] },
+    }) + "\n");
+    expect(messages).toContainEqual({
+      type: "tool_result", sessionId: "chronological-turn", toolUseId: "read", output: "Permission denied", isError: true,
+    });
+
+    const expected = [
+      { type: "text", id: "text:intro:0", text: "Checking configuration." },
+      { type: "tool", id: "read" },
+      { type: "reasoning", id: "reasoning:thought:0" },
+      { type: "text", id: "text:answer:0", text: "Here is the result." },
+    ];
+    const snapshot = session.getStreamingSnapshot()!;
+    expect(snapshot.timeline).toEqual(expected);
+    expect(snapshot.toolCalls.find((tool) => tool.id === "child-read")?.parentToolUseId).toBe("read");
+    const anchors = messages.filter((msg) => msg.type === "timeline_entry");
+    expect(anchors).toHaveLength(4);
+    expect(anchors.every((msg) => msg.messageId === snapshot.messageId)).toBe(true);
+    expect(anchors[0].entry).toEqual({ type: "text", id: "text:intro:0", text: "" });
+    snapshot.timeline[0] = { type: "text", id: "changed", text: "changed" };
+    expect(session.getStreamingSnapshot()?.timeline).toEqual(expected);
+
+    mockProc._stdout.push(resultLine());
+    mockProc._emitClose(0);
+    await session.drain();
+    const loaded = await ConversationSession.load({
+      cwd: "/tmp/test", dataDir: tempDir, workspaceId: "ws-test", sessionId: "chronological-turn",
+    });
+    const assistant = (await loaded.getMessages()).find((msg) => msg.role === "assistant")!;
+    expect(assistant.id).toBe(snapshot.messageId);
+    expect(assistant.timeline).toEqual(expected);
+    expect(assistant.toolCalls?.find((tool) => tool.id === "read")?.isError).toBe(true);
+    expect(assistant.content).toBe("Checking configuration.Here is the result.");
   });
 
   it("emits user_message when a turn starts", () => {
@@ -3232,6 +3300,53 @@ describe("ConversationSession", () => {
     expect(assistantMsg.cancelled).toBe(true);
     expect(session.metadata.assistantMessageCount).toBe(1);
   });
+
+  it.each(["user cancellation", "process failure"] as const)(
+    "isolates a new timeline while %s completion is still being persisted",
+    async (cause) => {
+      const session = createSession({ sessionId: "timeline-interrupted-restart" });
+      const events: WsOutgoing[] = [];
+      session.on("message", (event) => events.push(event));
+      session.sendMessage("First turn");
+      mockProc._stdout.push(assistantLine("Partial response", { id: "first-tool", name: "Read", input: {} }));
+      const firstSnapshot = session.getStreamingSnapshot()!;
+      if (cause === "user cancellation") session.stop();
+      mockProc._emitClose(1);
+
+      // No await: the first completion is queued behind asynchronous disk work
+      // while the next turn replaces every live accumulator.
+      expect(events.some((event) => event.type === "cancelled")).toBe(false);
+      const secondProcess = createMockProcess();
+      mockSpawn.mockReturnValue(secondProcess);
+      session.sendMessage("Second turn");
+      const secondStart = session.getStreamingSnapshot()!;
+      expect(secondStart.messageId).not.toBe(firstSnapshot.messageId);
+      expect(secondStart.timeline).toEqual([]);
+      expect(secondStart.toolCalls).toEqual([]);
+      secondProcess._stdout.push(assistantLine("Fresh response"));
+      const secondSnapshot = session.getStreamingSnapshot()!;
+      expect(secondSnapshot.timeline).toEqual([
+        { type: "text", id: "text:msg-1:0", text: "Fresh response" },
+      ]);
+      secondProcess._stdout.push(resultLine());
+      secondProcess._emitClose(0);
+      await session.drain();
+
+      const loaded = await ConversationSession.load({
+        cwd: "/tmp/test", dataDir: tempDir, workspaceId: "ws-test", sessionId: session.sessionId,
+      });
+      const assistants = (await loaded.getMessages()).filter((message) => message.role === "assistant");
+      expect(assistants).toHaveLength(2);
+      expect(assistants[0]).toMatchObject({
+        id: firstSnapshot.messageId, timeline: firstSnapshot.timeline, content: "Partial response", cancelled: true,
+      });
+      expect(assistants[1]).toMatchObject({
+        id: secondSnapshot.messageId, timeline: secondSnapshot.timeline, content: "Fresh response",
+      });
+      expect(assistants[1].cancelled).toBeUndefined();
+      expect(assistants[1].toolCalls).toBeUndefined();
+    },
+  );
 
   it("persists an explicit interruption message when cancelled before any output", async () => {
     const session = createSession({ sessionId: "cancel-no-output" });

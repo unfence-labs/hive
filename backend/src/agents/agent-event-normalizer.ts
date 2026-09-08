@@ -15,11 +15,11 @@ type ServerResultBlock = Extract<ContentBlock,
 >;
 
 export type NormalizedAgentEvent =
-  | { type: "text_delta"; text: string }
+  | { type: "text_delta"; text: string; blockId?: string }
   | { type: "thinking_delta"; segmentId: string; text: string }
   | { type: "tool_started"; id: string; name: string; rawName: string; input: string; parentToolUseId?: string }
   | { type: "tool_updated"; id: string; input: string }
-  | { type: "tool_completed"; id: string; output: string }
+  | { type: "tool_completed"; id: string; output: string; isError?: boolean }
   | {
       type: "command_execution_updated";
       id: string;
@@ -105,13 +105,15 @@ export class AgentEventNormalizer {
       const reasoningSegmentId = `reasoning:${data.message.id}:${blockIndex}`;
       switch (block.type) {
         case "text":
-          events.push({ type: "text_delta", text: block.text });
+          if (!messageParentToolUseId) {
+            events.push({ type: "text_delta", text: block.text, blockId: `text:${data.message.id}:${blockIndex}` });
+          }
           break;
         case "thinking":
           // Claude 5 family models return signature-only thinking blocks whose
           // text is always empty; skip them so clients never receive a
           // contentless reasoning segment.
-          if (block.thinking) {
+          if (block.thinking && !messageParentToolUseId) {
             events.push({ type: "thinking_delta", segmentId: reasoningSegmentId, text: block.thinking });
           }
           break;
@@ -154,6 +156,7 @@ export class AgentEventNormalizer {
             type: "tool_completed",
             id: block.tool_use_id,
             output: formatServerToolResult(block),
+            ...("is_error" in block ? { isError: block.is_error } : {}),
           });
           break;
       }
@@ -183,6 +186,7 @@ export class AgentEventNormalizer {
         type: "tool_completed",
         id: block.tool_use_id,
         output: block.content,
+        ...(block.is_error !== undefined ? { isError: block.is_error } : {}),
       });
     }
 

@@ -119,6 +119,8 @@ export default function BrainView() {
     isStreaming,
     streamingStartedAt,
     currentStreamingText,
+    currentTimeline,
+    streamingMessageId,
     currentReasoningSegments,
     activeToolCalls,
     activeAgentActivities,
@@ -383,6 +385,8 @@ export default function BrainView() {
               onRetryHistory={retryHistory}
               streamingStartedAt={streamingStartedAt}
               currentStreamingText={currentStreamingText}
+              currentTimeline={currentTimeline}
+              streamingMessageId={streamingMessageId}
               currentReasoningSegments={currentReasoningSegments}
               activeToolCalls={activeToolCalls}
               activeAgentActivities={activeAgentActivities}

@@ -811,6 +811,26 @@ describe("CodexAppServerSession normalized events", () => {
     ]);
   });
 
+  it.each([
+    { type: "mcpToolCall", id: "mcp-failed", error: { message: "Unavailable" }, status: "failed" },
+    { type: "dynamicToolCall", id: "dynamic-failed", success: false, status: "completed" },
+  ])("preserves explicit failure for $type results", async (item) => {
+    const proc = createMockProcess();
+    mockSpawn.mockReturnValue(proc);
+    const session = new CodexAppServerSession();
+    const results: unknown[] = [];
+    session.on("user", (event) => results.push(event));
+    await initializeSession(session, proc);
+    proc._stdout.push(JSON.stringify({ method: "item/completed", params: { item } }) + "\n");
+    expect(results).toEqual([
+      expect.objectContaining({
+        message: expect.objectContaining({
+          content: [expect.objectContaining({ type: "tool_result", tool_use_id: item.id, is_error: true })],
+        }),
+      }),
+    ]);
+  });
+
   it("ignores known App Server status notifications that do not belong in chat", async () => {
     const proc = createMockProcess();
     mockSpawn.mockReturnValue(proc);
@@ -1121,6 +1141,13 @@ describe("CodexAppServerSession normalized events", () => {
         },
       },
     }) + "\n");
+
+    for (const method of ["item/agentMessage/delta", "item/reasoning/textDelta", "item/reasoning/summaryTextDelta"]) {
+      proc._stdout.push(JSON.stringify({
+        method,
+        params: { threadId: "thread-child", itemId: "child-prose", delta: "Child-only progress" },
+      }) + "\n");
+    }
 
     expect(assistantEvents).toEqual([
       expect.objectContaining({
