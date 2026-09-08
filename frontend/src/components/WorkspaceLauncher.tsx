@@ -5,6 +5,7 @@ import { WorkspaceCommandPalette } from "@/components/WorkspaceCommandPalette";
 import type { CommandPaletteAction } from "@/components/WorkspaceCommandPalette";
 import { ProjectPickerDialog } from "@/components/ProjectPickerDialog";
 import NewWorkspaceFromDialog from "@/components/NewWorkspaceFromDialog";
+import RestoreWorkspaceDialog from "@/components/RestoreWorkspaceDialog";
 import { useProjects } from "@/hooks/useProjects";
 import { useAppZoom } from "@/hooks/useAppZoom";
 import { dispatchAppCommand, subscribeAppCommand } from "@/lib/app-commands";
@@ -14,6 +15,10 @@ interface WorkspaceLauncherProps {
   pickerOpen: boolean;
   pickerProjectId?: string;
   onPickerOpenChange: (open: boolean) => void;
+  /** "Restore workspace…" picker state, owned by App for the same reason. */
+  restoreOpen: boolean;
+  restoreProjectId?: string;
+  onRestoreOpenChange: (open: boolean) => void;
 }
 
 /**
@@ -25,6 +30,9 @@ export default function WorkspaceLauncher({
   pickerOpen,
   pickerProjectId,
   onPickerOpenChange,
+  restoreOpen,
+  restoreProjectId,
+  onRestoreOpenChange,
 }: WorkspaceLauncherProps) {
   const [spotlightOpen, setSpotlightOpen] = useState(false);
   const [projectPickerOpen, setProjectPickerOpen] = useState(false);
@@ -71,9 +79,10 @@ export default function WorkspaceLauncher({
   const toggleSpotlight = useCallback(() => {
     dispatchAppCommand("dismiss-view-dialogs");
     onPickerOpenChange(false);
+    onRestoreOpenChange(false);
     setProjectPickerOpen(false);
     setSpotlightOpen((prev) => !prev);
-  }, [onPickerOpenChange]);
+  }, [onPickerOpenChange, onRestoreOpenChange]);
 
   // Lets the sidebar's search button open the palette without owning its state.
   useEffect(() => subscribeAppCommand("open-spotlight", toggleSpotlight), [toggleSpotlight]);
@@ -86,6 +95,9 @@ export default function WorkspaceLauncher({
         return;
       case "new-workspace-from":
         onPickerOpenChange(true);
+        return;
+      case "restore-workspace":
+        onRestoreOpenChange(true);
         return;
       case "toggle-sidebar":
         dispatchAppCommand("toggle-sidebar");
@@ -113,7 +125,7 @@ export default function WorkspaceLauncher({
       default:
         if (workspaceCommandsEnabled) dispatchAppCommand(command);
     }
-  }, [instantCreate, location.pathname, navigate, onPickerOpenChange, resetZoom, workspaceCommandsEnabled, zoomIn, zoomOut]);
+  }, [instantCreate, location.pathname, navigate, onPickerOpenChange, onRestoreOpenChange, resetZoom, workspaceCommandsEnabled, zoomIn, zoomOut]);
 
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
@@ -162,10 +174,11 @@ export default function WorkspaceLauncher({
         if (!workspaceCommandsEnabled) return;
         e.preventDefault();
         executeCommand("quick-open-file");
-      } else if (key === "t" && !e.shiftKey) {
-        if (!workspaceCommandsEnabled) return;
+      } else if (key === "t") {
+        // Shift+T restores an archived workspace, the app-level "reopen closed tab".
+        if (!e.shiftKey && !workspaceCommandsEnabled) return;
         e.preventDefault();
-        executeCommand("new-chat");
+        executeCommand(e.shiftKey ? "restore-workspace" : "new-chat");
       } else if (key === "g") {
         if (!workspaceCommandsEnabled) return;
         e.preventDefault();
@@ -193,6 +206,11 @@ export default function WorkspaceLauncher({
         open={pickerOpen}
         onOpenChange={onPickerOpenChange}
         defaultProjectId={pickerProjectId ?? contextProject?.id}
+      />
+      <RestoreWorkspaceDialog
+        open={restoreOpen}
+        onOpenChange={onRestoreOpenChange}
+        defaultProjectId={restoreProjectId ?? contextProject?.id}
       />
     </>
   );

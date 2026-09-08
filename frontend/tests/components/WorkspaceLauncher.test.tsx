@@ -23,6 +23,7 @@ const singleProject: Project[] = [
 
 function LauncherHarness() {
   const [picker, setPicker] = useState<{ open: boolean; projectId?: string }>({ open: false });
+  const [restore, setRestore] = useState<{ open: boolean; projectId?: string }>({ open: false });
   return (
     <>
       <WorkspaceLauncher
@@ -30,6 +31,11 @@ function LauncherHarness() {
         pickerProjectId={picker.projectId}
         onPickerOpenChange={(open) =>
           setPicker((prev) => (open ? { ...prev, open: true } : { open: false }))
+        }
+        restoreOpen={restore.open}
+        restoreProjectId={restore.projectId}
+        onRestoreOpenChange={(open) =>
+          setRestore((prev) => (open ? { ...prev, open: true } : { open: false }))
         }
       />
       <LocationProbe />
@@ -76,6 +82,7 @@ describe("WorkspaceLauncher", () => {
     expect(await screen.findByText("Workspace actions")).toBeInTheDocument();
     expect(screen.getByText("New workspace")).toBeInTheDocument();
     expect(screen.getByText("New workspace from…")).toBeInTheDocument();
+    expect(screen.getByText("Restore workspace…")).toBeInTheDocument();
     expect(screen.getByText("Conversation actions")).toBeInTheDocument();
     expect(screen.getByText("Quick open file")).toBeInTheDocument();
     expect(screen.getByText("Previous tab")).toBeInTheDocument();
@@ -83,6 +90,19 @@ describe("WorkspaceLauncher", () => {
     expect(screen.getByText("Navigation")).toBeInTheDocument();
     expect(screen.getByText("Application")).toBeInTheDocument();
     expect(screen.getByText("Settings")).toBeInTheDocument();
+  });
+
+  it("opens the restore picker from the spotlight", async () => {
+    apiGet.mockImplementation((url: string) =>
+      Promise.resolve(url === "/api/projects" ? singleProject : []),
+    );
+    renderLauncher(singleProject);
+    pressShortcut("k");
+
+    fireEvent.click(await screen.findByText("Restore workspace…"));
+
+    expect(await screen.findByPlaceholderText("Search archived workspaces")).toBeInTheDocument();
+    expect(apiGet).toHaveBeenCalledWith("/api/projects/p1/archives");
   });
 
   it("runs global navigation actions from the spotlight", async () => {
@@ -165,6 +185,17 @@ describe("WorkspaceLauncher", () => {
     await waitFor(() => {
       expect(apiPost).toHaveBeenCalledWith("/api/projects/p1/workspaces");
     });
+  });
+
+  it("opens the restore picker on Cmd+Shift+T, even outside a workspace", async () => {
+    apiGet.mockImplementation((url: string) =>
+      Promise.resolve(url === "/api/projects" ? singleProject : []),
+    );
+    renderLauncher(singleProject, ["/home"]);
+    pressShortcut("t", true);
+
+    expect(await screen.findByPlaceholderText("Search archived workspaces")).toBeInTheDocument();
+    expect(apiGet).toHaveBeenCalledWith("/api/projects/p1/archives");
   });
 
   it("opens the picker on Cmd+Shift+N", async () => {

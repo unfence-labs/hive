@@ -1,4 +1,5 @@
 import {
+  ArchiveRestore,
   ArrowLeft,
   ArrowRight,
   ChevronLeft,
@@ -38,6 +39,7 @@ interface WorkspaceCommandPaletteProps {
 export type CommandPaletteAction =
   | "new-workspace"
   | "new-workspace-from"
+  | "restore-workspace"
   | "settings"
   | "zoom-in"
   | "zoom-out"
@@ -91,6 +93,11 @@ export function WorkspaceCommandPalette({
             <GitBranch />
             New workspace from…
             <CommandShortcut>{shortcutLabel("N", { shift: true })}</CommandShortcut>
+          </CommandItem>
+          <CommandItem onSelect={() => run("restore-workspace")}>
+            <ArchiveRestore />
+            Restore workspace…
+            <CommandShortcut>{shortcutLabel("T", { shift: true })}</CommandShortcut>
           </CommandItem>
         </CommandGroup>
         <CommandGroup heading="Conversation actions">

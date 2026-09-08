@@ -4,7 +4,6 @@ import { useQueryClient } from "@tanstack/react-query";
 import AppLayout from "@/components/AppLayout";
 import AddProjectDialog from "@/components/AddProjectDialog";
 import WorkspaceLauncher from "@/components/WorkspaceLauncher";
-import RestoreWorkspaceDialog from "@/components/RestoreWorkspaceDialog";
 import HomeView from "@/pages/HomeView";
 import NotificationSettings from "@/pages/settings/NotificationSettings";
 import { useProjects } from "@/hooks/useProjects";
@@ -158,11 +157,9 @@ function ConfiguredApp({
           onPickerOpenChange={(open) =>
             setWorkspaceFrom((prev) => (open ? { ...prev, open: true } : { open: false }))
           }
-        />
-        <RestoreWorkspaceDialog
-          open={restoreWorkspace.open}
-          projectId={restoreWorkspace.projectId}
-          onOpenChange={(open) =>
+          restoreOpen={restoreWorkspace.open}
+          restoreProjectId={restoreWorkspace.projectId}
+          onRestoreOpenChange={(open) =>
             setRestoreWorkspace((prev) => (open ? { ...prev, open: true } : { open: false }))
           }
         />

@@ -4,7 +4,7 @@ import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import userEvent from "@testing-library/user-event";
 import RestoreWorkspaceDialog from "@/components/RestoreWorkspaceDialog";
-import type { ArchivedWorkspaceItem } from "@/types";
+import type { ArchivedWorkspaceItem, Project } from "@/types";
 
 const { apiGet, apiPost, apiDelete, toastError } = vi.hoisted(() => ({
   apiGet: vi.fn(),
@@ -42,6 +42,21 @@ const archives: ArchivedWorkspaceItem[] = [
   },
 ];
 
+const projects: Project[] = [
+  { id: "p1", name: "hive", createdAt: "2026-01-01T00:00:00.000Z", workspaces: [] },
+  { id: "p2", name: "blog", createdAt: "2026-01-01T00:00:00.000Z", workspaces: [] },
+];
+
+/** Routes the shared GET mock: the projects list stays stable, archives vary per test. */
+function mockArchives(...responses: Array<ArchivedWorkspaceItem[] | Error>) {
+  let call = 0;
+  apiGet.mockImplementation((url: string) => {
+    if (url === "/api/projects") return Promise.resolve(projects);
+    const response = responses[Math.min(call++, responses.length - 1)];
+    return response instanceof Error ? Promise.reject(response) : Promise.resolve(response);
+  });
+}
+
 function LocationProbe() {
   const location = useLocation();
   return <div data-testid="location-path">{location.pathname}</div>;
@@ -51,6 +66,7 @@ function renderDialog(onOpenChange = vi.fn()) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
+  queryClient.setQueryData(["projects"], projects);
   render(
     <QueryClientProvider client={queryClient}>
       <MemoryRouter initialEntries={["/home"]}>
@@ -59,7 +75,7 @@ function renderDialog(onOpenChange = vi.fn()) {
             path="*"
             element={
               <>
-                <RestoreWorkspaceDialog open onOpenChange={onOpenChange} projectId="p1" />
+                <RestoreWorkspaceDialog open onOpenChange={onOpenChange} defaultProjectId="p1" />
                 <LocationProbe />
               </>
             }
@@ -77,7 +93,7 @@ describe("RestoreWorkspaceDialog", () => {
     apiPost.mockReset();
     apiDelete.mockReset();
     toastError.mockReset();
-    apiGet.mockResolvedValue(archives);
+    mockArchives(archives);
   });
 
   it("lists archived workspaces in server order with branch details and archive time", async () => {
@@ -86,36 +102,69 @@ describe("RestoreWorkspaceDialog", () => {
     await screen.findByText("lyon");
     expect(apiGet).toHaveBeenCalledWith("/api/projects/p1/archives");
 
-    const rows = screen.getAllByRole("listitem");
+    const rows = screen.getAllByRole("option");
     expect(rows).toHaveLength(2);
     expect(rows[0]).toHaveTextContent("lyon");
     expect(rows[0]).toHaveTextContent("#12");
     expect(rows[0]).toHaveTextContent("workspace/lyon");
     expect(rows[0]).toHaveTextContent("2h ago");
     expect(rows[1]).toHaveTextContent("tokyo");
-    expect(rows[1]).toHaveTextContent("3d ago");
   });
 
-  it("greys out a workspace whose branch is missing and disables its restore button", async () => {
+  it("marks a workspace whose branch is missing and refuses to restore it", async () => {
+    const user = userEvent.setup();
     renderDialog();
 
     await screen.findByText("tokyo");
-    const rows = screen.getAllByRole("listitem");
-    expect(rows[1]).toHaveClass("opacity-60");
+    const rows = screen.getAllByRole("option");
+    expect(rows[1]).toHaveAttribute("aria-disabled", "true");
     expect(rows[1]).toHaveTextContent("Branch missing");
-    expect(screen.getByRole("button", { name: "Restore tokyo" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Restore lyon" })).toBeEnabled();
+    expect(rows[1]).not.toHaveTextContent("3d ago");
+    expect(rows[0]).not.toHaveAttribute("aria-disabled");
+
+    await user.click(rows[1]);
+    expect(apiPost).not.toHaveBeenCalled();
+  });
+
+  it("filters rows by name, branch, or source number", async () => {
+    const user = userEvent.setup();
+    renderDialog();
+
+    await screen.findByText("lyon");
+    await user.type(screen.getByPlaceholderText("Search archived workspaces"), "tok");
+    expect(screen.getAllByRole("option")).toHaveLength(1);
+    expect(screen.getByRole("option")).toHaveTextContent("tokyo");
+
+    await user.clear(screen.getByPlaceholderText("Search archived workspaces"));
+    await user.type(screen.getByPlaceholderText("Search archived workspaces"), "#12");
+    expect(screen.getByRole("option")).toHaveTextContent("lyon");
+
+    await user.type(screen.getByPlaceholderText("Search archived workspaces"), "zzz");
+    expect(screen.getByText("No results found.")).toBeInTheDocument();
+  });
+
+  it("switches project from the header dropdown", async () => {
+    const user = userEvent.setup();
+    renderDialog();
+
+    await screen.findByText("lyon");
+    await user.click(screen.getByRole("button", { name: /hive/ }));
+    await user.click(await screen.findByRole("menuitem", { name: "blog" }));
+
+    await waitFor(() => {
+      expect(apiGet).toHaveBeenCalledWith("/api/projects/p2/archives");
+    });
   });
 
   it("shows an empty state when nothing is archived", async () => {
-    apiGet.mockResolvedValue([]);
+    mockArchives([]);
     renderDialog();
 
     expect(await screen.findByText("No archived workspaces")).toBeInTheDocument();
   });
 
   it("shows an error when the list fails to load", async () => {
-    apiGet.mockRejectedValue(new Error("boom"));
+    mockArchives(new Error("boom"));
     renderDialog();
 
     expect(await screen.findByText("Failed to load archived workspaces")).toBeInTheDocument();
@@ -126,7 +175,8 @@ describe("RestoreWorkspaceDialog", () => {
     const user = userEvent.setup();
     const { onOpenChange } = renderDialog();
 
-    await user.click(await screen.findByRole("button", { name: "Restore lyon" }));
+    await screen.findByText("lyon");
+    await user.keyboard("{Enter}");
 
     await waitFor(() => {
       expect(screen.getByTestId("location-path")).toHaveTextContent("/workspaces/ws-new");
@@ -141,14 +191,14 @@ describe("RestoreWorkspaceDialog", () => {
     const user = userEvent.setup();
     const { onOpenChange } = renderDialog();
 
-    await user.click(await screen.findByRole("button", { name: "Restore lyon" }));
+    await user.click(await screen.findByText("lyon"));
 
     await waitFor(() => {
       expect(toastError).toHaveBeenCalledWith("Branch workspace/lyon is checked out elsewhere");
     });
     expect(onOpenChange).not.toHaveBeenCalled();
     expect(screen.getByTestId("location-path")).toHaveTextContent("/home");
-    expect(screen.getByRole("button", { name: "Restore lyon" })).toBeEnabled();
+    expect(screen.getByPlaceholderText("Search archived workspaces")).toBeEnabled();
   });
 
   it("asks for confirmation before deleting, naming the workspace and its branch", async () => {
@@ -177,7 +227,7 @@ describe("RestoreWorkspaceDialog", () => {
 
   it("deletes the archive on confirm and drops the row after refetch", async () => {
     apiDelete.mockResolvedValue(undefined);
-    apiGet.mockResolvedValueOnce(archives).mockResolvedValue([archives[1]]);
+    mockArchives(archives, [archives[1]]);
     const user = userEvent.setup();
     const { onOpenChange } = renderDialog();
 
