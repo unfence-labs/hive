@@ -40,10 +40,11 @@ final class ProjectStore {
     private let archiveWorkspaceClosure: @MainActor (String) async throws -> Void
     private var hasFetchedOnce = false
     private var lastRefreshedAt = Date.distantPast
-    /// Session-lifetime tombstones for successfully archived workspaces. There
-    /// is no restore path and ids are never reused, so an archived id can never
-    /// legitimately reappear; stripping these from refresh results guards
-    /// against a stale snapshot fetched before the archive completed.
+    /// Tombstones for archived workspaces, kept only until a refresh confirms
+    /// the server no longer returns them. They guard against a stale snapshot
+    /// fetched before the archive completed. Once a refresh payload omits an
+    /// id, the tombstone is dropped, so a later refresh that contains the id
+    /// again (the workspace was restored elsewhere) shows the workspace.
     private var archivedIds: Set<String> = []
 
     init(
@@ -274,9 +275,13 @@ final class ProjectStore {
             }
             // A refresh must not resurrect an archived workspace: neither one
             // whose archive is still in flight, nor one from a stale snapshot
-            // fetched before an archive completed.
+            // fetched before an archive completed. Once the payload omits an
+            // archived id, the server has confirmed the removal and the
+            // tombstone is dropped so a restore elsewhere can show it again.
             let hiddenIds = pendingArchiveIds.union(archivedIds)
             if !hiddenIds.isEmpty {
+                let fetchedIds = Set(fresh.flatMap(\.workspaces).map(\.id))
+                archivedIds = archivedIds.intersection(fetchedIds)
                 for i in fresh.indices {
                     fresh[i].workspaces.removeAll { hiddenIds.contains($0.id) }
                 }

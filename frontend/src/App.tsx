@@ -4,6 +4,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import AppLayout from "@/components/AppLayout";
 import AddProjectDialog from "@/components/AddProjectDialog";
 import WorkspaceLauncher from "@/components/WorkspaceLauncher";
+import RestoreWorkspaceDialog from "@/components/RestoreWorkspaceDialog";
 import HomeView from "@/pages/HomeView";
 import NotificationSettings from "@/pages/settings/NotificationSettings";
 import { useProjects } from "@/hooks/useProjects";
@@ -116,6 +117,7 @@ function ConfiguredApp({
   // "New workspace from…" picker — owned here so both the global shortcuts
   // (WorkspaceLauncher) and the sidebar "+" context menu can open it.
   const [workspaceFrom, setWorkspaceFrom] = useState<{ open: boolean; projectId?: string }>({ open: false });
+  const [restoreWorkspace, setRestoreWorkspace] = useState<{ open: boolean; projectId?: string }>({ open: false });
   const workspaceIds = useMemo(
     () =>
       Array.from(
@@ -157,6 +159,13 @@ function ConfiguredApp({
             setWorkspaceFrom((prev) => (open ? { ...prev, open: true } : { open: false }))
           }
         />
+        <RestoreWorkspaceDialog
+          open={restoreWorkspace.open}
+          projectId={restoreWorkspace.projectId}
+          onOpenChange={(open) =>
+            setRestoreWorkspace((prev) => (open ? { ...prev, open: true } : { open: false }))
+          }
+        />
         <NotificationToastsBridge projects={projects} />
         <ServerUpdatePrompt />
         <AddProjectDialog
@@ -185,6 +194,7 @@ function ConfiguredApp({
                   onAddProject={() => setShowAddProject(true)}
                   onAddAutomation={() => setShowAddAutomation(true)}
                   onNewWorkspaceFrom={(projectId) => setWorkspaceFrom({ open: true, projectId })}
+                  onRestoreWorkspace={(projectId) => setRestoreWorkspace({ open: true, projectId })}
                 />
               }
             >

@@ -9,6 +9,7 @@ import {
   deleteProject,
   fetchProject,
 } from "../projects/project-manager.js";
+import { listArchivedWorkspaceItems } from "../workspaces/workspace-manager.js";
 import { errorMessage, errorStatus } from "../utils/errors.js";
 import { bareRepoPath, workspacesDir } from "../utils/paths.js";
 import { getDataDir } from "../state/state.js";
@@ -159,6 +160,14 @@ export async function projectRoutes(app: FastifyInstance, dataDir?: string) {
       return reply
         .status(errorStatus(err))
         .send({ error: errorMessage(err, "Fetch failed") });
+    }
+  });
+
+  app.get<{ Params: { id: string } }>("/api/projects/:id/archives", async (req, reply) => {
+    try {
+      return reply.send(await listArchivedWorkspaceItems(req.params.id, dataDir));
+    } catch (err: unknown) {
+      return reply.status(errorStatus(err)).send({ error: errorMessage(err, "Failed") });
     }
   });
 

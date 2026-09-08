@@ -112,6 +112,19 @@ export interface WorkspaceSource {
   url?: string;
 }
 
+/** Row of `GET /api/projects/:id/archives`, sorted by `archivedAt` descending. */
+export interface ArchivedWorkspaceItem {
+  id: string;
+  name: string;
+  branch: string;
+  source?: WorkspaceSource;
+  archivedAt: string;
+  /** False when the kept branch no longer exists; restore is refused. */
+  branchExists: boolean;
+  /** True when deleting the archive also deletes the branch. */
+  deletesBranch: boolean;
+}
+
 /** Body of `POST /api/projects/:id/workspaces`. */
 export type CreateWorkspaceSource =
   | { kind: "branch"; branch: string }

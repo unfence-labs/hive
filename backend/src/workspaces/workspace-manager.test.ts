@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { rm, writeFile, mkdir, readFile } from "node:fs/promises";
+import { rm, writeFile, mkdir, readFile, stat } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { createTempDir, createFixtureRepo } from "../utils/test-helpers.js";
@@ -11,6 +11,10 @@ import {
   getWorkspace,
   deleteWorkspace,
   archiveWorkspace,
+  listArchivedWorkspaces,
+  listArchivedWorkspaceItems,
+  restoreWorkspace,
+  deleteArchivedWorkspace,
   getWorkspaceDiff,
   getWorkspaceDiffStat,
   mergeWorkspace,
@@ -25,6 +29,7 @@ import { loadProject, saveProject } from "../state/state.js";
 import * as stateStore from "../state/state.js";
 import { saveProjectEnv } from "../state/project-env.js";
 import { initWorkspaceIndex, _clearForTests as clearWorkspaceIndexForTests } from "../state/workspace-index.js";
+import { listWorkspaceSessions } from "../agents/agent-manager.js";
 
 let tempDir: string;
 let dataDir: string;
@@ -358,6 +363,25 @@ describe("archiveWorkspace", () => {
     expect(meta.id).toBe(ws.id);
     expect(meta.name).toBe(ws.name);
     expect(meta.branch).toBe(ws.branch);
+    expect(meta.archivedAt).toBe(new Date(meta.archivedAt).toISOString());
+  });
+
+  it("reserves the city of an archived workspace created from a branch", async () => {
+    await git(["branch", "feature-x", "main"], fixtureRepoUrl);
+    // Pin the pick to the first available city so the archived one would be
+    // chosen again unless the archive metadata keeps it out. A branch-sourced
+    // workspace has no workspace/<city> branch, so only that metadata can.
+    const randomSpy = vi.spyOn(Math, "random").mockReturnValue(0);
+    try {
+      const first = await createWorkspace(projectId, dataDir, { kind: "branch", branch: "feature-x" });
+      expect(first.name).toBe(CITIES[0]);
+      await archiveWorkspace(first.id, dataDir);
+
+      const second = await createWorkspace(projectId, dataDir);
+      expect(second.name).toBe(CITIES[1]);
+    } finally {
+      randomSpy.mockRestore();
+    }
   });
 
   it("moves session directories belonging to the workspace", async () => {
@@ -448,6 +472,232 @@ describe("archiveWorkspace", () => {
     // ws2's worktree should still exist
     const ws2Path = join(dataDir, projectId, "workspaces", ws2.name);
     expect(existsSync(ws2Path)).toBe(true);
+  });
+});
+
+describe("listArchivedWorkspaces", () => {
+  it("returns an empty list without an archive directory", async () => {
+    expect(await listArchivedWorkspaces(projectId, dataDir)).toEqual([]);
+  });
+
+  it("returns archived metadata and skips invalid entries", async () => {
+    const ws = await createWorkspace(projectId, dataDir);
+    await archiveWorkspace(ws.id, dataDir);
+    const archiveRoot = join(dataDir, projectId, "archive");
+    await mkdir(join(archiveRoot, "empty"), { recursive: true });
+    await mkdir(join(archiveRoot, "broken"), { recursive: true });
+    await writeFile(join(archiveRoot, "broken", "workspace.json"), "{ not json", "utf-8");
+
+    const archived = await listArchivedWorkspaces(projectId, dataDir);
+    expect(archived).toHaveLength(1);
+    expect(archived[0].id).toBe(ws.id);
+    expect(archived[0].name).toBe(ws.name);
+    expect(archived[0].archivedAt).toBe(new Date(archived[0].archivedAt).toISOString());
+  });
+
+  it("falls back to the directory mtime for legacy entries without archivedAt", async () => {
+    const ws = await createWorkspace(projectId, dataDir);
+    const legacyDir = join(dataDir, projectId, "archive", ws.id);
+    await mkdir(legacyDir, { recursive: true });
+    await writeFile(join(legacyDir, "workspace.json"), JSON.stringify(ws), "utf-8");
+
+    const archived = await listArchivedWorkspaces(projectId, dataDir);
+    expect(archived).toHaveLength(1);
+    expect(archived[0].archivedAt).toBe((await stat(legacyDir)).mtime.toISOString());
+  });
+});
+
+describe("listArchivedWorkspaceItems", () => {
+  it("throws for a non-existent project", async () => {
+    await expect(listArchivedWorkspaceItems("nonexistent", dataDir)).rejects.toThrow("not found");
+  });
+
+  it("returns items newest first with branchExists", async () => {
+    const older = await createWorkspace(projectId, dataDir);
+    const newer = await createWorkspace(projectId, dataDir);
+    await archiveWorkspace(older.id, dataDir);
+    await archiveWorkspace(newer.id, dataDir);
+    // Archive timestamps can land in the same millisecond; pin them apart.
+    const olderMeta = join(dataDir, projectId, "archive", older.id, "workspace.json");
+    await writeFile(
+      olderMeta,
+      JSON.stringify({ ...JSON.parse(await readFile(olderMeta, "utf-8")), archivedAt: "2020-01-01T00:00:00.000Z" }),
+      "utf-8",
+    );
+    await git(["branch", "-D", older.branch], bareRepoPath(dataDir, projectId));
+
+    const items = await listArchivedWorkspaceItems(projectId, dataDir);
+    expect(items.map((item) => item.id)).toEqual([newer.id, older.id]);
+    expect(items[0]).toMatchObject({ name: newer.name, branch: newer.branch, branchExists: true });
+    expect(items[1].branchExists).toBe(false);
+    expect(items[0]).not.toHaveProperty("projectId");
+  });
+});
+
+describe("restoreWorkspace", () => {
+  async function writeSessionFixture(wsId: string, sessionId: string): Promise<void> {
+    const dir = join(dataDir, projectId, "sessions", sessionId);
+    await mkdir(dir, { recursive: true });
+    const now = new Date().toISOString();
+    await writeFile(
+      join(dir, "metadata.json"),
+      JSON.stringify({
+        sessionId,
+        workspaceId: wsId,
+        createdAt: now,
+        updatedAt: now,
+        assistantMessageCount: 1,
+        readAssistantMessageCount: 1,
+      }),
+      "utf-8",
+    );
+    await writeFile(join(dir, "messages.jsonl"), '{"role":"user"}\n', "utf-8");
+  }
+
+  it("recreates the worktree, moves sessions back, and re-adds the workspace", async () => {
+    const ws = await createWorkspace(projectId, dataDir);
+    const sessionId = "restored-session";
+    await writeSessionFixture(ws.id, sessionId);
+    const state = await loadProject(projectId, dataDir);
+    state!.workspaces[0].activeSessionId = sessionId;
+    await saveProject(state!, dataDir);
+    await archiveWorkspace(ws.id, dataDir);
+    const wsPath = join(dataDir, projectId, "workspaces", ws.name);
+    const archiveDir = join(dataDir, projectId, "archive", ws.id);
+    expect(existsSync(wsPath)).toBe(false);
+
+    const restored = await restoreWorkspace(ws.id, dataDir);
+
+    expect(restored).toMatchObject({
+      id: ws.id,
+      name: ws.name,
+      projectId,
+      branch: ws.branch,
+      status: "idle",
+      createdAt: ws.createdAt,
+      activeSessionId: sessionId,
+    });
+    expect(restored).not.toHaveProperty("archivedAt");
+    const { stdout } = await git(["rev-parse", "--abbrev-ref", "HEAD"], wsPath);
+    expect(stdout.trim()).toBe(ws.branch);
+
+    const sessionDir = join(dataDir, projectId, "sessions", sessionId);
+    expect(existsSync(join(sessionDir, "metadata.json"))).toBe(true);
+    expect(existsSync(join(sessionDir, "messages.jsonl"))).toBe(true);
+    expect(existsSync(archiveDir)).toBe(false);
+
+    const found = await getWorkspace(ws.id, dataDir);
+    expect(found?.workspace).toEqual(restored);
+    const sessions = await listWorkspaceSessions(ws.id, dataDir);
+    expect(sessions.map((s) => s.sessionId)).toEqual([sessionId]);
+  });
+
+  it("resolves the restored id through the workspace index", async () => {
+    const ws = await createWorkspace(projectId, dataDir);
+    await archiveWorkspace(ws.id, dataDir);
+    await initWorkspaceIndex(dataDir);
+    expect(await getWorkspace(ws.id, dataDir)).toBeNull();
+
+    await restoreWorkspace(ws.id, dataDir);
+
+    expect((await getWorkspace(ws.id, dataDir))?.workspace.id).toBe(ws.id);
+  });
+
+  it("refuses when the branch was deleted and keeps the archive", async () => {
+    const ws = await createWorkspace(projectId, dataDir);
+    await archiveWorkspace(ws.id, dataDir);
+    await git(["branch", "-D", ws.branch], bareRepoPath(dataDir, projectId));
+
+    await expect(restoreWorkspace(ws.id, dataDir)).rejects.toThrow(
+      `Branch "${ws.branch}" no longer exists; the workspace cannot be restored`,
+    );
+    expect(existsSync(join(dataDir, projectId, "archive", ws.id, "workspace.json"))).toBe(true);
+    expect(existsSync(join(dataDir, projectId, "workspaces", ws.name))).toBe(false);
+    expect(await listWorkspaces(projectId, dataDir)).toHaveLength(0);
+  });
+
+  it("refuses when the workspace path is occupied", async () => {
+    const ws = await createWorkspace(projectId, dataDir);
+    await archiveWorkspace(ws.id, dataDir);
+    await mkdir(join(dataDir, projectId, "workspaces", ws.name), { recursive: true });
+
+    await expect(restoreWorkspace(ws.id, dataDir)).rejects.toThrow(
+      `Workspace path "${ws.name}" is already in use`,
+    );
+    expect(existsSync(join(dataDir, projectId, "archive", ws.id, "workspace.json"))).toBe(true);
+  });
+
+  it("refuses when the branch is checked out in another workspace", async () => {
+    const ws = await createWorkspace(projectId, dataDir);
+    await archiveWorkspace(ws.id, dataDir);
+    const other = await createWorkspace(projectId, dataDir, { kind: "branch", branch: ws.branch });
+
+    await expect(restoreWorkspace(ws.id, dataDir)).rejects.toThrow(
+      `Branch "${ws.branch}" is already checked out in workspace "${other.name}"`,
+    );
+    expect(existsSync(join(dataDir, projectId, "archive", ws.id, "workspace.json"))).toBe(true);
+  });
+
+  it("throws NotFoundError for an unknown id", async () => {
+    await expect(restoreWorkspace("nonexistent", dataDir)).rejects.toThrow("not found");
+  });
+});
+
+describe("deleteArchivedWorkspace", () => {
+  it("removes the archive directory and the workspace branch", async () => {
+    const ws = await createWorkspace(projectId, dataDir);
+    await archiveWorkspace(ws.id, dataDir);
+    const bare = bareRepoPath(dataDir, projectId);
+    const archiveDir = join(dataDir, projectId, "archive", ws.id);
+
+    await deleteArchivedWorkspace(ws.id, dataDir);
+
+    expect(existsSync(archiveDir)).toBe(false);
+    expect(await listArchivedWorkspaces(projectId, dataDir)).toEqual([]);
+    await expect(git(["show-ref", "--verify", `refs/heads/${ws.branch}`], bare)).rejects.toThrow();
+  });
+
+  it("frees the city name for new workspaces", async () => {
+    // Pin the pick to the first available city: it is reused only once both
+    // the archive metadata and the workspace/<city> branch are gone.
+    const randomSpy = vi.spyOn(Math, "random").mockReturnValue(0);
+    try {
+      const first = await createWorkspace(projectId, dataDir);
+      expect(first.name).toBe(CITIES[0]);
+      await archiveWorkspace(first.id, dataDir);
+      await deleteArchivedWorkspace(first.id, dataDir);
+
+      const second = await createWorkspace(projectId, dataDir);
+      expect(second.name).toBe(first.name);
+    } finally {
+      randomSpy.mockRestore();
+    }
+  });
+
+  it("keeps the branch of a workspace created from an existing branch", async () => {
+    await git(["branch", "feature-x", "main"], fixtureRepoUrl);
+    const ws = await createWorkspace(projectId, dataDir, { kind: "branch", branch: "feature-x" });
+    await archiveWorkspace(ws.id, dataDir);
+    const bare = bareRepoPath(dataDir, projectId);
+
+    await deleteArchivedWorkspace(ws.id, dataDir);
+
+    expect(existsSync(join(dataDir, projectId, "archive", ws.id))).toBe(false);
+    await expect(git(["show-ref", "--verify", "refs/heads/feature-x"], bare)).resolves.toBeDefined();
+  });
+
+  it("succeeds when the branch is already missing", async () => {
+    const ws = await createWorkspace(projectId, dataDir);
+    await archiveWorkspace(ws.id, dataDir);
+    await git(["branch", "-D", ws.branch], bareRepoPath(dataDir, projectId));
+
+    await deleteArchivedWorkspace(ws.id, dataDir);
+
+    expect(existsSync(join(dataDir, projectId, "archive", ws.id))).toBe(false);
+  });
+
+  it("throws NotFoundError for an unknown id", async () => {
+    await expect(deleteArchivedWorkspace("nonexistent", dataDir)).rejects.toThrow("not found");
   });
 });
 

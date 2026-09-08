@@ -1,4 +1,4 @@
-import { GitBranch, Plus } from "lucide-react";
+import { ArchiveRestore, GitBranch, Plus } from "lucide-react";
 import { Collapsible, CollapsibleContent } from "@/components/ui/collapsible";
 import { ContextMenuItem } from "@/components/ui/context-menu";
 import { SidebarGroupHeader } from "@/components/sidebar/SidebarHeaders";
@@ -31,6 +31,7 @@ interface SidebarProjectItemProps {
   projectInsertIndicator: ProjectInsertIndicator;
   onAddWorkspace: (projectId: string) => void;
   onAddWorkspaceFrom?: (projectId: string) => void;
+  onRestoreWorkspace?: (projectId: string) => void;
   onArchiveWorkspace: (wsId: string) => void;
   onProjectDragStart: (event: React.DragEvent<HTMLButtonElement>, projectId: string) => void;
   onProjectDragEnd: () => void;
@@ -64,6 +65,7 @@ export function SidebarProjectItem({
   projectInsertIndicator,
   onAddWorkspace,
   onAddWorkspaceFrom,
+  onRestoreWorkspace,
   onArchiveWorkspace,
   onProjectDragStart,
   onProjectDragEnd,
@@ -120,6 +122,12 @@ export function SidebarProjectItem({
                   <GitBranch />
                   New workspace from…
                 </ContextMenuItem>
+                {onRestoreWorkspace && (
+                  <ContextMenuItem onSelect={() => onRestoreWorkspace(project.id)}>
+                    <ArchiveRestore />
+                    Restore workspace…
+                  </ContextMenuItem>
+                )}
               </>
             ) : undefined
           }

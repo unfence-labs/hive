@@ -28,12 +28,19 @@ const CITIES = [
   "versailles", "wollongong", "xining", "yakutsk", "zermatt",
 ] as const;
 
+/**
+ * Pick a random city not in `usedNames`. Only when every plain city is taken
+ * does it fall back to `<city>-N`, with the smallest N >= 1 that is free.
+ */
 export function pickCityName(usedNames: string[]): string {
   const available = CITIES.filter((c) => !usedNames.includes(c));
-  if (available.length === 0) {
-    throw new Error("All city names exhausted");
+  if (available.length > 0) {
+    return available[Math.floor(Math.random() * available.length)];
   }
-  return available[Math.floor(Math.random() * available.length)];
+  const city = CITIES[Math.floor(Math.random() * CITIES.length)];
+  let n = 1;
+  while (usedNames.includes(`${city}-${n}`)) n++;
+  return `${city}-${n}`;
 }
 
 export { CITIES };

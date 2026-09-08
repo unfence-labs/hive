@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import Fastify, { type FastifyInstance } from "fastify";
+import { existsSync } from "node:fs";
 import { mkdir, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createTempDir, createFixtureRepo } from "../utils/test-helpers.js";
@@ -389,7 +390,6 @@ describe("POST /api/workspaces/:wsId/archive", () => {
   });
 
   it("preserves archive data on disk", async () => {
-    const { existsSync } = await import("node:fs");
     const createRes = await app.inject({
       method: "POST",
       url: `/api/projects/${projectId}/workspaces`,
@@ -401,6 +401,65 @@ describe("POST /api/workspaces/:wsId/archive", () => {
     const archiveDir = join(dataDir, projectId, "archive", ws.id);
     expect(existsSync(archiveDir)).toBe(true);
     expect(existsSync(join(archiveDir, "workspace.json"))).toBe(true);
+  });
+});
+
+describe("POST /api/workspaces/:wsId/restore", () => {
+  async function createAndArchive() {
+    const createRes = await app.inject({ method: "POST", url: `/api/projects/${projectId}/workspaces` });
+    const ws = createRes.json();
+    await app.inject({ method: "POST", url: `/api/workspaces/${ws.id}/archive` });
+    return ws;
+  }
+
+  it("restores the workspace and returns 200", async () => {
+    const ws = await createAndArchive();
+
+    const res = await app.inject({ method: "POST", url: `/api/workspaces/${ws.id}/restore` });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ id: ws.id, name: ws.name, branch: ws.branch, status: "idle" });
+
+    const getRes = await app.inject({ method: "GET", url: `/api/workspaces/${ws.id}` });
+    expect(getRes.statusCode).toBe(200);
+    const archivesRes = await app.inject({ method: "GET", url: `/api/projects/${projectId}/archives` });
+    expect(archivesRes.json()).toEqual([]);
+  });
+
+  it("returns 404 for an unknown archive", async () => {
+    const res = await app.inject({ method: "POST", url: "/api/workspaces/nonexistent/restore" });
+    expect(res.statusCode).toBe(404);
+  });
+
+  it("returns 409 when the branch no longer exists", async () => {
+    const ws = await createAndArchive();
+    await git(["branch", "-D", ws.branch], join(dataDir, projectId, "repo.git"));
+
+    const res = await app.inject({ method: "POST", url: `/api/workspaces/${ws.id}/restore` });
+    expect(res.statusCode).toBe(409);
+    expect(res.json().error).toContain("no longer exists");
+  });
+});
+
+describe("DELETE /api/workspaces/:wsId/archive", () => {
+  it("deletes the archive and its branch and returns 204", async () => {
+    const createRes = await app.inject({ method: "POST", url: `/api/projects/${projectId}/workspaces` });
+    const ws = createRes.json();
+    await app.inject({ method: "POST", url: `/api/workspaces/${ws.id}/archive` });
+
+    const res = await app.inject({ method: "DELETE", url: `/api/workspaces/${ws.id}/archive` });
+    expect(res.statusCode).toBe(204);
+
+    expect(existsSync(join(dataDir, projectId, "archive", ws.id))).toBe(false);
+    const archivesRes = await app.inject({ method: "GET", url: `/api/projects/${projectId}/archives` });
+    expect(archivesRes.json()).toEqual([]);
+    await expect(
+      git(["show-ref", "--verify", `refs/heads/${ws.branch}`], join(dataDir, projectId, "repo.git")),
+    ).rejects.toThrow();
+  });
+
+  it("returns 404 for an unknown archive", async () => {
+    const res = await app.inject({ method: "DELETE", url: "/api/workspaces/nonexistent/archive" });
+    expect(res.statusCode).toBe(404);
   });
 });
 

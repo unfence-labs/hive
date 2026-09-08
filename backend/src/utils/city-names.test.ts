@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { pickCityName, CITIES } from "./city-names.js";
 
 describe("pickCityName", () => {
@@ -15,8 +15,25 @@ describe("pickCityName", () => {
     }
   });
 
-  it("throws when all names are exhausted", () => {
-    expect(() => pickCityName([...CITIES])).toThrow("All city names exhausted");
+  it("suffixes -1 when every plain city is used", () => {
+    const name = pickCityName([...CITIES]);
+    expect(name).toMatch(/^[a-z]+-1$/);
+    expect(CITIES).toContain(name.slice(0, -2));
+  });
+
+  it("picks the smallest free suffix", () => {
+    const randomSpy = vi.spyOn(Math, "random").mockReturnValue(0);
+    try {
+      const used = [...CITIES, `${CITIES[0]}-1`, `${CITIES[0]}-2`, `${CITIES[0]}-4`];
+      expect(pickCityName(used)).toBe(`${CITIES[0]}-3`);
+    } finally {
+      randomSpy.mockRestore();
+    }
+  });
+
+  it("never suffixes while a plain city is free", () => {
+    const [free, ...rest] = CITIES;
+    expect(pickCityName([...rest, `${free}-1`])).toBe(free);
   });
 
   it("only exposes ASCII-safe filesystem slugs", () => {

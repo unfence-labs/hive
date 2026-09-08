@@ -77,18 +77,25 @@ struct ProjectStoreArchiveTests {
         )
     }
 
-    private func sampleProject() -> Project {
+    private func sampleProject(workspaceIds: [String] = ["w1", "w2", "w3"]) -> Project {
         Project(
             id: "p1",
             name: "Project p1",
             url: nil,
             createdAt: "2026-01-01T00:00:00.000Z",
-            workspaces: [
-                sampleWorkspace(id: "w1"),
-                sampleWorkspace(id: "w2"),
-                sampleWorkspace(id: "w3")
-            ]
+            workspaces: workspaceIds.map { sampleWorkspace(id: $0) }
         )
+    }
+
+    /// Builds a fetch closure that returns `payloads` in order, repeating the
+    /// last one once the sequence is exhausted.
+    private func sequencedFetch(_ payloads: [[Project]]) -> @MainActor () async throws -> [Project] {
+        let fetchCount = Counter()
+        return {
+            let index = min(fetchCount.value, payloads.count - 1)
+            fetchCount.value += 1
+            return payloads[index]
+        }
     }
 
     private func makeStore(
@@ -224,6 +231,49 @@ struct ProjectStoreArchiveTests {
         // survive subsequent refreshes, not be treated as archived.
         await store.refresh(force: true)
         #expect(workspaceIds(store) == ["w1", "w2", "w3"])
+    }
+
+    @Test
+    func tombstoneDropsOnceServerConfirmsRemovalSoRestoreShowsWorkspace() async {
+        let (store, _) = makeStore(
+            archiveWorkspace: { _ in },
+            fetchProjects: sequencedFetch([
+                [sampleProject()],
+                [sampleProject(workspaceIds: ["w1", "w3"])],
+                [sampleProject()]
+            ])
+        )
+        await store.refresh()
+        #expect(workspaceIds(store) == ["w1", "w2", "w3"])
+
+        await store.archiveWorkspace(id: "w2")
+        #expect(workspaceIds(store) == ["w1", "w3"])
+
+        // The server no longer returns w2: the archive is confirmed and the
+        // tombstone is dropped.
+        await store.refresh(force: true)
+        #expect(workspaceIds(store) == ["w1", "w3"])
+
+        // w2 was restored on another client with the same id; it must show.
+        await store.refresh(force: true)
+        #expect(workspaceIds(store) == ["w1", "w2", "w3"])
+    }
+
+    @Test
+    func staleRefreshStillContainingArchivedIdKeepsItHidden() async {
+        let (store, _) = makeStore(archiveWorkspace: { _ in })
+        await store.refresh()
+
+        await store.archiveWorkspace(id: "w2")
+        #expect(workspaceIds(store) == ["w1", "w3"])
+
+        // Every refresh still returns w2 (stale snapshots): the tombstone
+        // stays in place until the server stops returning the id.
+        await store.refresh(force: true)
+        #expect(workspaceIds(store) == ["w1", "w3"])
+
+        await store.refresh(force: true)
+        #expect(workspaceIds(store) == ["w1", "w3"])
     }
 
     @Test
