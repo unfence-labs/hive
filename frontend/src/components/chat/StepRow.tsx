@@ -1,0 +1,130 @@
+import { useState, type ComponentProps, type ReactNode } from "react";
+import { AlertTriangleIcon, XCircleIcon } from "lucide-react";
+import { cn } from "@/lib/utils";
+import type { TimelineStep } from "@/lib/timeline-steps";
+import { getOutputSummary } from "@/lib/tool-display";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { StepIconGlyph } from "@/components/chat/StepIcon";
+import { StepDetail, hasStepDetail } from "@/components/chat/StepDetail";
+
+/** Shared line styling for step lines and run headers. */
+export const STEP_LINE_CLASS =
+  "inline-flex max-w-full items-center gap-2 rounded-md py-1 pr-2 text-[12.5px] text-muted-foreground transition-colors";
+/** Steps revealed under a run header sit at the same level as the header: no rail, no indent. */
+export const STEP_LIST_CLASS = "space-y-0.5";
+const EXPANDABLE_LINE_CLASS = "cursor-pointer hover:bg-muted/60 hover:text-foreground";
+
+interface StepRowProps {
+  step: TimelineStep;
+  defaultOpen?: boolean;
+  /** Controlled open state; when provided it replaces the internal state. */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  /** Detail panel content; omitted means the default StepDetail, null means not expandable. */
+  detail?: ReactNode;
+  /** Nested content rendered under the line (agent children). */
+  children?: ReactNode;
+}
+
+export function StepRow({ step, defaultOpen = false, open: controlledOpen, onOpenChange, detail, children }: StepRowProps) {
+  const [internalOpen, setInternalOpen] = useState(defaultOpen);
+  const open = controlledOpen ?? internalOpen;
+  const [opened, setOpened] = useState(open);
+  const expandable = detail === undefined ? hasStepDetail(step) : detail !== null;
+  const line = <StepLine step={step} expandable={expandable} />;
+
+  if (!expandable) {
+    return (
+      <div>
+        {line}
+        {children}
+      </div>
+    );
+  }
+
+  return (
+    <Collapsible
+      open={open}
+      onOpenChange={(next) => {
+        setInternalOpen(next);
+        onOpenChange?.(next);
+        if (next) setOpened(true);
+      }}
+    >
+      <CollapsibleTrigger asChild>{line}</CollapsibleTrigger>
+      {children}
+      {opened && (
+        <CollapsibleContent forceMount hidden={!open}>
+          {detail === undefined ? <StepDetail step={step} /> : detail}
+        </CollapsibleContent>
+      )}
+    </Collapsible>
+  );
+}
+
+function StepLine({
+  step,
+  expandable,
+  ...props
+}: ComponentProps<"button"> & { step: TimelineStep; expandable: boolean }) {
+  const running = step.status === "running";
+  const failed = step.status === "failed";
+  const summary = step.status === "completed" && !step.stats && step.source.type === "tool"
+    ? getOutputSummary(step.source.tool)
+    : undefined;
+
+  return (
+    <button
+      type="button"
+      className={cn(STEP_LINE_CLASS, expandable ? EXPANDABLE_LINE_CLASS : "cursor-default")}
+      title={step.subjectTitle}
+      {...props}
+    >
+      <StepIconGlyph
+        icon={step.icon}
+        className={cn("size-3.5 shrink-0", failed ? "text-destructive" : "text-muted-foreground")}
+      />
+      {step.subject && (
+        <span className="truncate font-mono">{step.subject}</span>
+      )}
+      {step.verb && (
+        <>
+          {" "}
+          <span className="shrink-0 rounded-full bg-muted px-1.5 py-px text-[11px] font-medium">
+            {running ? step.liveVerb.toLowerCase() : step.verb}
+          </span>
+        </>
+      )}
+      {step.stats?.type === "diff" && (
+        <>
+          {" "}
+          <span className="flex shrink-0 items-center gap-1 font-mono">
+            {step.stats.added > 0 && <span className="text-success-foreground">+{step.stats.added}</span>}
+            {step.stats.added > 0 && step.stats.removed > 0 && " "}
+            {step.stats.removed > 0 && <span className="text-destructive">&minus;{step.stats.removed}</span>}
+          </span>
+        </>
+      )}
+      {step.stats?.type === "plain" && (
+        <>
+          {" "}
+          <span className="truncate text-muted-foreground/60">{step.stats.label}</span>
+        </>
+      )}
+      {summary && (
+        <>
+          {" "}
+          <span className="truncate text-muted-foreground/60">{summary}</span>
+        </>
+      )}
+      {" "}
+      {failed ? (
+        <XCircleIcon className="size-3.5 shrink-0 text-destructive" aria-label={`${step.subject} failed`} />
+      ) : step.severity === "error" ? (
+        <XCircleIcon className="size-3.5 shrink-0 text-destructive" aria-label="Diagnostic error" />
+      ) : step.severity === "warning" ? (
+        <AlertTriangleIcon className="size-3.5 shrink-0 text-warning-foreground" aria-label="Diagnostic warning" />
+      ) : null}
+    </button>
+  );
+}

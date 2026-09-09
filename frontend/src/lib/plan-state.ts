@@ -46,7 +46,7 @@ export function isPlanAwaitingUserInput(params: {
   return hasExitPlanModeTool(messages[fallbackInteractiveIdx]);
 }
 
-// -- Plan content extraction (moved from ToolCallList) --
+// -- Plan content extraction --
 
 /** Check if a tool targets a .claude/plans/ file. */
 export function isPlanFileTool(tool: ToolCall, name: string): boolean {

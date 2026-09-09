@@ -1,16 +1,13 @@
-import { memo, useEffect, useState, type ReactNode } from "react";
+import { memo, useEffect, useMemo, useState, type ReactNode } from "react";
 import type { ChatMessage as ChatMessageType, FileMention, QuestionAnswer } from "@/types";
 import { cn } from "@/lib/utils";
 import { formatElapsed } from "@/lib/time";
 import { resolveImageSrc } from "@/lib/image-url";
-import { MessageResponse } from "@/components/ai-elements/message";
-import { ThinkingBlock } from "@/components/chat/ThinkingBlock";
-import { AgentActivityList, getInlineAgentActivities } from "@/components/chat/AgentActivityList";
 import { AssistantTimeline } from "@/components/chat/AssistantTimeline";
 import { CopyButton } from "@/components/chat/CopyButton";
 import { ImageLightbox } from "@/components/chat/ImageLightbox";
 import { FileIcon, RotateCwIcon, TargetIcon } from "lucide-react";
-import type { PlanStatus } from "@/components/chat/PlanProposal";
+import { buildTimelineRows, type PlanStatus } from "@/lib/timeline-steps";
 import type { SendState } from "@/lib/optimistic-sends";
 import { AT_MENTION_RE, splitByAllMentions } from "@/lib/file-mentions";
 
@@ -95,7 +92,6 @@ const ChatMessage = memo(function ChatMessage({
   isInteractive = false,
   planStatus,
   dismissedToolCallIds,
-  onQuestionAnswer,
   onFileMentionClick,
   sendState,
   onRetrySend,
@@ -104,20 +100,13 @@ const ChatMessage = memo(function ChatMessage({
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const showSendingIndicator = useShowSendingIndicator(sendState);
   const hasDeliveryIssue = sendState === "failed" || sendState === "unconfirmed";
-  const inlineAgentActivities = getInlineAgentActivities(message.agentActivities ?? []);
   const showAssistantActions = !isUser && !streaming && (message.durationMs != null || Boolean(message.content));
+  const hasAssistantContent = useMemo(
+    () => isUser || message.cancelled || buildTimelineRows(message, { streaming }).length > 0,
+    [isUser, message, streaming],
+  );
 
-  if (!isUser) {
-    const hasAssistantContent = Boolean(
-      message.timeline?.length ||
-      message.content ||
-      message.reasoningSegments?.length ||
-      message.toolCalls?.length ||
-      inlineAgentActivities.length ||
-      message.cancelled,
-    );
-    if (!hasAssistantContent) return null;
-  }
+  if (!hasAssistantContent) return null;
 
   return (
     <div className={cn("flex w-full items-start", isUser ? "justify-end" : "justify-start")}>
@@ -196,35 +185,13 @@ const ChatMessage = memo(function ChatMessage({
         </div>
       ) : (
         <div className="max-w-[85%] text-sm leading-relaxed text-foreground">
-          {message.timeline !== undefined ? (
-            <AssistantTimeline
-              message={message}
-              streaming={streaming}
-              isInteractive={isInteractive}
-              planStatus={planStatus}
-              dismissedToolCallIds={dismissedToolCallIds}
-            />
-          ) : (
-            <>
-              <ThinkingBlock segments={message.reasoningSegments} streaming={streaming} />
-              {message.content && (
-                <div className="prose-sm" data-find-content="">
-                  <MessageResponse isAnimating={streaming}>{message.content}</MessageResponse>
-                </div>
-              )}
-              {Boolean(inlineAgentActivities.length || message.toolCalls?.length) && (
-                <AgentActivityList
-                  showExecutingState={streaming}
-                  activities={inlineAgentActivities}
-                  toolCalls={message.toolCalls}
-                  isInteractive={isInteractive}
-                  planStatus={planStatus}
-                  dismissedToolCallIds={dismissedToolCallIds}
-                  onQuestionAnswer={onQuestionAnswer}
-                />
-              )}
-            </>
-          )}
+          <AssistantTimeline
+            message={message}
+            streaming={streaming}
+            isInteractive={isInteractive}
+            planStatus={planStatus}
+            dismissedToolCallIds={dismissedToolCallIds}
+          />
           {message.cancelled && (
             <div className="mt-2 space-y-1 text-xs">
               <div className="italic text-muted-foreground">(cancelled)</div>

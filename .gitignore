@@ -8,3 +8,4 @@ backend/.data/
 *.tsbuildinfo
 .claude/
 dist-release/
+.scratch/

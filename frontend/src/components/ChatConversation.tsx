@@ -10,16 +10,13 @@ import {
 import ChatMessage from "@/components/ChatMessage";
 import { ConversationFind } from "@/components/chat/ConversationFind";
 import AgentActivityPreview from "@/components/chat/AgentActivityPreview";
-import { MessageResponse } from "@/components/ai-elements/message";
-import { ThinkingBlock } from "@/components/chat/ThinkingBlock";
-import { AgentActivityList, getInlineAgentActivities } from "@/components/chat/AgentActivityList";
 import { WorkspaceWelcome } from "@/components/WorkspaceWelcome";
 import { formatElapsed } from "@/lib/time";
 import { getFallbackInteractiveAssistantIndex, hasExitPlanModeTool } from "@/lib/plan-state";
 import { CircleAlertIcon, RefreshCwIcon, Trash2Icon } from "lucide-react";
 import type { AgentActivity, ChatMessage as ChatMessageType, ConversationTimelineEntry, QueuedMessage, ReasoningSegment, ToolCall, QuestionAnswer } from "@/types";
 import type { PendingToolInput } from "@/hooks/useConversation";
-import type { PlanStatus } from "@/components/chat/PlanProposal";
+import type { PlanStatus } from "@/lib/timeline-steps";
 import type { SendState } from "@/lib/optimistic-sends";
 
 interface ChatConversationProps {
@@ -148,7 +145,6 @@ export default function ChatConversation({
   emptyState,
 }: ChatConversationProps) {
   const [elapsed, setElapsed] = useState(0);
-  const activeInlineAgentActivities = getInlineAgentActivities(activeAgentActivities);
 
   useEffect(() => {
     if (!isStreaming || !streamingStartedAt) {
@@ -265,7 +261,14 @@ export default function ChatConversation({
   // Keep the live row in the same keyed list as history so finalization preserves
   // local expansion state throughout the tool and activity component tree, including
   // the idle reconnect interval before REST replaces a retained stream.
-  const liveMessage: ChatMessageType | undefined = (isStreaming || hasRetainedTimeline) && currentTimeline !== undefined ? {
+  const hasLiveContent = Boolean(
+    currentStreamingText
+    || currentTimeline?.length
+    || currentReasoningSegments.length
+    || activeToolCalls.length
+    || activeAgentActivities.length,
+  );
+  const liveMessage: ChatMessageType | undefined = (isStreaming || hasRetainedTimeline) && hasLiveContent ? {
     id: streamingMessageId ?? "live",
     sessionId: "",
     role: "assistant",
@@ -344,30 +347,6 @@ export default function ChatConversation({
             />
           );
         })}
-
-        {/* Live streaming content */}
-        {isStreaming && currentTimeline === undefined && (currentStreamingText || currentReasoningSegments.length > 0 || activeToolCalls.length > 0 || activeInlineAgentActivities.length > 0) && (
-          <div className="flex w-full justify-start">
-            <div className="max-w-[85%] text-sm leading-relaxed text-foreground">
-              <ThinkingBlock
-                segments={currentReasoningSegments}
-                streaming
-              />
-              {currentStreamingText && (
-                <div className="prose-sm" data-find-content="">
-                  <MessageResponse isAnimating>{currentStreamingText}</MessageResponse>
-                </div>
-              )}
-              <AgentActivityList
-                activities={activeInlineAgentActivities}
-                toolCalls={activeToolCalls}
-                isInteractive
-                showExecutingState
-                onQuestionAnswer={onQuestionAnswer}
-              />
-            </div>
-          </div>
-        )}
 
         {/* Live elapsed timer while streaming (not while awaiting user input) */}
         {isStreaming && (

@@ -105,6 +105,15 @@ Updates never move an entry. Live snapshots include the timeline and the assista
 which is retained when the turn is persisted so clients can preserve expanded details. Messages
 without a timeline keep the legacy grouped rendering; their original ordering is not reconstructed.
 
+The web client renders every assistant turn through one grammar (`frontend/src/lib/timeline-steps.ts`
+builds the rows, `AssistantTimeline` draws them). A turn is a list of rows: prose, a run of consecutive
+tool steps, or a standalone step (reasoning, plan, question, diagnostic, image, compaction). Each step
+is a single line: icon, subject, a verb pill, optional stats and marks. While the turn streams, a run
+shows only its live step as one line; once the turn ends, a run of three or more steps collapses into a
+per-verb summary ("Read 2 files, edited 1 file") that expands to its lines. Depth is bounded: a rail
+indents nested lines, a line describes one step, and a step opens at most one detail panel. Agents are
+steps whose children indent under a rail, recursively, with the agent's prompt and result as plain lines.
+
 **Script stream** — `ws://<host>/ws/script/:wsId?type=<scriptType>` · binary frames are PTY bytes; JSON control messages are `ready`, `exit`, `error`.
 
 **Terminal stream** — `ws://<host>/ws/terminal/:wsId?sessionId=<sessionId>` · same PTY protocol, keyed by terminal-tab session id.
