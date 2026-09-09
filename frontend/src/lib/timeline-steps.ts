@@ -164,7 +164,7 @@ export function buildTimelineRows(message: ChatMessage, options: BuildRowsOption
 }
 
 /** Terse run summary: an agent counts once regardless of children; the expanded list carries the detail. */
-export function summarizeRun(steps: TimelineStep[]): { label: string; failed: number; total: number; icons: StepIcon[] } {
+export function summarizeRun(steps: TimelineStep[]): { label: string; failed: number; icons: StepIcon[] } {
   const icons: StepIcon[] = [];
   let failed = 0;
   for (const step of steps) {
@@ -174,7 +174,7 @@ export function summarizeRun(steps: TimelineStep[]): { label: string; failed: nu
   const total = steps.length;
   const plural = total === 1 ? "" : "s";
   const label = steps.every((step) => step.kind === "reasoning") ? `${total} thought${plural}` : `${total} tool${plural} used`;
-  return { label, failed, total, icons };
+  return { label, failed, icons };
 }
 
 /** Latest running step in a run, else undefined. */
@@ -188,13 +188,6 @@ const REASONING_FALLBACK_SUBJECT = "Reasoning";
 export function liveLabel(step: TimelineStep): string {
   if (step.kind === "reasoning") return step.subject === REASONING_FALLBACK_SUBJECT ? step.liveVerb : step.subject;
   return step.subject ? `${step.liveVerb} ${step.subject}` : step.liveVerb;
-}
-
-/** "Read settings.ts" etc., for a run whose latest step already finished. */
-export function pastLabel(step: TimelineStep): string {
-  if (step.kind === "reasoning") return step.subject === REASONING_FALLBACK_SUBJECT ? "Thought" : step.subject;
-  const verb = step.verb.charAt(0).toUpperCase() + step.verb.slice(1);
-  return step.subject ? `${verb} ${step.subject}` : verb;
 }
 
 export interface PresentStandaloneStepOptions {
@@ -220,7 +213,7 @@ export function presentStandaloneStep(step: TimelineStep, options: PresentStanda
   return step;
 }
 
-export function fileChangeActivityToToolCalls(activity: FileChangeActivity): ToolCall[] {
+function fileChangeActivityToToolCalls(activity: FileChangeActivity): ToolCall[] {
   if (activity.files.length === 0) {
     return [{
       id: activity.id,

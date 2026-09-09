@@ -80,7 +80,7 @@ describe("AssistantTimeline", () => {
     expect(subject.className).toContain("font-mono");
     before(subject, pill);
     expect(line).toHaveAccessibleName("settings.ts read read output");
-    expect(screen.queryByRole("button", { name: /action/ })).not.toBeInTheDocument();
+    expect(screen.queryByTestId("live-line")).not.toBeInTheDocument();
   });
 
   it("separates subject, verb and stats in the accessible name", () => {
@@ -110,7 +110,8 @@ describe("AssistantTimeline", () => {
       toolCalls: threeStepTurn.toolCalls!.map((tool) => tool.id === "test" ? { ...tool, output: undefined, isError: undefined } : tool),
     };
     const { rerender } = render(<AssistantTimeline message={live} streaming />);
-    const header = screen.getByRole("button", { name: /Running npm test · 3 actions/ });
+    const header = screen.getByTestId("live-line");
+    expect(within(header).getByText("running")).toBeVisible();
     expect(header).toHaveAttribute("aria-expanded", "false");
     expect(screen.queryByRole("button", { name: /^settings\.ts/ })).not.toBeInTheDocument();
     await user.click(header);
@@ -118,16 +119,54 @@ describe("AssistantTimeline", () => {
     expect(within(stepButton(/^npm test/)).getByText("running")).toBeVisible();
 
     rerender(<AssistantTimeline message={threeStepTurn} streaming={false} />);
-    expect(screen.queryByRole("button", { name: /3 actions/ })).not.toBeInTheDocument();
+    expect(screen.queryByTestId("live-line")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /3 tools used/ })).toHaveAttribute("aria-expanded", "true");
     expect(stepButton(/^settings\.ts/)).toBeVisible();
     expect(screen.getByLabelText("1 failed")).toBeVisible();
   });
 
-  it("shows the failed count on the live line", () => {
+  it("shimmers only the live line and the running step, never completed steps", async () => {
+    const user = userEvent.setup();
+    const live: Message = {
+      ...threeStepTurn,
+      toolCalls: threeStepTurn.toolCalls!.map((tool) => tool.id === "test" ? { ...tool, output: undefined, isError: undefined } : tool),
+    };
+    const { container, rerender } = render(<AssistantTimeline message={live} streaming />);
+    expect(container.querySelectorAll(".step-live-text")).toHaveLength(1);
+    await user.click(screen.getByTestId("live-line"));
+    expect(container.querySelectorAll(".step-live-text")).toHaveLength(2);
+    expect(stepButton(/^settings\.ts/).querySelector(".step-live-text")).toBeNull();
+    expect(stepButton(/^app\.ts/).querySelector(".step-live-text")).toBeNull();
+    expect(stepButton(/^npm test/).querySelector(".step-live-text")).not.toBeNull();
+
+    rerender(<AssistantTimeline message={threeStepTurn} streaming={false} />);
+    expect(container.querySelectorAll(".step-live-text")).toHaveLength(0);
+  });
+
+  it("keeps earlier runs of a streaming turn finished: only the last run is live", () => {
+    const interleaved: Message = {
+      ...threeStepTurn,
+      timeline: [
+        { type: "text", id: "a", text: "Before" }, { type: "tool", id: "read" }, { type: "tool", id: "edit" },
+        { type: "text", id: "b", text: "After" }, { type: "tool", id: "test" },
+      ],
+      toolCalls: threeStepTurn.toolCalls!.map((tool) => tool.id === "test" ? { ...tool, output: undefined, isError: undefined } : tool),
+    };
+    const { container } = render(<AssistantTimeline message={interleaved} streaming />);
+    const earlier = screen.getByRole("button", { name: /2 tools used/ });
+    expect(earlier).not.toHaveAttribute("data-testid");
+    expect(earlier.querySelector(".step-live-text")).toBeNull();
+    expect(screen.getAllByTestId("live-line")).toHaveLength(1);
+    expect(screen.getByTestId("live-line")).toHaveTextContent(/npm test/);
+    expect(container.querySelectorAll(".step-live-text")).toHaveLength(1);
+  });
+
+  it("shows the latest step, failure mark included, as the live line without a counter", () => {
     render(<AssistantTimeline message={{ ...threeStepTurn, toolCalls: [readTool, testTool] }} streaming />);
-    const header = screen.getByRole("button", { name: /Ran npm test · 2 actions/ });
-    expect(within(header).getByLabelText("1 failed")).toBeVisible();
+    const header = screen.getByTestId("live-line");
+    expect(header).toHaveTextContent(/^Current step: npm test ran/);
+    expect(within(header).getByLabelText("npm test failed")).toBeVisible();
+    expect(header).not.toHaveTextContent(/action/);
   });
 
   it("opens the detail panel on step click and closes it again", async () => {
@@ -158,13 +197,13 @@ describe("AssistantTimeline", () => {
       activeAgentActivities: turn.agentActivities!, switchCounter: 0,
     };
     const { rerender } = render(<ChatConversation {...props} />);
-    await user.click(screen.getByRole("button", { name: /Weighing options · 2 actions/ }));
+    await user.click(screen.getByRole("button", { name: /2 tools used/ }));
     await user.click(stepButton(/^settings\.ts/));
     expect(screen.getByText(/Path: src\/settings.ts/)).toBeVisible();
     // Closing and reopening the run must retain the nested step toggle.
-    await user.click(screen.getByRole("button", { name: /Weighing options · 2 actions/ }));
+    await user.click(screen.getByRole("button", { name: /2 tools used/ }));
     expect(screen.getByText(/Path: src\/settings.ts/)).not.toBeVisible();
-    await user.click(screen.getByRole("button", { name: /Weighing options · 2 actions/ }));
+    await user.click(screen.getByRole("button", { name: /2 tools used/ }));
     expect(screen.getByText(/Path: src\/settings.ts/)).toBeVisible();
     rerender(<ChatConversation {...props} isStreaming={false} currentTimeline={undefined} messages={[turn]} />);
     expect(screen.getByText(/Path: src\/settings.ts/)).toBeVisible();
@@ -183,7 +222,7 @@ describe("AssistantTimeline", () => {
       activeAgentActivities: turn.agentActivities!, switchCounter: 0,
     };
     const { rerender } = render(<ChatConversation {...props} />);
-    await user.click(screen.getByRole("button", { name: /Reading settings\.ts · 2 actions/ }));
+    await user.click(screen.getByRole("button", { name: /2 tools used/ }));
     expect(within(stepButton(/^settings\.ts/)).getByText("reading")).toBeVisible();
     await user.click(stepButton(/^settings\.ts/));
     expect(screen.getByText(/Path: src\/settings.ts/)).toBeVisible();
@@ -191,7 +230,7 @@ describe("AssistantTimeline", () => {
     // The done frame was missed. Idle status stops animations before REST returns.
     rerender(<ChatConversation {...props} isStreaming={false} />);
     expect(screen.getByText(/Path: src\/settings.ts/)).toBeVisible();
-    expect(screen.queryByRole("button", { name: /1 action/ })).not.toBeInTheDocument();
+    expect(screen.queryByTestId("live-line")).not.toBeInTheDocument();
     expect(screen.queryByRole("img", { name: "Agent thinking" })).not.toBeInTheDocument();
 
     // REST can populate the cache before the retained reducer slot is cleared.
@@ -211,7 +250,7 @@ describe("AssistantTimeline", () => {
       />,
     );
     before(stepButton(/Inspecting files/), screen.getByText("Partial"));
-    before(screen.getByText("Partial"), screen.getByRole("button", { name: /Reading settings\.ts · 1 action/ }));
+    before(screen.getByText("Partial"), screen.getByTestId("live-line"));
   });
 
   it("keeps legacy messages in reasoning, text, tools order", async () => {

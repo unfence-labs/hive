@@ -67,12 +67,6 @@ function StepLine({
   expandable,
   ...props
 }: ComponentProps<"button"> & { step: TimelineStep; expandable: boolean }) {
-  const running = step.status === "running";
-  const failed = step.status === "failed";
-  const summary = step.status === "completed" && !step.stats && step.source.type === "tool"
-    ? getOutputSummary(step.source.tool)
-    : undefined;
-
   return (
     <button
       type="button"
@@ -80,12 +74,31 @@ function StepLine({
       title={step.subjectTitle}
       {...props}
     >
+      <StepLineContent step={step} />
+    </button>
+  );
+}
+
+/**
+ * Icon, subject, verb pill, stats and marks of one step; shared by step lines and the live run line.
+ * `live` forces the shimmer: the run header stays alive between tools while the agent keeps working.
+ */
+export function StepLineContent({ step, live = false }: { step: TimelineStep; live?: boolean }) {
+  const running = step.status === "running";
+  const shimmer = live || running;
+  const failed = step.status === "failed";
+  const summary = step.status === "completed" && !step.stats && step.source.type === "tool"
+    ? getOutputSummary(step.source.tool)
+    : undefined;
+
+  return (
+    <>
       <StepIconGlyph
         icon={step.icon}
         className={cn("size-3.5 shrink-0", failed ? "text-destructive" : "text-muted-foreground")}
       />
       {step.subject && (
-        <span className="truncate font-mono">{step.subject}</span>
+        <span className={cn("truncate font-mono", shimmer && "step-live-text")}>{step.subject}</span>
       )}
       {step.verb && (
         <>
@@ -125,6 +138,6 @@ function StepLine({
       ) : step.severity === "warning" ? (
         <AlertTriangleIcon className="size-3.5 shrink-0 text-warning-foreground" aria-label="Diagnostic warning" />
       ) : null}
-    </button>
+    </>
   );
 }

@@ -125,11 +125,12 @@ describe("reasoning steps", () => {
     const user = userEvent.setup();
     const message = reasoningMessage([{ id: "r:0", headline: "Inspecting the repository" }]);
     const { rerender } = render(<AssistantTimeline message={message} streaming />);
-    const header = screen.getByRole("button", { name: /^Inspecting the repository · 1 action/ });
+    const header = screen.getByTestId("live-line");
+    expect(header).toHaveTextContent(/^Current step: Inspecting the repository thinking/);
     await user.click(header);
     expect(pill(stepButton(/^Inspecting the repository thinking/), "thinking")).toBeVisible();
     rerender(<AssistantTimeline message={message} />);
-    expect(screen.queryByRole("button", { name: /1 action/ })).not.toBeInTheDocument();
+    expect(screen.queryByTestId("live-line")).not.toBeInTheDocument();
     expect(pill(stepButton(/^Inspecting the repository thought/), "thought")).toBeVisible();
   });
 
@@ -210,7 +211,7 @@ describe("image steps", () => {
     const user = userEvent.setup();
     const generation = activityMessage({ id: "gen", kind: "image_generation", status: "inProgress" });
     const { rerender } = render(<AssistantTimeline message={generation} streaming />);
-    await user.click(screen.getByRole("button", { name: /^Generating image · 1 action/ }));
+    await user.click(screen.getByTestId("live-line"));
     expect(pill(stepButton(/^image/), "generating")).toBeVisible();
     await user.click(stepButton(/^image/));
     expect(screen.getByLabelText("Generating image")).toBeVisible();
@@ -269,7 +270,7 @@ describe("compaction steps", () => {
     const user = userEvent.setup();
     const compaction = activityMessage({ id: "compact", kind: "context_compaction", status: "inProgress" });
     const { rerender } = render(<AssistantTimeline message={compaction} streaming />);
-    await user.click(screen.getByRole("button", { name: /^Compacting Context · 1 action/ }));
+    await user.click(screen.getByTestId("live-line"));
     expect(pill(stepButton(/^Context/), "compacting")).toBeVisible();
     expect(stepButton(/^Context/)).not.toHaveAttribute("aria-expanded");
 

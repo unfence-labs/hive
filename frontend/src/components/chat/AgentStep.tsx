@@ -64,7 +64,7 @@ export function AgentStep({ step, streaming }: StepItemProps) {
         {live && (
           <>
             {" · "}
-            <span className="truncate">{live}</span>
+            <span className="truncate step-live-text">{live}</span>
           </>
         )}
         {children.length > 0 && (

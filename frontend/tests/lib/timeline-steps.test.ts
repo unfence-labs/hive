@@ -334,7 +334,6 @@ describe("summarizeRun", () => {
     expect(summarizeRun(steps)).toEqual({
       label: "6 tools used",
       failed: 2,
-      total: 6,
       icons: ["file", "pencil", "terminal", "search", "bot"],
     });
   });

@@ -26,7 +26,9 @@ export function AssistantTimeline({
 
   return (
     <div className="space-y-3">
-      {rows.map((row) => {
+      {rows.map((row, index) => {
+        // A run is live only while nothing follows it; prose or a later step closes it.
+        const rowStreaming = streaming && index === rows.length - 1;
         switch (row.type) {
           case "text":
             return (
@@ -35,7 +37,7 @@ export function AssistantTimeline({
               </div>
             );
           case "run":
-            return <ActionRun key={row.id} steps={row.steps} streaming={streaming} />;
+            return <ActionRun key={row.id} steps={row.steps} streaming={rowStreaming} />;
           case "step": {
             const step = presentStandaloneStep(row.step, {
               isInteractive,

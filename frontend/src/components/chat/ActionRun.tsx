@@ -1,20 +1,17 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { XCircleIcon } from "lucide-react";
-import { cn } from "@/lib/utils";
 import {
   RUN_COLLAPSE_THRESHOLD,
   findLiveStep,
-  liveLabel,
-  pastLabel,
   summarizeRun,
   type TimelineStep,
 } from "@/lib/timeline-steps";
 import { useCoalescedValue } from "@/hooks/useCoalescedValue";
 import { StepIconGlyph } from "@/components/chat/StepIcon";
-import { STEP_LINE_CLASS, STEP_LIST_CLASS } from "@/components/chat/StepRow";
+import { STEP_LINE_CLASS, STEP_LIST_CLASS, StepLineContent } from "@/components/chat/StepRow";
 import { AgentStep, StepItem } from "@/components/chat/AgentStep";
 
-const LIVE_LABEL_WINDOW_MS = 200;
+const LIVE_STEP_WINDOW_MS = 200;
 const HEADER_CLASS = `${STEP_LINE_CLASS} cursor-pointer hover:bg-muted/60 hover:text-foreground`;
 
 interface ActionRunProps {
@@ -27,11 +24,11 @@ export function ActionRun({ steps, streaming }: ActionRunProps) {
   const [opened, setOpened] = useState(false);
   const summary = summarizeRun(steps);
 
+  // The live line is the current step's own line; a new tool or a status change swaps it.
   const labelStep = findLiveStep(steps) ?? steps[steps.length - 1];
-  const running = labelStep.status === "running";
-  const label = running ? liveLabel(labelStep) : pastLabel(labelStep);
-  const icon = labelStep.icon;
-  const live = useCoalescedValue(useMemo(() => ({ icon, running, label }), [icon, running, label]), LIVE_LABEL_WINDOW_MS);
+  const stepKey = (step: TimelineStep) => `${step.id}:${step.status}`;
+  const liveKey = useCoalescedValue(stepKey(labelStep), LIVE_STEP_WINDOW_MS);
+  const liveStep = steps.find((step) => stepKey(step) === liveKey) ?? labelStep;
 
   const flat = !streaming && steps.length < RUN_COLLAPSE_THRESHOLD;
   // Running agents stay visible under the collapsed live header; the open list already holds them.
@@ -50,12 +47,9 @@ export function ActionRun({ steps, streaming }: ActionRunProps) {
   return (
     <div>
       {streaming ? (
-        <button type="button" className={HEADER_CLASS} onClick={toggle} aria-expanded={open}>
-          <StepIconGlyph icon={live.icon} className="size-3.5 shrink-0 text-muted-foreground" />
-          <span className="truncate">{live.label}</span>
-          {" · "}
-          <span className="shrink-0">{summary.total} action{summary.total === 1 ? "" : "s"}</span>
-          {failedMark}
+        <button type="button" className={HEADER_CLASS} onClick={toggle} aria-expanded={open} data-testid="live-line">
+          <span className="sr-only">Current step: </span>
+          <StepLineContent step={liveStep} live />
         </button>
       ) : !flat && (
         <button type="button" className={HEADER_CLASS} onClick={toggle} aria-expanded={open}>

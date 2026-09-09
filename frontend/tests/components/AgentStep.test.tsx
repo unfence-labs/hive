@@ -101,7 +101,8 @@ describe("AgentStep", () => {
     const edit: ToolCall = { id: "edit", name: "Edit", input: '{"file_path":"src/app.ts","old_string":"a","new_string":"b"}', output: "edited" };
     const live = message([read, edit, agentTool({ output: undefined }), { ...readChild, output: undefined }]);
     const { rerender } = render(<AssistantTimeline message={live} streaming />);
-    const header = screen.getByRole("button", { name: /Delegating Review settings · 3 actions/ });
+    const header = screen.getByTestId("live-line");
+    expect(header).toHaveTextContent(/^Current step: Review settings delegating/);
     expect(header).toHaveAttribute("aria-expanded", "false");
     expect(screen.getAllByRole("button", { name: /^Explore Review settings/ })).toHaveLength(1);
     expect(screen.queryByRole("button", { name: /^app\.ts/ })).not.toBeInTheDocument();
