@@ -212,18 +212,12 @@ func liveLabel(for step: TimelineStep) -> String {
     return step.subject.isEmpty ? step.liveVerb : "\(step.liveVerb) \(step.subject)"
 }
 
-enum PlanStatus {
-    case interactive
-    case approved
-    case revised
-}
-
 /// Display overrides for questions and plans: a step awaiting the user reads as
-/// running ("awaiting"), a handled one carries the outcome as its verb.
+/// running ("awaiting"), a handled one carries the outcome as its verb. iOS does
+/// not derive a plan's later fate; a handled plan always reads "approved".
 func presentStandaloneStep(
     _ step: TimelineStep,
     isInteractive: Bool = false,
-    planStatus: PlanStatus? = nil,
     dismissed: Bool = false
 ) -> TimelineStep {
     var presented = step
@@ -235,11 +229,10 @@ func presentStandaloneStep(
             presented.verb = dismissed ? "cancelled" : "answered"
         }
     case .plan:
-        let resolved: PlanStatus = planStatus ?? (isInteractive ? .interactive : .approved)
-        switch resolved {
-        case .interactive: presented.status = .running
-        case .approved: presented.verb = "approved"
-        case .revised: presented.verb = "revised"
+        if isInteractive {
+            presented.status = .running
+        } else {
+            presented.verb = "approved"
         }
     default:
         break

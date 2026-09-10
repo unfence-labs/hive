@@ -498,15 +498,13 @@ struct TimelineStepsTests {
     }
 
     @Test
-    func derivesPlanStateFromPlanStatusFallingBackToInteractiveFlag() {
+    func planAwaitsWhileInteractiveAndReadsApprovedOnceHandled() {
         let interactive = presentStandaloneStep(plan, isInteractive: true)
         #expect(interactive.status == .running)
         #expect(interactive.verb == "planned")
-        let approved = presentStandaloneStep(plan, isInteractive: true, planStatus: .approved)
-        #expect(approved.status == .pending)
-        #expect(approved.verb == "approved")
-        #expect(presentStandaloneStep(plan, planStatus: .revised).verb == "revised")
-        #expect(presentStandaloneStep(plan).verb == "approved")
+        let handled = presentStandaloneStep(plan)
+        #expect(handled.status == .pending)
+        #expect(handled.verb == "approved")
     }
 
     @Test
