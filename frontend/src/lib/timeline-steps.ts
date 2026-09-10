@@ -333,6 +333,7 @@ function activitySteps(activity: AgentActivity, streaming: boolean): TimelineSte
         started: ["Starting agent", "started"],
         interacted: ["Interacting", "interacted"],
         interrupted: ["Interrupting", "interrupted"],
+        completed: ["Completing agent", "completed"],
       } as const;
       const [liveVerb, verb] = verbs[activity.activityKind];
       return [activityStep(activity, "subagent_activity", "bot", liveVerb, verb, activity.agentPath, "completed")];

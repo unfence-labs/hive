@@ -372,6 +372,7 @@ private func activitySteps(_ activity: AgentActivity, streaming: Bool) -> [Timel
         case .started: verbs = ("Starting agent", "started")
         case .interacted: verbs = ("Interacting", "interacted")
         case .interrupted: verbs = ("Interrupting", "interrupted")
+        case .completed: verbs = ("Completing agent", "completed")
         }
         return [activityStep(activity, kind: .subagentActivity, icon: "arrow.triangle.branch",
                              liveVerb: verbs.live, verb: verbs.past, subject: subagent.agentPath, status: .completed)]

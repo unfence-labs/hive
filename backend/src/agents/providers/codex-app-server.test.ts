@@ -1020,6 +1020,7 @@ describe("CodexAppServerSession normalized events", () => {
   it.each([
     ["interacted", "item/completed"],
     ["interrupted", "item/completed"],
+    ["completed", "item/completed"],
   ] as const)("emits %s sub-agent activity without a diagnostic", async (activityKind, method) => {
     const proc = createMockProcess();
     mockSpawn.mockReturnValue(proc);

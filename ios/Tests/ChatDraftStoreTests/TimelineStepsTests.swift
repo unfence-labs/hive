@@ -358,7 +358,8 @@ struct TimelineStepsTests {
         let expected: [AgentActivitySubagentActivityKind: (liveVerb: String, verb: String)] = [
             .started: ("Starting agent", "started"),
             .interacted: ("Interacting", "interacted"),
-            .interrupted: ("Interrupting", "interrupted")
+            .interrupted: ("Interrupting", "interrupted"),
+            .completed: ("Completing agent", "completed")
         ]
         for kind in AgentActivitySubagentActivityKind.allCases {
             let msg = message(
