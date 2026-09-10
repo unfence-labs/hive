@@ -15,8 +15,8 @@ The backend runs a startup preflight and exits if a required dependency is missi
 - **Claude CLI** (`claude`), installed and authenticated
 - **GitHub CLI** (`gh`), installed and authenticated for GitHub-backed flows
 - **PM2** for the documented production process
-- **Codex CLI** (`codex`) 0.153.4 or newer, optional and required only for its provider features.
-  Older versions keep their models visible but cannot start runs. Update Codex in Settings to
+- **Codex CLI** (`codex`) stable version 0.153.4 or newer, optional and required only for its provider features.
+  Older versions and prereleases keep their models visible but cannot start runs. Update Codex in Settings to
   re-enable them without restarting Hive.
 - **agent-browser** (`agent-browser`), optional — powers the live browser panel and agent-driven UI
   checks; run `agent-browser install` once (`--with-deps` on Linux) to download its Chrome build

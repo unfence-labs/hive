@@ -1169,7 +1169,7 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
     do {
       // Full items are explicit: the API defaults to summaries. Ascending pages
       // preserve provider order while avoiding full-thread history hydration.
-      const response: ThreadTurnsListResponse = await withTimeout(this.request<ThreadTurnsListResponse>("thread/turns/list", {
+      const response: ThreadTurnsListResponse = await withHistoryPageTimeout(this.request<ThreadTurnsListResponse>("thread/turns/list", {
         threadId,
         limit: COLLAB_HISTORY_PAGE_SIZE,
         sortDirection: "asc",
@@ -1658,7 +1658,7 @@ function formatCollabAgentTool(tool: string | undefined): string {
     .replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
-function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+function withHistoryPageTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
   return new Promise((resolve, reject) => {
     const timeout = setTimeout(() => reject(new Error("Codex sub-agent history page timed out")), timeoutMs);
     promise.then(

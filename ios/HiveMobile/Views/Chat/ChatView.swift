@@ -729,7 +729,6 @@ struct ChatView: View {
     // MARK: - Send
 
     private func sendMessage(images: [ImageAttachment]) {
-        guard selectedModel?.unavailableReason == nil else { return }
         let content = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !content.isEmpty || !images.isEmpty else { return }
 
