@@ -121,13 +121,6 @@ struct AgentStep: View {
     }
 }
 
-/// Deepest running step, so a nested agent's live tool bubbles up to the top line.
-private func findLiveDescendant(_ steps: [TimelineStep]) -> TimelineStep? {
-    guard let live = findLiveStep(in: steps) else { return nil }
-    if live.children.isEmpty { return live }
-    return findLiveDescendant(live.children) ?? live
-}
-
 /// Synthetic Prompt / Result lines; never part of the view-model rows or run counts.
 private func textStep(id: String, kind: TimelineStepKind, subject: String, text: String) -> TimelineStep {
     let markdown = kind == .result ? parseContentBlocks(text) : nil

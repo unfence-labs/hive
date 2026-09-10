@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { XCircleIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { findLiveStep, liveLabel, type TimelineStep } from "@/lib/timeline-steps";
+import { findLiveDescendant, liveLabel, type TimelineStep } from "@/lib/timeline-steps";
 import { parseSubAgentInfo } from "@/lib/sub-agent";
 import { parseContentBlocks } from "@/lib/tool-display";
 import { useCoalescedValue } from "@/hooks/useCoalescedValue";
@@ -88,12 +88,6 @@ export function AgentStep({ step, streaming }: StepItemProps) {
   );
 }
 
-/** Deepest running step, so a nested agent's live tool bubbles up to the top line. */
-function findLiveDescendant(steps: TimelineStep[]): TimelineStep | undefined {
-  const live = findLiveStep(steps);
-  if (!live?.children) return live;
-  return findLiveDescendant(live.children) ?? live;
-}
 
 /** Synthetic Prompt / Result lines; never part of the view-model rows or run counts. */
 function textStep(id: string, kind: "prompt" | "result", subject: string, output: string): TimelineStep {

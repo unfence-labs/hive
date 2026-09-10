@@ -201,17 +201,23 @@ struct TimelineStepsTests {
     }
 
     @Test
-    func synthesizesReasoningTextToolsThenActivitiesForLegacyMessages() throws {
+    func synthesizesDiagnosticsReasoningTextToolsThenActivitiesForLegacyMessages() throws {
         let msg = message(
             content: "Legacy answer",
             toolCalls: [
                 tool("todo", name: "TodoList", input: #"{"items":[]}"#),
-                tool("read", name: "Read", input: #"{"file_path":"a.ts"}"#)
+                tool("read", name: "Read", input: #"{"file_path":"a.ts"}"#),
+                tool("sleep", name: "Bash", input: #"{"command":"sleep 300","status":"completed"}"#, output: "")
             ],
             activities: [
                 .imageView(.init(id: "view", path: "/repo/shot.png", relativePath: nil, imageUrl: nil, outsideWorkspace: nil)),
+                // Codex persisted this command as both a tool call and an activity: rendered once.
+                .commandExecution(.init(id: "sleep", command: "sleep 300", cwd: nil, status: "completed",
+                                        output: nil, exitCode: nil, durationMs: nil)),
                 .commandExecution(.init(id: "cmd", command: "ls", cwd: nil, status: "completed",
-                                        output: nil, exitCode: nil, durationMs: nil))
+                                        output: nil, exitCode: nil, durationMs: nil)),
+                .diagnostic(.init(id: "diag", severity: .warning, title: "Config warning", message: "check",
+                                  source: nil, method: nil, details: nil))
             ],
             segments: [
                 ReasoningSegment(id: "a", headline: "First", body: nil),
@@ -220,17 +226,20 @@ struct TimelineStepsTests {
         )
 
         let rows = buildTimelineRows(message: msg, streaming: false)
-        try #require(rowTypes(rows) == ["run", "text", "run"])
-        let reasoning = try #require(runSteps(rows, 0).first)
+        try #require(rowTypes(rows) == ["step", "run", "text", "run"])
+        let diagnostic = try #require(singleStep(rows, 0))
+        #expect(diagnostic.kind == .diagnostic)
+        #expect(diagnostic.subject == "Config warning")
+        let reasoning = try #require(runSteps(rows, 1).first)
         #expect(reasoning.id == "reasoning")
         #expect(reasoning.subject == "Second")
-        #expect(rows[1] == .text(id: "text:msg-1", text: "Legacy answer"))
-        let actions = runSteps(rows, 2)
-        try #require(actions.count == 3)
-        #expect(actions.map(\.id) == ["read", "view", "cmd"])
-        #expect(actions[1].kind == .image)
-        #expect(actions[1].verb == "viewed")
-        #expect(actions[1].subject == "shot.png")
+        #expect(rows[2] == .text(id: "text:msg-1", text: "Legacy answer"))
+        let actions = runSteps(rows, 3)
+        try #require(actions.count == 4)
+        #expect(actions.map(\.id) == ["read", "sleep", "view", "cmd"])
+        #expect(actions[2].kind == .image)
+        #expect(actions[2].verb == "viewed")
+        #expect(actions[2].subject == "shot.png")
     }
 
     @Test

@@ -2,7 +2,9 @@ import { useState } from "react";
 import { XCircleIcon } from "lucide-react";
 import {
   RUN_COLLAPSE_THRESHOLD,
+  findLiveDescendant,
   findLiveStep,
+  liveLabel,
   summarizeRun,
   type TimelineStep,
 } from "@/lib/timeline-steps";
@@ -31,8 +33,15 @@ export function ActionRun({ steps, streaming }: ActionRunProps) {
   const liveStep = steps.find((step) => stepKey(step) === liveKey) ?? labelStep;
 
   const flat = !streaming && steps.length < RUN_COLLAPSE_THRESHOLD;
-  // Running agents stay visible under the collapsed live header; the open list already holds them.
-  const liveAgents = streaming && !open ? steps.filter((step) => step.kind === "agent" && step.status === "running") : [];
+  // While streaming the header owns the current step: it joins the list once the header moves on.
+  const listed = streaming ? steps.filter((step) => step.id !== liveStep.id) : steps;
+  // Other running agents stay visible under the collapsed live header; the open list already holds them.
+  const liveAgents = streaming && !open
+    ? listed.filter((step) => step.kind === "agent" && step.status === "running")
+    : [];
+  const liveChild = liveStep.kind === "agent" && liveStep.status === "running"
+    ? findLiveDescendant(liveStep.children ?? [])
+    : undefined;
   const toggle = () => {
     setOpen(!open);
     setOpened(true);
@@ -50,6 +59,12 @@ export function ActionRun({ steps, streaming }: ActionRunProps) {
         <button type="button" className={HEADER_CLASS} onClick={toggle} aria-expanded={open} data-testid="live-line">
           <span className="sr-only">Current step: </span>
           <StepLineContent step={liveStep} live />
+          {liveChild && (
+            <>
+              {" · "}
+              <span className="truncate step-live-text">{liveLabel(liveChild)}</span>
+            </>
+          )}
         </button>
       ) : !flat && (
         <button type="button" className={HEADER_CLASS} onClick={toggle} aria-expanded={open}>
@@ -67,7 +82,7 @@ export function ActionRun({ steps, streaming }: ActionRunProps) {
       )}
       {(flat || opened) && (
         <div hidden={!flat && !open} className={STEP_LIST_CLASS}>
-          {steps.map((step) => <StepItem key={step.id} step={step} streaming={streaming} />)}
+          {listed.map((step) => <StepItem key={step.id} step={step} streaming={streaming} />)}
         </div>
       )}
     </div>

@@ -116,7 +116,8 @@ describe("AssistantTimeline", () => {
     expect(screen.queryByRole("button", { name: /^settings\.ts/ })).not.toBeInTheDocument();
     await user.click(header);
     expect(stepButton(/^settings\.ts/)).toBeVisible();
-    expect(within(stepButton(/^npm test/)).getByText("running")).toBeVisible();
+    // The header owns the current step; it is not repeated at the end of the list.
+    expect(screen.queryByRole("button", { name: /^npm test/ })).not.toBeInTheDocument();
 
     rerender(<AssistantTimeline message={threeStepTurn} streaming={false} />);
     expect(screen.queryByTestId("live-line")).not.toBeInTheDocument();
@@ -125,7 +126,7 @@ describe("AssistantTimeline", () => {
     expect(screen.getByLabelText("1 failed")).toBeVisible();
   });
 
-  it("shimmers only the live line and the running step, never completed steps", async () => {
+  it("shimmers only the live line, which owns the running step, never completed steps", async () => {
     const user = userEvent.setup();
     const live: Message = {
       ...threeStepTurn,
@@ -134,10 +135,10 @@ describe("AssistantTimeline", () => {
     const { container, rerender } = render(<AssistantTimeline message={live} streaming />);
     expect(container.querySelectorAll(".step-live-text")).toHaveLength(1);
     await user.click(screen.getByTestId("live-line"));
-    expect(container.querySelectorAll(".step-live-text")).toHaveLength(2);
+    expect(container.querySelectorAll(".step-live-text")).toHaveLength(1);
     expect(stepButton(/^settings\.ts/).querySelector(".step-live-text")).toBeNull();
     expect(stepButton(/^app\.ts/).querySelector(".step-live-text")).toBeNull();
-    expect(stepButton(/^npm test/).querySelector(".step-live-text")).not.toBeNull();
+    expect(screen.queryByRole("button", { name: /^npm test/ })).not.toBeInTheDocument();
 
     rerender(<AssistantTimeline message={threeStepTurn} streaming={false} />);
     expect(container.querySelectorAll(".step-live-text")).toHaveLength(0);

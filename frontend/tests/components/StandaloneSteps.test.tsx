@@ -127,8 +127,10 @@ describe("reasoning steps", () => {
     const { rerender } = render(<AssistantTimeline message={message} streaming />);
     const header = screen.getByTestId("live-line");
     expect(header).toHaveTextContent(/^Current step: Inspecting the repository thinking/);
+    expect(within(header).getByText("thinking")).toBeVisible();
     await user.click(header);
-    expect(pill(stepButton(/^Inspecting the repository thinking/), "thinking")).toBeVisible();
+    // The header owns the live step; the opened list does not repeat it.
+    expect(screen.queryByRole("button", { name: /^Inspecting the repository/ })).not.toBeInTheDocument();
     rerender(<AssistantTimeline message={message} />);
     expect(screen.queryByTestId("live-line")).not.toBeInTheDocument();
     expect(pill(stepButton(/^Inspecting the repository thought/), "thought")).toBeVisible();
@@ -211,13 +213,11 @@ describe("image steps", () => {
     const user = userEvent.setup();
     const generation = activityMessage({ id: "gen", kind: "image_generation", status: "inProgress" });
     const { rerender } = render(<AssistantTimeline message={generation} streaming />);
-    await user.click(screen.getByTestId("live-line"));
-    expect(pill(stepButton(/^image/), "generating")).toBeVisible();
-    await user.click(stepButton(/^image/));
-    expect(screen.getByLabelText("Generating image")).toBeVisible();
+    expect(within(screen.getByTestId("live-line")).getByText("generating")).toBeVisible();
 
     rerender(<AssistantTimeline message={generation} />);
     expect(pill(stepButton(/^image/), "generated")).toBeVisible();
+    await user.click(stepButton(/^image/));
     expect(screen.queryByLabelText("Generating image")).not.toBeInTheDocument();
   });
 
@@ -270,9 +270,9 @@ describe("compaction steps", () => {
     const user = userEvent.setup();
     const compaction = activityMessage({ id: "compact", kind: "context_compaction", status: "inProgress" });
     const { rerender } = render(<AssistantTimeline message={compaction} streaming />);
+    expect(within(screen.getByTestId("live-line")).getByText("compacting")).toBeVisible();
     await user.click(screen.getByTestId("live-line"));
-    expect(pill(stepButton(/^Context/), "compacting")).toBeVisible();
-    expect(stepButton(/^Context/)).not.toHaveAttribute("aria-expanded");
+    expect(screen.queryByRole("button", { name: /^Context/ })).not.toBeInTheDocument();
 
     rerender(<AssistantTimeline message={compaction} />);
     expect(pill(stepButton(/^Context/), "compacted")).toBeVisible();

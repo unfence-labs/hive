@@ -120,6 +120,12 @@ export function buildTimelineRows(message: ChatMessage, options: BuildRowsOption
   };
 
   if (!message.timeline) {
+    // Providers report diagnostics at the start of a turn, so they lead the synthesized order.
+    // Codex persisted each command both as a tool call and as an activity: the tool call wins.
+    const toolIds = new Set(toolCalls.map((tool) => tool.id));
+    const legacyActivities = activities.filter((activity) => !toolIds.has(activity.id));
+    const isDiagnostic = (activity: AgentActivity) => activity.kind === "diagnostic";
+    for (const activity of legacyActivities.filter(isDiagnostic)) pushActivity(activity, options.streaming);
     if (segments.some((segment) => segment.headline || segment.body)) {
       pushStep(reasoningStep("reasoning", segments, false));
     }
@@ -127,7 +133,9 @@ export function buildTimelineRows(message: ChatMessage, options: BuildRowsOption
     for (const tool of toolCalls) {
       if (isTopLevelTool(tool)) pushStep(toolStep(tool, context));
     }
-    for (const activity of activities) pushActivity(activity, options.streaming);
+    for (const activity of legacyActivities) {
+      if (!isDiagnostic(activity)) pushActivity(activity, options.streaming);
+    }
     return rows;
   }
 
@@ -180,6 +188,13 @@ export function summarizeRun(steps: TimelineStep[]): { label: string; failed: nu
 /** Latest running step in a run, else undefined. */
 export function findLiveStep(steps: TimelineStep[]): TimelineStep | undefined {
   return [...steps].reverse().find((step) => step.status === "running");
+}
+
+/** Deepest running step, so a nested agent's live tool bubbles up to its parent line. */
+export function findLiveDescendant(steps: TimelineStep[]): TimelineStep | undefined {
+  const live = findLiveStep(steps);
+  if (!live?.children) return live;
+  return findLiveDescendant(live.children) ?? live;
 }
 
 const REASONING_FALLBACK_SUBJECT = "Reasoning";

@@ -113,6 +113,17 @@ func buildTimelineRows(message: ChatMessage, streaming: Bool) -> [TimelineRow] {
     var builder = TimelineRowBuilder()
 
     guard let timeline = message.timeline else {
+        // Providers report diagnostics at the start of a turn, so they lead the synthesized order.
+        // Codex persisted each command both as a tool call and as an activity: the tool call wins.
+        let toolIds = Set(toolCalls.map(\.id))
+        let legacyActivities = activities.filter { !toolIds.contains($0.id) }
+        func isDiagnostic(_ activity: AgentActivity) -> Bool {
+            if case .diagnostic = activity { return true }
+            return false
+        }
+        for activity in legacyActivities where isDiagnostic(activity) {
+            builder.activity(activity, streaming: streaming)
+        }
         if segments.contains(where: hasContent) {
             builder.step(reasoningStep(id: "reasoning", segments: segments, running: false))
         }
@@ -120,7 +131,7 @@ func buildTimelineRows(message: ChatMessage, streaming: Bool) -> [TimelineRow] {
         for tool in toolCalls where isTopLevelTool(tool) {
             builder.step(toolStep(tool, context: context))
         }
-        for activity in activities {
+        for activity in legacyActivities where !isDiagnostic(activity) {
             builder.activity(activity, streaming: streaming)
         }
         return builder.rows
@@ -174,6 +185,13 @@ func summarizeRun(_ steps: [TimelineStep]) -> RunSummary {
 /// Latest running step in a run, else nil.
 func findLiveStep(in steps: [TimelineStep]) -> TimelineStep? {
     steps.last { $0.status == .running }
+}
+
+/// Deepest running step, so a nested agent's live tool bubbles up to its parent line.
+func findLiveDescendant(_ steps: [TimelineStep]) -> TimelineStep? {
+    guard let live = findLiveStep(in: steps) else { return nil }
+    if live.children.isEmpty { return live }
+    return findLiveDescendant(live.children) ?? live
 }
 
 private let reasoningFallbackSubject = "Reasoning"

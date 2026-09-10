@@ -32,9 +32,21 @@ struct ActionRun: View {
 
     private var flat: Bool { !streaming && steps.count < runCollapseThreshold }
 
-    /// Running agents stay visible under the collapsed live header; the open list already holds them.
+    /// While streaming the header owns the current step: it joins the list once the header moves on.
+    private var listed: [TimelineStep] {
+        guard streaming, let liveStep else { return steps }
+        return steps.filter { $0.id != liveStep.id }
+    }
+
+    /// Other running agents stay visible under the collapsed live header; the open list already holds them.
     private var liveAgents: [TimelineStep] {
-        streaming && !open ? steps.filter { $0.kind == .agent && $0.status == .running } : []
+        streaming && !open ? listed.filter { $0.kind == .agent && $0.status == .running } : []
+    }
+
+    private var liveChildLabel: String? {
+        guard let liveStep, liveStep.kind == .agent, liveStep.status == .running,
+              let child = findLiveDescendant(liveStep.children) else { return nil }
+        return liveLabel(for: child)
     }
 
     private func toggle() {
@@ -45,7 +57,19 @@ struct ActionRun: View {
         VStack(alignment: .leading, spacing: 2) {
             if streaming, let liveStep {
                 Button(action: toggle) {
-                    StepLineContent(step: liveStep, live: true)
+                    HStack(spacing: 6) {
+                        StepLineContent(step: liveStep, live: true)
+                        if let liveChildLabel {
+                            Text("·")
+                                .font(WhisperFont.mono(12))
+                                .foregroundStyle(WhisperColor.textMuted)
+                            Text(liveChildLabel)
+                                .font(WhisperFont.mono(12))
+                                .foregroundStyle(WhisperColor.textMuted)
+                                .lineLimit(1)
+                                .stepShimmer()
+                        }
+                    }
                 }
                 .buttonStyle(.plain)
                 .accessibilityElement(children: .combine)
@@ -64,7 +88,7 @@ struct ActionRun: View {
             }
 
             if flat || open {
-                ForEach(steps) { step in
+                ForEach(listed) { step in
                     StepItem(step: step, streaming: streaming)
                 }
             }

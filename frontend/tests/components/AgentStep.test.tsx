@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
@@ -36,13 +36,13 @@ function message(toolCalls: ToolCall[], extra: Partial<Message> = {}): Message {
 const agentLine = () => screen.getByRole("button", { name: /^Explore Review settings/ });
 
 describe("AgentStep", () => {
-  it("shows the running agent's live child and a growing child count", async () => {
+  it("shows the running agent's live child on the live header", async () => {
     const running = agentTool({ output: undefined });
     const { rerender } = render(<AssistantTimeline message={message([running, { ...readChild, output: undefined }])} streaming />);
-    expect(screen.getByRole("button", { name: "Explore Review settings · Reading settings.ts · 1 tool" })).toBeVisible();
+    expect(screen.getByTestId("live-line")).toHaveTextContent(/Review settings.*delegating.*Reading settings\.ts/);
 
     rerender(<AssistantTimeline message={message([running, readChild, bashChild])} streaming />);
-    expect(await screen.findByRole("button", { name: "Explore Review settings · Running npm test · 2 tools" })).toBeVisible();
+    await waitFor(() => expect(screen.getByTestId("live-line")).toHaveTextContent(/Running npm test/));
     expect(screen.queryByText("Prompt")).not.toBeInTheDocument();
   });
 
@@ -95,20 +95,21 @@ describe("AgentStep", () => {
     expect(screen.getAllByRole("button", { name: "Result" })).toHaveLength(2);
   });
 
-  it("keeps a running agent visible under the collapsed live header without duplicating it once opened", async () => {
+  it("shows the running agent only on the live header, with its live child, until the header moves on", async () => {
     const user = userEvent.setup();
     const read: ToolCall = { id: "read", name: "Read", input: '{"file_path":"src/app.ts"}', output: "read" };
     const edit: ToolCall = { id: "edit", name: "Edit", input: '{"file_path":"src/app.ts","old_string":"a","new_string":"b"}', output: "edited" };
     const live = message([read, edit, agentTool({ output: undefined }), { ...readChild, output: undefined }]);
     const { rerender } = render(<AssistantTimeline message={live} streaming />);
     const header = screen.getByTestId("live-line");
-    expect(header).toHaveTextContent(/^Current step: Review settings delegating/);
+    expect(header).toHaveTextContent(/Review settings.*delegating.*Reading settings\.ts/);
     expect(header).toHaveAttribute("aria-expanded", "false");
-    expect(screen.getAllByRole("button", { name: /^Explore Review settings/ })).toHaveLength(1);
+    expect(screen.queryByRole("button", { name: /^Explore Review settings/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /^app\.ts/ })).not.toBeInTheDocument();
 
     await user.click(header);
-    expect(screen.getAllByRole("button", { name: /^Explore Review settings/ })).toHaveLength(1);
+    // The agent is the header's step: only the finished Read and Edit lines are listed.
+    expect(screen.queryByRole("button", { name: /^Explore Review settings/ })).not.toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: /^app\.ts/ })).toHaveLength(2);
 
     rerender(<AssistantTimeline message={message([read, edit, agentTool(), readChild])} streaming={false} />);

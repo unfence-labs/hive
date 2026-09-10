@@ -208,26 +208,31 @@ describe("buildTimelineRows", () => {
     expect(runSteps(idle[2]).map((s) => s.status)).toEqual(["completed", "completed", "completed"]);
   });
 
-  it("synthesizes reasoning, text, tools then activities for legacy messages", () => {
+  it("synthesizes diagnostics, reasoning, text, tools then activities for legacy messages", () => {
     const msg = message({
       content: "Legacy answer",
       reasoningSegments: [{ id: "a", headline: "First" }, { id: "b", headline: "Second" }],
       toolCalls: [
         tool({ id: "todo", name: "TodoList", input: { items: [] } }),
         tool({ id: "read", name: "Read", input: { file_path: "a.ts" } }),
+        tool({ id: "sleep", name: "Bash", input: { command: "sleep 300", status: "completed" }, output: "" }),
       ],
       agentActivities: [
         { id: "view", kind: "image_view", path: "/repo/shot.png" },
+        // Codex persisted this command as both a tool call and an activity: rendered once.
+        { id: "sleep", kind: "command_execution", command: "sleep 300", status: "completed" },
         { id: "cmd", kind: "command_execution", command: "ls", status: "completed" },
+        { id: "diag", kind: "diagnostic", severity: "warning", title: "Config warning", message: "check" },
       ],
     });
 
     const rows = buildTimelineRows(msg, { streaming: false });
-    expect(rows.map((row) => row.type)).toEqual(["run", "text", "run"]);
-    expect(runSteps(rows[0])[0]).toMatchObject({ id: "reasoning", subject: "Second" });
-    expect(rows[1]).toMatchObject({ type: "text", text: "Legacy answer" });
-    expect(runSteps(rows[2]).map((s) => s.id)).toEqual(["read", "view", "cmd"]);
-    expect(runSteps(rows[2])[1]).toMatchObject({ kind: "image", verb: "viewed", subject: "shot.png" });
+    expect(rows.map((row) => row.type)).toEqual(["step", "run", "text", "run"]);
+    expect(singleStep(rows[0])).toMatchObject({ kind: "diagnostic", subject: "Config warning" });
+    expect(runSteps(rows[1])[0]).toMatchObject({ id: "reasoning", subject: "Second" });
+    expect(rows[2]).toMatchObject({ type: "text", text: "Legacy answer" });
+    expect(runSteps(rows[3]).map((s) => s.id)).toEqual(["read", "sleep", "view", "cmd"]);
+    expect(runSteps(rows[3])[2]).toMatchObject({ kind: "image", verb: "viewed", subject: "shot.png" });
   });
 
   it("leaves info diagnostics without a severity mark", () => {
