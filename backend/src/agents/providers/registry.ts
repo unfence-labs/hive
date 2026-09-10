@@ -1,6 +1,7 @@
 import { execFile as execFileCb } from "node:child_process";
 import { promisify } from "node:util";
 import { getKimiApiKey } from "../../state/config.js";
+import { compareVersions } from "../../utils/version.js";
 import { ClaudeProvider } from "./claude.js";
 import { CodexProvider } from "./codex.js";
 import { KimiProvider } from "./kimi.js";
@@ -61,25 +62,37 @@ export function parseVersionFromOutput(stdout: string): string | null {
  * Callers must await completion before publishing state that triggers catalog or usage reads.
  */
 export async function detectAvailableProviders(): Promise<void> {
-  availableProviderIds.clear();
-  detectedVersions.clear();
   for (const provider of ALL_PROVIDERS) {
     try {
       const { stdout } = await execFile(provider.command, ["--version"]);
-      availableProviderIds.add(provider.id);
-      const version = parseVersionFromOutput(stdout);
-      if (version) {
-        detectedVersions.set(provider.id, version);
-      }
+      recordProviderDetection(provider.id, true, parseVersionFromOutput(stdout));
     } catch {
-      // CLI not found — provider won't appear in catalog
+      recordProviderDetection(provider.id, false, null);
     }
   }
 }
 
-/** Mark a provider as available (used by preflight or tests). */
-export function markProviderAvailable(providerId: string): void {
-  availableProviderIds.add(providerId);
+/** Keep startup and Settings detection on the same installed-version state. */
+export function recordProviderDetection(providerId: string, installed: boolean, version: string | null): void {
+  if (installed) availableProviderIds.add(providerId);
+  else availableProviderIds.delete(providerId);
+  if (installed && version) detectedVersions.set(providerId, version);
+  else detectedVersions.delete(providerId);
+}
+
+/** Mark a provider as installed in tests; installation alone does not prove compatibility. */
+export function markProviderAvailable(providerId: string, version?: string): void {
+  recordProviderDetection(providerId, true, version ?? detectedVersions.get(providerId) ?? null);
+}
+
+export function getProviderUnavailableReason(providerId: string): string | undefined {
+  const minimum = providerMap.get(providerId)?.minimumCliVersion;
+  if (!minimum) return undefined;
+  const version = detectedVersions.get(providerId);
+  if (version && /^\d+(?:\.\d+)+$/.test(version) && compareVersions(version, minimum) >= 0) {
+    return undefined;
+  }
+  return `Update ${PROVIDER_LABELS[providerId] ?? providerId} in settings`;
 }
 
 /**
@@ -172,6 +185,7 @@ export function getModelCatalog(options: ModelCatalogOptions = {}): ModelCatalog
     // resolveProvider is intentionally not gated — stored sessions must resolve.
     if (provider.id === "kimi" && !getKimiApiKey()) continue;
     const providerLabel = PROVIDER_LABELS[provider.id] ?? provider.id;
+    const unavailableReason = getProviderUnavailableReason(provider.id);
 
     for (const model of provider.models) {
       const compoundId = `${provider.id}:${model.id}`;
@@ -180,6 +194,7 @@ export function getModelCatalog(options: ModelCatalogOptions = {}): ModelCatalog
         label: model.label,
         provider: provider.id,
         providerLabel,
+        ...(unavailableReason ? { unavailableReason } : {}),
         isDefault: model.isDefault,
         capabilities: {
           ...provider.capabilities,

@@ -3,6 +3,32 @@ import Testing
 @testable import HiveMobileStoresCore
 
 struct ModelCatalogDecodingTests {
+    @Test(arguments: [nil, "Update Codex in settings"] as [String?])
+    func decodesModelAvailabilityWithoutChangingTheDefault(_ reason: String?) throws {
+        var model: [String: Any] = [
+            "id": "codex:gpt-5.5",
+            "label": "GPT-5.5",
+            "provider": "codex",
+            "providerLabel": "Codex",
+            "capabilities": [
+                "thinkingLevels": [],
+                "planMode": true,
+                "blockingTools": true,
+                "completions": true,
+            ] as [String: Any],
+        ]
+        model["unavailableReason"] = reason
+        let data = try JSONSerialization.data(withJSONObject: [
+            "models": [model],
+            "defaultModelId": "codex:gpt-5.5",
+        ])
+
+        let catalog = try JSONDecoder().decode(ModelCatalogResponse.self, from: data)
+        let entry = try #require(catalog.models.first)
+        #expect(entry.unavailableReason == reason)
+        #expect(catalog.defaultModelId == entry.id)
+    }
+
     @Test
     func decodesKimiLabelsAndModelSpecificThinkingLevels() throws {
         let data = Data(

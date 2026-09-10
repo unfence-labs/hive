@@ -82,6 +82,7 @@ const CODEX_CAPABILITIES: ProviderCapabilities = {
 export class CodexProvider implements AgentProvider {
   readonly id = "codex";
   readonly command = "codex";
+  readonly minimumCliVersion = "0.153.4";
   readonly models = CODEX_MODELS;
   readonly capabilities = CODEX_CAPABILITIES;
 }

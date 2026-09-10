@@ -11,7 +11,7 @@ import { parseReasoningThoughts } from "./reasoning-thoughts.js";
 import { appendBoundedAgentOutput, boundAgentOutput } from "./bounded-output.js";
 import type { CodexGoalResult, CodexGoalSetParams, CodexGoalStatus } from "./providers/codex-app-server.js";
 import { codexPersonalityFromOutputStyle, type CodexPersonality } from "./providers/codex.js";
-import { resolveProvider } from "./providers/registry.js";
+import { getProviderUnavailableReason, resolveProvider } from "./providers/registry.js";
 import { findModel, type AgentProvider } from "./providers/types.js";
 import { createAgentRunner, type AgentRunnerFactory } from "./runners/factory.js";
 import type { AgentRunner, AgentRunnerTurnStartedEvent, StopReason } from "./runners/types.js";
@@ -499,6 +499,8 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
     let effectiveMsgOptions = msgOptions;
     if (!this.testCommand) {
       resolved = resolveProvider(msgOptions?.model);
+      const unavailableReason = getProviderUnavailableReason(resolved.provider.id);
+      if (unavailableReason) throw new Error(unavailableReason);
 
       if (this._metadata.lockedProvider && this._metadata.lockedProvider !== resolved.provider.id) {
         throw new Error(`Provider mismatch: session locked to "${this._metadata.lockedProvider}"`);

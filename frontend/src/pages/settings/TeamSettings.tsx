@@ -555,8 +555,8 @@ function ModelSelect({
       className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
     >
       {models.map((m) => (
-        <option key={m.id} value={m.id}>
-          {m.label} ({m.providerLabel})
+        <option key={m.id} value={m.id} disabled={!!m.unavailableReason}>
+          {m.label} ({m.providerLabel}){m.unavailableReason ? ` — ${m.unavailableReason}` : ""}
         </option>
       ))}
     </select>

@@ -185,6 +185,18 @@ describe("TeamSettings", () => {
     });
   });
 
+  it("disables unavailable models in the team model picker", async () => {
+    mocks.apiGet.mockResolvedValue({
+      ...catalog,
+      models: catalog.models.map((model) => model.provider === "codex" ? { ...model, unavailableReason: "Update Codex in settings" } : model),
+    });
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(screen.getByRole("button", { name: "Add Agent" }));
+    expect(await screen.findByRole("option", { name: "GPT-5.5 (Codex) — Update Codex in settings" })).toBeDisabled();
+    expect(screen.getByRole("option", { name: "Sonnet 4.6 (Claude Code)" })).not.toBeDisabled();
+  });
+
   it("resets an incompatible thinking level when the model changes", async () => {
     const user = userEvent.setup();
     renderPage();

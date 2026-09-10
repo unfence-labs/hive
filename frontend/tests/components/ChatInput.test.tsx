@@ -9,7 +9,7 @@ import type { OutputStyle } from "@/types";
 const modelMock = vi.hoisted(() => {
   const capabilities = { thinkingLevels: ["low", "medium", "high", "xhigh", "max"], planMode: true, blockingTools: true, completions: true, outputStyles: undefined as OutputStyle[] | undefined };
   const models = [
-    { id: "claude:opus-4-7", modelId: "opus-4-7", label: "Opus 4.7", provider: "claude", providerLabel: "Claude Code", supportsFastMode: true, capabilities: { ...capabilities } },
+    { id: "claude:opus-4-7", modelId: "opus-4-7", label: "Opus 4.7", provider: "claude", providerLabel: "Claude Code", supportsFastMode: true, unavailableReason: undefined as string | undefined, capabilities: { ...capabilities } },
     { id: "claude:sonnet-4-6", modelId: "sonnet-4-6", label: "Sonnet 4.6", provider: "claude", providerLabel: "Claude Code", capabilities: { ...capabilities } },
   ];
   return {
@@ -88,7 +88,10 @@ describe("ChatInput", () => {
     modelMock.isError = false;
     modelMock.setSelectedModelId.mockClear();
     modelMock.retry.mockClear();
-    for (const model of modelMock.models) model.capabilities.outputStyles = undefined;
+    for (const model of modelMock.models) {
+      model.capabilities.outputStyles = undefined;
+      model.unavailableReason = undefined;
+    }
   });
 
   it("does not render legacy status labels", () => {
@@ -96,6 +99,42 @@ describe("ChatInput", () => {
 
     expect(screen.queryByText("Working…")).not.toBeInTheDocument();
     expect(screen.queryByText("Awaiting response…")).not.toBeInTheDocument();
+  });
+
+  it("keeps an unavailable model and draft, blocks Enter and form submission, then unlocks after refresh", async () => {
+    modelMock.models[0].unavailableReason = "Update Codex in settings";
+    const user = userEvent.setup();
+    const { onSend, onQueue, rerender } = renderChatInput();
+    const input = screen.getByRole("textbox");
+
+    expect(screen.queryByRole("button", { name: "Commit & Push" })).not.toBeInTheDocument();
+    await user.type(input, "keep this draft{enter}");
+    await act(async () => { fireEvent.submit(input.closest("form")!); });
+    expect(onSend).not.toHaveBeenCalled();
+    expect(onQueue).not.toHaveBeenCalled();
+    expect(input).toHaveValue("keep this draft");
+    expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Model: Opus 4.7" })).toBeInTheDocument();
+    await user.hover(screen.getByLabelText("Update Codex in settings"));
+    expect(await screen.findByRole("tooltip")).toHaveTextContent("Update Codex in settings");
+
+    modelMock.models[0].unavailableReason = undefined;
+    rerender();
+    expect(input).toHaveValue("keep this draft");
+    await user.click(screen.getByRole("button", { name: "Send" }));
+    expect(onSend).toHaveBeenCalledWith("keep this draft", undefined, expect.objectContaining({ model: "claude:opus-4-7" }), undefined);
+  });
+
+  it("keeps Stop available but prevents queued sends for an unavailable model", async () => {
+    modelMock.models[0].unavailableReason = "Update Codex in settings";
+    const user = userEvent.setup();
+    const { onStop, onSend, onQueue } = renderChatInput({ isStreaming: true });
+    await user.type(screen.getByRole("textbox"), "follow up{enter}");
+    expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: "Stop" }));
+    expect(onStop).toHaveBeenCalledOnce();
+    expect(onSend).not.toHaveBeenCalled();
+    expect(onQueue).not.toHaveBeenCalled();
   });
 
   it("keeps the submit button in send mode when idle", () => {

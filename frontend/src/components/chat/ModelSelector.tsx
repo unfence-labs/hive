@@ -118,13 +118,21 @@ export function ModelSelector({
                   {group.models.map((model) => {
                     const isSelected = model.id === selectedModelId;
                     const isLocked = !!lockedProvider && model.provider !== lockedProvider;
+                    const disabledReason = model.unavailableReason ?? (isLocked ? "Cannot switch provider mid-session" : undefined);
 
-                    if (isLocked) {
+                    if (disabledReason) {
                       return (
                         <Tooltip key={model.id}>
                           <TooltipTrigger asChild>
-                            <div className="flex items-center gap-2 rounded-sm px-2 py-1.5 text-sm opacity-30 cursor-not-allowed select-none">
+                            <div
+                              role="menuitem"
+                              aria-disabled="true"
+                              aria-label={`${model.label}: ${disabledReason}`}
+                              tabIndex={0}
+                              className="flex items-center gap-2 rounded-sm px-2 py-1.5 text-sm opacity-30 cursor-not-allowed select-none"
+                            >
                               <span className="flex-1">{model.label}</span>
+                              {isSelected && <CheckIcon className="size-3.5 text-primary" />}
                             </div>
                           </TooltipTrigger>
                           <TooltipPrimitive.Portal>
@@ -133,7 +141,7 @@ export function ModelSelector({
                               sideOffset={4}
                               className="animate-in fade-in-0 zoom-in-95 z-50 rounded-md border border-border/30 bg-muted px-3 py-1.5 text-xs text-muted-foreground shadow-md"
                             >
-                              Cannot switch provider mid-session
+                              {disabledReason}
                             </TooltipPrimitive.Content>
                           </TooltipPrimitive.Portal>
                         </Tooltip>

@@ -7,6 +7,7 @@ import { SettingsPanel, SettingsSection } from "@/components/settings/SettingsSe
 import { ProviderIcon } from "@/components/chat/ProviderIcon";
 import { groupModelsByProvider } from "@/components/chat/ModelSelector";
 import { Input } from "@/components/ui/input";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { api } from "@/hooks/useApi";
 import { useModels, refreshModelCatalog, setCachedDefaultModelId } from "@/hooks/useModels";
 import { PROVIDER_USAGE_QUERY_KEY } from "@/hooks/useProviderUsage";
@@ -22,7 +23,7 @@ export default function ModelsSettings() {
   const grouped = useMemo(() => groupModelsByProvider(models), [models]);
 
   const selectDefault = async (modelId: string) => {
-    if (modelId === currentId) return;
+    if (modelId === currentId || models.find((model) => model.id === modelId)?.unavailableReason) return;
     const previous = currentId;
     setSavedId(modelId);
     setSaveFailed(false);
@@ -60,41 +61,49 @@ export default function ModelsSettings() {
               </p>
             )}
 
-            <div role="radiogroup" aria-label="Default model" className="mt-4 space-y-4">
-              {grouped.map((group) => (
-                <div key={group.provider}>
-                  <div className="mb-1.5 flex items-center gap-1.5">
-                    <ProviderIcon provider={group.provider} className="size-3 text-muted-foreground" />
-                    <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-                      {group.providerLabel}
-                    </span>
+            <TooltipProvider>
+              <div role="radiogroup" aria-label="Default model" className="mt-4 space-y-4">
+                {grouped.map((group) => (
+                  <div key={group.provider}>
+                    <div className="mb-1.5 flex items-center gap-1.5">
+                      <ProviderIcon provider={group.provider} className="size-3 text-muted-foreground" />
+                      <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                        {group.providerLabel}
+                      </span>
+                    </div>
+                    <div className="space-y-1">
+                      {group.models.map((model) => {
+                        const isActive = model.id === currentId;
+                        return (
+                          <Tooltip key={model.id}>
+                            <TooltipTrigger asChild>
+                              <button
+                                type="button"
+                                role="radio"
+                                aria-checked={isActive}
+                                aria-disabled={!!model.unavailableReason}
+                                onClick={() => void selectDefault(model.id)}
+                                className={cn(
+                                  "flex w-full cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-left text-sm transition-all duration-200",
+                                  model.unavailableReason && "cursor-not-allowed opacity-40",
+                                  isActive
+                                    ? "border-primary/40 bg-primary/8 text-foreground"
+                                    : "border-border/50 bg-transparent text-muted-foreground hover:border-border hover:bg-muted/40 hover:text-foreground",
+                                )}
+                              >
+                                <span className="flex-1">{model.label}</span>
+                                {isActive && <Check className="h-4 w-4 text-primary" strokeWidth={2.5} />}
+                              </button>
+                            </TooltipTrigger>
+                            {model.unavailableReason && <TooltipContent>{model.unavailableReason}</TooltipContent>}
+                          </Tooltip>
+                        );
+                      })}
+                    </div>
                   </div>
-                  <div className="space-y-1">
-                    {group.models.map((model) => {
-                      const isActive = model.id === currentId;
-                      return (
-                        <button
-                          key={model.id}
-                          type="button"
-                          role="radio"
-                          aria-checked={isActive}
-                          onClick={() => void selectDefault(model.id)}
-                          className={cn(
-                            "flex w-full cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-left text-sm transition-all duration-200",
-                            isActive
-                              ? "border-primary/40 bg-primary/8 text-foreground"
-                              : "border-border/50 bg-transparent text-muted-foreground hover:border-border hover:bg-muted/40 hover:text-foreground",
-                          )}
-                        >
-                          <span className="flex-1">{model.label}</span>
-                          {isActive && <Check className="h-4 w-4 text-primary" strokeWidth={2.5} />}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            </TooltipProvider>
 
             {saveFailed && (
               <p className="mt-3 text-xs text-destructive">

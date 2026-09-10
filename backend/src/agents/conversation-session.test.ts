@@ -280,7 +280,7 @@ describe("ConversationSession", () => {
   beforeEach(() => {
     mockProc = createMockProcess();
     mockSpawn.mockReturnValue(mockProc);
-    providerRegistry.markProviderAvailable("codex");
+    providerRegistry.markProviderAvailable("codex", "0.153.4");
   });
 
   function createSession(opts?: { sessionId?: string; command?: string; skipPermissions?: boolean; sessionKind?: "chat" | "automation" | "brain"; draftPrompt?: string }) {
@@ -295,6 +295,54 @@ describe("ConversationSession", () => {
       draftPrompt: opts?.draftPrompt,
     });
   }
+
+  it.each(["chat", "brain", "automation"] as const)("rejects an outdated harness before persisting a %s message", async (sessionKind) => {
+    const session = createSession({ sessionKind, draftPrompt: "Keep this draft" });
+    const messages: WsOutgoing[] = [];
+    session.on("message", (message) => messages.push(message));
+    providerRegistry.recordProviderDetection("codex", true, "0.153.3");
+
+    expect(() => session.sendMessage("Run this", { model: "codex:gpt-5.5" }))
+      .toThrow("Update Codex in settings");
+
+    expect(mockSpawn).not.toHaveBeenCalled();
+    expect(messages).toEqual([]);
+    expect(await session.getMessages()).toEqual([]);
+    expect(session.metadata.draftPrompt).toBe("Keep this draft");
+    expect(session.metadata.lockedProvider).toBeUndefined();
+    expect(session.metadata.lastRunOptions).toBeUndefined();
+    expect(session.status).toBe("idle");
+  });
+
+  it("blocks goals on an outdated harness and permits retry after an update", async () => {
+    const session = createSession();
+    providerRegistry.recordProviderDetection("codex", true, null);
+    expect(() => session.sendMessage("/goal Ship this", { model: "codex:gpt-5.5" }))
+      .toThrow("Update Codex in settings");
+    expect(await session.getMessages()).toEqual([]);
+    providerRegistry.recordProviderDetection("codex", true, "0.153.4");
+    session.sendMessage("Run this", { model: "codex:gpt-5.5" });
+    await completeAppServerTurn(mockProc, "updated-thread", "updated-turn");
+    await session.drain();
+    expect((await session.getMessages()).filter((message) => message.role === "user"))
+      .toMatchObject([{ content: "Run this" }]);
+  });
+
+  it("rechecks the harness on an existing conversation without changing its selected model", async () => {
+    const session = createSession();
+    session.sendMessage("First turn", { model: "codex:gpt-5.5" });
+    await completeAppServerTurn(mockProc, "existing-thread", "first-turn");
+    await session.drain();
+    const history = await session.getMessages();
+    const runOptions = session.metadata.lastRunOptions;
+
+    providerRegistry.recordProviderDetection("codex", true, "0.153.3");
+    expect(() => session.sendMessage("Next turn", { model: "codex:gpt-5.6-sol" }))
+      .toThrow("Update Codex in settings");
+    expect(session.metadata.lastRunOptions).toEqual(runOptions);
+    expect(await session.getMessages()).toEqual(history);
+    expect(countStdinMethod(mockProc, "turn/start")).toBe(1);
+  });
 
   it("persists a draft prompt until the first user message", async () => {
     const session = createSession({

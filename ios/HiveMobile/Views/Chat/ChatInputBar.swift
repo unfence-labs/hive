@@ -54,6 +54,13 @@ struct ChatInputBar: View {
 
             // MARK: - Compose Area
             composeArea
+            if let unavailableReason {
+                Text(unavailableReason)
+                    .font(.caption2)
+                    .foregroundStyle(WhisperColor.textMuted)
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 8)
+            }
         }
         .glassCard(cornerRadius: 20)
         .overlay(planModeOverlay)
@@ -72,6 +79,10 @@ struct ChatInputBar: View {
 
     private var selectedModelLabel: String {
         models.first { $0.id == selectedModelId }?.label ?? "Model"
+    }
+
+    private var unavailableReason: String? {
+        models.first { $0.id == selectedModelId }?.unavailableReason
     }
 
 
@@ -302,6 +313,7 @@ struct ChatInputBar: View {
             }
             .disabled(!canSend)
             .accessibilityLabel("Send message")
+            .accessibilityHint(unavailableReason ?? "")
 
             if isBusy {
                 Button {
@@ -339,7 +351,7 @@ struct ChatInputBar: View {
     private var canSend: Bool {
         let hasPending = attachedImages.contains { $0.attachment == nil }
         let hasContent = !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachedImages.isEmpty
-        return hasContent && !hasPending && !isBusy
+        return hasContent && !hasPending && !isBusy && unavailableReason == nil
     }
 
     private func animateAttachment(_ body: () -> Void) {
@@ -347,6 +359,7 @@ struct ChatInputBar: View {
     }
 
     private func handleSend() {
+        guard canSend else { return }
         Haptics.impact(.light)
         let imageAttachments = attachedImages.compactMap(\.attachment)
         attachedImages = []
@@ -446,6 +459,14 @@ private struct ModelMenu: View {
                         )
                     }
                     .buttonStyle(.plain)
+                    .disabled(model.unavailableReason != nil)
+                    .opacity(model.unavailableReason == nil ? 1 : 0.4)
+                    if let reason = model.unavailableReason {
+                        Text(reason)
+                            .font(.caption2)
+                            .foregroundStyle(WhisperColor.textMuted)
+                            .padding(.horizontal, 14)
+                    }
                 }
             }
             if let lockedProviderLabel {
@@ -846,10 +867,12 @@ private extension ImageAttachment {
 #Preview {
     let sampleModels: [ModelCatalogEntry] = [
         .init(id: "claude:opus-4-7", label: "Opus 4.7", provider: "claude", providerLabel: "Claude Code",
+              unavailableReason: nil,
               isDefault: true,
               capabilities: .init(thinkingLevels: [.low, .medium, .high, .xhigh, .max], outputStyles: [.default, .proactive, .concise, .explanatory, .learning], planMode: true, blockingTools: true, completions: true, goals: false),
               contextWindow: 1_000_000, supportsFastMode: true),
         .init(id: "claude:sonnet-4-6", label: "Sonnet 4.6", provider: "claude", providerLabel: "Claude Code",
+              unavailableReason: nil,
               isDefault: nil,
               capabilities: .init(thinkingLevels: [.low, .medium, .high, .xhigh, .max], outputStyles: [.default, .proactive, .concise, .explanatory, .learning], planMode: true, blockingTools: true, completions: true, goals: false),
               contextWindow: 1_000_000, supportsFastMode: nil),

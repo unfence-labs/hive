@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -406,5 +406,23 @@ describe("ChatInput draft persistence", () => {
 
     rerenderChatInput(rerender, { sessionId: sessionA });
     expect(screen.getByRole("img", { name: "avatar-a.png" })).toBeInTheDocument();
+  });
+
+  it("preserves attachments when an unavailable model rejects a submitted form", async () => {
+    const user = userEvent.setup();
+    const { a: sessionId } = makeSessionIds();
+    const onSend = vi.fn(() => true);
+    renderChatInput(sessionId, undefined, onSend);
+    await user.upload(getUploadInput(), new File(["image"], "draft.png", { type: "image/png" }));
+    await act(async () => {
+      queryClient.setQueryData(MODEL_CATALOG_QUERY_KEY, {
+        ...MODEL_CATALOG,
+        models: MODEL_CATALOG.models.map((model) => ({ ...model, unavailableReason: "Update Codex in settings" })),
+      });
+    });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Send" })).toBeDisabled());
+    await act(async () => { fireEvent.submit(screen.getByRole("textbox").closest("form")!); });
+    expect(onSend).not.toHaveBeenCalled();
+    expect(screen.getByRole("img", { name: "draft.png" })).toBeInTheDocument();
   });
 });
