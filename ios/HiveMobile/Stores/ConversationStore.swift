@@ -189,11 +189,14 @@ final class ConversationStore {
             sessionStreams[sid]?.currentText += text
         }
         for (sid, blocks) in pendingTimelineTextBySession {
-            guard let stream = sessionStreams[sid] else { continue }
+            // Copy, mutate, assign: mutating the observable property in place while
+            // reading it on the right-hand side trips the exclusivity checker.
+            guard let stream = sessionStreams[sid], var timeline = stream.timeline else { continue }
             for (id, text) in blocks {
-                guard let index = stream.timeline?.firstIndex(where: { $0.type == .text && $0.id == id }) else { continue }
-                stream.timeline?[index].text = (stream.timeline?[index].text ?? "") + text
+                guard let index = timeline.firstIndex(where: { $0.type == .text && $0.id == id }) else { continue }
+                timeline[index].text = (timeline[index].text ?? "") + text
             }
+            stream.timeline = timeline
         }
         pendingTimelineTextBySession = [:]
         // The backend sends the parsed thoughts for one block per update;
