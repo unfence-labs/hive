@@ -4,7 +4,7 @@ import { isAskUserQuestion, isExitPlanMode, parseQuestions } from "@/types";
 import { buildChildrenMap, parseSubAgentInfo } from "@/lib/sub-agent";
 import { getSubAgentExecutionState } from "@/lib/sub-agent-status";
 import { findPlanContent } from "@/lib/plan-state";
-import { getBashMetadata, getFilename, getToolDisplay, getToolStats } from "@/lib/tool-display";
+import { getBashMetadata, getFilename, getToolDisplay, getToolStats, parseToolInput } from "@/lib/tool-display";
 
 export type StepStatus = "pending" | "running" | "completed" | "failed";
 export type StepKind =
@@ -138,6 +138,9 @@ export function buildTimelineRows(message: ChatMessage, options: BuildRowsOption
     }
     return rows;
   }
+
+  // A finalized turn can contain only the server's cancellation/error fallback.
+  if (message.timeline.length === 0 && !options.streaming) pushText(message.id, message.content);
 
   const toolsById = new Map(toolCalls.map((tool) => [tool.id, tool]));
   const activitiesById = new Map(activities.map((activity) => [activity.id, activity]));
@@ -424,12 +427,8 @@ type ToolDescription = Pick<TimelineStep, "kind" | "icon" | "liveVerb" | "verb" 
 
 function describeTool(tool: ToolCall): ToolDescription {
   const generic: ToolDescription = { kind: "tool", icon: "wrench", liveVerb: "Calling", verb: "called", subject: tool.name };
-  let input: Record<string, unknown>;
-  try {
-    input = JSON.parse(tool.input);
-  } catch {
-    return generic;
-  }
+  const input = parseToolInput(tool.input);
+  if (!input) return generic;
   const detail = getToolDisplay(tool).detail ?? "";
   const filePath = (input.file_path ?? input.filename) as string | undefined;
 

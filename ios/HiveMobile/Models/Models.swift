@@ -469,15 +469,6 @@ struct ChatMessage: Codable, Equatable, Identifiable {
 
 extension ChatMessage {
     var clipboardText: String { content }
-
-    /// Reasoning thoughts to display. The backend already parses reasoning into
-    /// structured thoughts; a thought with no non-empty headline or body has
-    /// nothing to show, so we drop it (matching the web truthiness filter).
-    var resolvedReasoningSegments: [ReasoningSegment] {
-        (reasoningSegments ?? []).filter {
-            !($0.headline ?? "").isEmpty || !($0.body ?? "").isEmpty
-        }
-    }
 }
 
 // MARK: - Diff

@@ -1,5 +1,5 @@
 import { memo, useEffect, useMemo, useState, type ReactNode } from "react";
-import type { ChatMessage as ChatMessageType, FileMention, QuestionAnswer } from "@/types";
+import type { ChatMessage as ChatMessageType, FileMention } from "@/types";
 import { cn } from "@/lib/utils";
 import { formatElapsed } from "@/lib/time";
 import { resolveImageSrc } from "@/lib/image-url";
@@ -79,7 +79,6 @@ interface ChatMessageProps {
   isInteractive?: boolean;
   planStatus?: PlanStatus;
   dismissedToolCallIds?: Set<string>;
-  onQuestionAnswer?: (toolCallId: string, answers: QuestionAnswer[]) => void;
   onFileMentionClick?: (relativePath: string) => void;
   /** Delivery state when this is an optimistically-appended user message. */
   sendState?: SendState;
@@ -101,12 +100,12 @@ const ChatMessage = memo(function ChatMessage({
   const showSendingIndicator = useShowSendingIndicator(sendState);
   const hasDeliveryIssue = sendState === "failed" || sendState === "unconfirmed";
   const showAssistantActions = !isUser && !streaming && (message.durationMs != null || Boolean(message.content));
-  const hasAssistantContent = useMemo(
-    () => isUser || message.cancelled || buildTimelineRows(message, { streaming }).length > 0,
+  const rows = useMemo(
+    () => isUser ? [] : buildTimelineRows(message, { streaming }),
     [isUser, message, streaming],
   );
 
-  if (!hasAssistantContent) return null;
+  if (!isUser && !message.cancelled && rows.length === 0) return null;
 
   return (
     <div className={cn("flex w-full items-start", isUser ? "justify-end" : "justify-start")}>
@@ -187,6 +186,7 @@ const ChatMessage = memo(function ChatMessage({
         <div className="max-w-[85%] text-sm leading-relaxed text-foreground">
           <AssistantTimeline
             message={message}
+            rows={rows}
             streaming={streaming}
             isInteractive={isInteractive}
             planStatus={planStatus}

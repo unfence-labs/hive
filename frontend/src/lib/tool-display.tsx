@@ -72,15 +72,20 @@ export interface ToolDisplay {
   hideOutput?: boolean;
 }
 
-export function getToolDisplay(tool: ToolCall): ToolDisplay {
-  let input: Record<string, unknown>;
+export function parseToolInput(value: string): Record<string, unknown> | null {
   try {
-    input = JSON.parse(tool.input);
+    const input: unknown = JSON.parse(value);
+    return input !== null && typeof input === "object" && !Array.isArray(input)
+      ? input as Record<string, unknown>
+      : null;
   } catch {
-    return {
-      expandedContent: tool.input,
-    };
+    return null;
   }
+}
+
+export function getToolDisplay(tool: ToolCall): ToolDisplay {
+  const input = parseToolInput(tool.input);
+  if (!input) return { expandedContent: tool.input };
 
   switch (tool.name) {
     case "Read": {
@@ -290,8 +295,8 @@ export function parseDiffStats(diff: string): { added: number; removed: number }
 }
 
 export function getToolStats(tool: ToolCall): ToolStats | null {
-  let input: Record<string, unknown>;
-  try { input = JSON.parse(tool.input); } catch { return null; }
+  const input = parseToolInput(tool.input);
+  if (!input) return null;
 
   switch (tool.name) {
     case "Edit": {
@@ -336,14 +341,10 @@ export function getToolStats(tool: ToolCall): ToolStats | null {
 
 export function getBashMetadata(tool: ToolCall): { exitCode?: number; failed: boolean } | null {
   if (tool.name !== "Bash") return null;
-
-  try {
-    const input = JSON.parse(tool.input) as Record<string, unknown>;
-    const exitCode = typeof input.exitCode === "number" ? input.exitCode : undefined;
-    const status = typeof input.status === "string" ? input.status.toLowerCase() : "";
-    const failed = exitCode !== undefined ? exitCode !== 0 : status === "failed" || status === "error";
-    return { exitCode, failed };
-  } catch {
-    return null;
-  }
+  const input = parseToolInput(tool.input);
+  if (!input) return null;
+  const exitCode = typeof input.exitCode === "number" ? input.exitCode : undefined;
+  const status = typeof input.status === "string" ? input.status.toLowerCase() : "";
+  const failed = exitCode !== undefined ? exitCode !== 0 : status === "failed" || status === "error";
+  return { exitCode, failed };
 }

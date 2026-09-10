@@ -1,7 +1,7 @@
 import type { ConversationTimelineEntry } from "@hive/shared/conversation-timeline";
 export type { ConversationTimelineEntry } from "@hive/shared/conversation-timeline";
 import type { AgentActivity } from "@hive/shared/agent-activity";
-export type { AgentActivity, AgentActivityFile } from "@hive/shared/agent-activity";
+export type { AgentActivity } from "@hive/shared/agent-activity";
 
 export interface Project {
   id: string;
@@ -82,7 +82,6 @@ export interface BrainFileContent {
 export type {
   ProjectEnvConfig,
   ProjectEnvData,
-  ProjectEnvVariable,
 } from "@hive/shared/project-env";
 
 export interface Workspace {

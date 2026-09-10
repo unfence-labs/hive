@@ -99,7 +99,7 @@ struct MessageBubble: View, Equatable {
     /// Legacy messages are one text row, so the whole-message highlight applies;
     /// timeline messages slice it per entry (row ids are `text:<entry id>`).
     private func textHighlight(rowId: String) -> MessageFindHighlight? {
-        guard message.timeline != nil else { return findHighlight }
+        guard let timeline = message.timeline, !timeline.isEmpty else { return findHighlight }
         let entryId = rowId.hasPrefix("text:") ? String(rowId.dropFirst("text:".count)) : rowId
         return message.timelineHighlight(for: entryId, highlight: findHighlight)
     }

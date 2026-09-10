@@ -387,12 +387,12 @@ private func activityToolCallsCacheCost(_ toolCalls: [ToolCall]) -> Int {
 
 // MARK: - Image Sources
 
-/// Image source resolution mirroring `frontend/src/components/chat/ImageActivity.tsx`,
+/// Image source resolution mirroring `frontend/src/components/chat/StepDetail.tsx`,
 /// kept out of the views so the rules stay testable.
 
 extension AgentActivity.ImageView {
     /// Resolved source for the viewed image, or nil when there is no preview
-    /// (outside the workspace). Mirrors `resolveImageViewSrc`.
+    /// (outside the workspace).
     var resolvedSource: String? {
         guard let url = imageUrl, !url.isEmpty else { return nil }
         return url

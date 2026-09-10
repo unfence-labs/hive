@@ -151,14 +151,16 @@ export class AgentEventNormalizer {
         case "web_fetch_tool_result":
         case "bash_code_execution_tool_result":
         case "text_editor_code_execution_tool_result":
-        case "mcp_tool_result":
+        case "mcp_tool_result": {
+          const isError = serverToolResultError(block);
           events.push({
             type: "tool_completed",
             id: block.tool_use_id,
             output: formatServerToolResult(block),
-            ...("is_error" in block ? { isError: block.is_error } : {}),
+            ...(isError !== undefined ? { isError } : {}),
           });
           break;
+        }
       }
     }
 
@@ -192,6 +194,19 @@ export class AgentEventNormalizer {
 
     return events;
   }
+}
+
+function serverToolResultError(block: ServerResultBlock): boolean | undefined {
+  if ("is_error" in block) return block.is_error;
+
+  const { content } = block;
+  if (!content || typeof content !== "object") return undefined;
+  if ("type" in content && content.type === `${block.type}_error`) return true;
+  if (block.type === "bash_code_execution_tool_result"
+    && "return_code" in content && typeof content.return_code === "number") {
+    return content.return_code !== 0;
+  }
+  return undefined;
 }
 
 /** Format server/MCP tool result content into a readable string. */

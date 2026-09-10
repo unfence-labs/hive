@@ -7,6 +7,26 @@ struct TimelineStepsTests {
     // MARK: buildTimelineRows
 
     @Test
+    func emptyTimelineDisplaysServerFallbackWithoutSynthesizingLegacyTools() {
+        let msg = message(
+            content: "Generation interrupted before any output.",
+            toolCalls: [tool("stale", name: "Read", input: "{}")],
+            timeline: []
+        )
+        #expect(buildTimelineRows(message: msg, streaming: false) == [
+            .text(id: "text:msg-1", text: "Generation interrupted before any output.")
+        ])
+        #expect(buildTimelineRows(message: msg, streaming: true).isEmpty)
+        #expect(buildTimelineRows(message: message(timeline: []), streaming: true).isEmpty)
+    }
+
+    @Test
+    func nonemptyTimelineOwnsProseWithoutAppendingAggregateContent() {
+        let msg = message(content: "Aggregate fallback", timeline: [.init(type: .text, id: "text", text: "Ordered text")])
+        #expect(buildTimelineRows(message: msg, streaming: false) == [.text(id: "text:text", text: "Ordered text")])
+    }
+
+    @Test
     func mapsClaudeTurnIntoTextRunsStandaloneStepsAndAgentChildren() throws {
         let msg = message(
             toolCalls: [

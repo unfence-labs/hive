@@ -905,20 +905,6 @@ export function useConversation(workspaceId: string | undefined) {
   const activeStream = state.sessionId ? state.sessionStreams[state.sessionId] : undefined;
   const blockingHistoryError = historyError && !hasHistoryData ? historyError : undefined;
 
-  const answerQuestion = useCallback((toolCallId: string, answers: QuestionAnswer[]) => {
-    if (!workspaceId) return;
-    const pendingInputs = activeStream?.pendingToolInputs ?? [];
-    const pending = pendingInputs.find((p) => p.toolUseId === toolCallId);
-    wsTransport.send(workspaceId, {
-      type: "tool_input_response",
-      requestId: pending?.requestId ?? toolCallId,
-      toolName: "AskUserQuestion",
-      result: { type: "answer", answers },
-      ...sessionIdField(state.sessionId),
-    });
-    dispatch({ type: "clear_pending_tool_inputs" });
-  }, [workspaceId, activeStream?.pendingToolInputs, state.sessionId]);
-
   const batchAnswerQuestions = useCallback(
     (responses: Array<{ toolUseId: string; answers: QuestionAnswer[] }>) => {
       if (!workspaceId) return;
@@ -1016,7 +1002,6 @@ export function useConversation(workspaceId: string | undefined) {
     stopStreaming,
     clearChat,
     switchSession,
-    answerQuestion,
     batchAnswerQuestions,
     approvePlan,
     rejectToolInput,

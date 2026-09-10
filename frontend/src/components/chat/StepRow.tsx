@@ -1,4 +1,4 @@
-import { useState, type ComponentProps, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { AlertTriangleIcon, XCircleIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { TimelineStep } from "@/lib/timeline-steps";
@@ -16,28 +16,25 @@ const EXPANDABLE_LINE_CLASS = "cursor-pointer hover:bg-muted/60 hover:text-foreg
 
 interface StepRowProps {
   step: TimelineStep;
-  defaultOpen?: boolean;
   /** Controlled open state; when provided it replaces the internal state. */
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
   /** Detail panel content; omitted means the default StepDetail, null means not expandable. */
   detail?: ReactNode;
-  /** Nested content rendered under the line (agent children). */
-  children?: ReactNode;
 }
 
-export function StepRow({ step, defaultOpen = false, open: controlledOpen, onOpenChange, detail, children }: StepRowProps) {
-  const [internalOpen, setInternalOpen] = useState(defaultOpen);
+export function StepRow({ step, open: controlledOpen, onOpenChange, detail }: StepRowProps) {
+  const [internalOpen, setInternalOpen] = useState(false);
   const open = controlledOpen ?? internalOpen;
   const [opened, setOpened] = useState(open);
   const expandable = detail === undefined ? hasStepDetail(step) : detail !== null;
-  const line = <StepLine step={step} expandable={expandable} />;
 
   if (!expandable) {
     return (
       <div>
-        {line}
-        {children}
+        <div className={STEP_LINE_CLASS} title={step.subjectTitle}>
+          <StepLineContent step={step} />
+        </div>
       </div>
     );
   }
@@ -51,31 +48,17 @@ export function StepRow({ step, defaultOpen = false, open: controlledOpen, onOpe
         if (next) setOpened(true);
       }}
     >
-      <CollapsibleTrigger asChild>{line}</CollapsibleTrigger>
-      {children}
+      <CollapsibleTrigger asChild>
+        <button type="button" className={cn(STEP_LINE_CLASS, EXPANDABLE_LINE_CLASS)} title={step.subjectTitle}>
+          <StepLineContent step={step} />
+        </button>
+      </CollapsibleTrigger>
       {opened && (
         <CollapsibleContent forceMount hidden={!open}>
           {detail === undefined ? <StepDetail step={step} /> : detail}
         </CollapsibleContent>
       )}
     </Collapsible>
-  );
-}
-
-function StepLine({
-  step,
-  expandable,
-  ...props
-}: ComponentProps<"button"> & { step: TimelineStep; expandable: boolean }) {
-  return (
-    <button
-      type="button"
-      className={cn(STEP_LINE_CLASS, expandable ? EXPANDABLE_LINE_CLASS : "cursor-default")}
-      title={step.subjectTitle}
-      {...props}
-    >
-      <StepLineContent step={step} />
-    </button>
   );
 }
 

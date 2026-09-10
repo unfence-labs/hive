@@ -2,7 +2,7 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
-import { AssistantTimeline } from "@/components/chat/AssistantTimeline";
+import ChatMessage from "@/components/ChatMessage";
 import type { ChatMessage as Message, ToolCall } from "@/types";
 
 vi.mock("@/components/ai-elements/message", () => ({
@@ -38,17 +38,17 @@ const agentLine = () => screen.getByRole("button", { name: /^Explore Review sett
 describe("AgentStep", () => {
   it("shows the running agent's live child on the live header", async () => {
     const running = agentTool({ output: undefined });
-    const { rerender } = render(<AssistantTimeline message={message([running, { ...readChild, output: undefined }])} streaming />);
+    const { rerender } = render(<ChatMessage message={message([running, { ...readChild, output: undefined }])} streaming />);
     expect(screen.getByTestId("live-line")).toHaveTextContent(/Review settings.*delegating.*Reading settings\.ts/);
 
-    rerender(<AssistantTimeline message={message([running, readChild, bashChild])} streaming />);
+    rerender(<ChatMessage message={message([running, readChild, bashChild])} streaming />);
     await waitFor(() => expect(screen.getByTestId("live-line")).toHaveTextContent(/Running npm test/));
     expect(screen.queryByText("Prompt")).not.toBeInTheDocument();
   });
 
   it("expands a completed agent into Prompt, children and a markdown Result", async () => {
     const user = userEvent.setup();
-    render(<AssistantTimeline message={message([agentTool(), readChild])} />);
+    render(<ChatMessage message={message([agentTool(), readChild])} />);
     const line = screen.getByRole("button", { name: "Explore Review settings · 1 tool" });
     expect(within(line).getByText("Explore").className).toContain("font-mono");
     expect(screen.queryByText("Prompt")).not.toBeInTheDocument();
@@ -73,7 +73,7 @@ describe("AgentStep", () => {
 
   it("marks a failed agent and labels its output as Failure", async () => {
     const user = userEvent.setup();
-    render(<AssistantTimeline message={message([agentTool({ output: "boom", isError: true }), readChild])} />);
+    render(<ChatMessage message={message([agentTool({ output: "boom", isError: true }), readChild])} />);
     expect(screen.getByLabelText("Review settings failed")).toBeVisible();
     await user.click(agentLine());
     await user.click(screen.getByRole("button", { name: "Failure" }));
@@ -86,7 +86,7 @@ describe("AgentStep", () => {
       id: "nested", parentToolUseId: "agent", name: "Agent",
       input: JSON.stringify({ subagent_type: "Plan", description: "Draft plan" }), output: "planned",
     };
-    render(<AssistantTimeline message={message([agentTool(), nested, { ...readChild, parentToolUseId: "nested" }])} />);
+    render(<ChatMessage message={message([agentTool(), nested, { ...readChild, parentToolUseId: "nested" }])} />);
     await user.click(agentLine());
     const nestedLine = screen.getByRole("button", { name: "Plan Draft plan · 1 tool" });
     expect(screen.queryByText("settings.ts")).not.toBeInTheDocument();
@@ -100,7 +100,7 @@ describe("AgentStep", () => {
     const read: ToolCall = { id: "read", name: "Read", input: '{"file_path":"src/app.ts"}', output: "read" };
     const edit: ToolCall = { id: "edit", name: "Edit", input: '{"file_path":"src/app.ts","old_string":"a","new_string":"b"}', output: "edited" };
     const live = message([read, edit, agentTool({ output: undefined }), { ...readChild, output: undefined }]);
-    const { rerender } = render(<AssistantTimeline message={live} streaming />);
+    const { rerender } = render(<ChatMessage message={live} streaming />);
     const header = screen.getByTestId("live-line");
     expect(header).toHaveTextContent(/Review settings.*delegating.*Reading settings\.ts/);
     expect(header).toHaveAttribute("aria-expanded", "false");
@@ -112,7 +112,7 @@ describe("AgentStep", () => {
     expect(screen.queryByRole("button", { name: /^Explore Review settings/ })).not.toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: /^app\.ts/ })).toHaveLength(2);
 
-    rerender(<AssistantTimeline message={message([read, edit, agentTool(), readChild])} streaming={false} />);
+    rerender(<ChatMessage message={message([read, edit, agentTool(), readChild])} streaming={false} />);
     expect(screen.getByRole("button", { name: /3 tools used/ })).toHaveAttribute("aria-expanded", "true");
     expect(screen.getAllByRole("button", { name: /^Explore Review settings/ })).toHaveLength(1);
   });
@@ -125,7 +125,7 @@ describe("AgentStep", () => {
       { id: "test", name: "Bash", input: '{"command":"npm test"}', output: "ok" },
     ];
     render(
-      <AssistantTimeline
+      <ChatMessage
         message={message(tools, {
           timeline: [...tools.map((tool) => ({ type: "tool" as const, id: tool.id })), { type: "activity", id: "sub" }],
           agentActivities: [{ id: "sub", kind: "subagent_activity", activityKind: "started", agentThreadId: "t", agentPath: "root/worker" }],
@@ -133,16 +133,16 @@ describe("AgentStep", () => {
       />,
     );
     await user.click(screen.getByRole("button", { name: /4 tools used/ }));
-    const line = screen.getByRole("button", { name: /^root\/worker/ });
+    const line = screen.getByText("root/worker").parentElement!;
     expect(within(line).getByText("started")).toBeVisible();
-    expect(line).not.toHaveAttribute("aria-expanded");
+    expect(screen.queryByRole("button", { name: /^root\/worker/ })).not.toBeInTheDocument();
     expect(line.closest("[hidden]")).toBeNull();
   });
 
   it("omits the Prompt row without a prompt and the Result row with empty output", async () => {
     const user = userEvent.setup();
     const bare = agentTool({ input: JSON.stringify({ subagent_type: "Explore", description: "Review settings" }), output: "" });
-    render(<AssistantTimeline message={message([bare, readChild])} />);
+    render(<ChatMessage message={message([bare, readChild])} />);
     await user.click(agentLine());
     expect(screen.getByRole("button", { name: /^settings\.ts/ })).toBeVisible();
     expect(screen.queryByRole("button", { name: "Prompt" })).not.toBeInTheDocument();
@@ -152,7 +152,7 @@ describe("AgentStep", () => {
   it("renders structured output as JSON instead of crashing", async () => {
     const user = userEvent.setup();
     const objectOutput = { type: "text", text: "agent result" } as unknown as string;
-    render(<AssistantTimeline message={message([agentTool({ output: objectOutput })])} />);
+    render(<ChatMessage message={message([agentTool({ output: objectOutput })])} />);
     await user.click(agentLine());
     await user.click(screen.getByRole("button", { name: "Result" }));
     expect(screen.getByText(/"text": "agent result"/)).toBeVisible();

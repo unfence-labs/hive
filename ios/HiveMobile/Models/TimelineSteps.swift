@@ -137,6 +137,14 @@ func buildTimelineRows(message: ChatMessage, streaming: Bool) -> [TimelineRow] {
         return builder.rows
     }
 
+    if timeline.isEmpty {
+        // An interrupted turn can carry a server fallback without any provider entries.
+        if !streaming {
+            builder.text(id: message.id, text: message.content)
+        }
+        return builder.rows
+    }
+
     let toolsById = Dictionary(toolCalls.map { ($0.id, $0) }, uniquingKeysWith: { _, last in last })
     let activitiesById = Dictionary(activities.map { ($0.id, $0) }, uniquingKeysWith: { _, last in last })
     for (index, entry) in timeline.enumerated() {

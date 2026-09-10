@@ -1,11 +1,11 @@
-import { render, screen, within } from "@testing-library/react";
+import { act, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
 import ChatConversation from "@/components/ChatConversation";
 import ChatMessage from "@/components/ChatMessage";
-import { AssistantTimeline } from "@/components/chat/AssistantTimeline";
 import type { ChatMessage as Message, ToolCall } from "@/types";
+import * as timelineSteps from "@/lib/timeline-steps";
 
 vi.mock("@/components/ai-elements/message", () => ({
   MessageResponse: ({ children }: { children: ReactNode }) => <div>{children}</div>,
@@ -59,6 +59,32 @@ function before(first: Element, second: Element) {
 const stepButton = (subject: string | RegExp) => screen.getByRole("button", { name: subject });
 
 describe("AssistantTimeline", () => {
+  it("builds the transcript once and leaves it unchanged while only elapsed time advances", () => {
+    vi.useFakeTimers();
+    const buildRows = vi.spyOn(timelineSteps, "buildTimelineRows");
+    try {
+      const { unmount } = render(<ChatConversation
+        messages={[]}
+        isStreaming
+        streamingStartedAt={Date.now()}
+        currentStreamingText="Working"
+        currentTimeline={[{ type: "text", id: "text", text: "Working" }]}
+        currentReasoningSegments={[]}
+        activeToolCalls={[]}
+        activeAgentActivities={[]}
+        switchCounter={0}
+      />);
+      expect(buildRows).toHaveBeenCalledTimes(1);
+      act(() => vi.advanceTimersByTime(1000));
+      expect(screen.getByText("1.0s")).toBeVisible();
+      expect(buildRows).toHaveBeenCalledTimes(1);
+      unmount();
+    } finally {
+      buildRows.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
   it("keeps text, runs, reasoning and diagnostic steps in order", async () => {
     const user = userEvent.setup();
     render(<ChatMessage message={turn} />);
@@ -73,7 +99,7 @@ describe("AssistantTimeline", () => {
   });
 
   it("renders a finished single-step run flat with the subject first and the verb pill after", () => {
-    render(<AssistantTimeline message={{ ...turn, timeline: [{ type: "tool", id: "read" }] }} />);
+    render(<ChatMessage message={{ ...turn, timeline: [{ type: "tool", id: "read" }] }} />);
     const line = stepButton(/^settings\.ts/);
     const subject = within(line).getByText("settings.ts");
     const pill = within(line).getByText("read");
@@ -84,13 +110,13 @@ describe("AssistantTimeline", () => {
   });
 
   it("separates subject, verb and stats in the accessible name", () => {
-    render(<AssistantTimeline message={{ ...threeStepTurn, timeline: [{ type: "tool", id: "edit" }] }} />);
+    render(<ChatMessage message={{ ...threeStepTurn, timeline: [{ type: "tool", id: "edit" }] }} />);
     expect(stepButton(/^app\.ts/)).toHaveAccessibleName("app.ts edited +2 \u22121");
   });
 
   it("collapses a finished run of three or more steps behind a verb summary", async () => {
     const user = userEvent.setup();
-    render(<AssistantTimeline message={threeStepTurn} />);
+    render(<ChatMessage message={threeStepTurn} />);
     const header = screen.getByRole("button", { name: /3 tools used/ });
     expect(header).toHaveAttribute("aria-expanded", "false");
     expect(screen.getByLabelText("1 failed")).toBeVisible();
@@ -109,7 +135,7 @@ describe("AssistantTimeline", () => {
       ...threeStepTurn,
       toolCalls: threeStepTurn.toolCalls!.map((tool) => tool.id === "test" ? { ...tool, output: undefined, isError: undefined } : tool),
     };
-    const { rerender } = render(<AssistantTimeline message={live} streaming />);
+    const { rerender } = render(<ChatMessage message={live} streaming />);
     const header = screen.getByTestId("live-line");
     expect(within(header).getByText("running")).toBeVisible();
     expect(header).toHaveAttribute("aria-expanded", "false");
@@ -119,7 +145,7 @@ describe("AssistantTimeline", () => {
     // The header owns the current step; it is not repeated at the end of the list.
     expect(screen.queryByRole("button", { name: /^npm test/ })).not.toBeInTheDocument();
 
-    rerender(<AssistantTimeline message={threeStepTurn} streaming={false} />);
+    rerender(<ChatMessage message={threeStepTurn} streaming={false} />);
     expect(screen.queryByTestId("live-line")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /3 tools used/ })).toHaveAttribute("aria-expanded", "true");
     expect(stepButton(/^settings\.ts/)).toBeVisible();
@@ -132,7 +158,7 @@ describe("AssistantTimeline", () => {
       ...threeStepTurn,
       toolCalls: threeStepTurn.toolCalls!.map((tool) => tool.id === "test" ? { ...tool, output: undefined, isError: undefined } : tool),
     };
-    const { container, rerender } = render(<AssistantTimeline message={live} streaming />);
+    const { container, rerender } = render(<ChatMessage message={live} streaming />);
     expect(container.querySelectorAll(".step-live-text")).toHaveLength(1);
     await user.click(screen.getByTestId("live-line"));
     expect(container.querySelectorAll(".step-live-text")).toHaveLength(1);
@@ -140,7 +166,7 @@ describe("AssistantTimeline", () => {
     expect(stepButton(/^app\.ts/).querySelector(".step-live-text")).toBeNull();
     expect(screen.queryByRole("button", { name: /^npm test/ })).not.toBeInTheDocument();
 
-    rerender(<AssistantTimeline message={threeStepTurn} streaming={false} />);
+    rerender(<ChatMessage message={threeStepTurn} streaming={false} />);
     expect(container.querySelectorAll(".step-live-text")).toHaveLength(0);
   });
 
@@ -153,7 +179,7 @@ describe("AssistantTimeline", () => {
       ],
       toolCalls: threeStepTurn.toolCalls!.map((tool) => tool.id === "test" ? { ...tool, output: undefined, isError: undefined } : tool),
     };
-    const { container } = render(<AssistantTimeline message={interleaved} streaming />);
+    const { container } = render(<ChatMessage message={interleaved} streaming />);
     const earlier = screen.getByRole("button", { name: /2 tools used/ });
     expect(earlier).not.toHaveAttribute("data-testid");
     expect(earlier.querySelector(".step-live-text")).toBeNull();
@@ -163,7 +189,7 @@ describe("AssistantTimeline", () => {
   });
 
   it("shows the latest step, failure mark included, as the live line without a counter", () => {
-    render(<AssistantTimeline message={{ ...threeStepTurn, toolCalls: [readTool, testTool] }} streaming />);
+    render(<ChatMessage message={{ ...threeStepTurn, toolCalls: [readTool, testTool] }} streaming />);
     const header = screen.getByTestId("live-line");
     expect(header).toHaveTextContent(/^Current step: npm test ran/);
     expect(within(header).getByLabelText("npm test failed")).toBeVisible();
@@ -172,7 +198,7 @@ describe("AssistantTimeline", () => {
 
   it("opens the detail panel on step click and closes it again", async () => {
     const user = userEvent.setup();
-    render(<AssistantTimeline message={{ ...turn, timeline: [{ type: "tool", id: "read" }] }} />);
+    render(<ChatMessage message={{ ...turn, timeline: [{ type: "tool", id: "read" }] }} />);
     expect(screen.queryByText(/Path: src\/settings.ts/)).not.toBeInTheDocument();
     await user.click(stepButton(/^settings\.ts/));
     expect(screen.getByText(/Path: src\/settings.ts/)).toBeVisible();
@@ -250,7 +276,7 @@ describe("AssistantTimeline", () => {
         activeToolCalls={[{ ...readTool, output: undefined }]} activeAgentActivities={[]} switchCounter={0}
       />,
     );
-    before(stepButton(/Inspecting files/), screen.getByText("Partial"));
+    before(screen.getByText("Inspecting files"), screen.getByText("Partial"));
     before(screen.getByText("Partial"), screen.getByTestId("live-line"));
   });
 
@@ -320,10 +346,11 @@ describe("AssistantTimeline", () => {
     await user.click(screen.getByRole("button", { name: /^5 tools used/ }));
     before(stepButton(/^settings\.ts/), stepButton(/^pwd/));
     before(stepButton(/^pwd/), stepButton(/^design\.png/));
-    before(stepButton(/^design\.png/), stepButton(/^Context/));
-    before(stepButton(/^Context/), stepButton(/^npm test/));
-    expect(within(stepButton(/^Context/)).getByText("compacted")).toBeVisible();
-    expect(stepButton(/^Context/)).not.toHaveAttribute("aria-expanded");
+    const contextLine = screen.getByText("Context").parentElement!;
+    before(stepButton(/^design\.png/), contextLine);
+    before(contextLine, stepButton(/^npm test/));
+    expect(within(contextLine).getByText("compacted")).toBeVisible();
+    expect(screen.queryByRole("button", { name: /^Context/ })).not.toBeInTheDocument();
   });
 
   it("renders an activity alias once and keeps command failures visible", () => {
@@ -344,7 +371,7 @@ describe("tool details", () => {
   it("renders the edit diff and hides the raw output for Claude and Codex edits", async () => {
     const user = userEvent.setup();
     const claude: ToolCall = { id: "edit", name: "Edit", input: '{"file_path":"src/app.ts","old_string":"before","new_string":"after"}', output: "this output must stay hidden" };
-    const { unmount } = render(<AssistantTimeline message={single(claude)} />);
+    const { unmount } = render(<ChatMessage message={single(claude)} />);
     await user.click(stepButton(/^app\.ts/));
     expect(screen.getByText("before")).toBeVisible();
     expect(screen.getByText("after")).toBeVisible();
@@ -353,7 +380,7 @@ describe("tool details", () => {
     unmount();
 
     const codex: ToolCall = { id: "edit", name: "Edit", input: JSON.stringify({ filename: "src/app.ts", diff: "--- a/src/app.ts\n+++ b/src/app.ts\n@@\n-before\n+after" }), output: "raw diff" };
-    render(<AssistantTimeline message={single(codex)} />);
+    render(<ChatMessage message={single(codex)} />);
     const line = stepButton(/^app\.ts/);
     expect(within(line).getByText("+1")).toBeVisible();
     await user.click(line);
@@ -365,7 +392,7 @@ describe("tool details", () => {
   it("shows command, cwd, exit code and duration for a failed Bash tool", async () => {
     const user = userEvent.setup();
     const bash: ToolCall = { id: "bash", name: "Bash", input: JSON.stringify({ command: "npm test", description: "Run the suite", cwd: "/tmp/project", status: "failed", exitCode: 1, durationMs: 2400 }), output: "failed\n" };
-    render(<AssistantTimeline message={single(bash)} />);
+    render(<ChatMessage message={single(bash)} />);
     expect(screen.getByLabelText("npm test failed")).toBeVisible();
     await user.click(stepButton(/^npm test/));
     expect(screen.getByText(/\$ npm test/)).toBeVisible();
@@ -382,18 +409,18 @@ describe("tool details", () => {
       ...turn, timeline: [{ type: "activity", id: "cmd" }], reasoningSegments: [], toolCalls: [],
       agentActivities: [{ id: "cmd", kind: "command_execution", command: "npm test", cwd: "/tmp/project", status: "completed", output: "ok\n", exitCode: 0, durationMs: 1200 }],
     };
-    render(<AssistantTimeline message={message} />);
+    render(<ChatMessage message={message} />);
     await user.click(stepButton(/^npm test/));
     expect(screen.getByText(/\$ npm test/)).toBeVisible();
     expect(screen.getByText(/cwd: \/tmp\/project/)).toBeVisible();
     expect(screen.getByText("Output").nextElementSibling).toHaveTextContent("ok");
   });
 
-  it("shows the raw input and the output when the input is not JSON", async () => {
+  it.each(["{not-json", "null", "[]", "42", '"text"', "true"])("shows raw input and output for non-object input %s", async (input) => {
     const user = userEvent.setup();
-    render(<AssistantTimeline message={single({ id: "bad", name: "Bash", input: "{not-json", output: "result" })} />);
+    render(<ChatMessage message={single({ id: "bad", name: "Bash", input, output: "result" })} />);
     await user.click(stepButton(/^Bash/));
-    expect(screen.getByText("{not-json")).toBeVisible();
+    expect(screen.getByText(input)).toBeVisible();
     expect(screen.getByText("Output").nextElementSibling).toHaveTextContent("result");
   });
 });

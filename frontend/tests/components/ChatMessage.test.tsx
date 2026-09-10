@@ -30,6 +30,17 @@ function assistantMessage(overrides: Partial<ChatMessageType> = {}): ChatMessage
 }
 
 describe("ChatMessage", () => {
+  it("renders the persisted cancellation fallback when no timeline entries were produced", () => {
+    render(<ChatMessage message={assistantMessage({
+      cancelled: true,
+      content: "Generation interrupted before any output.",
+      timeline: [],
+    })} />);
+
+    expect(screen.getByTestId("message-response")).toHaveTextContent("Generation interrupted before any output.");
+    expect(screen.getByText("(cancelled)")).toBeVisible();
+  });
+
   it("renders assistant response before tool steps", () => {
     render(
       <ChatMessage
@@ -57,7 +68,8 @@ describe("ChatMessage", () => {
       />,
     );
 
-    expect(screen.getByRole("button", { name: /reasoning/ })).toBeInTheDocument();
+    expect(screen.getByText("reasoning")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /reasoning/ })).not.toBeInTheDocument();
     expect(screen.getByText("(cancelled)")).toBeInTheDocument();
     expect(screen.getByTestId("copy-button")).toBeInTheDocument();
   });

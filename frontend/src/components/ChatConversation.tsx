@@ -14,7 +14,7 @@ import { WorkspaceWelcome } from "@/components/WorkspaceWelcome";
 import { formatElapsed } from "@/lib/time";
 import { getFallbackInteractiveAssistantIndex, hasExitPlanModeTool } from "@/lib/plan-state";
 import { CircleAlertIcon, RefreshCwIcon, Trash2Icon } from "lucide-react";
-import type { AgentActivity, ChatMessage as ChatMessageType, ConversationTimelineEntry, QueuedMessage, ReasoningSegment, ToolCall, QuestionAnswer } from "@/types";
+import type { AgentActivity, ChatMessage as ChatMessageType, ConversationTimelineEntry, QueuedMessage, ReasoningSegment, ToolCall } from "@/types";
 import type { PendingToolInput } from "@/hooks/useConversation";
 import type { PlanStatus } from "@/lib/timeline-steps";
 import type { SendState } from "@/lib/optimistic-sends";
@@ -42,7 +42,6 @@ interface ChatConversationProps {
   /** Delivery state of optimistically-sent user messages, keyed by message id. */
   sendStates?: Record<string, SendState>;
   onRetrySend?: (messageId: string) => void;
-  onQuestionAnswer?: (toolCallId: string, answers: QuestionAnswer[]) => void;
   onFileMentionClick?: (relativePath: string) => void;
   /** When set, the workspace welcome offers a button to open a terminal tab. */
   onStartTerminal?: () => void;
@@ -112,6 +111,22 @@ function ConversationHistoryError({
   );
 }
 
+function StreamingElapsed({ startedAt }: { startedAt?: number | null }) {
+  const [elapsed, setElapsed] = useState(0);
+
+  useEffect(() => {
+    if (startedAt == null) {
+      setElapsed(0);
+      return;
+    }
+    setElapsed(Date.now() - startedAt);
+    const id = setInterval(() => setElapsed(Date.now() - startedAt), 100);
+    return () => clearInterval(id);
+  }, [startedAt]);
+
+  return <span>{formatElapsed(elapsed)}</span>;
+}
+
 export default function ChatConversation({
   messages,
   isHistoryLoading = false,
@@ -129,7 +144,6 @@ export default function ChatConversation({
   pendingToolInputs = [],
   sendStates,
   onRetrySend,
-  onQuestionAnswer,
   onFileMentionClick,
   onStartTerminal,
   workspaceName,
@@ -144,18 +158,6 @@ export default function ChatConversation({
   scrollToBottomTrigger = 0,
   emptyState,
 }: ChatConversationProps) {
-  const [elapsed, setElapsed] = useState(0);
-
-  useEffect(() => {
-    if (!isStreaming || !streamingStartedAt) {
-      setElapsed(0);
-      return;
-    }
-    setElapsed(Date.now() - streamingStartedAt);
-    const id = setInterval(() => setElapsed(Date.now() - streamingStartedAt), 100);
-    return () => clearInterval(id);
-  }, [isStreaming, streamingStartedAt]);
-
   // Hide the conversation during hydration so the user never sees content
   // flash at the top before StickToBottom repositions the scroll. The sequence:
   // 1. switchCounter changes → reset hydrated+settled synchronously during render
@@ -340,7 +342,6 @@ export default function ChatConversation({
               isInteractive={(msg === liveMessage && isStreaming) || isMessageInteractive(msg, i)}
               planStatus={msg === liveMessage ? undefined : getPlanStatus(msg, i)}
               dismissedToolCallIds={dismissedToolCallIds}
-              onQuestionAnswer={onQuestionAnswer}
               onFileMentionClick={onFileMentionClick}
               sendState={sendStates?.[msg.id]}
               onRetrySend={onRetrySend}
@@ -352,7 +353,7 @@ export default function ChatConversation({
         {isStreaming && (
           <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
             <AgentActivityPreview size="small" />
-            <span>{formatElapsed(elapsed)}</span>
+            <StreamingElapsed startedAt={streamingStartedAt} />
           </div>
         )}
 

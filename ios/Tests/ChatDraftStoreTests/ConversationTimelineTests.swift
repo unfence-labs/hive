@@ -120,6 +120,16 @@ struct ConversationTimelineTests {
         #expect(second.activeOrdinal == 0)
     }
 
+    @Test
+    func interruptedEmptyTimelineKeepsVisibleTextSearchableAfterRestDecoding() throws {
+        let message = try JSONDecoder().decode(ChatMessage.self, from: Data(#"{"id":"turn","sessionId":"s","role":"assistant","content":"Generation interrupted before any output.","timeline":[],"cancelled":true,"timestamp":"2026-09-08T12:00:00Z"}"#.utf8))
+        #expect(buildTimelineRows(message: message, streaming: false) == [
+            .text(id: "text:turn", text: message.content)
+        ])
+        #expect(message.timelineSearchableText == message.content)
+        #expect(message.clipboardText == message.content)
+    }
+
     @Test @MainActor
     func idleStatusKeepsTimelineUntilRestHistoryReplacesIt() {
         let store = makeStore()

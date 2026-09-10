@@ -133,7 +133,6 @@ export default function BrainView() {
     sendMessage,
     retrySend,
     stopStreaming,
-    answerQuestion,
     batchAnswerQuestions,
     rejectToolInput,
     agentPlanMode,
@@ -393,7 +392,6 @@ export default function BrainView() {
               pendingToolInputs={pendingToolInputs}
               sendStates={sendStates}
               onRetrySend={retrySend}
-              onQuestionAnswer={answerQuestion}
               onFileMentionClick={handleSelect}
               activeProvider={effectiveLockedProvider}
               projectName="Brain"

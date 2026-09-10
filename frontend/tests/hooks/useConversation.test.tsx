@@ -1093,15 +1093,18 @@ describe("useConversation", () => {
     nowSpy.mockRestore();
   });
 
-  it("formats AskUserQuestion answers and sends a response", async () => {
+  it("sends question answers using the tool id when no pending request exists", async () => {
     const { __wsMock } = await getWsMock();
     const { result } = renderConversation("ws-1");
 
     act(() => {
-      result.current.answerQuestion("tool-1", [
-        { questionIndex: 0, selectedOptions: [1, 2] },
-        { questionIndex: 1, selectedOptions: [], customText: "custom" },
-      ]);
+      result.current.batchAnswerQuestions([{
+        toolUseId: "tool-1",
+        answers: [
+          { questionIndex: 0, selectedOptions: [1, 2] },
+          { questionIndex: 1, selectedOptions: [], customText: "custom" },
+        ],
+      }]);
     });
 
     expect(__wsMock.sendMock).toHaveBeenLastCalledWith("ws-1", {
@@ -1116,40 +1119,6 @@ describe("useConversation", () => {
         ],
       },
     });
-  });
-
-  it("uses pending requestId when answering AskUserQuestion and clears pending state", async () => {
-    const { __wsMock } = await getWsMock();
-    const { result } = renderConversation("ws-1");
-
-    act(() => {
-      __wsMock.emit("ws-1", { type: "status", status: "busy", sessionId: "sess-1", streaming: true });
-      __wsMock.emit("ws-1", {
-        type: "tool_input_required",
-        sessionId: "sess-1",
-        requestId: "req-123",
-        toolName: "AskUserQuestion",
-        toolUseId: "tool-1",
-        input: { questions: [{ question: "Q1", options: [{ label: "A" }] }] },
-      });
-    });
-    expect(result.current.pendingToolInputs).toHaveLength(1);
-
-    act(() => {
-      result.current.answerQuestion("tool-1", [{ questionIndex: 0, selectedOptions: [0] }]);
-    });
-
-    expect(__wsMock.sendMock).toHaveBeenLastCalledWith("ws-1", {
-      type: "tool_input_response",
-      requestId: "req-123",
-      toolName: "AskUserQuestion",
-      result: {
-        type: "answer",
-        answers: [{ questionIndex: 0, selectedOptions: [0] }],
-      },
-      sessionId: "sess-1",
-    });
-    expect(result.current.pendingToolInputs).toEqual([]);
   });
 
   it("batchAnswerQuestions sends one response per tool with original questions and clears pending", async () => {

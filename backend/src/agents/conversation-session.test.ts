@@ -2906,6 +2906,46 @@ describe("ConversationSession", () => {
     expect(assistant.content).toBe("Checking configuration.Here is the result.");
   });
 
+  it("preserves failed server Bash results through live events, snapshots and reload", async () => {
+    const session = createSession({ sessionId: "server-bash-failure" });
+    const messages: WsOutgoing[] = [];
+    session.on("message", (msg) => messages.push(msg));
+    session.sendMessage("Run the command");
+    mockProc._stdout.push(JSON.stringify({
+      type: "assistant",
+      message: {
+        id: "server-bash-message",
+        role: "assistant",
+        content: [
+          { type: "server_tool_use", id: "server-bash", name: "bash_code_execution", input: { command: "exit 1" } },
+          {
+            type: "bash_code_execution_tool_result",
+            tool_use_id: "server-bash",
+            content: { type: "bash_code_execution_result", stdout: "", stderr: "", return_code: 1, content: [] },
+          },
+        ],
+      },
+    }) + "\n");
+
+    expect(messages).toContainEqual({
+      type: "tool_result", sessionId: "server-bash-failure", toolUseId: "server-bash", output: "exit code: 1", isError: true,
+    });
+    expect(session.getStreamingSnapshot()?.toolCalls).toEqual([
+      expect.objectContaining({ id: "server-bash", name: "Bash", isError: true }),
+    ]);
+
+    mockProc._stdout.push(resultLine());
+    mockProc._emitClose(0);
+    await session.drain();
+    const loaded = await ConversationSession.load({
+      cwd: "/tmp/test", dataDir: tempDir, workspaceId: "ws-test", sessionId: "server-bash-failure",
+    });
+    const assistant = (await loaded.getMessages()).find((msg) => msg.role === "assistant")!;
+    expect(assistant.toolCalls).toEqual([
+      expect.objectContaining({ id: "server-bash", name: "Bash", isError: true }),
+    ]);
+  });
+
   it("emits user_message when a turn starts", () => {
     const session = createSession({ sessionId: "sess-user-evt" });
     const messages: WsOutgoing[] = [];

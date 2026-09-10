@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import type { ChatMessage } from "@/types";
 import { findPlanContent } from "@/lib/plan-state";
-import { buildTimelineRows, presentStandaloneStep, type PlanStatus, type TimelineStep } from "@/lib/timeline-steps";
+import { presentStandaloneStep, type PlanStatus, type TimelineRow, type TimelineStep } from "@/lib/timeline-steps";
 import { MessageResponse } from "@/components/ai-elements/message";
 import { ActionRun } from "@/components/chat/ActionRun";
 import { StepRow } from "@/components/chat/StepRow";
@@ -9,6 +9,7 @@ import { PlanDetail } from "@/components/chat/StepDetail";
 
 interface AssistantTimelineProps {
   message: ChatMessage;
+  rows: TimelineRow[];
   streaming?: boolean;
   isInteractive?: boolean;
   planStatus?: PlanStatus;
@@ -17,13 +18,12 @@ interface AssistantTimelineProps {
 
 export function AssistantTimeline({
   message,
+  rows,
   streaming = false,
   isInteractive,
   planStatus,
   dismissedToolCallIds,
 }: AssistantTimelineProps) {
-  const rows = useMemo(() => buildTimelineRows(message, { streaming }), [message, streaming]);
-
   return (
     <div className="space-y-3">
       {rows.map((row, index) => {

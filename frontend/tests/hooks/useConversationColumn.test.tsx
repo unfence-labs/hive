@@ -80,7 +80,6 @@ function makeConversation(overrides: Record<string, unknown> = {}) {
     stopStreaming: vi.fn(),
     clearChat: vi.fn(),
     switchSession: vi.fn(),
-    answerQuestion: vi.fn(),
     batchAnswerQuestions: vi.fn(),
     approvePlan: vi.fn(),
     rejectToolInput: vi.fn(),

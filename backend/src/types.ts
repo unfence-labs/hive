@@ -237,11 +237,7 @@ export interface BrainFileContent {
   truncated?: boolean;
 }
 
-export type {
-  ProjectEnvConfig,
-  ProjectEnvData,
-  ProjectEnvVariable,
-} from "@hive/shared/project-env";
+export type { ProjectEnvConfig } from "@hive/shared/project-env";
 
 export type CreateProjectRequest =
   | { mode?: "clone"; url: string }

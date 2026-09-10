@@ -12,15 +12,14 @@ const LIVE_LABEL_WINDOW_MS = 200;
 
 interface StepItemProps {
   step: TimelineStep;
-  streaming: boolean;
 }
 
 /** Agents indent under a rail and recurse; every other step is a plain row. */
-export function StepItem({ step, streaming }: StepItemProps) {
-  return step.kind === "agent" ? <AgentStep step={step} streaming={streaming} /> : <StepRow step={step} />;
+export function StepItem({ step }: StepItemProps) {
+  return step.kind === "agent" ? <AgentStep step={step} /> : <StepRow step={step} />;
 }
 
-export function AgentStep({ step, streaming }: StepItemProps) {
+export function AgentStep({ step }: StepItemProps) {
   const [open, setOpen] = useState(false);
   const [opened, setOpened] = useState(false);
   const tool = step.source.type === "tool" ? step.source.tool : undefined;
@@ -80,7 +79,7 @@ export function AgentStep({ step, streaming }: StepItemProps) {
       {opened && (
         <div hidden={!open} className={cn(STEP_LIST_CLASS, "pl-5")}>
           {info.prompt && <StepRow step={textStep(`${step.id}:prompt`, "prompt", "Prompt", info.prompt)} />}
-          {children.map((child) => <StepItem key={child.id} step={child} streaming={streaming} />)}
+          {children.map((child) => <StepItem key={child.id} step={child} />)}
           {resultStep && <StepRow step={resultStep} />}
         </div>
       )}

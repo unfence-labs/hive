@@ -2,7 +2,8 @@ import Foundation
 import Observation
 
 /// Ordered references share payloads with the legacy message fields.
-/// A missing timeline means legacy history; an empty timeline is a new, empty turn.
+/// A missing timeline means legacy history; an empty timeline has no provider
+/// entries but can still carry server fallback prose in the message content.
 struct ConversationTimelineEntry: Codable, Equatable, Identifiable {
     enum Kind: String, Codable {
         case text, reasoning, tool, activity
@@ -33,7 +34,10 @@ final class ConversationTimelineExpansion {
 
 extension ChatMessage {
     var timelineSearchableText: String {
-        (timeline ?? []).filter { $0.type == .text }.map {
+        if timeline?.isEmpty == true {
+            return ConversationFindModel.searchableText(content, rendersMarkdown: true)
+        }
+        return (timeline ?? []).filter { $0.type == .text }.map {
             ConversationFindModel.searchableText($0.text ?? "", rendersMarkdown: true)
         }.joined(separator: "\n")
     }

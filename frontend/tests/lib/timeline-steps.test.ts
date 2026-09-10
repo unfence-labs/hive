@@ -52,6 +52,25 @@ function singleStep(row: TimelineRow | undefined): TimelineStep {
 }
 
 describe("buildTimelineRows", () => {
+  it.each(["Read", "Edit", "Write", "Bash", "Task", "ExitPlanMode", "DynamicTool"])("falls back to a generic step for %s with null input", (name) => {
+    const rows = buildTimelineRows(message({
+      toolCalls: [{ id: "null-input", name, input: "null", output: "ok" }],
+      timeline: [{ type: "tool", id: "null-input" }],
+    }), { streaming: false });
+    expect(runSteps(rows[0])[0]).toMatchObject({ subject: name, kind: "tool", stats: undefined });
+  });
+
+  it("uses finalized content only when an explicit timeline is empty", () => {
+    const cancelled = message({ content: "Generation interrupted before any output.", cancelled: true, timeline: [] });
+    expect(buildTimelineRows(cancelled, { streaming: false })).toEqual([
+      { type: "text", id: "text:msg-1", text: cancelled.content },
+    ]);
+    expect(buildTimelineRows(cancelled, { streaming: true })).toEqual([]);
+    expect(buildTimelineRows({ ...cancelled, timeline: [{ type: "text", id: "partial", text: "Partial output" }] }, { streaming: false })).toEqual([
+      { type: "text", id: "text:partial", text: "Partial output" },
+    ]);
+  });
+
   it("maps a Claude turn into text, runs, standalone steps and agent children", () => {
     const msg = message({
       reasoningSegments: [{ id: "r1:0", headline: "Plan the edit", body: "..." }],

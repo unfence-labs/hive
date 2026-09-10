@@ -244,7 +244,73 @@ describe("AgentEventNormalizer", () => {
     ]));
 
     expect(events).toEqual([
-      { type: "tool_completed", id: "bash-1", output: "ok\nstderr: warn\nexit code: 1" },
+      { type: "tool_completed", id: "bash-1", output: "ok\nstderr: warn\nexit code: 1", isError: true },
     ]);
+  });
+
+  it.each([0, 1, -1])("classifies server Bash return code %s", (returnCode) => {
+    const normalizer = new AgentEventNormalizer();
+
+    expect(normalizer.handleAssistant(assistant([{
+      type: "bash_code_execution_tool_result",
+      tool_use_id: "bash-1",
+      content: { type: "bash_code_execution_result", stdout: "", stderr: "warning", return_code: returnCode },
+    }]))).toEqual([{
+      type: "tool_completed",
+      id: "bash-1",
+      output: returnCode === 0 ? "stderr: warning" : `stderr: warning\nexit code: ${returnCode}`,
+      isError: returnCode !== 0,
+    }]);
+  });
+
+  it.each([
+    "web_search_tool_result",
+    "web_fetch_tool_result",
+    "bash_code_execution_tool_result",
+    "text_editor_code_execution_tool_result",
+  ] as const)("preserves %s error results", (type) => {
+    const normalizer = new AgentEventNormalizer();
+    const content = { type: `${type}_error`, error_code: "unavailable" };
+
+    expect(normalizer.handleAssistant(assistant([{
+      type,
+      tool_use_id: "server-1",
+      content,
+    }]))).toEqual([{
+      type: "tool_completed",
+      id: "server-1",
+      output: JSON.stringify(content),
+      isError: true,
+    }]);
+  });
+
+  it.each([true, false])("preserves explicit MCP is_error %s", (isError) => {
+    const normalizer = new AgentEventNormalizer();
+
+    expect(normalizer.handleAssistant(assistant([{
+      type: "mcp_tool_result",
+      tool_use_id: "mcp-1",
+      is_error: isError,
+      content: [{ type: "text", text: "Tool output" }],
+    }]))).toEqual([{
+      type: "tool_completed",
+      id: "mcp-1",
+      output: "Tool output",
+      isError,
+    }]);
+  });
+
+  it("does not infer errors from unstructured server output", () => {
+    const normalizer = new AgentEventNormalizer();
+
+    expect(normalizer.handleAssistant(assistant([{
+      type: "bash_code_execution_tool_result",
+      tool_use_id: "bash-1",
+      content: "stderr: warning",
+    }]))).toEqual([{
+      type: "tool_completed",
+      id: "bash-1",
+      output: "stderr: warning",
+    }]);
   });
 });

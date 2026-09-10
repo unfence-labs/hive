@@ -77,12 +77,12 @@ export function ActionRun({ steps, streaming }: ActionRunProps) {
       )}
       {liveAgents.length > 0 && (
         <div className={STEP_LIST_CLASS}>
-          {liveAgents.map((step) => <AgentStep key={step.id} step={step} streaming={streaming} />)}
+          {liveAgents.map((step) => <AgentStep key={step.id} step={step} />)}
         </div>
       )}
       {(flat || opened) && (
         <div hidden={!flat && !open} className={STEP_LIST_CLASS}>
-          {listed.map((step) => <StepItem key={step.id} step={step} streaming={streaming} />)}
+          {listed.map((step) => <StepItem key={step.id} step={step} />)}
         </div>
       )}
     </div>

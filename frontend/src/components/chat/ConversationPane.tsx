@@ -15,7 +15,6 @@ import type {
   AgentActivity,
   ChatMessage,
   QueuedMessage,
-  QuestionAnswer,
   ReasoningSegment,
   SessionMetadata,
   ToolCall,
@@ -74,7 +73,6 @@ export interface ConversationPaneProps {
   /** Delivery state of optimistically-sent user messages, keyed by message id. */
   sendStates?: Record<string, SendState>;
   onRetrySend?: (messageId: string) => void;
-  onQuestionAnswer?: (toolCallId: string, answers: QuestionAnswer[]) => void;
   onFileMentionClick?: (relativePath: string) => void;
   switchCounter: number;
   agentPlanMode?: boolean;
@@ -148,7 +146,6 @@ export function ConversationPane({
   pendingToolInputs,
   sendStates,
   onRetrySend,
-  onQuestionAnswer,
   onFileMentionClick,
   switchCounter,
   agentPlanMode,
@@ -226,7 +223,6 @@ export function ConversationPane({
               pendingToolInputs={pendingToolInputs}
               sendStates={sendStates}
               onRetrySend={onRetrySend}
-              onQuestionAnswer={onQuestionAnswer}
               onFileMentionClick={onFileMentionClick}
               onStartTerminal={onStartTerminal}
               workspaceName={workspaceName}
