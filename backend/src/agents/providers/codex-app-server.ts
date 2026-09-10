@@ -666,6 +666,11 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
         break;
       case "item/reasoning/summaryPartAdded":
         break;
+      case "item/plan/delta":
+      case "item/mcpToolCall/progress":
+        // Authoritative plan and MCP tool state arrives through the structured
+        // plan update and item lifecycle notifications.
+        break;
       case "item/reasoning/textDelta":
       case "item/reasoning/summaryTextDelta":
         if (this.isForeignThread(asString(data?.threadId))) break;
@@ -699,8 +704,8 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
         break;
       }
       case "item/commandExecution/terminalInteraction":
-        if (asString(data?.stdin) === "") break;
-        this.emitUnsupportedNotification(method, params);
+        // Command lifecycle items already own the UI. Never persist raw stdin,
+        // which may contain sensitive input.
         break;
       case "item/fileChange/patchUpdated": {
         const itemId = asString(data?.itemId);

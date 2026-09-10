@@ -790,7 +790,7 @@ describe("CodexAppServerSession normalized events", () => {
     ]);
   });
 
-  it("absorbs empty terminal interaction polls but keeps non-empty interactions diagnostic-only", async () => {
+  it("absorbs terminal interaction notifications without surfacing stdin", async () => {
     const proc = createMockProcess();
     mockSpawn.mockReturnValue(proc);
     const session = new CodexAppServerSession();
@@ -798,41 +798,20 @@ describe("CodexAppServerSession normalized events", () => {
     session.on("agent_event", (event) => events.push(event));
     await initializeSession(session, proc);
 
-    proc._stdout.push(JSON.stringify({
-      method: "item/commandExecution/terminalInteraction",
-      params: {
-        threadId: "thread-1",
-        turnId: "turn-1",
-        itemId: "cmd-1",
-        processId: "123",
-        stdin: "",
-      },
-    }) + "\n");
+    for (const stdin of ["", "q\n", "\u0003", "sensitive-input\n"]) {
+      proc._stdout.push(JSON.stringify({
+        method: "item/commandExecution/terminalInteraction",
+        params: {
+          threadId: "thread-1",
+          turnId: "turn-1",
+          itemId: "cmd-1",
+          processId: "123",
+          stdin,
+        },
+      }) + "\n");
+    }
 
     expect(events).toEqual([]);
-
-    proc._stdout.push(JSON.stringify({
-      method: "item/commandExecution/terminalInteraction",
-      params: {
-        threadId: "thread-1",
-        turnId: "turn-1",
-        itemId: "cmd-1",
-        processId: "123",
-        stdin: "q\n",
-      },
-    }) + "\n");
-
-    expect(events).toEqual([
-      expect.objectContaining({
-        type: "diagnostic",
-        severity: "info",
-        title: "Unsupported App Server event",
-        message: "Hive does not render \"item/commandExecution/terminalInteraction\" yet.",
-        source: "codex_app_server",
-        method: "item/commandExecution/terminalInteraction",
-        details: expect.stringContaining("\"stdin\": \"q\\n\""),
-      }),
-    ]);
   });
 
   it.each([
@@ -903,6 +882,24 @@ describe("CodexAppServerSession normalized events", () => {
     proc._stdout.push(JSON.stringify({
       method: "thread/compacted",
       params: { threadId: "thread-1" },
+    }) + "\n");
+    proc._stdout.push(JSON.stringify({
+      method: "item/plan/delta",
+      params: {
+        threadId: "thread-1",
+        turnId: "turn-1",
+        itemId: "plan-1",
+        delta: "Draft the implementation",
+      },
+    }) + "\n");
+    proc._stdout.push(JSON.stringify({
+      method: "item/mcpToolCall/progress",
+      params: {
+        threadId: "thread-1",
+        turnId: "turn-1",
+        itemId: "mcp-1",
+        message: "Loading resources",
+      },
     }) + "\n");
 
     expect(events).toEqual([]);
