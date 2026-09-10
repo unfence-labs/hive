@@ -352,8 +352,7 @@ export const MessageResponse = memo(
       linkSafety={streamdownLinkSafety}
       {...props}
     />
-  ),
-  (prevProps, nextProps) => prevProps.children === nextProps.children
+  )
 );
 
 MessageResponse.displayName = "MessageResponse";
