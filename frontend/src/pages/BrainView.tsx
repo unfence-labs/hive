@@ -119,6 +119,8 @@ export default function BrainView() {
     isStreaming,
     streamingStartedAt,
     currentStreamingText,
+    currentTimeline,
+    streamingMessageId,
     currentReasoningSegments,
     activeToolCalls,
     activeAgentActivities,
@@ -131,7 +133,6 @@ export default function BrainView() {
     sendMessage,
     retrySend,
     stopStreaming,
-    answerQuestion,
     batchAnswerQuestions,
     rejectToolInput,
     agentPlanMode,
@@ -383,13 +384,14 @@ export default function BrainView() {
               onRetryHistory={retryHistory}
               streamingStartedAt={streamingStartedAt}
               currentStreamingText={currentStreamingText}
+              currentTimeline={currentTimeline}
+              streamingMessageId={streamingMessageId}
               currentReasoningSegments={currentReasoningSegments}
               activeToolCalls={activeToolCalls}
               activeAgentActivities={activeAgentActivities}
               pendingToolInputs={pendingToolInputs}
               sendStates={sendStates}
               onRetrySend={retrySend}
-              onQuestionAnswer={answerQuestion}
               onFileMentionClick={handleSelect}
               activeProvider={effectiveLockedProvider}
               projectName="Brain"

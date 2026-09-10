@@ -16,6 +16,7 @@ func subAgentExecutionState(
     childrenByParentId: [String: [ToolCall]] = [:],
     showExecutingState: Bool = false
 ) -> SubAgentExecutionState {
+    if tool.isError == true { return .failed }
     guard tool.name == "Task" || tool.name == "Agent" else {
         return tool.output == nil ? .pending : .completed
     }

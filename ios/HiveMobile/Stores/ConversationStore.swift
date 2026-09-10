@@ -5,6 +5,8 @@ import Observation
 
 @Observable
 final class SessionStreamState {
+    var messageId: String?
+    var timeline: [ConversationTimelineEntry]?
     var currentText = ""
     var reasoningSegments: [ReasoningSegment] = []
     var activeToolCalls: [ToolCall] = []
@@ -87,6 +89,7 @@ final class ConversationStore {
     var lockedProvider: String?
 
     private let streamFlushInterval: TimeInterval?
+    @ObservationIgnored private var pendingTimelineTextBySession: [String: [String: String]] = [:]
     @ObservationIgnored private var pendingTextBySession: [String: String] = [:]
     // Latest parsed thoughts per reasoning block, coalesced while buffered so a
     // flush applies one merge per block regardless of how many deltas arrived.
@@ -112,6 +115,8 @@ final class ConversationStore {
     var isBusy: Bool { activeStream?.isStreaming ?? false }
     var isStreaming: Bool { activeStream?.isStreaming ?? false }
     var streamingStartedAt: Date? { activeStream?.streamingStartedAt }
+    var streamingMessageId: String? { activeStream?.messageId }
+    var timeline: [ConversationTimelineEntry]? { activeStream?.timeline }
     var currentText: String { activeStream?.currentText ?? "" }
     var reasoningSegments: [ReasoningSegment] { activeStream?.reasoningSegments ?? [] }
     var activeToolCalls: [ToolCall] { activeStream?.activeToolCalls ?? [] }
@@ -183,6 +188,17 @@ final class ConversationStore {
         for (sid, text) in pendingTextBySession {
             sessionStreams[sid]?.currentText += text
         }
+        for (sid, blocks) in pendingTimelineTextBySession {
+            // Copy, mutate, assign: mutating the observable property in place while
+            // reading it on the right-hand side trips the exclusivity checker.
+            guard let stream = sessionStreams[sid], var timeline = stream.timeline else { continue }
+            for (id, text) in blocks {
+                guard let index = timeline.firstIndex(where: { $0.type == .text && $0.id == id }) else { continue }
+                timeline[index].text = (timeline[index].text ?? "") + text
+            }
+            stream.timeline = timeline
+        }
+        pendingTimelineTextBySession = [:]
         // The backend sends the parsed thoughts for one block per update;
         // apply the buffered latest state of each block in arrival order.
         for (sid, blocks) in pendingReasoningBySession {
@@ -229,9 +245,20 @@ final class ConversationStore {
 
     func handle(_ event: WsOutgoing) {
         switch event {
-        case .textDelta(let sid, let text):
+        case .timelineEntry(let sid, let entry, let messageId):
+            guard let stream = sessionStreams[sid] else { return }
+            stream.messageId = messageId
+            if stream.timeline == nil { stream.timeline = [] }
+            if stream.timeline?.contains(where: { $0.type == entry.type && $0.id == entry.id }) != true {
+                stream.timeline?.append(entry)
+            }
+
+        case .textDelta(let sid, let text, let blockId):
             guard sessionStreams[sid] != nil else { return }
             pendingTextBySession[sid, default: ""] += text
+            if let blockId {
+                pendingTimelineTextBySession[sid, default: [:]][blockId, default: ""] += text
+            }
             scheduleStreamFlush()
 
         case .thinking(let sid, let blockId, let segments):
@@ -246,22 +273,31 @@ final class ConversationStore {
             scheduleStreamFlush()
 
         case .toolUse(let sid, let id, let name, let input, let parentToolUseId):
-            guard sessionStreams[sid] != nil else { return }
-            sessionStreams[sid]?.activeToolCalls.append(ToolCall(
-                id: id, name: name, input: input,
-                output: nil, parentToolUseId: parentToolUseId
-            ))
+            guard let stream = sessionStreams[sid] else { return }
+            if let index = stream.activeToolCalls.firstIndex(where: { $0.id == id }) {
+                let previous = stream.activeToolCalls[index]
+                stream.activeToolCalls[index] = ToolCall(
+                    id: id, name: name, input: input,
+                    output: previous.output, parentToolUseId: parentToolUseId ?? previous.parentToolUseId,
+                    isError: previous.isError
+                )
+            } else {
+                stream.activeToolCalls.append(ToolCall(
+                    id: id, name: name, input: input,
+                    output: nil, parentToolUseId: parentToolUseId
+                ))
+            }
             if sid == sessionId {
                 applyActiveDerivations()
             }
 
-        case .toolResult(let sid, let toolUseId, let output):
+        case .toolResult(let sid, let toolUseId, let output, let isError):
             guard let stream = sessionStreams[sid],
                   let idx = stream.activeToolCalls.firstIndex(where: { $0.id == toolUseId }) else { return }
             let tc = stream.activeToolCalls[idx]
             sessionStreams[sid]?.activeToolCalls[idx] = ToolCall(
                 id: tc.id, name: tc.name, input: tc.input,
-                output: output, parentToolUseId: tc.parentToolUseId
+                output: output, parentToolUseId: tc.parentToolUseId, isError: isError ?? tc.isError
             )
             if sid == sessionId {
                 applyActiveDerivations()
@@ -272,10 +308,13 @@ final class ConversationStore {
 
         case .streamSnapshot(let sid, let text, let toolCalls,
                              let agentActivities, let agentPlanMode, let startedAt,
-                             let reasoningSegments):
+                             let reasoningSegments, let timeline, let messageId):
+            pendingTimelineTextBySession.removeValue(forKey: sid)
             pendingTextBySession.removeValue(forKey: sid)
             pendingReasoningBySession.removeValue(forKey: sid)
             let stream = sessionStreams[sid] ?? SessionStreamState()
+            stream.messageId = messageId
+            stream.timeline = timeline
             stream.currentText = text
             stream.reasoningSegments = reasoningSegments
             stream.activeToolCalls = toolCalls
@@ -409,8 +448,11 @@ final class ConversationStore {
             let alreadyExists = messages.contains { $0.id == msg.id }
             sessionId = sessionId ?? sid
             ensureStream(for: sid)
+            pendingTimelineTextBySession.removeValue(forKey: sid)
             pendingTextBySession.removeValue(forKey: sid)
             pendingReasoningBySession.removeValue(forKey: sid)
+            sessionStreams[sid]?.messageId = nil
+            sessionStreams[sid]?.timeline = nil
             sessionStreams[sid]?.currentText = ""
             sessionStreams[sid]?.reasoningSegments = []
             sessionStreams[sid]?.activeToolCalls = []
@@ -730,6 +772,7 @@ final class ConversationStore {
 
     func removeSessionState(_ removedSessionId: String, fallbackSessionId: String?) {
         sessionStreams.removeValue(forKey: removedSessionId)
+        pendingTimelineTextBySession.removeValue(forKey: removedSessionId)
         pendingTextBySession.removeValue(forKey: removedSessionId)
         pendingReasoningBySession.removeValue(forKey: removedSessionId)
         historyTokenBySession.removeValue(forKey: removedSessionId)
@@ -861,7 +904,7 @@ final class ConversationStore {
         if isActive {
             if hasContent {
                 let msg = ChatMessage(
-                    id: UUID().uuidString,
+                    id: stream.messageId ?? UUID().uuidString,
                     sessionId: sid,
                     role: .assistant,
                     content: stream.currentText,
@@ -869,6 +912,7 @@ final class ConversationStore {
                     toolCalls: stream.activeToolCalls.isEmpty ? nil : stream.activeToolCalls,
                     agentActivities: stream.activeAgentActivities.isEmpty ? nil : stream.activeAgentActivities,
                     reasoningSegments: stream.reasoningSegments.isEmpty ? nil : stream.reasoningSegments,
+                    timeline: stream.timeline,
                     timestamp: Self.outgoingTimestampFormatter.string(from: Date()),
                     cancelled: cancelled ? true : nil,
                     errorDetail: errorDetail,
@@ -878,19 +922,21 @@ final class ConversationStore {
                     contextUsedTokens: contextUsedTokens,
                     contextWindowTokens: contextWindowTokens
                 )
-                messages.append(msg)
+                // REST may have delivered this turn before its terminal WS frame.
+                if !messages.contains(where: { $0.id == msg.id }) { messages.append(msg) }
             } else if cancelled {
                 let msg = ChatMessage(
-                    id: UUID().uuidString,
+                    id: stream.messageId ?? UUID().uuidString,
                     sessionId: sid,
                     role: .assistant,
                     content: "",
-                    images: nil, toolCalls: nil,
+                    images: nil, toolCalls: nil, timeline: stream.timeline,
                     timestamp: Self.outgoingTimestampFormatter.string(from: Date()),
                     cancelled: true, errorDetail: errorDetail,
                     durationMs: nil
                 )
-                messages.append(msg)
+                // REST may have delivered this turn before its terminal WS frame.
+                if !messages.contains(where: { $0.id == msg.id }) { messages.append(msg) }
             }
             cacheMessages(messages, for: sid)
         }

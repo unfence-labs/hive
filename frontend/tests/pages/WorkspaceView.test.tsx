@@ -40,7 +40,6 @@ const mocks = vi.hoisted(() => ({
   stopStreaming: vi.fn(),
   clearChat: vi.fn(),
   switchSession: vi.fn(),
-  answerQuestion: vi.fn(),
   batchAnswerQuestions: vi.fn(),
   approvePlan: vi.fn(),
   rejectToolInput: vi.fn(),
@@ -384,7 +383,6 @@ function buildConversationState(
     stopStreaming: mocks.stopStreaming,
     clearChat: mocks.clearChat,
     switchSession: mocks.switchSession,
-    answerQuestion: mocks.answerQuestion,
     batchAnswerQuestions: mocks.batchAnswerQuestions,
     approvePlan: mocks.approvePlan,
     rejectToolInput: mocks.rejectToolInput,
@@ -449,7 +447,6 @@ describe("WorkspaceView behavior", () => {
     mocks.stopStreaming.mockReset();
     mocks.clearChat.mockReset();
     mocks.switchSession.mockReset();
-    mocks.answerQuestion.mockReset();
     mocks.batchAnswerQuestions.mockReset();
     mocks.approvePlan.mockReset();
     mocks.rejectToolInput.mockReset();
@@ -733,7 +730,6 @@ describe("WorkspaceView behavior", () => {
       stopStreaming: mocks.stopStreaming,
       clearChat: mocks.clearChat,
       switchSession: mocks.switchSession,
-      answerQuestion: mocks.answerQuestion,
       batchAnswerQuestions: mocks.batchAnswerQuestions,
       approvePlan: mocks.approvePlan,
       rejectToolInput: mocks.rejectToolInput,
@@ -770,7 +766,6 @@ describe("WorkspaceView behavior", () => {
       stopStreaming: mocks.stopStreaming,
       clearChat: mocks.clearChat,
       switchSession: mocks.switchSession,
-      answerQuestion: mocks.answerQuestion,
       batchAnswerQuestions: mocks.batchAnswerQuestions,
       approvePlan: mocks.approvePlan,
       rejectToolInput: mocks.rejectToolInput,
@@ -850,7 +845,6 @@ describe("WorkspaceView behavior", () => {
       stopStreaming: mocks.stopStreaming,
       clearChat: mocks.clearChat,
       switchSession: mocks.switchSession,
-      answerQuestion: mocks.answerQuestion,
       batchAnswerQuestions: mocks.batchAnswerQuestions,
       approvePlan: mocks.approvePlan,
       rejectToolInput: mocks.rejectToolInput,
@@ -881,7 +875,6 @@ describe("WorkspaceView behavior", () => {
       stopStreaming: mocks.stopStreaming,
       clearChat: mocks.clearChat,
       switchSession: mocks.switchSession,
-      answerQuestion: mocks.answerQuestion,
       batchAnswerQuestions: mocks.batchAnswerQuestions,
       approvePlan: mocks.approvePlan,
       rejectToolInput: mocks.rejectToolInput,
@@ -1021,7 +1014,6 @@ describe("WorkspaceView behavior", () => {
       stopStreaming: mocks.stopStreaming,
       clearChat: mocks.clearChat,
       switchSession: mocks.switchSession,
-      answerQuestion: mocks.answerQuestion,
       batchAnswerQuestions: mocks.batchAnswerQuestions,
       approvePlan: mocks.approvePlan,
       rejectToolInput: mocks.rejectToolInput,
@@ -1076,7 +1068,6 @@ describe("WorkspaceView behavior", () => {
       stopStreaming: mocks.stopStreaming,
       clearChat: mocks.clearChat,
       switchSession: mocks.switchSession,
-      answerQuestion: mocks.answerQuestion,
       batchAnswerQuestions: mocks.batchAnswerQuestions,
       approvePlan: mocks.approvePlan,
       rejectToolInput: mocks.rejectToolInput,
@@ -1639,7 +1630,6 @@ describe("WorkspaceView session delete behavior", () => {
     mocks.stopStreaming.mockReset();
     mocks.clearChat.mockReset();
     mocks.switchSession.mockReset();
-    mocks.answerQuestion.mockReset();
     mocks.batchAnswerQuestions.mockReset();
     mocks.approvePlan.mockReset();
     mocks.rejectToolInput.mockReset();
@@ -1685,7 +1675,6 @@ describe("WorkspaceView session delete behavior", () => {
       stopStreaming: mocks.stopStreaming,
       clearChat: mocks.clearChat,
       switchSession: mocks.switchSession,
-      answerQuestion: mocks.answerQuestion,
       batchAnswerQuestions: mocks.batchAnswerQuestions,
       approvePlan: mocks.approvePlan,
       rejectToolInput: mocks.rejectToolInput,
@@ -1854,7 +1843,6 @@ describe("WorkspaceView VS Code SSH host resolution", () => {
       stopStreaming: mocks.stopStreaming,
       clearChat: mocks.clearChat,
       switchSession: mocks.switchSession,
-      answerQuestion: mocks.answerQuestion,
       batchAnswerQuestions: mocks.batchAnswerQuestions,
       approvePlan: mocks.approvePlan,
       rejectToolInput: mocks.rejectToolInput,
@@ -2066,7 +2054,6 @@ describe("WorkspaceView dropdown terminal interactions", () => {
       stopStreaming: mocks.stopStreaming,
       clearChat: mocks.clearChat,
       switchSession: mocks.switchSession,
-      answerQuestion: mocks.answerQuestion,
       batchAnswerQuestions: mocks.batchAnswerQuestions,
       approvePlan: mocks.approvePlan,
       rejectToolInput: mocks.rejectToolInput,
@@ -2254,7 +2241,6 @@ describe("WorkspaceView dropdown terminal interactions", () => {
       stopStreaming: mocks.stopStreaming,
       clearChat: mocks.clearChat,
       switchSession: mocks.switchSession,
-      answerQuestion: mocks.answerQuestion,
       batchAnswerQuestions: mocks.batchAnswerQuestions,
       approvePlan: mocks.approvePlan,
       rejectToolInput: mocks.rejectToolInput,

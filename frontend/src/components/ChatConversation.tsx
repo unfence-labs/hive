@@ -10,16 +10,13 @@ import {
 import ChatMessage from "@/components/ChatMessage";
 import { ConversationFind } from "@/components/chat/ConversationFind";
 import AgentActivityPreview from "@/components/chat/AgentActivityPreview";
-import { MessageResponse } from "@/components/ai-elements/message";
-import { ThinkingBlock } from "@/components/chat/ThinkingBlock";
-import { AgentActivityList, getInlineAgentActivities } from "@/components/chat/AgentActivityList";
 import { WorkspaceWelcome } from "@/components/WorkspaceWelcome";
 import { formatElapsed } from "@/lib/time";
 import { getFallbackInteractiveAssistantIndex, hasExitPlanModeTool } from "@/lib/plan-state";
 import { CircleAlertIcon, RefreshCwIcon, Trash2Icon } from "lucide-react";
-import type { AgentActivity, ChatMessage as ChatMessageType, QueuedMessage, ReasoningSegment, ToolCall, QuestionAnswer } from "@/types";
+import type { AgentActivity, ChatMessage as ChatMessageType, ConversationTimelineEntry, QueuedMessage, ReasoningSegment, ToolCall } from "@/types";
 import type { PendingToolInput } from "@/hooks/useConversation";
-import type { PlanStatus } from "@/components/chat/PlanProposal";
+import type { PlanStatus } from "@/lib/timeline-steps";
 import type { SendState } from "@/lib/optimistic-sends";
 
 interface ChatConversationProps {
@@ -36,6 +33,8 @@ interface ChatConversationProps {
   isStreaming: boolean;
   streamingStartedAt?: number | null;
   currentStreamingText: string;
+  currentTimeline?: ConversationTimelineEntry[];
+  streamingMessageId?: string;
   currentReasoningSegments: ReasoningSegment[];
   activeToolCalls: ToolCall[];
   activeAgentActivities: AgentActivity[];
@@ -43,7 +42,6 @@ interface ChatConversationProps {
   /** Delivery state of optimistically-sent user messages, keyed by message id. */
   sendStates?: Record<string, SendState>;
   onRetrySend?: (messageId: string) => void;
-  onQuestionAnswer?: (toolCallId: string, answers: QuestionAnswer[]) => void;
   onFileMentionClick?: (relativePath: string) => void;
   /** When set, the workspace welcome offers a button to open a terminal tab. */
   onStartTerminal?: () => void;
@@ -113,6 +111,22 @@ function ConversationHistoryError({
   );
 }
 
+function StreamingElapsed({ startedAt }: { startedAt?: number | null }) {
+  const [elapsed, setElapsed] = useState(0);
+
+  useEffect(() => {
+    if (startedAt == null) {
+      setElapsed(0);
+      return;
+    }
+    setElapsed(Date.now() - startedAt);
+    const id = setInterval(() => setElapsed(Date.now() - startedAt), 100);
+    return () => clearInterval(id);
+  }, [startedAt]);
+
+  return <span>{formatElapsed(elapsed)}</span>;
+}
+
 export default function ChatConversation({
   messages,
   isHistoryLoading = false,
@@ -122,13 +136,14 @@ export default function ChatConversation({
   isStreaming,
   streamingStartedAt,
   currentStreamingText,
+  currentTimeline,
+  streamingMessageId,
   currentReasoningSegments,
   activeToolCalls,
   activeAgentActivities = [],
   pendingToolInputs = [],
   sendStates,
   onRetrySend,
-  onQuestionAnswer,
   onFileMentionClick,
   onStartTerminal,
   workspaceName,
@@ -143,19 +158,6 @@ export default function ChatConversation({
   scrollToBottomTrigger = 0,
   emptyState,
 }: ChatConversationProps) {
-  const [elapsed, setElapsed] = useState(0);
-  const activeInlineAgentActivities = getInlineAgentActivities(activeAgentActivities);
-
-  useEffect(() => {
-    if (!isStreaming || !streamingStartedAt) {
-      setElapsed(0);
-      return;
-    }
-    setElapsed(Date.now() - streamingStartedAt);
-    const id = setInterval(() => setElapsed(Date.now() - streamingStartedAt), 100);
-    return () => clearInterval(id);
-  }, [isStreaming, streamingStartedAt]);
-
   // Hide the conversation during hydration so the user never sees content
   // flash at the top before StickToBottom repositions the scroll. The sequence:
   // 1. switchCounter changes → reset hydrated+settled synchronously during render
@@ -208,7 +210,8 @@ export default function ChatConversation({
     }
   }, [hydrated, settled]);
 
-  const hasContent = messages.length > 0 || isStreaming;
+  const hasRetainedTimeline = Boolean(streamingMessageId && currentTimeline?.length);
+  const hasContent = messages.length > 0 || isStreaming || hasRetainedTimeline;
 
   // A message is interactive if it contains tool calls that match pending tool inputs.
   // Fallback to the old heuristic (last assistant message, no user after) when no pending inputs.
@@ -257,6 +260,30 @@ export default function ChatConversation({
     return ids;
   }, [messages]);
 
+  // Keep the live row in the same keyed list as history so finalization preserves
+  // local expansion state throughout the tool and activity component tree, including
+  // the idle reconnect interval before REST replaces a retained stream.
+  const hasLiveContent = Boolean(
+    currentStreamingText
+    || currentTimeline?.length
+    || currentReasoningSegments.length
+    || activeToolCalls.length
+    || activeAgentActivities.length,
+  );
+  const liveMessage: ChatMessageType | undefined = (isStreaming || hasRetainedTimeline) && hasLiveContent ? {
+    id: streamingMessageId ?? "live",
+    sessionId: "",
+    role: "assistant",
+    content: currentStreamingText,
+    timeline: currentTimeline,
+    toolCalls: activeToolCalls,
+    agentActivities: activeAgentActivities,
+    reasoningSegments: currentReasoningSegments,
+    timestamp: "",
+  } : undefined;
+  const displayedMessages = liveMessage && !messages.some((message) => message.id === liveMessage.id)
+    ? [...messages, liveMessage] : messages;
+
   return (
     <Conversation
       // Remount the scroll container on every switch. use-stick-to-bottom keeps
@@ -304,17 +331,17 @@ export default function ChatConversation({
             />
           )
         ) : null}
-        {messages.map((msg, i) => {
+        {displayedMessages.map((msg, i) => {
           // Hide "Question dismissed." user bubbles — the CANCELLED badge already conveys this
           if (msg.role === "user" && msg.content === "Question dismissed.") return null;
           return (
             <ChatMessage
               key={msg.id ?? `${msg.timestamp}-${i}`}
               message={msg}
-              isInteractive={isMessageInteractive(msg, i)}
-              planStatus={getPlanStatus(msg, i)}
+              streaming={msg === liveMessage && isStreaming}
+              isInteractive={(msg === liveMessage && isStreaming) || isMessageInteractive(msg, i)}
+              planStatus={msg === liveMessage ? undefined : getPlanStatus(msg, i)}
               dismissedToolCallIds={dismissedToolCallIds}
-              onQuestionAnswer={onQuestionAnswer}
               onFileMentionClick={onFileMentionClick}
               sendState={sendStates?.[msg.id]}
               onRetrySend={onRetrySend}
@@ -322,35 +349,11 @@ export default function ChatConversation({
           );
         })}
 
-        {/* Live streaming content */}
-        {isStreaming && (currentStreamingText || currentReasoningSegments.length > 0 || activeToolCalls.length > 0 || activeInlineAgentActivities.length > 0) && (
-          <div className="flex w-full justify-start">
-            <div className="max-w-[85%] text-sm leading-relaxed text-foreground">
-              <ThinkingBlock
-                segments={currentReasoningSegments}
-                streaming
-              />
-              {currentStreamingText && (
-                <div className="prose-sm" data-find-content="">
-                  <MessageResponse isAnimating>{currentStreamingText}</MessageResponse>
-                </div>
-              )}
-              <AgentActivityList
-                activities={activeInlineAgentActivities}
-                toolCalls={activeToolCalls}
-                isInteractive
-                showExecutingState
-                onQuestionAnswer={onQuestionAnswer}
-              />
-            </div>
-          </div>
-        )}
-
         {/* Live elapsed timer while streaming (not while awaiting user input) */}
         {isStreaming && (
           <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
             <AgentActivityPreview size="small" />
-            <span>{formatElapsed(elapsed)}</span>
+            <StreamingElapsed startedAt={streamingStartedAt} />
           </div>
         )}
 

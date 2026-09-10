@@ -651,12 +651,14 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
         }
         break;
       case "item/agentMessage/delta":
+        if (this.isForeignThread(asString(data?.threadId))) break;
         this.emitTextDelta(asString(data?.itemId), asString(data?.delta));
         break;
       case "item/reasoning/summaryPartAdded":
         break;
       case "item/reasoning/textDelta":
       case "item/reasoning/summaryTextDelta":
+        if (this.isForeignThread(asString(data?.threadId))) break;
         this.emitThinkingDelta(asString(data?.itemId), asString(data?.delta));
         break;
       case "item/started":
@@ -907,7 +909,7 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
           status: mcpItem.status,
         }), parentToolUseId);
         if (phase === "completed") {
-          this.emitToolResult(mcpItem.id, formatUnknown(mcpItem.error ?? mcpItem.result ?? mcpItem.status ?? ""));
+          this.emitToolResult(mcpItem.id, formatUnknown(mcpItem.error ?? mcpItem.result ?? mcpItem.status ?? ""), mcpItem.error != null || mcpItem.status === "failed");
         }
         break;
       }
@@ -920,7 +922,7 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
           status: dynamicItem.status,
         }), parentToolUseId);
         if (phase === "completed") {
-          this.emitToolResult(dynamicItem.id, formatUnknown(dynamicItem.contentItems ?? dynamicItem.success ?? ""));
+          this.emitToolResult(dynamicItem.id, formatUnknown(dynamicItem.contentItems ?? dynamicItem.success ?? ""), dynamicItem.success === false || dynamicItem.status === "failed");
         }
         break;
       }
@@ -1250,7 +1252,7 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
     });
     this.emitToolUse(tool.id, tool.name, tool.input, parentToolUseId);
     if (phase === "completed") {
-      this.emitToolResult(item.id, item.aggregatedOutput ?? this.commandOutputs.get(item.id) ?? formatExitCode(item.exitCode));
+      this.emitToolResult(item.id, item.aggregatedOutput ?? this.commandOutputs.get(item.id) ?? formatExitCode(item.exitCode), (item.exitCode != null && item.exitCode !== 0) || item.status === "failed");
     }
   }
 
@@ -1275,7 +1277,7 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
       })),
     }), parentToolUseId);
     if (phase === "completed") {
-      this.emitToolResult(itemId, diff || status || "File changed");
+      this.emitToolResult(itemId, diff || status || "File changed", status === "failed");
     }
   }
 
@@ -1415,14 +1417,14 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
     });
   }
 
-  private emitToolResult(id: string, output: string): void {
+  private emitToolResult(id: string, output: string, isError = false): void {
     if (this.completedToolIds.has(id)) return;
     this.completedToolIds.add(id);
     this.emit("user", {
       type: "user",
       message: {
         role: "user",
-        content: [{ type: "tool_result", tool_use_id: id, content: boundAgentOutput(output) ?? "" }],
+        content: [{ type: "tool_result", tool_use_id: id, content: boundAgentOutput(output) ?? "", ...(isError ? { is_error: true } : {}) }],
       },
     });
   }

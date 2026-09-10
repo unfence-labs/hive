@@ -22,6 +22,7 @@ import type {
   AgentActivity,
   AgentActivityFile,
   ChatMessage,
+  ConversationTimelineEntry,
   FileMention,
   ImageAttachment,
   MessageOptions,
@@ -268,6 +269,8 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
 
   // In-progress streaming accumulators (instance-level for snapshot access)
   private _streamText = "";
+  private _streamTimeline: ConversationTimelineEntry[] = [];
+  private _streamMessageId = nanoid(12);
   // Raw reasoning text accumulated per provider block; parsed into structured
   // thoughts on demand (per changed block on each delta, all blocks for
   // snapshots and turn finalization).
@@ -343,10 +346,12 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
   /** Return a snapshot of in-progress streaming content.
    *  Returns null when the session is not streaming. Used by WS bootstrap to replay
    *  accumulated state to late-connecting clients. */
-  getStreamingSnapshot(): { text: string; reasoningSegments: ReasoningSegment[]; toolCalls: ToolCall[]; agentActivities: AgentActivity[]; agentPlanMode: boolean } | null {
+  getStreamingSnapshot(): { messageId: string; timeline: ConversationTimelineEntry[]; text: string; reasoningSegments: ReasoningSegment[]; toolCalls: ToolCall[]; agentActivities: AgentActivity[]; agentPlanMode: boolean } | null {
     if (this._status !== "streaming") return null;
     return {
       text: this._streamText,
+      messageId: this._streamMessageId,
+      timeline: this._streamTimeline.map((entry) => ({ ...entry })),
       reasoningSegments: this.deriveReasoningSegments(),
       toolCalls: this._streamToolCalls.map(tc => ({ ...tc })),
       agentActivities: this._streamAgentActivities.map(cloneAgentActivity),
@@ -631,6 +636,8 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
 
   private resetStreamAccumulators(): void {
     this._streamText = "";
+    this._streamTimeline = [];
+    this._streamMessageId = nanoid(12);
     this._streamReasoningRaw = new Map();
     this._streamToolCalls = [];
     this._streamAgentActivities = [];
@@ -1129,11 +1136,18 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
     _context: { supportsBlockingTools: boolean; blockingToolNames: Set<string> },
   ): { inputTokens: number; outputTokens: number } | undefined {
     switch (event.type) {
-      case "text_delta":
+      case "text_delta": {
+        if (!event.text) break;
+        const last = this._streamTimeline.at(-1);
+        const blockId = event.blockId ?? (last?.type === "text" ? last.id : `text:${nanoid(12)}`);
+        const entry = this.addTimelineEntry({ type: "text", id: blockId, text: "" });
+        if (entry.type === "text") entry.text += event.text;
         this._streamText += event.text;
-        this.emit("message", { type: "text_delta", sessionId: this.sessionId, text: event.text });
+        this.emit("message", { type: "text_delta", sessionId: this.sessionId, text: event.text, blockId });
         break;
+      }
       case "thinking_delta": {
+        this.addTimelineEntry({ type: "reasoning", id: event.segmentId });
         const raw = (this._streamReasoningRaw.get(event.segmentId) ?? "") + event.text;
         this._streamReasoningRaw.set(event.segmentId, raw);
         // Re-parse and emit only the block this delta touched; clients merge
@@ -1152,11 +1166,11 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
         break;
       case "tool_updated": {
         const tc = this._streamToolCalls.find((t) => t.id === event.id);
-        if (tc) tc.input = event.input;
+        if (tc) this.upsertToolCall(tc.id, tc.name, event.input, tc.parentToolUseId);
         break;
       }
       case "tool_completed":
-        this.completeToolCall(event.id, event.output);
+        this.completeToolCall(event.id, event.output, event.isError);
         break;
       case "plan_mode_changed":
         this._agentPlanMode = event.active;
@@ -1199,6 +1213,19 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
     return undefined;
   }
 
+  private addTimelineEntry(entry: ConversationTimelineEntry): ConversationTimelineEntry {
+    const existing = this._streamTimeline.find((item) => item.type === entry.type && item.id === entry.id);
+    if (existing) return existing;
+    this._streamTimeline.push(entry);
+    this.emit("message", {
+      type: "timeline_entry",
+      sessionId: this.sessionId,
+      messageId: this._streamMessageId,
+      entry: { ...entry },
+    } satisfies WsOutgoing);
+    return entry;
+  }
+
   /** Parse every accumulated reasoning block into structured thoughts. */
   private deriveReasoningSegments(): ReasoningSegment[] {
     return [...this._streamReasoningRaw.entries()].flatMap(([blockId, raw]) =>
@@ -1212,9 +1239,12 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
       existing.name = name;
       existing.input = input;
       if (parentToolUseId !== undefined) existing.parentToolUseId = parentToolUseId;
-      return;
+    } else {
+      if (!parentToolUseId && !this._streamAgentActivities.some((activity) => activity.id === id)) {
+        this.addTimelineEntry({ type: "tool", id });
+      }
+      this._streamToolCalls.push({ id, name, input, parentToolUseId });
     }
-    this._streamToolCalls.push({ id, name, input, parentToolUseId });
     this.emit("message", {
       type: "tool_use",
       sessionId: this.sessionId,
@@ -1225,15 +1255,19 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
     });
   }
 
-  private completeToolCall(id: string, output: string): void {
+  private completeToolCall(id: string, output: string, isError?: boolean): void {
     const boundedOutput = boundAgentOutput(output) ?? "";
     const tc = this._streamToolCalls.find((t) => t.id === id);
-    if (tc) tc.output = boundedOutput;
+    if (tc) {
+      tc.output = boundedOutput;
+      if (isError !== undefined) tc.isError = isError;
+    }
     this.emit("message", {
       type: "tool_result",
       sessionId: this.sessionId,
       toolUseId: id,
       output: boundedOutput,
+      ...(isError !== undefined ? { isError } : {}),
     });
   }
 
@@ -1243,6 +1277,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
     if (index >= 0) {
       this._streamAgentActivities[index] = next;
     } else {
+      this.addTimelineEntry({ type: "activity", id: activity.id });
       this._streamAgentActivities.push(next);
     }
     this.emit("message", {
@@ -1598,6 +1633,8 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
     // before resetting, so the deferred persist below still sees this turn's
     // content even though new arrays are installed synchronously.
     const streamText = this._streamText;
+    const streamTimeline = this._streamTimeline;
+    const streamMessageId = this._streamMessageId;
     const streamReasoningSegments = this.deriveReasoningSegments();
     const streamReasoningBlocks = [...this._streamReasoningRaw.entries()]
       .map(([id, text]) => ({ id, text }));
@@ -1631,7 +1668,8 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
           shouldSurfaceCancelled
         ) {
           const assistantMsg: ChatMessage = {
-            id: nanoid(12),
+            id: streamMessageId,
+            timeline: streamTimeline,
             sessionId: this.sessionId,
             role: "assistant",
             content: streamText || (shouldSurfaceCancelled ? CANCELLED_NO_OUTPUT_MESSAGE : ""),

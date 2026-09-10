@@ -296,13 +296,15 @@ struct ToolCall: Codable, Equatable, Identifiable {
     let input: String
     let output: String?
     let parentToolUseId: String?
+    let isError: Bool?
 
-    init(id: String, name: String, input: String, output: String?, parentToolUseId: String?) {
+    init(id: String, name: String, input: String, output: String?, parentToolUseId: String?, isError: Bool? = nil) {
         self.id = id
         self.name = name
         self.input = input
         self.output = output
         self.parentToolUseId = parentToolUseId
+        self.isError = isError
     }
 
     init(from decoder: Decoder) throws {
@@ -311,6 +313,7 @@ struct ToolCall: Codable, Equatable, Identifiable {
         name = try container.decode(String.self, forKey: .name)
         input = try container.decode(String.self, forKey: .input)
         parentToolUseId = try container.decodeIfPresent(String.self, forKey: .parentToolUseId)
+        isError = try container.decodeIfPresent(Bool.self, forKey: .isError)
         // output can be a string or (rarely) a JSON array/object from the CLI — coerce to string
         if let str = try? container.decodeIfPresent(String.self, forKey: .output) {
             output = str
@@ -323,7 +326,7 @@ struct ToolCall: Codable, Equatable, Identifiable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, name, input, output, parentToolUseId
+        case id, name, input, output, parentToolUseId, isError
     }
 }
 
@@ -352,6 +355,7 @@ struct ChatMessage: Codable, Equatable, Identifiable {
     let goalCommand: Bool?
     let reasoningSegments: [ReasoningSegment]?
     let reasoningBlocks: [ReasoningBlock]?
+    let timeline: [ConversationTimelineEntry]?
     let timestamp: String
     let cancelled: Bool?
     let errorDetail: String?
@@ -369,6 +373,7 @@ struct ChatMessage: Codable, Equatable, Identifiable {
          goalCommand: Bool? = nil,
          reasoningSegments: [ReasoningSegment]? = nil,
          reasoningBlocks: [ReasoningBlock]? = nil,
+         timeline: [ConversationTimelineEntry]? = nil,
          timestamp: String, cancelled: Bool?, errorDetail: String? = nil,
          durationMs: Int?,
          inputTokens: Int? = nil, outputTokens: Int? = nil,
@@ -385,6 +390,7 @@ struct ChatMessage: Codable, Equatable, Identifiable {
         self.goalCommand = goalCommand
         self.reasoningSegments = reasoningSegments
         self.reasoningBlocks = reasoningBlocks
+        self.timeline = timeline
         self.timestamp = timestamp
         self.cancelled = cancelled
         self.errorDetail = errorDetail
@@ -409,6 +415,7 @@ struct ChatMessage: Codable, Equatable, Identifiable {
         goalCommand = try container.decodeIfPresent(Bool.self, forKey: .goalCommand)
         reasoningSegments = try container.decodeIfPresent([ReasoningSegment].self, forKey: .reasoningSegments)
         reasoningBlocks = try container.decodeIfPresent([ReasoningBlock].self, forKey: .reasoningBlocks)
+        timeline = try container.decodeIfPresent([ConversationTimelineEntry].self, forKey: .timeline)
         timestamp = try container.decode(String.self, forKey: .timestamp)
         cancelled = try container.decodeIfPresent(Bool.self, forKey: .cancelled)
         errorDetail = try container.decodeIfPresent(String.self, forKey: .errorDetail)
@@ -454,7 +461,7 @@ struct ChatMessage: Codable, Equatable, Identifiable {
     private enum CodingKeys: String, CodingKey {
         case id, sessionId, role, content, images, fileMentions, toolCalls, agentActivities
         case goalCommand
-        case reasoningSegments, reasoningBlocks, timestamp, cancelled, errorDetail, durationMs
+        case timeline, reasoningSegments, reasoningBlocks, timestamp, cancelled, errorDetail, durationMs
         case inputTokens, outputTokens, contextUsedTokens, contextWindowTokens
         case clientMessageId
     }
@@ -462,15 +469,6 @@ struct ChatMessage: Codable, Equatable, Identifiable {
 
 extension ChatMessage {
     var clipboardText: String { content }
-
-    /// Reasoning thoughts to display. The backend already parses reasoning into
-    /// structured thoughts; a thought with no non-empty headline or body has
-    /// nothing to show, so we drop it (matching the web truthiness filter).
-    var resolvedReasoningSegments: [ReasoningSegment] {
-        (reasoningSegments ?? []).filter {
-            !($0.headline ?? "").isEmpty || !($0.body ?? "").isEmpty
-        }
-    }
 }
 
 // MARK: - Diff

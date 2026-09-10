@@ -1,15 +1,13 @@
-import { memo, useEffect, useState, type ReactNode } from "react";
-import type { ChatMessage as ChatMessageType, FileMention, QuestionAnswer } from "@/types";
+import { memo, useEffect, useMemo, useState, type ReactNode } from "react";
+import type { ChatMessage as ChatMessageType, FileMention } from "@/types";
 import { cn } from "@/lib/utils";
 import { formatElapsed } from "@/lib/time";
 import { resolveImageSrc } from "@/lib/image-url";
-import { MessageResponse } from "@/components/ai-elements/message";
-import { ThinkingBlock } from "@/components/chat/ThinkingBlock";
-import { AgentActivityList, getInlineAgentActivities } from "@/components/chat/AgentActivityList";
+import { AssistantTimeline } from "@/components/chat/AssistantTimeline";
 import { CopyButton } from "@/components/chat/CopyButton";
 import { ImageLightbox } from "@/components/chat/ImageLightbox";
 import { FileIcon, RotateCwIcon, TargetIcon } from "lucide-react";
-import type { PlanStatus } from "@/components/chat/PlanProposal";
+import { buildTimelineRows, type PlanStatus } from "@/lib/timeline-steps";
 import type { SendState } from "@/lib/optimistic-sends";
 import { AT_MENTION_RE, splitByAllMentions } from "@/lib/file-mentions";
 
@@ -77,10 +75,10 @@ function useShowSendingIndicator(sendState: SendState | undefined): boolean {
 
 interface ChatMessageProps {
   message: ChatMessageType;
+  streaming?: boolean;
   isInteractive?: boolean;
   planStatus?: PlanStatus;
   dismissedToolCallIds?: Set<string>;
-  onQuestionAnswer?: (toolCallId: string, answers: QuestionAnswer[]) => void;
   onFileMentionClick?: (relativePath: string) => void;
   /** Delivery state when this is an optimistically-appended user message. */
   sendState?: SendState;
@@ -89,10 +87,10 @@ interface ChatMessageProps {
 
 const ChatMessage = memo(function ChatMessage({
   message,
+  streaming = false,
   isInteractive = false,
   planStatus,
   dismissedToolCallIds,
-  onQuestionAnswer,
   onFileMentionClick,
   sendState,
   onRetrySend,
@@ -101,19 +99,13 @@ const ChatMessage = memo(function ChatMessage({
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const showSendingIndicator = useShowSendingIndicator(sendState);
   const hasDeliveryIssue = sendState === "failed" || sendState === "unconfirmed";
-  const inlineAgentActivities = getInlineAgentActivities(message.agentActivities ?? []);
-  const showAssistantActions = !isUser && (message.durationMs != null || Boolean(message.content));
+  const showAssistantActions = !isUser && !streaming && (message.durationMs != null || Boolean(message.content));
+  const rows = useMemo(
+    () => isUser ? [] : buildTimelineRows(message, { streaming }),
+    [isUser, message, streaming],
+  );
 
-  if (!isUser) {
-    const hasAssistantContent = Boolean(
-      message.content ||
-      message.reasoningSegments?.length ||
-      message.toolCalls?.length ||
-      inlineAgentActivities.length ||
-      message.cancelled,
-    );
-    if (!hasAssistantContent) return null;
-  }
+  if (!isUser && !message.cancelled && rows.length === 0) return null;
 
   return (
     <div className={cn("flex w-full items-start", isUser ? "justify-end" : "justify-start")}>
@@ -192,22 +184,14 @@ const ChatMessage = memo(function ChatMessage({
         </div>
       ) : (
         <div className="max-w-[85%] text-sm leading-relaxed text-foreground">
-          <ThinkingBlock segments={message.reasoningSegments} />
-          {message.content && (
-            <div className="prose-sm" data-find-content="">
-              <MessageResponse>{message.content}</MessageResponse>
-            </div>
-          )}
-          {Boolean(inlineAgentActivities.length || message.toolCalls?.length) && (
-            <AgentActivityList
-              activities={inlineAgentActivities}
-              toolCalls={message.toolCalls}
-              isInteractive={isInteractive}
-              planStatus={planStatus}
-              dismissedToolCallIds={dismissedToolCallIds}
-              onQuestionAnswer={onQuestionAnswer}
-            />
-          )}
+          <AssistantTimeline
+            message={message}
+            rows={rows}
+            streaming={streaming}
+            isInteractive={isInteractive}
+            planStatus={planStatus}
+            dismissedToolCallIds={dismissedToolCallIds}
+          />
           {message.cancelled && (
             <div className="mt-2 space-y-1 text-xs">
               <div className="italic text-muted-foreground">(cancelled)</div>

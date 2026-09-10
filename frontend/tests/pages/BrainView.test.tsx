@@ -113,7 +113,6 @@ function emptyConversation() {
     stopStreaming: vi.fn(),
     clearChat: vi.fn(),
     switchSession: vi.fn(),
-    answerQuestion: vi.fn(),
     batchAnswerQuestions: vi.fn(),
     rejectToolInput: vi.fn(),
     agentPlanMode: false,

@@ -47,7 +47,7 @@ enum HubEventRouter {
         case .unreadState(let sessions):
             sink.didReceiveUnreadState(sessions, for: workspaceId)
 
-        case .streamSnapshot(let sessionId, _, _, _, _, _, _):
+        case .streamSnapshot(let sessionId, _, _, _, _, _, _, _, _):
             sink.didReceiveStreaming(true, for: workspaceId, sessionId: sessionId)
             sink.ensureStoreExists(for: workspaceId)
 

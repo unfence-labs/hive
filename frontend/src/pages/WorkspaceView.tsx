@@ -160,6 +160,8 @@ export default function WorkspaceView() {
     isStreaming,
     streamingStartedAt,
     currentStreamingText,
+    currentTimeline,
+    streamingMessageId,
     currentReasoningSegments,
     activeToolCalls,
     activeAgentActivities,
@@ -173,7 +175,6 @@ export default function WorkspaceView() {
     retrySend,
     stopStreaming,
     switchSession,
-    answerQuestion,
     batchAnswerQuestions,
     approvePlan,
     rejectToolInput,
@@ -502,13 +503,14 @@ export default function WorkspaceView() {
             onRetryHistory={retryHistory}
             streamingStartedAt={streamingStartedAt}
             currentStreamingText={currentStreamingText}
+            currentTimeline={currentTimeline}
+            streamingMessageId={streamingMessageId}
             currentReasoningSegments={currentReasoningSegments}
             activeToolCalls={activeToolCalls}
             activeAgentActivities={activeAgentActivities}
             pendingToolInputs={pendingToolInputs}
             sendStates={sendStates}
             onRetrySend={retrySend}
-            onQuestionAnswer={answerQuestion}
             onFileMentionClick={handleFileTreeSelect}
             activeProvider={effectiveLockedProvider}
             workspaceName={workspace?.name}

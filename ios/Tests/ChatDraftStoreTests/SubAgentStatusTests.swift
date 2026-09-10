@@ -3,6 +3,13 @@ import Testing
 @testable import HiveMobileStoresCore
 
 struct SubAgentStatusTests {
+    @Test(arguments: [true, false])
+    func explicitToolFailureWinsOverPlainTextOutput(streaming: Bool) {
+        let tool = ToolCall(id: "agent", name: "Agent", input: "{}", output: "Execution failed",
+                            parentToolUseId: nil, isError: true)
+        #expect(subAgentExecutionState(for: tool, showExecutingState: streaming) == .failed)
+    }
+
     @Test
     func keepsCompletedCodexSpawnRunningWhenReceiverIsRunning() {
         let tool = agentTool(output: codexOutput([

@@ -46,17 +46,21 @@ vi.mock("@/components/ChatMessage", () => ({
     message,
     planStatus,
     isInteractive,
+    streaming,
   }: {
     message: ChatMessage;
     planStatus?: string;
     isInteractive?: boolean;
+    streaming?: boolean;
   }) => (
     <div
       data-testid={`msg-${message.id}`}
       data-plan-status={planStatus ?? "none"}
       data-interactive={String(Boolean(isInteractive))}
+      data-streaming={String(Boolean(streaming))}
     >
       {message.content}
+      {message.reasoningSegments?.map((segment) => segment.headline ?? segment.body).join("")}
     </div>
   ),
 }));
@@ -69,22 +73,6 @@ vi.mock("@/components/ai-elements/message", () => ({
   MessageResponse: ({ children }: { children: ReactNode }) => (
     <span data-testid="message-response">{children}</span>
   ),
-}));
-
-vi.mock("@/components/chat/ThinkingBlock", () => ({
-  ThinkingBlock: ({
-    segments = [],
-    streaming,
-  }: {
-    segments?: ChatMessage["reasoningSegments"];
-    streaming?: boolean;
-  }) => segments.length > 0
-    ? <div data-testid="thinking-block" data-streaming={String(Boolean(streaming))}>{segments.map((segment) => segment.headline ?? segment.body).join("")}</div>
-    : null,
-}));
-
-vi.mock("@/components/chat/ToolCallList", () => ({
-  ToolCallList: () => <div data-testid="tool-call-list">tool-call-list</div>,
 }));
 
 const baseConversationProps: ComponentProps<typeof ChatConversation> = {
@@ -117,8 +105,10 @@ describe("ChatConversation live reasoning", () => {
       ],
     });
 
-    expect(screen.getByTestId("thinking-block")).toHaveTextContent("Inspecting files");
-    expect(screen.getByTestId("thinking-block")).toHaveAttribute("data-streaming", "true");
+    const live = screen.getByTestId("msg-live");
+    expect(live).toHaveTextContent("Inspecting files");
+    expect(live).toHaveAttribute("data-streaming", "true");
+    expect(live).toHaveAttribute("data-interactive", "true");
   });
 });
 

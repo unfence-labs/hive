@@ -575,6 +575,11 @@ describe("WS /ws/hub", () => {
     if (!snapshot) throw new Error("Expected a streaming snapshot");
     vi.spyOn(session, "getStreamingSnapshot").mockReturnValue({
       ...snapshot,
+      timeline: [
+        { type: "reasoning", id: "reasoning:provider-item-1" },
+        { type: "activity", id: "cmd-bootstrap" },
+        { type: "text", id: "answer", text: "Checking the result" },
+      ],
       reasoningSegments: [{
         id: "reasoning:provider-item-1:0",
         headline: "Inspecting state",
@@ -605,6 +610,12 @@ describe("WS /ws/hub", () => {
       type: "stream_snapshot",
       sessionId: session.sessionId,
       text: snapshot.text,
+      messageId: snapshot.messageId,
+      timeline: [
+        { type: "reasoning", id: "reasoning:provider-item-1" },
+        { type: "activity", id: "cmd-bootstrap" },
+        { type: "text", id: "answer", text: "Checking the result" },
+      ],
       reasoningSegments: [{
         id: "reasoning:provider-item-1:0",
         headline: "Inspecting state",

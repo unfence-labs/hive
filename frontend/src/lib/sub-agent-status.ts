@@ -18,6 +18,8 @@ export function getSubAgentExecutionState(
   tool: ToolCall,
   options: SubAgentExecutionOptions = {},
 ): SubAgentExecutionState {
+  if (tool.isError) return "failed";
+
   if (tool.name !== "Task" && tool.name !== "Agent") {
     return tool.output === undefined ? "pending" : "completed";
   }

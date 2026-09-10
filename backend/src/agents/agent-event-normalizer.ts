@@ -15,11 +15,11 @@ type ServerResultBlock = Extract<ContentBlock,
 >;
 
 export type NormalizedAgentEvent =
-  | { type: "text_delta"; text: string }
+  | { type: "text_delta"; text: string; blockId?: string }
   | { type: "thinking_delta"; segmentId: string; text: string }
   | { type: "tool_started"; id: string; name: string; rawName: string; input: string; parentToolUseId?: string }
   | { type: "tool_updated"; id: string; input: string }
-  | { type: "tool_completed"; id: string; output: string }
+  | { type: "tool_completed"; id: string; output: string; isError?: boolean }
   | {
       type: "command_execution_updated";
       id: string;
@@ -105,13 +105,15 @@ export class AgentEventNormalizer {
       const reasoningSegmentId = `reasoning:${data.message.id}:${blockIndex}`;
       switch (block.type) {
         case "text":
-          events.push({ type: "text_delta", text: block.text });
+          if (!messageParentToolUseId) {
+            events.push({ type: "text_delta", text: block.text, blockId: `text:${data.message.id}:${blockIndex}` });
+          }
           break;
         case "thinking":
           // Claude 5 family models return signature-only thinking blocks whose
           // text is always empty; skip them so clients never receive a
           // contentless reasoning segment.
-          if (block.thinking) {
+          if (block.thinking && !messageParentToolUseId) {
             events.push({ type: "thinking_delta", segmentId: reasoningSegmentId, text: block.thinking });
           }
           break;
@@ -149,13 +151,16 @@ export class AgentEventNormalizer {
         case "web_fetch_tool_result":
         case "bash_code_execution_tool_result":
         case "text_editor_code_execution_tool_result":
-        case "mcp_tool_result":
+        case "mcp_tool_result": {
+          const isError = serverToolResultError(block);
           events.push({
             type: "tool_completed",
             id: block.tool_use_id,
             output: formatServerToolResult(block),
+            ...(isError !== undefined ? { isError } : {}),
           });
           break;
+        }
       }
     }
 
@@ -183,11 +188,25 @@ export class AgentEventNormalizer {
         type: "tool_completed",
         id: block.tool_use_id,
         output: block.content,
+        ...(block.is_error !== undefined ? { isError: block.is_error } : {}),
       });
     }
 
     return events;
   }
+}
+
+function serverToolResultError(block: ServerResultBlock): boolean | undefined {
+  if ("is_error" in block) return block.is_error;
+
+  const { content } = block;
+  if (!content || typeof content !== "object") return undefined;
+  if ("type" in content && content.type === `${block.type}_error`) return true;
+  if (block.type === "bash_code_execution_tool_result"
+    && "return_code" in content && typeof content.return_code === "number") {
+    return content.return_code !== 0;
+  }
+  return undefined;
 }
 
 /** Format server/MCP tool result content into a readable string. */

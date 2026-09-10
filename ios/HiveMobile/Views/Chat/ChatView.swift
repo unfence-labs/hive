@@ -11,6 +11,7 @@ struct ChatView: View {
     let session: SessionMetadata
     let store: ConversationStore
 
+    @State private var timelineExpansion = ConversationTimelineExpansion()
     @State private var draft = ""
     @State private var isLoading = true
     @State private var showSkeleton = false
@@ -174,6 +175,7 @@ struct ChatView: View {
                                     onDiscardSend: { store.discardOptimisticSend(message.id) }
                                 )
                                 .equatable()
+                                .environment(\.timelineExpansion, timelineExpansion)
                                 .id(message.id)
                                 .chatTranscriptRow()
                             }
@@ -182,10 +184,12 @@ struct ChatView: View {
                         if let message = streamingMessage {
                             MessageBubble(
                                 message: message,
+                                isStreaming: store.isStreaming,
                                 pendingToolUseIds: pendingToolUseIds,
                                 dismissedToolCallIds: store.dismissedToolCallIds
                             )
                             .equatable()
+                            .environment(\.timelineExpansion, timelineExpansion)
                             .id(message.id)
                             .chatTranscriptRow()
                         }
@@ -412,7 +416,9 @@ struct ChatView: View {
     private var findableMessages: [FindableMessage] {
         store.messages.compactMap { message in
             if message.role == .user && message.content == "Question dismissed." { return nil }
-            if message.role == .assistant && message.cancelled == true { return nil }
+            if message.role == .assistant, message.timeline != nil {
+                return FindableMessage(id: message.id, content: message.timelineSearchableText, rendersMarkdown: false)
+            }
             return FindableMessage(id: message.id, content: message.content,
                                    rendersMarkdown: message.role == .assistant)
         }
@@ -525,14 +531,18 @@ struct ChatView: View {
     private static let scrollBottomTolerance: CGFloat = 96
 
     private var streamingMessage: ChatMessage? {
-        guard store.isStreaming else { return nil }
+        // Keep a completed timeline visible while idle status is reconciled with REST.
+        guard store.isStreaming || store.timeline != nil else { return nil }
+        if let messageId = store.streamingMessageId, store.messages.contains(where: { $0.id == messageId }) {
+            return nil
+        }
         let hasContent = !store.currentText.isEmpty
             || !store.reasoningSegments.isEmpty || !store.activeToolCalls.isEmpty
             || !store.activeAgentActivities.isEmpty
         guard hasContent else { return nil }
 
         return ChatMessage(
-            id: "streaming",
+            id: store.streamingMessageId ?? "streaming",
             sessionId: store.sessionId ?? "",
             role: .assistant,
             content: store.currentText,
@@ -540,6 +550,7 @@ struct ChatView: View {
             toolCalls: store.activeToolCalls.isEmpty ? nil : store.activeToolCalls,
             agentActivities: store.activeAgentActivities.isEmpty ? nil : store.activeAgentActivities,
             reasoningSegments: store.reasoningSegments.isEmpty ? nil : store.reasoningSegments,
+            timeline: store.timeline,
             timestamp: store.streamingStartedAt.map(ConversationStore.timestamp(from:)) ?? "",
             cancelled: nil,
             durationMs: nil

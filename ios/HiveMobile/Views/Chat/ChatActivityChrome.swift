@@ -9,159 +9,46 @@ func withoutAnimation(_ body: () -> Void) {
     withTransaction(transaction, body)
 }
 
-struct ChatActivityStats {
-    enum Kind { case diff, plain }
-    let kind: Kind
-    var added: Int = 0
-    var removed: Int = 0
-    var label: String?
+/// Port of the web `useCoalescedValue`: `shown` follows `value` but never changes
+/// more than once per `window`. A change outside the window shows immediately;
+/// changes inside it are held until the window ends, then the latest value shows.
+private struct CoalescedValueModifier: ViewModifier {
+    let value: String
+    let window: TimeInterval
+    @Binding var shown: String
+    @State private var acceptedAt = Date.distantPast
+
+    func body(content: Content) -> some View {
+        content.task(id: value) {
+            guard value != shown else { return }
+            let elapsed = Date().timeIntervalSince(acceptedAt)
+            if elapsed < window {
+                try? await Task.sleep(for: .seconds(window - elapsed))
+                if Task.isCancelled { return }
+            }
+            acceptedAt = Date()
+            shown = value
+        }
+    }
 }
 
-struct ChatActivityRowLabel: View {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    var icon: String? = nil
-    let label: String
-    var detail: String?
-    var stats: ChatActivityStats?
-    var summary: String?
-    var badgeText: String?
-    var badgeIcon: String?
-    var trailingIcon: String?
-    var trailingIconColor = WhisperColor.textMuted
-    var isExpanded: Bool?
-    var accessoryIcons: [String] = []
-    var executing = false
-
-    var body: some View {
-        HStack(spacing: 6) {
-            if let isExpanded {
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 8, weight: .semibold))
-                    .foregroundStyle(WhisperColor.textMuted)
-                    .rotationEffect(.degrees(isExpanded ? 90 : 0))
-            }
-
-            if let icon {
-                Image(systemName: icon)
-                    .font(.system(size: 9))
-                    .frame(width: 14, height: 14)
-                    .foregroundStyle(WhisperColor.textMuted)
-            }
-
-            Text(label)
-                .font(WhisperFont.mono(12))
-                .foregroundStyle(WhisperColor.textMuted)
-                .lineLimit(1)
-
-            if let badgeText {
-                ChatActivityBadge(text: badgeText, icon: badgeIcon)
-            }
-
-            if let detail, !detail.isEmpty {
-                Text(detail)
-                    .font(WhisperFont.mono(11))
-                    .foregroundStyle(WhisperColor.textSecondary)
-                    .lineLimit(1)
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .background(WhisperColor.surfaceRaised, in: RoundedRectangle(cornerRadius: 4))
-            }
-
-            if let stats {
-                switch stats.kind {
-                case .diff:
-                    HStack(spacing: 4) {
-                        if stats.added > 0 {
-                            Text("+\(stats.added)")
-                                .foregroundStyle(WhisperColor.diffAdded)
-                        }
-                        if stats.removed > 0 {
-                            Text("-\(stats.removed)")
-                                .foregroundStyle(WhisperColor.diffRemoved)
-                        }
-                    }
-                    .font(WhisperFont.mono(10))
-                case .plain:
-                    if let label = stats.label {
-                        Text(label)
-                            .font(WhisperFont.mono(10))
-                            .foregroundStyle(WhisperColor.textMuted)
-                            .lineLimit(1)
-                    }
-                }
-            }
-
-            if let summary {
-                Text(summary)
-                    .font(WhisperFont.mono(10))
-                    .foregroundStyle(WhisperColor.textMuted)
-                    .lineLimit(1)
-            }
-
-            if !accessoryIcons.isEmpty {
-                HStack(spacing: 3) {
-                    ForEach(accessoryIcons, id: \.self) { icon in
-                        Image(systemName: icon)
-                            .font(.system(size: 9))
-                            .foregroundStyle(WhisperColor.textMuted)
-                    }
-                }
-            }
-
-            if let trailingIcon {
-                Image(systemName: trailingIcon)
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(trailingIconColor)
-                    .frame(width: 14, height: 14)
-            }
-
-            if executing {
-                if reduceMotion {
-                    Circle()
-                        .fill(Color.accentColor)
-                        .frame(width: 5, height: 5)
-                } else {
-                    // Opacity-only pulse, fully decoupled from the animation system so
-                    // the dot can NEVER move. The opacity is recomputed every frame by
-                    // TimelineView (no animation transaction), and `.transaction` nils
-                    // out any animation inherited from ancestors — so streaming relayout
-                    // (label/icons growing to its left) repositions the dot instantly
-                    // instead of animating it. Matches the web's `bg-primary animate-pulse`.
-                    TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { context in
-                        let t = context.date.timeIntervalSinceReferenceDate
-                        let opacity = 0.7 + 0.3 * sin(t * 2 * .pi / 1.6)
-                        Circle()
-                            .fill(Color.accentColor)
-                            .frame(width: 5, height: 5)
-                            .opacity(opacity)
-                    }
-                    .transaction { $0.animation = nil }
-                }
-            }
-        }
-        .padding(.vertical, 3)
-        .contentShape(Rectangle())
+extension View {
+    func coalesced(_ value: String, window: TimeInterval, into shown: Binding<String>) -> some View {
+        modifier(CoalescedValueModifier(value: value, window: window, shown: shown))
     }
 }
 
 struct ChatActivityBadge: View {
     let text: String
-    var icon: String? = nil
 
     var body: some View {
-        HStack(spacing: 3) {
-            if let icon {
-                Image(systemName: icon)
-                    .font(.system(size: 8, weight: .medium))
-            }
-            Text(text)
-                .font(WhisperFont.mono(10))
-        }
-        .foregroundStyle(WhisperColor.textMuted)
-        .lineLimit(1)
-        .padding(.horizontal, 7)
-        .padding(.vertical, 3)
-        .background(WhisperColor.toolIconBg, in: Capsule())
+        Text(text)
+            .font(WhisperFont.mono(10))
+            .foregroundStyle(WhisperColor.textMuted)
+            .lineLimit(1)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 3)
+            .background(WhisperColor.toolIconBg, in: Capsule())
     }
 }
 
@@ -177,62 +64,42 @@ struct ToolContentPanel<Content: View>: View {
     }
 }
 
-/// Collapsible activity row: a toggle label (icon/chevron + title + detail +
-/// trailing icon) with an optional expanded panel, plus optional non-interactive
-/// `leading` (e.g. an image thumbnail) and `below` slots. The expand affordance
-/// is only shown/clickable when `expanded` is provided. Shared by image and
-/// diagnostic activities — mirrors `frontend/src/components/chat/ActivityShell.tsx`.
-struct ActivityDisclosureRow: View {
-    var icon: String? = nil
-    let title: String
-    var detail: String? = nil
-    var trailingIcon: String? = nil
-    var trailingIconColor: Color = WhisperColor.textMuted
-    var executing: Bool = false
-    var leading: AnyView? = nil
-    var expanded: AnyView? = nil
-    var below: AnyView? = nil
+private struct TimelineExpansionKey: EnvironmentKey {
+    static let defaultValue: ConversationTimelineExpansion? = nil
+}
 
-    @State private var isExpanded = false
+private struct TimelineDisclosureKey: EnvironmentKey {
+    static let defaultValue: String? = nil
+}
 
-    private var canExpand: Bool { expanded != nil }
+extension EnvironmentValues {
+    var timelineExpansion: ConversationTimelineExpansion? {
+        get { self[TimelineExpansionKey.self] }
+        set { self[TimelineExpansionKey.self] = newValue }
+    }
 
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack(alignment: .center, spacing: 8) {
-                if let leading {
-                    leading
-                }
+    var timelineDisclosureKey: String? {
+        get { self[TimelineDisclosureKey.self] }
+        set { self[TimelineDisclosureKey.self] = newValue }
+    }
+}
 
-                Button {
-                    guard canExpand else { return }
-                    withoutAnimation { isExpanded.toggle() }
-                } label: {
-                    ChatActivityRowLabel(
-                        icon: icon,
-                        label: title,
-                        detail: detail,
-                        trailingIcon: trailingIcon,
-                        trailingIconColor: trailingIconColor,
-                        // Show the chevron only when there is no leading icon and
-                        // the row can expand — matches the web's `icon ? icon : chevron`.
-                        isExpanded: (icon == nil && canExpand) ? isExpanded : nil,
-                        executing: executing
-                    )
-                }
-                .buttonStyle(.plain)
+/// Legacy rows keep local state; timeline rows use their stable event identity.
+struct TimelineDisclosureState: DynamicProperty {
+    @Environment(\.timelineExpansion) private var expansion
+    @Environment(\.timelineDisclosureKey) private var key
+    @State private var locallyExpanded = false
 
-                Spacer(minLength: 0)
-            }
+    func isExpanded(_ suffix: String) -> Bool {
+        guard let expansion, let key else { return locallyExpanded }
+        return expansion.contains("\(key):\(suffix)")
+    }
 
-            if canExpand, isExpanded, let expanded {
-                ToolContentPanel { expanded }
-                    .transition(.opacity)
-            }
-
-            if let below {
-                below
-            }
+    func toggle(_ suffix: String) {
+        if let expansion, let key {
+            expansion.toggle("\(key):\(suffix)")
+        } else {
+            locallyExpanded.toggle()
         }
     }
 }

@@ -4,7 +4,7 @@ import Testing
 
 struct ReasoningSegmentsTests {
     @Test
-    func decodesStructuredThoughtsAndDropsEmptyOnes() throws {
+    func decodesStructuredThoughts() throws {
         let data = Data("""
         {
           "id": "message-1",
@@ -26,8 +26,6 @@ struct ReasoningSegmentsTests {
         #expect(segments.map(\.id) == ["reasoning-1:0", "reasoning-1:1", "reasoning-2:0"])
         #expect(segments[0].headline == "First phase")
         #expect(segments[0].body == "the body")
-        // A thought with neither headline nor body has nothing to show, so drop it.
-        #expect(message.resolvedReasoningSegments.map(\.id) == ["reasoning-1:0", "reasoning-2:0"])
     }
 
     @Test
@@ -73,7 +71,7 @@ struct ReasoningSegmentsTests {
         """.utf8)
 
         let event = try JSONDecoder().decode(WsOutgoing.self, from: data)
-        guard case .streamSnapshot(_, _, _, _, _, _, let segments) = event else {
+        guard case .streamSnapshot(_, _, _, _, _, _, let segments, _, _) = event else {
             Issue.record("Expected stream snapshot")
             return
         }

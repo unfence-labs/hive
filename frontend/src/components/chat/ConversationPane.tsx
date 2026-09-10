@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import type { ConversationTimelineEntry } from "@hive/shared/conversation-timeline";
 import ChatConversation from "@/components/ChatConversation";
 import QuestionPanel from "@/components/chat/QuestionPanel";
 import { ConversationErrorChip } from "@/components/chat/ConversationErrorChip";
@@ -14,7 +15,6 @@ import type {
   AgentActivity,
   ChatMessage,
   QueuedMessage,
-  QuestionAnswer,
   ReasoningSegment,
   SessionMetadata,
   ToolCall,
@@ -64,6 +64,8 @@ export interface ConversationPaneProps {
   onRetryHistory?: () => void;
   streamingStartedAt?: number | null;
   currentStreamingText: string;
+  currentTimeline?: ConversationTimelineEntry[];
+  streamingMessageId?: string;
   currentReasoningSegments: ReasoningSegment[];
   activeToolCalls: ToolCall[];
   activeAgentActivities: AgentActivity[];
@@ -71,7 +73,6 @@ export interface ConversationPaneProps {
   /** Delivery state of optimistically-sent user messages, keyed by message id. */
   sendStates?: Record<string, SendState>;
   onRetrySend?: (messageId: string) => void;
-  onQuestionAnswer?: (toolCallId: string, answers: QuestionAnswer[]) => void;
   onFileMentionClick?: (relativePath: string) => void;
   switchCounter: number;
   agentPlanMode?: boolean;
@@ -137,13 +138,14 @@ export function ConversationPane({
   onRetryHistory,
   streamingStartedAt,
   currentStreamingText,
+  currentTimeline,
+  streamingMessageId,
   currentReasoningSegments,
   activeToolCalls,
   activeAgentActivities,
   pendingToolInputs,
   sendStates,
   onRetrySend,
-  onQuestionAnswer,
   onFileMentionClick,
   switchCounter,
   agentPlanMode,
@@ -213,13 +215,14 @@ export function ConversationPane({
               isStreaming={isStreaming}
               streamingStartedAt={streamingStartedAt}
               currentStreamingText={currentStreamingText}
+              currentTimeline={currentTimeline}
+              streamingMessageId={streamingMessageId}
               currentReasoningSegments={currentReasoningSegments}
               activeToolCalls={activeToolCalls}
               activeAgentActivities={activeAgentActivities}
               pendingToolInputs={pendingToolInputs}
               sendStates={sendStates}
               onRetrySend={onRetrySend}
-              onQuestionAnswer={onQuestionAnswer}
               onFileMentionClick={onFileMentionClick}
               onStartTerminal={onStartTerminal}
               workspaceName={workspaceName}

@@ -1,5 +1,6 @@
 import { useEffect, useCallback, useReducer, useRef, useSyncExternalStore } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import type { ConversationTimelineEntry } from "@hive/shared/conversation-timeline";
 import type { AgentActivity, ChatMessage, FileMention, ImageAttachment, MessageOptions, ReasoningSegment, ToolCall, WsOutgoing, QuestionAnswer, QuestionInput } from "@/types";
 import { wsTransport } from "@/lib/ws-transport";
 import {
@@ -27,6 +28,8 @@ export interface PendingToolInput {
 
 interface SessionStreamState {
   currentText: string;
+  currentTimeline?: ConversationTimelineEntry[];
+  streamingMessageId?: string;
   currentReasoningSegments: ReasoningSegment[];
   activeToolCalls: ToolCall[];
   activeAgentActivities: AgentActivity[];
@@ -201,26 +204,30 @@ function buildFinalizedMessage(
     // Ignore a stale cancelled with no accumulated data.
     if (!stream.isStreaming && !hasOutput && !hasActivity && !hasReasoning) return null;
     return {
-      id: newMessageId(),
+      id: stream.streamingMessageId ?? newMessageId(),
       sessionId: sid,
       role: "assistant",
       content: hasOutput ? stream.currentText : CANCELLED_NO_OUTPUT_MESSAGE,
       toolCalls,
       agentActivities,
       reasoningSegments,
+      timeline: stream.currentTimeline,
       timestamp: new Date().toISOString(),
       cancelled: true,
+      errorDetail: msg.errorDetail,
+      durationMs: msg.durationMs,
     };
   }
 
   return {
-    id: newMessageId(),
+    id: stream.streamingMessageId ?? newMessageId(),
     sessionId: sid,
     role: "assistant",
     content: stream.currentText,
     toolCalls,
     agentActivities,
     reasoningSegments,
+    timeline: stream.currentTimeline,
     timestamp: new Date().toISOString(),
     durationMs: msg.durationMs,
     inputTokens: msg.inputTokens,
@@ -279,6 +286,8 @@ function reducer(state: ConversationState, action: Action): ConversationState {
             isStreaming: true,
             streamingStartedAt: stream.streamingStartedAt ?? Date.now(),
             currentText: "",
+            currentTimeline: undefined,
+            streamingMessageId: undefined,
             currentReasoningSegments: [],
             activeToolCalls: [],
             activeAgentActivities: [],
@@ -290,12 +299,31 @@ function reducer(state: ConversationState, action: Action): ConversationState {
       };
     }
 
+    case "timeline_entry": {
+      const stream = state.sessionStreams[action.sessionId];
+      if (!stream) return state;
+      const timeline = stream.currentTimeline ?? [];
+      return updateStream(state, action.sessionId, {
+        streamingMessageId: action.messageId,
+        currentTimeline: timeline.some((entry) => entry.type === action.entry.type && entry.id === action.entry.id)
+          ? timeline
+          : [...timeline, action.entry],
+      });
+    }
+
     case "text_delta": {
       const sid = action.sessionId || state.sessionId;
       if (!sid) return state;
       const stream = state.sessionStreams[sid];
       if (!stream) return state;
-      return updateStream(state, sid, { currentText: stream.currentText + action.text });
+      return updateStream(state, sid, {
+        currentText: stream.currentText + action.text,
+        currentTimeline: stream.currentTimeline?.map((entry) =>
+          entry.type === "text" && entry.id === action.blockId
+            ? { ...entry, text: entry.text + action.text }
+            : entry,
+        ),
+      });
     }
 
     case "thinking": {
@@ -319,11 +347,14 @@ function reducer(state: ConversationState, action: Action): ConversationState {
       if (!sid) return state;
       const stream = state.sessionStreams[sid];
       if (!stream) return state;
+      const tool = { id: action.id, name: action.name, input: action.input, parentToolUseId: action.parentToolUseId };
+      const existing = stream.activeToolCalls.some((item) => item.id === action.id);
       return updateStream(state, sid, {
-        activeToolCalls: [
-          ...stream.activeToolCalls,
-          { id: action.id, name: action.name, input: action.input, parentToolUseId: action.parentToolUseId },
-        ],
+        activeToolCalls: existing
+          ? stream.activeToolCalls.map((item) => item.id === action.id
+            ? { ...item, ...tool, parentToolUseId: action.parentToolUseId ?? item.parentToolUseId }
+            : item)
+          : [...stream.activeToolCalls, tool],
       });
     }
 
@@ -333,7 +364,9 @@ function reducer(state: ConversationState, action: Action): ConversationState {
       const stream = state.sessionStreams[sid];
       if (!stream) return state;
       const tools = stream.activeToolCalls.map((t) =>
-        t.id === action.toolUseId ? { ...t, output: action.output } : t,
+        t.id === action.toolUseId
+          ? { ...t, output: action.output, ...(action.isError !== undefined ? { isError: action.isError } : {}) }
+          : t,
       );
       return updateStream(state, sid, { activeToolCalls: tools });
     }
@@ -362,6 +395,8 @@ function reducer(state: ConversationState, action: Action): ConversationState {
           [sid]: {
             ...existing,
             currentText: action.text,
+            currentTimeline: action.timeline,
+            streamingMessageId: action.messageId,
             currentReasoningSegments: action.reasoningSegments,
             activeToolCalls: action.toolCalls,
             activeAgentActivities: action.agentActivities,
@@ -654,7 +689,10 @@ export function useConversation(workspaceId: string | undefined) {
         const sid = msg.sessionId ?? stateRef.current.sessionId;
         if (sid && !stateRef.current.sessionStreams[sid]) {
           const cached = getCachedSessionMessages(queryClient, workspaceId, sid);
-          if (cached && lastMessageIsTerminalAssistant(cached, sid)) return;
+          if (
+            cached && lastMessageIsTerminalAssistant(cached, sid) &&
+            !derivePendingToolInputsFromHistory(cached).some((input) => input.toolUseId === msg.toolUseId)
+          ) return;
         }
       }
 
@@ -702,6 +740,9 @@ export function useConversation(workspaceId: string | undefined) {
         markOptimisticSendFailed(msg.clientMessageId);
       }
 
+      // A buffered burst may finish before React renders the preceding deltas.
+      // Keep the terminal cache copy in sync with every frame in that burst.
+      stateRef.current = reducer(stateRef.current, msg);
       dispatch(msg);
     });
     replayingBuffer = false;
@@ -864,20 +905,6 @@ export function useConversation(workspaceId: string | undefined) {
   const activeStream = state.sessionId ? state.sessionStreams[state.sessionId] : undefined;
   const blockingHistoryError = historyError && !hasHistoryData ? historyError : undefined;
 
-  const answerQuestion = useCallback((toolCallId: string, answers: QuestionAnswer[]) => {
-    if (!workspaceId) return;
-    const pendingInputs = activeStream?.pendingToolInputs ?? [];
-    const pending = pendingInputs.find((p) => p.toolUseId === toolCallId);
-    wsTransport.send(workspaceId, {
-      type: "tool_input_response",
-      requestId: pending?.requestId ?? toolCallId,
-      toolName: "AskUserQuestion",
-      result: { type: "answer", answers },
-      ...sessionIdField(state.sessionId),
-    });
-    dispatch({ type: "clear_pending_tool_inputs" });
-  }, [workspaceId, activeStream?.pendingToolInputs, state.sessionId]);
-
   const batchAnswerQuestions = useCallback(
     (responses: Array<{ toolUseId: string; answers: QuestionAnswer[] }>) => {
       if (!workspaceId) return;
@@ -957,6 +984,8 @@ export function useConversation(workspaceId: string | undefined) {
     streamingStartedAt: activeStream?.streamingStartedAt ?? null,
     workspaceStatus: state.workspaceStatus,
     currentStreamingText: activeStream?.currentText ?? "",
+    currentTimeline: activeStream?.currentTimeline,
+    streamingMessageId: activeStream?.streamingMessageId,
     currentReasoningSegments: activeStream?.currentReasoningSegments ?? [],
     activeToolCalls: activeStream?.activeToolCalls ?? [],
     activeAgentActivities: activeStream?.activeAgentActivities ?? [],
@@ -973,7 +1002,6 @@ export function useConversation(workspaceId: string | undefined) {
     stopStreaming,
     clearChat,
     switchSession,
-    answerQuestion,
     batchAnswerQuestions,
     approvePlan,
     rejectToolInput,

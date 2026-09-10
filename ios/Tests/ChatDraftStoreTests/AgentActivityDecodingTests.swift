@@ -32,14 +32,11 @@ struct AgentActivityDecodingTests {
         #expect(subagent.activityKind == activityKind)
         #expect(subagent.agentThreadId == "thread-1")
         #expect(subagent.agentPath == "/workspace/agents/research/sub-agent/thread")
-        #expect(subagent.displayTitle == expectedSubagentTitle(for: activityKind))
-        #expect(subagent.iconName == expectedSubagentIcon(for: activityKind))
         #expect(activity.toolCalls.isEmpty)
-        #expect(visibleAgentActivities([activity]).map(\.id) == ["subagent-\(activityKind.rawValue)"])
     }
 
     @Test
-    func keepsUnknownActivityDecodingAndVisibleFiltering() throws {
+    func keepsUnknownActivityDecoding() throws {
         let message = try decodeMessage("""
         {
           "id": "msg-1",
@@ -63,7 +60,6 @@ struct AgentActivityDecodingTests {
         }
         #expect(unknown.id == "future-1")
         #expect(unknown.kind == "future_activity")
-        #expect(visibleAgentActivities([activity]).map(\.id) == ["future-1"])
     }
 
     @Test
@@ -94,7 +90,6 @@ struct AgentActivityDecodingTests {
         }
         #expect(unknown.id == "subagent-future")
         #expect(unknown.kind == "subagent_activity")
-        #expect(visibleAgentActivities([activity]).map(\.id) == ["subagent-future"])
     }
 
     @Test
@@ -127,7 +122,6 @@ struct AgentActivityDecodingTests {
         }
         #expect(unknown.id == "diag-future")
         #expect(unknown.kind == "diagnostic")
-        #expect(visibleAgentActivities([activity]).map(\.id) == ["diag-future"])
     }
 
     @Test
@@ -174,7 +168,6 @@ struct AgentActivityDecodingTests {
         }
         #expect(unknown.id == "subagent-future")
         #expect(unknown.kind == "subagent_activity")
-        #expect(visibleAgentActivities(activities).map(\.id) == ["subagent-started", "subagent-future"])
     }
 
     @Test
@@ -202,12 +195,7 @@ struct AgentActivityDecodingTests {
             return
         }
         #expect(compaction.status == "inProgress")
-        #expect(compaction.isPending(showExecutingState: true))
-        #expect(!compaction.isPending(showExecutingState: false))
-        #expect(compaction.displayTitle(showExecutingState: true) == "Compacting context…")
-        #expect(compaction.displayTitle(showExecutingState: false) == "Context compacted")
         #expect(activity.toolCalls.isEmpty)
-        #expect(visibleAgentActivities([activity]).map(\.id) == ["compaction-1"])
     }
 
     @Test
@@ -235,9 +223,6 @@ struct AgentActivityDecodingTests {
             return
         }
         #expect(compaction.status == "completed")
-        #expect(!compaction.isPending(showExecutingState: true))
-        #expect(compaction.displayTitle(showExecutingState: true) == "Context compacted")
-        #expect(visibleAgentActivities([activity]).map(\.id) == ["compaction-1"])
     }
 
     @Test
@@ -264,10 +249,6 @@ struct AgentActivityDecodingTests {
             return
         }
         #expect(compaction.status == nil)
-        #expect(compaction.isPending(showExecutingState: true))
-        #expect(compaction.displayTitle(showExecutingState: true) == "Compacting context…")
-        #expect(compaction.displayTitle(showExecutingState: false) == "Context compacted")
-        #expect(visibleAgentActivities([activity]).map(\.id) == ["compaction-1"])
     }
 
     @Test
@@ -346,14 +327,12 @@ struct AgentActivityDecodingTests {
         }
         #expect(command.commandActions?.first?.type == "read")
 
-        let merged = mergeToolCalls([], with: [activity])
-        let tool = try #require(merged.first)
+        let tool = try #require(activity.toolCalls.first)
         let inputData = try #require(tool.input.data(using: .utf8))
         let input = try #require(JSONSerialization.jsonObject(with: inputData) as? [String: Any])
         #expect(tool.name == "Read")
         #expect(tool.output == "# Demo\n")
         #expect(input["file_path"] as? String == "/repo/README.md")
-        #expect(visibleAgentActivities([activity]).isEmpty)
     }
 
     @Test
@@ -432,7 +411,6 @@ struct AgentActivityDecodingTests {
             return
         }
         #expect(plan.steps.map(\.text) == ["Inspect", "Patch"])
-        #expect(visibleAgentActivities(activities).map(\.id) == ["diag-1"])
 
         guard case .diagnostic(let diagnostic) = second else {
             Issue.record("Expected diagnostic activity")
@@ -440,59 +418,6 @@ struct AgentActivityDecodingTests {
         }
         #expect(diagnostic.severity == .warning)
         #expect(diagnostic.method == "model/rerouted")
-    }
-
-    @Test
-    func mergesToolCallsWithActivityToolsBeforeDiagnostics() throws {
-        let agentTool = ToolCall(
-            id: "agent-1",
-            name: "Agent",
-            input: #"{"subagent_type":"Agent","description":"Inspect"}"#,
-            output: nil,
-            parentToolUseId: nil
-        )
-        let providedCommand = ToolCall(
-            id: "cmd-1",
-            name: "Bash",
-            input: #"{"command":"swift test"}"#,
-            output: "ok",
-            parentToolUseId: "agent-1"
-        )
-        let activities: [AgentActivity] = [
-            .commandExecution(.init(
-                id: "cmd-1",
-                command: "swift test",
-                cwd: nil,
-                status: "completed",
-                output: "ok",
-                exitCode: 0,
-                durationMs: 120
-            )),
-            .commandExecution(.init(
-                id: "cmd-2",
-                command: "swift lint",
-                cwd: nil,
-                status: "completed",
-                output: "ok",
-                exitCode: 0,
-                durationMs: nil
-            )),
-            .diagnostic(.init(
-                id: "diag-1",
-                severity: .warning,
-                title: "Unsupported App Server event",
-                message: "Hive does not render this yet.",
-                source: "codex_app_server",
-                method: "thread/status/changed",
-                details: nil
-            ))
-        ]
-
-        let merged = mergeToolCalls([agentTool, providedCommand], with: activities)
-
-        #expect(merged.map(\.id) == ["agent-1", "cmd-1", "cmd-2"])
-        #expect(merged.first { $0.id == "cmd-1" }?.parentToolUseId == "agent-1")
-        #expect(visibleAgentActivities(activities).map(\.id) == ["diag-1"])
     }
 
     @Test
@@ -543,7 +468,7 @@ struct AgentActivityDecodingTests {
     }
 
     @Test
-    func decodesGoalUpdateActivityAndKeepsItOutOfVisibleFeed() throws {
+    func decodesGoalUpdateActivity() throws {
         let message = try decodeMessage("""
         {
           "id": "msg-1",
@@ -580,9 +505,8 @@ struct AgentActivityDecodingTests {
         #expect(goal.objective == "Implement the backend protocol foundation")
         #expect(goal.tokenBudget == nil)
         #expect(goal.tokensUsed == 1234)
-        // Goal updates feed the task tracker, not the inline activity list.
+        // Goal updates feed the task tracker, not the transcript.
         #expect(first.toolCalls.isEmpty)
-        #expect(visibleAgentActivities(activities).isEmpty)
     }
 
     @Test
@@ -614,10 +538,8 @@ struct AgentActivityDecodingTests {
         #expect(image.path == "/tmp/test/assets/screenshot.png")
         #expect(image.relativePath == "assets/screenshot.png")
         #expect(image.resolvedSource == "/api/workspaces/ws-1/file/raw?path=assets%2Fscreenshot.png")
-        #expect(imageActivityFileName(image.path) == "screenshot.png")
-        // Image activities never become tool calls; they stay in the visible feed.
+        // Image activities never become tool calls.
         #expect(activity.toolCalls.isEmpty)
-        #expect(visibleAgentActivities([activity]).map(\.id) == ["image-1"])
     }
 
     @Test
@@ -679,10 +601,7 @@ struct AgentActivityDecodingTests {
         #expect(image.status == "completed")
         #expect(image.revisedPrompt == "A neon city skyline at dusk")
         #expect(image.resolvedSource == "/api/workspaces/ws-1/file/raw?path=generated%2Fskyline.png")
-        // A resolvable image is never pending, even mid-stream.
-        #expect(image.isPending(showExecutingState: true) == false)
         #expect(activity.toolCalls.isEmpty)
-        #expect(visibleAgentActivities([activity]).map(\.id) == ["gen-1"])
     }
 
     @Test
@@ -698,35 +617,6 @@ struct AgentActivityDecodingTests {
             result: "data:image/png;base64,iVBORw0KGgo=", savedPath: nil, relativePath: nil, imageUrl: nil
         )
         #expect(withDataURL.resolvedSource == "data:image/png;base64,iVBORw0KGgo=")
-    }
-
-    @Test
-    func imageGenerationPendingOnlyWhileStreamingAndNonTerminal() {
-        let streaming = AgentActivity.ImageGeneration(
-            id: "gen-4", status: "inProgress", revisedPrompt: "wip",
-            result: nil, savedPath: nil, relativePath: nil, imageUrl: nil
-        )
-        #expect(streaming.isPending(showExecutingState: true) == true)
-        // History renders (no streaming flag) never animate a stale record.
-        #expect(streaming.isPending(showExecutingState: false) == false)
-
-        let failed = AgentActivity.ImageGeneration(
-            id: "gen-5", status: "failed", revisedPrompt: nil,
-            result: nil, savedPath: nil, relativePath: nil, imageUrl: nil
-        )
-        #expect(failed.isPending(showExecutingState: true) == false)
-    }
-
-    @Test
-    func imagePromptPreviewCollapsesWhitespaceAndTruncates() throws {
-        #expect(imagePromptPreview(nil) == nil)
-        #expect(imagePromptPreview("   ") == nil)
-        #expect(imagePromptPreview("  a   neon\n  city  ") == "a neon city")
-
-        let long = String(repeating: "x", count: 100)
-        let preview = try #require(imagePromptPreview(long))
-        #expect(preview.count == 67) // 64 chars + "..."
-        #expect(preview.hasSuffix("..."))
     }
 
     @Test
@@ -753,21 +643,5 @@ struct AgentActivityDecodingTests {
     private func decodeMessage(_ json: String) throws -> ChatMessage {
         let data = try #require(json.data(using: .utf8))
         return try JSONDecoder().decode(ChatMessage.self, from: data)
-    }
-
-    private func expectedSubagentTitle(for activityKind: AgentActivitySubagentActivityKind) -> String {
-        switch activityKind {
-        case .started: "Started sub-agent"
-        case .interacted: "Interacted with sub-agent"
-        case .interrupted: "Interrupted sub-agent"
-        }
-    }
-
-    private func expectedSubagentIcon(for activityKind: AgentActivitySubagentActivityKind) -> String {
-        switch activityKind {
-        case .started: "arrow.triangle.branch"
-        case .interacted: "bubble.left"
-        case .interrupted: "xmark.circle"
-        }
     }
 }

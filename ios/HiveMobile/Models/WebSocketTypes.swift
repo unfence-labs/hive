@@ -160,14 +160,16 @@ struct UnreadSessionState: Codable, Equatable {
 }
 
 enum WsOutgoing: Decodable {
-    case textDelta(sessionId: String, text: String)
+    case textDelta(sessionId: String, text: String, blockId: String? = nil)
+    case timelineEntry(sessionId: String, entry: ConversationTimelineEntry, messageId: String)
     case thinking(sessionId: String, blockId: String, segments: [ReasoningSegment])
     case toolUse(sessionId: String, id: String, name: String, input: String, parentToolUseId: String?)
-    case toolResult(sessionId: String, toolUseId: String, output: String)
+    case toolResult(sessionId: String, toolUseId: String, output: String, isError: Bool? = nil)
     case agentActivity(sessionId: String, activity: AgentActivity)
     case streamSnapshot(sessionId: String, text: String, toolCalls: [ToolCall],
                         agentActivities: [AgentActivity], agentPlanMode: Bool,
-                        streamingStartedAt: Double?, reasoningSegments: [ReasoningSegment] = [])
+                        streamingStartedAt: Double?, reasoningSegments: [ReasoningSegment] = [],
+                        timeline: [ConversationTimelineEntry]? = nil, messageId: String? = nil)
     case toolInputRequired(sessionId: String, requestId: String, toolName: String, toolUseId: String, input: String)
     case toolInputResolved(sessionId: String)
     case done(sessionId: String, durationMs: Int?, inputTokens: Int?, outputTokens: Int?, contextUsedTokens: Int?, contextWindowTokens: Int?, pendingToolName: String?)
@@ -186,9 +188,9 @@ enum WsOutgoing: Decodable {
 
     private enum CodingKeys: String, CodingKey {
         case type, sessionId, text, id, name, input, output, segments, blockId
-        case activity
+        case activity, entry, timeline, messageId
         case reasoningSegments, toolCalls, agentActivities, agentPlanMode
-        case parentToolUseId, toolUseId, requestId, toolName
+        case parentToolUseId, toolUseId, requestId, toolName, isError
         case durationMs, inputTokens, outputTokens, contextUsedTokens, contextWindowTokens, pendingToolName
         case errorDetail, userInitiated
         case message, status, streaming, streamingStartedAt, lockedProvider
@@ -206,7 +208,14 @@ enum WsOutgoing: Decodable {
         case "text_delta":
             self = .textDelta(
                 sessionId: try container.decode(String.self, forKey: .sessionId),
-                text: try container.decode(String.self, forKey: .text)
+                text: try container.decode(String.self, forKey: .text),
+                blockId: try container.decodeIfPresent(String.self, forKey: .blockId)
+            )
+        case "timeline_entry":
+            self = .timelineEntry(
+                sessionId: try container.decode(String.self, forKey: .sessionId),
+                entry: try container.decode(ConversationTimelineEntry.self, forKey: .entry),
+                messageId: try container.decode(String.self, forKey: .messageId)
             )
         case "thinking":
             self = .thinking(
@@ -226,7 +235,8 @@ enum WsOutgoing: Decodable {
             self = .toolResult(
                 sessionId: try container.decode(String.self, forKey: .sessionId),
                 toolUseId: try container.decode(String.self, forKey: .toolUseId),
-                output: try container.decode(String.self, forKey: .output)
+                output: try container.decode(String.self, forKey: .output),
+                isError: try container.decodeIfPresent(Bool.self, forKey: .isError)
             )
         case "agent_activity":
             self = .agentActivity(
@@ -241,7 +251,9 @@ enum WsOutgoing: Decodable {
                 agentActivities: try container.decodeIfPresent([AgentActivity].self, forKey: .agentActivities) ?? [],
                 agentPlanMode: try container.decodeIfPresent(Bool.self, forKey: .agentPlanMode) ?? false,
                 streamingStartedAt: try container.decodeIfPresent(Double.self, forKey: .streamingStartedAt),
-                reasoningSegments: try container.decodeIfPresent([ReasoningSegment].self, forKey: .reasoningSegments) ?? []
+                reasoningSegments: try container.decodeIfPresent([ReasoningSegment].self, forKey: .reasoningSegments) ?? [],
+                timeline: try container.decodeIfPresent([ConversationTimelineEntry].self, forKey: .timeline),
+                messageId: try container.decodeIfPresent(String.self, forKey: .messageId)
             )
         case "tool_input_required":
             let sessionId = try container.decode(String.self, forKey: .sessionId)
@@ -388,7 +400,7 @@ enum HubActivityMarking: Equatable {
 
 func hubActivityMarking(for event: WsOutgoing) -> HubActivityMarking {
     switch event {
-    case .textDelta, .thinking,
+    case .textDelta, .thinking, .timelineEntry,
          .branchInfo, .diffStats, .prStatus, .scriptStatus, .planModeChanged, .streamSnapshot,
          .unreadState:
         return .ignore

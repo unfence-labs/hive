@@ -4,20 +4,6 @@ import { describe, expect, it, vi } from "vitest";
 import ChatMessage from "@/components/ChatMessage";
 import type { ChatMessage as ChatMessageType } from "@/types";
 
-vi.mock("@/components/chat/ThinkingBlock", () => ({
-  ThinkingBlock: ({
-    segments = [],
-  }: {
-    segments?: ChatMessageType["reasoningSegments"];
-  }) => segments.length > 0
-    ? <div data-testid="thinking-block">{segments.map((segment) => segment.headline ?? segment.body).join("")}</div>
-    : null,
-}));
-
-vi.mock("@/components/chat/ToolCallList", () => ({
-  ToolCallList: () => <div data-testid="tool-call-list">tool-list</div>,
-}));
-
 vi.mock("@/components/chat/CopyButton", () => ({
   CopyButton: ({ content }: { content: string }) => <button data-testid="copy-button" data-content={content} />,
 }));
@@ -44,18 +30,29 @@ function assistantMessage(overrides: Partial<ChatMessageType> = {}): ChatMessage
 }
 
 describe("ChatMessage", () => {
-  it("renders assistant response before tool call list", () => {
+  it("renders the persisted cancellation fallback when no timeline entries were produced", () => {
+    render(<ChatMessage message={assistantMessage({
+      cancelled: true,
+      content: "Generation interrupted before any output.",
+      timeline: [],
+    })} />);
+
+    expect(screen.getByTestId("message-response")).toHaveTextContent("Generation interrupted before any output.");
+    expect(screen.getByText("(cancelled)")).toBeVisible();
+  });
+
+  it("renders assistant response before tool steps", () => {
     render(
       <ChatMessage
         message={assistantMessage({
           content: "Final answer",
-          toolCalls: [{ id: "t1", name: "Read", input: "{}" }],
+          toolCalls: [{ id: "t1", name: "Read", input: '{"file_path":"src/a.ts"}' }],
         })}
       />,
     );
 
     const response = screen.getByTestId("message-response");
-    const tools = screen.getByTestId("tool-call-list");
+    const tools = screen.getByRole("button", { name: /a\.ts/ });
     expect(response.compareDocumentPosition(tools) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
@@ -71,7 +68,8 @@ describe("ChatMessage", () => {
       />,
     );
 
-    expect(screen.getByTestId("thinking-block")).toHaveTextContent("reasoning");
+    expect(screen.getByText("reasoning")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /reasoning/ })).not.toBeInTheDocument();
     expect(screen.getByText("(cancelled)")).toBeInTheDocument();
     expect(screen.getByTestId("copy-button")).toBeInTheDocument();
   });
@@ -105,7 +103,7 @@ describe("ChatMessage", () => {
     );
 
     expect(screen.getByText("Hi")).toBeInTheDocument();
-    expect(screen.queryByTestId("tool-call-list")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("message-response")).not.toBeInTheDocument();
   });
 
   it("renders a quiet goal badge for goal command user messages", () => {
@@ -285,23 +283,23 @@ describe("ChatMessage", () => {
     expect(screen.queryByText("(cancelled)")).not.toBeInTheDocument();
   });
 
-  it("does not render thinking block when reasoning segments are absent", () => {
+  it("does not render a reasoning step when reasoning segments are absent", () => {
     render(
       <ChatMessage
         message={assistantMessage({ reasoningSegments: undefined })}
       />,
     );
 
-    expect(screen.queryByTestId("thinking-block")).not.toBeInTheDocument();
+    expect(screen.queryByText("thought")).not.toBeInTheDocument();
   });
 
-  it("does not render tool call list when no toolCalls", () => {
+  it("does not render tool steps when no toolCalls", () => {
     render(
       <ChatMessage
         message={assistantMessage({ toolCalls: undefined })}
       />,
     );
 
-    expect(screen.queryByTestId("tool-call-list")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /read/ })).not.toBeInTheDocument();
   });
 });

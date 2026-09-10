@@ -124,38 +124,11 @@ enum AgentActivity: Codable, Equatable, Identifiable {
         let activityKind: AgentActivitySubagentActivityKind
         let agentThreadId: String
         let agentPath: String
-
-        var displayTitle: String {
-            switch activityKind {
-            case .started: "Started sub-agent"
-            case .interacted: "Interacted with sub-agent"
-            case .interrupted: "Interrupted sub-agent"
-            }
-        }
-
-        var iconName: String {
-            switch activityKind {
-            case .started: "arrow.triangle.branch"
-            case .interacted: "bubble.left"
-            case .interrupted: "xmark.circle"
-            }
-        }
     }
 
     struct ContextCompaction: Codable, Equatable, Identifiable {
         let id: String
         let status: String?
-
-        /// A compaction is pending while a turn is live (`showExecutingState`)
-        /// and the record has not reached its terminal status, so stale
-        /// in-progress records never animate after a turn ends.
-        func isPending(showExecutingState: Bool) -> Bool {
-            showExecutingState && status != "completed"
-        }
-
-        func displayTitle(showExecutingState: Bool) -> String {
-            isPending(showExecutingState: showExecutingState) ? "Compacting context…" : "Context compacted"
-        }
     }
 
     struct Diagnostic: Codable, Equatable, Identifiable {
@@ -412,56 +385,14 @@ private func activityToolCallsCacheCost(_ toolCalls: [ToolCall]) -> Int {
     return total
 }
 
-enum VisibleAgentActivity: Equatable, Identifiable {
-    case imageView(AgentActivity.ImageView)
-    case imageGeneration(AgentActivity.ImageGeneration)
-    case subagentActivity(AgentActivity.SubagentActivity)
-    case contextCompaction(AgentActivity.ContextCompaction)
-    case diagnostic(AgentActivity.Diagnostic)
-    case unknown(AgentActivity.Unknown)
+// MARK: - Image Sources
 
-    init?(_ activity: AgentActivity) {
-        guard activity.toolCalls.isEmpty else { return nil }
-        switch activity {
-        case .imageView(let image):
-            self = .imageView(image)
-        case .imageGeneration(let image):
-            self = .imageGeneration(image)
-        case .subagentActivity(let subagent):
-            self = .subagentActivity(subagent)
-        case .contextCompaction(let compaction):
-            self = .contextCompaction(compaction)
-        case .diagnostic(let diagnostic):
-            self = .diagnostic(diagnostic)
-        case .unknown(let unknown):
-            self = .unknown(unknown)
-        case .commandExecution, .fileChange, .planUpdate, .goalUpdate:
-            // Goal updates drive the task tracker (like plan updates), not the
-            // inline activity list — keep them out of the visible feed.
-            return nil
-        }
-    }
-
-    var id: String {
-        switch self {
-        case .imageView(let activity): activity.id
-        case .imageGeneration(let activity): activity.id
-        case .subagentActivity(let activity): activity.id
-        case .contextCompaction(let activity): activity.id
-        case .diagnostic(let activity): activity.id
-        case .unknown(let activity): activity.id
-        }
-    }
-}
-
-// MARK: - Image Activity Logic
-
-/// Pure helpers mirroring `frontend/src/components/chat/ImageActivity.tsx` so the
-/// view layer stays declarative and the resolution rules stay testable.
+/// Image source resolution mirroring `frontend/src/components/chat/StepDetail.tsx`,
+/// kept out of the views so the rules stay testable.
 
 extension AgentActivity.ImageView {
     /// Resolved source for the viewed image, or nil when there is no preview
-    /// (outside the workspace). Mirrors `resolveImageViewSrc`.
+    /// (outside the workspace).
     var resolvedSource: String? {
         guard let url = imageUrl, !url.isEmpty else { return nil }
         return url
@@ -476,30 +407,6 @@ extension AgentActivity.ImageGeneration {
         guard let result, !result.isEmpty else { return nil }
         return result.hasPrefix("data:") ? result : "data:image/png;base64,\(result)"
     }
-
-    /// A generation is pending while a turn is live (`showExecutingState`), its
-    /// status is non-terminal, and no image is resolvable yet. Mirrors
-    /// `isGenerationPending`.
-    func isPending(showExecutingState: Bool) -> Bool {
-        if resolvedSource != nil { return false }
-        let status = status?.lowercased()
-        let terminal = status == "completed" || status == "failed" || status == "error"
-        return showExecutingState && !terminal
-    }
-}
-
-/// Last path component of an image path. Mirrors `fileName`.
-func imageActivityFileName(_ path: String) -> String {
-    (path as NSString).lastPathComponent
-}
-
-/// Whitespace-collapsed, 64-char prompt preview. Mirrors `promptPreview`.
-func imagePromptPreview(_ prompt: String?) -> String? {
-    let normalized = prompt?
-        .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
-        .trimmingCharacters(in: .whitespacesAndNewlines)
-    guard let normalized, !normalized.isEmpty else { return nil }
-    return normalized.count > 64 ? String(normalized.prefix(64)) + "..." : normalized
 }
 
 /// The active Codex goal, mirroring `frontend/src/hooks/useGoalState.ts` where
@@ -561,26 +468,6 @@ private func classifiedCommandAction(
     default:
         return nil
     }
-}
-
-func mergeToolCalls(_ toolCalls: [ToolCall], with activities: [AgentActivity]) -> [ToolCall] {
-    var merged = toolCalls
-    var existingIds = Set(toolCalls.map(\.id))
-
-    for activity in activities {
-        if existingIds.contains(activity.id) { continue }
-
-        for toolCall in activity.toolCalls where !existingIds.contains(toolCall.id) {
-            merged.append(toolCall)
-            existingIds.insert(toolCall.id)
-        }
-    }
-
-    return merged
-}
-
-func visibleAgentActivities(_ activities: [AgentActivity]) -> [VisibleAgentActivity] {
-    activities.compactMap(VisibleAgentActivity.init)
 }
 
 private func encodeToolInput(_ values: [String: Any?]) -> String {
