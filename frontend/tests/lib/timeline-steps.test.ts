@@ -202,29 +202,32 @@ describe("buildTimelineRows", () => {
     });
 
     const rows = buildTimelineRows(msg, { streaming: true });
-    expect(rows.map((row) => row.type)).toEqual(["run", "step", "run"]);
+    // The diagnostic leads the message wherever the provider emitted it.
+    expect(rows.map((row) => row.type)).toEqual(["step", "run"]);
+    expect(singleStep(rows[0])).toMatchObject({ kind: "diagnostic", icon: "alert", verb: "reported", subject: "Rate limited", severity: "warning", standalone: true });
 
-    const steps = runSteps(rows[0]);
+    const steps = runSteps(rows[1]);
     expect(steps.map((s) => [s.id, s.verb, s.subject, s.status])).toEqual([
       ["cmd-read", "read", "app.ts", "completed"],
       ["cmd-run", "ran", "npm test", "running"],
       ["change:0:src/a.ts", "edited", "a.ts", "completed"],
       ["change:1:src/b.ts", "edited", "b.ts", "failed"],
       ["empty-change", "edited", "(no file)", "completed"],
+      ["compact", "compacted", "Context", "running"],
+      ["sub", "started", "root/worker", "completed"],
+      ["img", "generated", "image", "running"],
     ]);
     expect(steps[0].source).toMatchObject({ type: "tool", tool: { name: "Read" } });
     expect(steps[2].stats).toEqual({ type: "diff", added: 2, removed: 1 });
     expect(steps[2].subjectTitle).toBe("src/a.ts");
 
-    expect(singleStep(rows[1])).toMatchObject({ kind: "diagnostic", icon: "alert", verb: "reported", subject: "Rate limited", severity: "warning", standalone: true });
-    const tail = runSteps(rows[2]);
-    expect(tail[0]).toMatchObject({ kind: "compaction", icon: "fold", liveVerb: "Compacting", verb: "compacted", subject: "Context", status: "running", standalone: false });
-    expect(tail[1]).toMatchObject({ kind: "subagent_activity", icon: "bot", liveVerb: "Starting agent", verb: "started", subject: "root/worker", standalone: false });
-    expect(tail[2]).toMatchObject({ kind: "image", verb: "generated", subject: "image", status: "running", standalone: false });
+    expect(steps[5]).toMatchObject({ kind: "compaction", icon: "fold", liveVerb: "Compacting", verb: "compacted", subject: "Context", status: "running", standalone: false });
+    expect(steps[6]).toMatchObject({ kind: "subagent_activity", icon: "bot", liveVerb: "Starting agent", verb: "started", subject: "root/worker", standalone: false });
+    expect(steps[7]).toMatchObject({ kind: "image", verb: "generated", subject: "image", status: "running", standalone: false });
 
-    const idle = buildTimelineRows(msg, { streaming: false });
-    expect(runSteps(idle[0])[1].status).toBe("completed");
-    expect(runSteps(idle[2]).map((s) => s.status)).toEqual(["completed", "completed", "completed"]);
+    const idle = runSteps(buildTimelineRows(msg, { streaming: false })[1]);
+    expect(idle[1].status).toBe("completed");
+    expect(idle.slice(5).map((s) => s.status)).toEqual(["completed", "completed", "completed"]);
   });
 
   it("synthesizes diagnostics, reasoning, text, tools then activities for legacy messages", () => {

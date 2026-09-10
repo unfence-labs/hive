@@ -92,6 +92,11 @@ let runCollapseThreshold = 2
 
 private let hiddenTools: Set<String> = ["TaskUpdate", "TodoList"]
 
+private func isDiagnostic(_ activity: AgentActivity) -> Bool {
+    if case .diagnostic = activity { return true }
+    return false
+}
+
 /// Steps that need the user's attention or decision; everything else joins a run and its summary.
 private func isStandalone(_ kind: TimelineStepKind) -> Bool {
     switch kind {
@@ -112,18 +117,16 @@ func buildTimelineRows(message: ChatMessage, streaming: Bool) -> [TimelineRow] {
 
     var builder = TimelineRowBuilder()
 
+    // Diagnostics report on the turn as a whole, so they lead every message and
+    // never split a run, wherever the provider emitted them.
+    for activity in activities where isDiagnostic(activity) {
+        builder.activity(activity, streaming: streaming)
+    }
+
     guard let timeline = message.timeline else {
-        // Providers report diagnostics at the start of a turn, so they lead the synthesized order.
         // Codex persisted each command both as a tool call and as an activity: the tool call wins.
         let toolIds = Set(toolCalls.map(\.id))
         let legacyActivities = activities.filter { !toolIds.contains($0.id) }
-        func isDiagnostic(_ activity: AgentActivity) -> Bool {
-            if case .diagnostic = activity { return true }
-            return false
-        }
-        for activity in legacyActivities where isDiagnostic(activity) {
-            builder.activity(activity, streaming: streaming)
-        }
         if segments.contains(where: hasContent) {
             builder.step(reasoningStep(id: "reasoning", segments: segments, running: false))
         }
@@ -156,7 +159,7 @@ func buildTimelineRows(message: ChatMessage, streaming: Bool) -> [TimelineRow] {
                 builder.step(toolStep(tool, context: context))
             }
         case .activity:
-            if let activity = activitiesById[entry.id] {
+            if let activity = activitiesById[entry.id], !isDiagnostic(activity) {
                 builder.activity(activity, streaming: streaming)
             }
         case .reasoning:

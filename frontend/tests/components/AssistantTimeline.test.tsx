@@ -85,15 +85,15 @@ describe("AssistantTimeline", () => {
     }
   });
 
-  it("keeps text, runs, reasoning and diagnostic steps in order", async () => {
+  it("leads with the diagnostic then keeps text, runs and reasoning in order", async () => {
     const user = userEvent.setup();
     render(<ChatMessage message={turn} />);
     await user.click(screen.getByRole("button", { name: /^2 tools used/ }));
+    before(stepButton(/^Check configuration/), screen.getByText("Before"));
     before(screen.getByText("Before"), stepButton(/^settings\.ts/));
     before(stepButton(/^settings\.ts/), stepButton(/^Weighing options/));
     before(stepButton(/^Weighing options/), screen.getByText("After"));
-    before(screen.getByText("After"), stepButton(/^Check configuration/));
-    before(stepButton(/^Check configuration/), stepButton(/^npm test/));
+    before(screen.getByText("After"), stepButton(/^npm test/));
     expect(screen.getByLabelText("npm test failed")).toBeVisible();
     expect(screen.queryByText("Considering the result")).not.toBeInTheDocument();
   });

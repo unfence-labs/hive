@@ -119,13 +119,15 @@ export function buildTimelineRows(message: ChatMessage, options: BuildRowsOption
     for (const step of activitySteps(activity, streaming)) pushStep(step);
   };
 
+  // Diagnostics report on the turn as a whole, so they lead every message and
+  // never split a run, wherever the provider emitted them.
+  const isDiagnostic = (activity: AgentActivity) => activity.kind === "diagnostic";
+  for (const activity of activities.filter(isDiagnostic)) pushActivity(activity, options.streaming);
+
   if (!message.timeline) {
-    // Providers report diagnostics at the start of a turn, so they lead the synthesized order.
     // Codex persisted each command both as a tool call and as an activity: the tool call wins.
     const toolIds = new Set(toolCalls.map((tool) => tool.id));
     const legacyActivities = activities.filter((activity) => !toolIds.has(activity.id));
-    const isDiagnostic = (activity: AgentActivity) => activity.kind === "diagnostic";
-    for (const activity of legacyActivities.filter(isDiagnostic)) pushActivity(activity, options.streaming);
     if (segments.some((segment) => segment.headline || segment.body)) {
       pushStep(reasoningStep("reasoning", segments, false));
     }
@@ -157,7 +159,7 @@ export function buildTimelineRows(message: ChatMessage, options: BuildRowsOption
       }
       case "activity": {
         const activity = activitiesById.get(entry.id);
-        if (activity) pushActivity(activity, options.streaming);
+        if (activity && !isDiagnostic(activity)) pushActivity(activity, options.streaming);
         break;
       }
       case "reasoning": {

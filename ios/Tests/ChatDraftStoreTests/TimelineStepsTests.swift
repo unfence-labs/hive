@@ -170,14 +170,15 @@ struct TimelineStepsTests {
         )
 
         let rows = buildTimelineRows(message: msg, streaming: true)
-        #expect(rowTypes(rows) == ["run", "step", "run"])
+        // The diagnostic leads the message wherever the provider emitted it.
+        #expect(rowTypes(rows) == ["step", "run"])
 
-        let steps = runSteps(rows, 0)
-        try #require(steps.count == 5)
-        #expect(steps.map(\.id) == ["cmd-read", "cmd-run", "change:0:src/a.ts", "change:1:src/b.ts", "empty-change"])
-        #expect(steps.map(\.verb) == ["read", "ran", "edited", "edited", "edited"])
-        #expect(steps.map(\.subject) == ["app.ts", "npm test", "a.ts", "b.ts", "(no file)"])
-        #expect(steps.map(\.status) == [.completed, .running, .completed, .failed, .completed])
+        let steps = runSteps(rows, 1)
+        try #require(steps.count == 8)
+        #expect(steps.map(\.id) == ["cmd-read", "cmd-run", "change:0:src/a.ts", "change:1:src/b.ts", "empty-change", "compact", "sub", "img"])
+        #expect(steps.prefix(5).map(\.verb) == ["read", "ran", "edited", "edited", "edited"])
+        #expect(steps.prefix(5).map(\.subject) == ["app.ts", "npm test", "a.ts", "b.ts", "(no file)"])
+        #expect(steps.prefix(5).map(\.status) == [.completed, .running, .completed, .failed, .completed])
         if case .tool(let converted) = steps[0].source {
             #expect(converted.name == "Read")
         } else {
@@ -186,7 +187,7 @@ struct TimelineStepsTests {
         #expect(steps[2].stats == ChatActivityStats(kind: .diff, added: 2, removed: 1))
         #expect(steps[2].subjectTitle == "src/a.ts")
 
-        let diagnostic = try #require(singleStep(rows, 1))
+        let diagnostic = try #require(singleStep(rows, 0))
         #expect(diagnostic.kind == .diagnostic)
         #expect(diagnostic.icon == "exclamationmark.triangle")
         #expect(diagnostic.verb == "reported")
@@ -194,8 +195,7 @@ struct TimelineStepsTests {
         #expect(diagnostic.severity == .warning)
         #expect(diagnostic.standalone == true)
 
-        let tail = runSteps(rows, 2)
-        try #require(tail.count == 3)
+        let tail = Array(steps.suffix(3))
         #expect(tail[0].kind == .compaction)
         #expect(tail[0].icon == "rectangle.compress.vertical")
         #expect(tail[0].liveVerb == "Compacting")
@@ -215,9 +215,9 @@ struct TimelineStepsTests {
         #expect(tail[2].status == .running)
         #expect(tail[2].standalone == false)
 
-        let idle = buildTimelineRows(message: msg, streaming: false)
-        #expect(runSteps(idle, 0).map(\.status)[1] == .completed)
-        #expect(runSteps(idle, 2).map(\.status) == [.completed, .completed, .completed])
+        let idle = runSteps(buildTimelineRows(message: msg, streaming: false), 1)
+        #expect(idle[1].status == .completed)
+        #expect(idle.suffix(3).map(\.status) == [.completed, .completed, .completed])
     }
 
     @Test
