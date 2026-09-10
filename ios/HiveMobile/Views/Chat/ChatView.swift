@@ -416,7 +416,6 @@ struct ChatView: View {
     private var findableMessages: [FindableMessage] {
         store.messages.compactMap { message in
             if message.role == .user && message.content == "Question dismissed." { return nil }
-            if message.role == .assistant && message.cancelled == true && message.timeline == nil { return nil }
             if message.role == .assistant, message.timeline != nil {
                 return FindableMessage(id: message.id, content: message.timelineSearchableText, rendersMarkdown: false)
             }
