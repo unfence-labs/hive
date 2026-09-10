@@ -106,7 +106,7 @@ struct TimelineStepsTests {
     func hidesPlanWriteToolAndMapsExitPlanModeToStandalonePlanStep() throws {
         let msg = message(
             toolCalls: [
-                tool("write", name: "Write", input: #"{"file_path":"/repo/.claude/plans/plan.md","content":"# Plan"}"#),
+                tool("write", name: "Write", input: ##"{"file_path":"/repo/.claude/plans/plan.md","content":"# Plan"}"##),
                 tool("exit", name: "ExitPlanMode", input: "{}")
             ],
             timeline: [.init(type: .tool, id: "write"), .init(type: .tool, id: "exit")]
