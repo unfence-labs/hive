@@ -65,50 +65,15 @@ struct ConversationTimelineTests {
     }
 
     @Test
-    func groupsOnlyConsecutiveActionsAndKeepsChildToolsUnderTheirParent() {
-        let timeline: [ConversationTimelineEntry] = [
-            .init(type: .text, id: "intro", text: "Start"),
-            .init(type: .tool, id: "a"), .init(type: .tool, id: "b"),
-            .init(type: .reasoning, id: "r"), .init(type: .tool, id: "c"),
-            .init(type: .tool, id: "question"), .init(type: .tool, id: "d"),
-            .init(type: .activity, id: "warning"), .init(type: .tool, id: "parent"),
-            .init(type: .tool, id: "child"), .init(type: .text, id: "end", text: "Done")
-        ]
-        let tools = ["a", "b", "c", "d", "parent"].map { tool($0) } + [
-            tool("question", name: "AskUserQuestion"), tool("child", parent: "parent")
-        ]
-        let warning = AgentActivity.diagnostic(.init(id: "warning", severity: .warning, title: "Warning",
-                                                       message: "Check this", source: nil, method: nil, details: nil))
-        let message = makeMessage(timeline: timeline, tools: tools, activities: [warning])
-        #expect(message.timelineGroups.map(\.id) == ["text:intro", "tool:a", "reasoning:r", "tool:c", "tool:question", "tool:d", "activity:warning", "tool:parent", "text:end"])
-        #expect(message.timelineGroups[1].entries.map(\.id) == ["a", "b"])
-        #expect(message.timelineGroups[4].isActionGroup == false)
-        #expect(message.timelineGroups.flatMap(\.entries).contains(where: { $0.id == "child" }) == false)
-        #expect(message.toolCalls?.contains(where: { $0.id == "child" }) == true)
-    }
-
-    @Test
-    func actionSummaryShowsRunningActionAndFailuresWithoutOpening() {
-        let failed = ToolCall(id: "fail", name: "Bash", input: "{}", output: "bad", parentToolUseId: nil, isError: true)
-        let running = tool("run", name: "Read")
-        let summary = ConversationTimelineActionSummary(tools: [failed, running], streaming: true)
-        #expect(summary.count == 2)
-        #expect(summary.failedCount == 1)
-        #expect(summary.runningToolName == "Read")
-        let finished = ConversationTimelineActionSummary(tools: [failed, running], streaming: false)
-        #expect(finished.runningToolName == nil)
-        #expect(finished.failedCount == 1)
-    }
-
-    @Test
-    func disclosureChoiceSurvivesMessageReplacementAndGroupGrowth() {
+    func disclosureChoiceSurvivesMessageReplacementAndRunGrowth() throws {
         let expansion = ConversationTimelineExpansion()
         let first = makeMessage(timeline: [.init(type: .tool, id: "a")], tools: [tool("a")])
         let replacement = makeMessage(timeline: [.init(type: .tool, id: "a"), .init(type: .tool, id: "b")],
                                   tools: [tool("a"), tool("b")])
-        let key = first.timelineGroups[0].id
+        let key = try #require(buildTimelineRows(message: first, streaming: false).first?.id)
+        let grown = try #require(buildTimelineRows(message: replacement, streaming: false).first?.id)
         expansion.toggle(key)
-        #expect(expansion.contains(replacement.timelineGroups[0].id))
+        #expect(expansion.contains(grown))
         expansion.toggle(key)
         #expect(!expansion.contains(key))
         #expect(makeMessage(timeline: nil, tools: [tool("legacy")]).timeline == nil)
@@ -155,39 +120,6 @@ struct ConversationTimelineTests {
         #expect(second.activeOrdinal == 0)
     }
 
-    @Test
-    func collapsedParentSummaryIncludesChildFailures() {
-        let child = ToolCall(id: "child", name: "Bash", input: "{}", output: "failed",
-                             parentToolUseId: "parent", isError: true)
-        let parent = tool("parent", name: "Agent")
-        let summary = ConversationTimelineActionSummary(tools: [parent], streaming: false, allTools: [parent, child])
-        #expect(summary.count == 1)
-        #expect(summary.failedCount == 1)
-        #expect(summary.completed == false)
-    }
-
-    @Test
-    func mixedActionGroupCountsFileChangeOnceAndKeepsCollaborationInOrder() throws {
-        let files = AgentActivity.fileChange(.init(id: "edit", status: "completed", files: [
-            .init(path: "a.swift", diff: "a", kind: "update", status: "completed"),
-            .init(path: "b.swift", diff: "b", kind: "update", status: "failed")
-        ]))
-        let collaboration = AgentActivity.subagentActivity(.init(
-            id: "agent", activityKind: .interrupted, agentThreadId: "child", agentPath: "/root/child"
-        ))
-        let message = makeMessage(timeline: [
-            .init(type: .tool, id: "read"), .init(type: .activity, id: "agent"),
-            .init(type: .activity, id: "edit")
-        ], tools: [tool("read")], activities: [collaboration, files])
-        let group = try #require(message.timelineGroups.first)
-        #expect(message.timelineGroups.count == 1)
-        #expect(group.entries.map(\.id) == ["read", "agent", "edit"])
-        let summary = ConversationTimelineActionSummary(message: message, group: group, streaming: false)
-        #expect(summary.count == 3)
-        #expect(summary.failedCount == 1)
-        #expect(message.timelineTools(for: group.entries[2]).count == 2)
-    }
-
     @Test @MainActor
     func idleStatusKeepsTimelineUntilRestHistoryReplacesIt() {
         let store = makeStore()
@@ -200,33 +132,6 @@ struct ConversationTimelineTests {
         store.applyFetchedHistory([makeMessage(timeline: [.init(type: .text, id: "text", text: "Done")], tools: [])], for: "s")
         #expect(store.timeline == nil)
         #expect(store.messages.last?.timeline?.first?.text == "Done")
-    }
-
-    @Test
-    func collaborationOutputDoesNotFinishAnAgentWhoseRawStateIsStillRunning() {
-        let agent = ToolCall(
-            id: "agent", name: "Agent",
-            input: #"{"tool":"spawnAgent","agentsStates":{"child":{"status":"running"}}}"#,
-            output: "Spawned", parentToolUseId: nil
-        )
-        let summary = ConversationTimelineActionSummary(tools: [agent], streaming: true)
-        #expect(summary.runningToolName == "Agent")
-        #expect(!summary.completed)
-        #expect(summary.failedCount == 0)
-    }
-
-    @Test
-    func agentRawFailureAndExplicitErrorRemainVisibleInCollapsedSummary() {
-        let agent = ToolCall(
-            id: "agent", name: "Agent", input: "{}",
-            output: #"{"agentsStates":{"child":{"status":"errored"}}}"#, parentToolUseId: nil
-        )
-        #expect(ConversationTimelineActionSummary(tools: [agent], streaming: false).failedCount == 1)
-        let explicitFailure = ToolCall(id: "agent", name: "Agent", input: "{}", output: "Failed",
-                                       parentToolUseId: nil, isError: true)
-        let summary = ConversationTimelineActionSummary(tools: [explicitFailure], streaming: true)
-        #expect(summary.failedCount == 1)
-        #expect(summary.runningToolName == nil)
     }
 
     @Test @MainActor
@@ -267,13 +172,13 @@ struct ConversationTimelineTests {
         return store
     }
 
-    private func tool(_ id: String, name: String = "Read", parent: String? = nil) -> ToolCall {
-        ToolCall(id: id, name: name, input: "{}", output: nil, parentToolUseId: parent)
+    private func tool(_ id: String) -> ToolCall {
+        ToolCall(id: id, name: "Read", input: "{}", output: nil, parentToolUseId: nil)
     }
 
-    private func makeMessage(timeline: [ConversationTimelineEntry]?, tools: [ToolCall], activities: [AgentActivity] = []) -> ChatMessage {
+    private func makeMessage(timeline: [ConversationTimelineEntry]?, tools: [ToolCall]) -> ChatMessage {
         ChatMessage(id: "turn", sessionId: "s", role: .assistant, content: "", images: nil,
-                    toolCalls: tools, agentActivities: activities, timeline: timeline,
+                    toolCalls: tools, timeline: timeline,
                     timestamp: "2026-09-08T00:00:00Z", cancelled: nil, durationMs: nil)
     }
 }

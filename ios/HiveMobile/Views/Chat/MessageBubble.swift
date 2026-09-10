@@ -31,55 +31,18 @@ struct MessageBubble: View, Equatable {
         AccentOption(rawValue: accentId)?.color ?? AccentOption.violet.color
     }
 
-    private var mergedToolCalls: [ToolCall] {
-        mergeToolCalls(message.toolCalls ?? [], with: message.agentActivities ?? [])
-    }
-
-    private var visibleActivities: [VisibleAgentActivity] {
-        visibleAgentActivities(message.agentActivities ?? [])
-    }
-
-    private var reasoningSegments: [ReasoningSegment] {
-        message.resolvedReasoningSegments
-    }
-
     var body: some View {
         HStack(alignment: .top, spacing: 0) {
             if message.role == .user { Spacer(minLength: 60) }
 
             VStack(alignment: message.role == .user ? .trailing : .leading, spacing: 6) {
-                if message.role == .assistant, message.timeline != nil {
-                    chronologicalContent
-                    if message.cancelled == true { messageContent }
-                } else {
-                    let reasoning = reasoningSegments
-                    if message.role == .assistant, !reasoning.isEmpty {
-                        ReasoningDisclosure(
-                            segments: reasoning,
-                            streaming: isStreaming || message.id == "streaming"
-                        )
-                    }
-
-                    messageContent
-
-                    goalBadge
-
-                    let tools = mergedToolCalls
-                    if message.role == .assistant, !tools.isEmpty {
-                        WhisperToolCallsBlock(
-                            toolCalls: tools,
-                            pendingToolUseIds: pendingToolUseIds,
-                            dismissedToolCallIds: dismissedToolCallIds,
-                            showExecutingState: isStreaming || message.id == "streaming"
-                        )
-                    }
-
-                    let activities = visibleActivities
-                    if message.role == .assistant, !activities.isEmpty {
-                        AgentActivityList(activities: activities, showExecutingState: isStreaming || message.id == "streaming")
-                    }
-
+                if message.role == .assistant {
+                    assistantRows
                 }
+
+                messageContent
+
+                goalBadge
 
                 deliveryStatus
 
@@ -92,64 +55,67 @@ struct MessageBubble: View, Equatable {
         }
     }
 
+    // MARK: - Assistant Rows
+
+    /// Every assistant message renders through the timeline rows, legacy
+    /// messages included; only the last row of a streaming turn is live.
     @ViewBuilder
-    private var chronologicalContent: some View {
-        ForEach(message.timelineGroups) { group in
+    private var assistantRows: some View {
+        let rows = buildTimelineRows(message: message, streaming: isStreaming)
+        ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
             Group {
-                if group.isActionGroup {
-                    TimelineActionGroup(
-                        message: message,
-                        group: group,
-                        allTools: mergedToolCalls,
-                        showExecutingState: isStreaming,
-                        pendingToolUseIds: pendingToolUseIds,
-                        dismissedToolCallIds: dismissedToolCallIds
-                    )
-                } else if let entry = group.entries.first {
-                    switch entry.type {
-                    case .text:
-                        if let text = entry.text, !text.isEmpty {
-                            let highlight = message.timelineHighlight(for: entry.id, highlight: findHighlight)
-                            if isStreaming {
-                                StreamingMarkdownView(text: text, baseSize: markdownBaseSize)
-                            } else if highlight == nil, markdownNeedsRichRenderer(text) {
-                                Markdown(text)
-                                    .markdownTextStyle { FontSize(markdownBaseSize) }
-                                    .markdownTheme(.whisperChat)
-                                    .textSelection(.enabled)
-                            } else {
-                                SelectableMarkdownText(markdown: text, findHighlight: highlight)
-                            }
-                        }
-                    case .reasoning:
-                        let segments = reasoningSegments.filter {
-                            $0.id == entry.id || $0.id.hasPrefix(entry.id + ":")
-                        }
-                        if !segments.isEmpty {
-                            ReasoningDisclosure(segments: segments, streaming: isStreaming)
-                        }
-                    case .tool:
-                        if let tool = message.toolCalls?.first(where: { $0.id == entry.id }) {
-                            WhisperToolCallRow(
-                                tool: tool, children: [], childrenByParentId: [:],
-                                isPending: pendingToolUseIds.contains(tool.id),
-                                isDismissed: dismissedToolCallIds.contains(tool.id),
-                                showExecutingState: isStreaming
-                            )
-                        }
-                    case .activity:
-                        if let activity = message.agentActivities?.first(where: { $0.id == entry.id }) {
-                            AgentActivityList(
-                                activities: visibleAgentActivities([activity]),
-                                showExecutingState: isStreaming
-                            )
-                        }
-                    }
+                switch row {
+                case .text(let id, let text):
+                    textRow(id: id, text: text)
+                case .run(let id, let steps):
+                    ActionRun(rowId: id, steps: steps, streaming: isStreaming && index == rows.count - 1)
+                case .step(_, let step):
+                    StepRow(step: standaloneStep(step))
                 }
             }
-            .environment(\.timelineDisclosureKey, "\(message.sessionId):\(message.id):\(group.id)")
+            .environment(\.timelineDisclosureKey, "\(message.sessionId):\(message.id)")
             .frame(maxWidth: .infinity, alignment: .leading)
         }
+    }
+
+    @ViewBuilder
+    private func textRow(id: String, text: String) -> some View {
+        let highlight = textHighlight(rowId: id)
+        if isStreaming {
+            StreamingMarkdownView(text: text, baseSize: markdownBaseSize)
+        } else if highlight == nil, markdownNeedsRichRenderer(text) {
+            // MarkdownUI cannot paint arbitrary ranges; while this text has
+            // find matches it falls back to the selectable renderer so
+            // highlights stay visible.
+            Markdown(text)
+                .markdownTextStyle { FontSize(markdownBaseSize) }
+                .markdownTheme(.whisperChat)
+                .textSelection(.enabled)
+        } else {
+            SelectableMarkdownText(markdown: text, findHighlight: highlight)
+        }
+    }
+
+    /// Legacy messages are one text row, so the whole-message highlight applies;
+    /// timeline messages slice it per entry (row ids are `text:<entry id>`).
+    private func textHighlight(rowId: String) -> MessageFindHighlight? {
+        guard message.timeline != nil else { return findHighlight }
+        let entryId = rowId.hasPrefix("text:") ? String(rowId.dropFirst("text:".count)) : rowId
+        return message.timelineHighlight(for: entryId, highlight: findHighlight)
+    }
+
+    /// Question and plan lines reflect the pending tool input; a plan whose
+    /// markdown resolves opens it as its detail.
+    private func standaloneStep(_ step: TimelineStep) -> TimelineStep {
+        var presented = presentStandaloneStep(
+            step,
+            isInteractive: pendingToolUseIds.contains(step.id),
+            dismissed: dismissedToolCallIds.contains(step.id)
+        )
+        if presented.kind == .plan, let plan = planContent(in: message.toolCalls ?? [], planToolId: step.id) {
+            presented.source = .text(plan, markdown: true)
+        }
+        return presented
     }
 
     // MARK: - Delivery Status
@@ -192,6 +158,8 @@ struct MessageBubble: View, Equatable {
     private static let thumbSize = CGSize(width: 80, height: 60)
     private static let thumbRadius: CGFloat = 10
 
+    /// User attachments and bubble, or the cancelled notice of an assistant turn;
+    /// assistant prose lives in the rows.
     @ViewBuilder
     private var messageContent: some View {
         // Image attachments (user messages only)
@@ -225,46 +193,26 @@ struct MessageBubble: View, Equatable {
                         .lineLimit(3)
                 }
             }
-        } else if !message.content.isEmpty {
-            switch message.role {
-            case .user:
-                Text(highlightedUserContent(message.content, fileMentions: message.fileMentions))
-                    .font(WhisperFont.scaled(14))
-                    .foregroundStyle(WhisperColor.text)
-                    .lineSpacing(3)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 8)
-                    .background(
-                        userBubbleShape.fill(hiveAccent.opacity(0.12))
-                    )
-                    .overlay(
-                        userBubbleShape
-                            .stroke(hiveAccent.opacity(0.24), lineWidth: 1)
-                    )
-                    .opacity(bubbleMenuVisible ? 0 : 1)
-                    .overlay(
-                        BubbleContextMenu(copyText: message.clipboardText) { visible in
-                            bubbleMenuVisible = visible
-                        }
-                    )
-            case .assistant:
-                if isStreaming || message.id == "streaming" {
-                    StreamingMarkdownView(text: message.content, baseSize: markdownBaseSize)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                } else if findHighlight == nil, markdownNeedsRichRenderer(message.content) {
-                    // MarkdownUI cannot paint arbitrary ranges; while this
-                    // message has find matches it falls back to the selectable
-                    // renderer so highlights stay visible.
-                    Markdown(message.content)
-                        .markdownTextStyle { FontSize(markdownBaseSize) }
-                        .markdownTheme(.whisperChat)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .textSelection(.enabled)
-                } else {
-                    SelectableMarkdownText(markdown: message.content, findHighlight: findHighlight)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-            }
+        } else if message.role == .user, !message.content.isEmpty {
+            Text(highlightedUserContent(message.content, fileMentions: message.fileMentions))
+                .font(WhisperFont.scaled(14))
+                .foregroundStyle(WhisperColor.text)
+                .lineSpacing(3)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 8)
+                .background(
+                    userBubbleShape.fill(hiveAccent.opacity(0.12))
+                )
+                .overlay(
+                    userBubbleShape
+                        .stroke(hiveAccent.opacity(0.24), lineWidth: 1)
+                )
+                .opacity(bubbleMenuVisible ? 0 : 1)
+                .overlay(
+                    BubbleContextMenu(copyText: message.clipboardText) { visible in
+                        bubbleMenuVisible = visible
+                    }
+                )
         }
     }
 
@@ -523,659 +471,6 @@ private struct BubbleContextMenu: UIViewRepresentable {
             )
             let target = UIPreviewTarget(container: self, center: CGPoint(x: bounds.midX, y: bounds.midY))
             return UITargetedPreview(view: imageView, parameters: parameters, target: target)
-        }
-    }
-}
-
-// MARK: - Tool Display Helpers
-
-private struct ToolDisplay {
-    let icon: String
-    let label: String
-    var detail: String?
-    var hideOutput = false
-    var badgeText: String?
-    var badgeIcon: String?
-    var overrideSummary: String?
-    var stats: ChatActivityStats?
-    var executing = false
-}
-
-private func toolIcon(for name: String) -> String {
-    switch name {
-    case "Read", "Write": return "doc.text"
-    case "Edit": return "pencil"
-    case "Bash": return "terminal"
-    case "Grep", "Glob": return "magnifyingglass"
-    case "Task", "Agent": return "arrow.triangle.branch"
-    case "TaskCreate", "TaskUpdate", "TaskList", "TaskGet", "TodoList": return "checklist"
-    case "WebSearch", "WebFetch": return "globe"
-    case "AskUserQuestion": return "bubble.left"
-    default: return "wrench"
-    }
-}
-
-private func getFilename(_ path: String) -> String {
-    (path as NSString).lastPathComponent
-}
-
-/// Resolve file path across providers (Claude: file_path, Codex: filename).
-private func resolveFilePath(_ input: [String: Any]) -> String? {
-    (input["file_path"] ?? input["filename"]) as? String
-}
-
-/// Compute edit diff stats using prefix/suffix line matching.
-private func computeEditDiffStats(oldString: String, newString: String) -> (added: Int, removed: Int) {
-    let oldLines = oldString.split(separator: "\n", omittingEmptySubsequences: false)
-    let newLines = newString.split(separator: "\n", omittingEmptySubsequences: false)
-    // Common prefix
-    var prefix = 0
-    while prefix < oldLines.count && prefix < newLines.count && oldLines[prefix] == newLines[prefix] {
-        prefix += 1
-    }
-    // Common suffix (not overlapping with prefix)
-    var suffix = 0
-    while suffix < oldLines.count - prefix && suffix < newLines.count - prefix
-            && oldLines[oldLines.count - 1 - suffix] == newLines[newLines.count - 1 - suffix] {
-        suffix += 1
-    }
-    let removed = oldLines.count - prefix - suffix
-    let added = newLines.count - prefix - suffix
-    return (added, removed)
-}
-
-private func computeToolStats(_ tool: ToolCall) -> ChatActivityStats? {
-    guard let input = parsedToolInputObject(tool.input) else {
-        return nil
-    }
-
-    switch tool.name {
-    case "Edit":
-        let oldString = input["old_string"] as? String
-        let newString = input["new_string"] as? String
-        let diff = input["diff"] as? String
-        if let diff, !diff.isEmpty {
-            let stats = parseDiffStats(diff)
-            guard stats.added > 0 || stats.removed > 0 else { return nil }
-            return ChatActivityStats(kind: .diff, added: stats.added, removed: stats.removed)
-        }
-        guard (oldString != nil && !oldString!.isEmpty) || (newString != nil && !newString!.isEmpty) else { return nil }
-        let stats = computeEditDiffStats(oldString: oldString ?? "", newString: newString ?? "")
-        guard stats.added > 0 || stats.removed > 0 else { return nil }
-        return ChatActivityStats(kind: .diff, added: stats.added, removed: stats.removed)
-
-    case "Write":
-        guard let content = input["content"] as? String, !content.isEmpty else { return nil }
-        let lineCount = content.components(separatedBy: "\n").count
-        return ChatActivityStats(kind: .diff, added: lineCount, removed: 0)
-
-    case "Grep":
-        guard let output = tool.output, !output.isEmpty else { return nil }
-        let lines = output.split(separator: "\n", omittingEmptySubsequences: true)
-        guard !lines.isEmpty else { return nil }
-        return ChatActivityStats(kind: .plain, label: "\(lines.count) result\(lines.count != 1 ? "s" : "")")
-
-    case "Glob":
-        guard let output = tool.output, !output.isEmpty else { return nil }
-        let lines = output.split(separator: "\n", omittingEmptySubsequences: true)
-        guard !lines.isEmpty else { return nil }
-        return ChatActivityStats(kind: .plain, label: "\(lines.count) file\(lines.count != 1 ? "s" : "")")
-
-    default:
-        return nil
-    }
-}
-
-private func getToolDisplay(
-    _ tool: ToolCall,
-    children: [ToolCall] = [],
-    childrenByParentId: [String: [ToolCall]] = [:],
-    isPending: Bool = false,
-    isDismissed: Bool = false,
-    showExecutingState: Bool = false
-) -> ToolDisplay {
-    guard let input = parsedToolInputObject(tool.input) else {
-        return ToolDisplay(icon: toolIcon(for: tool.name), label: tool.name, detail: String(tool.input.prefix(40)))
-    }
-
-    switch tool.name {
-    case "Read":
-        let filePath = resolveFilePath(input)
-        let limit = input["limit"] as? Int
-        let label = limit != nil ? "Read \(limit!) lines" : "Read"
-        return ToolDisplay(icon: "doc.text", label: label, detail: filePath.map(getFilename))
-
-    case "Edit":
-        let filePath = resolveFilePath(input)
-        var display = ToolDisplay(icon: "pencil", label: "Edit", detail: filePath.map(getFilename), hideOutput: true)
-        display.stats = computeToolStats(tool)
-        return display
-
-    case "Write":
-        let filePath = resolveFilePath(input)
-        var display = ToolDisplay(icon: "doc.text", label: "Write", detail: filePath.map(getFilename))
-        display.stats = computeToolStats(tool)
-        return display
-
-    case "Bash":
-        let command = input["command"] as? String
-        let truncated = command.map { $0.count > 50 ? String($0.prefix(50)) + "..." : $0 }
-        return ToolDisplay(icon: "terminal", label: "Bash", detail: truncated)
-
-    case "Grep":
-        let pattern = input["pattern"] as? String
-        let path = input["path"] as? String
-        var detail = pattern.map { "\"\($0)\"" }
-        if let path { detail = (detail ?? "") + " in \(getFilename(path))" }
-        var grepDisplay = ToolDisplay(icon: "magnifyingglass", label: "Grep", detail: detail)
-        grepDisplay.stats = computeToolStats(tool)
-        return grepDisplay
-
-    case "Glob":
-        let pattern = input["pattern"] as? String
-        var globDisplay = ToolDisplay(icon: "magnifyingglass", label: "Glob", detail: pattern)
-        globDisplay.stats = computeToolStats(tool)
-        return globDisplay
-
-    case "Task", "Agent":
-        let subagentType = input["subagent_type"] as? String
-        let description = input["description"] as? String
-        let label = tool.name == "Agent"
-            ? (subagentType ?? "Agent")
-            : (subagentType.map { "Task (\($0))" } ?? "Task")
-        let state = subAgentExecutionState(
-            for: tool,
-            children: children,
-            childrenByParentId: childrenByParentId,
-            showExecutingState: showExecutingState
-        )
-        var display = ToolDisplay(icon: "arrow.triangle.branch", label: label, detail: description)
-        display.executing = state == .running
-        if state == .failed {
-            display.badgeText = "FAILED"
-            display.badgeIcon = "exclamationmark.triangle"
-        }
-        return display
-
-    case "WebFetch", "WebSearch":
-        let url = input["url"] as? String
-        let query = input["query"] as? String
-        return ToolDisplay(icon: "globe", label: tool.name, detail: url ?? query)
-
-    case "AskUserQuestion":
-        let questions = (input["questions"] as? [[String: Any]]) ?? []
-        let count = questions.count
-        let badgeText = isPending ? "WAITING" : (isDismissed ? "CANCELLED" : "ANSWERED")
-        let badgeIcon = isPending ? "clock" : (isDismissed ? "xmark.circle" : "checkmark.circle")
-        return ToolDisplay(
-            icon: "bubble.left",
-            label: "User input",
-            hideOutput: true,
-            badgeText: badgeText,
-            badgeIcon: badgeIcon,
-            overrideSummary: count > 0 ? "\(count) question\(count != 1 ? "s" : "")" : nil
-        )
-
-    case "TaskCreate":
-        let subject = input["subject"] as? String
-        return ToolDisplay(icon: "checklist", label: "TaskCreate", detail: subject)
-
-    case "TaskUpdate":
-        let taskId = input["taskId"] as? String
-        let status = input["status"] as? String
-        let parts = [taskId.map { "#\($0)" }, status].compactMap { $0 }
-        let detail = parts.isEmpty ? nil : parts.joined(separator: " → ")
-        return ToolDisplay(icon: "checklist", label: "TaskUpdate", detail: detail)
-
-    case "TaskList":
-        return ToolDisplay(icon: "checklist", label: "TaskList")
-
-    case "TaskGet":
-        let taskId = input["taskId"] as? String
-        return ToolDisplay(icon: "checklist", label: "TaskGet", detail: taskId.map { "#\($0)" })
-
-    case "TodoList":
-        let items = input["items"] as? [[String: Any]] ?? []
-        let completed = items.filter { ($0["completed"] as? Bool) == true }.count
-        return ToolDisplay(icon: "checklist", label: "TodoList", detail: "\(completed)/\(items.count) complete")
-
-    default:
-        return ToolDisplay(icon: toolIcon(for: tool.name), label: tool.name)
-    }
-}
-
-private func getOutputSummary(_ tool: ToolCall) -> String? {
-    guard let output = tool.output, !output.isEmpty else { return nil }
-    let lines = output.split(separator: "\n", omittingEmptySubsequences: true)
-    if lines.count == 1, lines[0].count < 60 { return String(lines[0]) }
-    if lines.count > 1 { return "\(lines.count) lines" }
-    return nil
-}
-
-// MARK: - Reasoning
-
-private struct ReasoningDisclosure: View {
-    let segments: [ReasoningSegment]
-    let streaming: Bool
-
-    private var disclosure = TimelineDisclosureState()
-    private var isExpanded: Bool { disclosure.isExpanded("reasoning") }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Button {
-                withoutAnimation { disclosure.toggle("reasoning") }
-            } label: {
-                ChatActivityRowLabel(
-                    label: streaming ? "Reasoning…" : "Reasoning",
-                    isExpanded: isExpanded
-                )
-            }
-            .buttonStyle(.plain)
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel("Reasoning")
-            .accessibilityValue(isExpanded ? "expanded" : "collapsed")
-            .accessibilityHint(isExpanded ? "Collapses the reasoning." : "Expands the reasoning.")
-
-            if isExpanded {
-                ToolContentPanel {
-                    VStack(alignment: .leading, spacing: 3) {
-                        ForEach(segments) { thought in
-                            ReasoningThoughtRow(thought: thought)
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-/// One compact log line: a discreet middot marker, the headline in the primary
-/// text color, and the body dimmed. Mirrors the web compact reasoning view.
-private struct ReasoningThoughtRow: View {
-    let thought: ReasoningSegment
-
-    private var line: Text {
-        let headline = Text(thought.headline ?? "").foregroundColor(WhisperColor.text)
-        let separator = Text(thought.headline != nil && thought.body != nil ? " — " : "")
-            .foregroundColor(WhisperColor.textMuted)
-        let body = Text(thought.body ?? "").foregroundColor(WhisperColor.textSecondary)
-        return Text("\(headline)\(separator)\(body)")
-    }
-
-    var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Text("·")
-                .foregroundStyle(WhisperColor.textMuted)
-            line
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .textSelection(.enabled)
-        }
-        .font(WhisperFont.mono(11))
-        .lineSpacing(2)
-        .accessibilityElement(children: .combine)
-    }
-}
-
-private struct TimelineActionGroup: View {
-    let message: ChatMessage
-    let group: ConversationTimelineGroup
-    let allTools: [ToolCall]
-    let showExecutingState: Bool
-    let pendingToolUseIds: Set<String>
-    let dismissedToolCallIds: Set<String>
-    private var disclosure = TimelineDisclosureState()
-
-    var body: some View {
-        let summary = ConversationTimelineActionSummary(message: message, group: group, streaming: showExecutingState)
-        let expanded = disclosure.isExpanded("group")
-        let children = buildChildrenMap(allTools)
-        VStack(alignment: .leading, spacing: 2) {
-            Button {
-                withoutAnimation { disclosure.toggle("group") }
-            } label: {
-                ChatActivityRowLabel(
-                    label: summary.label,
-                    badgeText: summary.failedCount > 0 ? "\(summary.failedCount) failed" : nil,
-                    badgeIcon: summary.failedCount > 0 ? "exclamationmark.triangle" : nil,
-                    isExpanded: expanded,
-                    executing: summary.runningToolName != nil
-                )
-            }
-            .buttonStyle(.plain)
-            .accessibilityValue(expanded ? "expanded" : "collapsed")
-            if expanded {
-                ForEach(group.entries, id: \.identity) { entry in
-                    let tools = message.timelineTools(for: entry)
-                    Group {
-                        if tools.isEmpty, entry.type == .activity,
-                           let activity = message.agentActivities?.first(where: { $0.id == entry.id }) {
-                            AgentActivityList(activities: visibleAgentActivities([activity]), showExecutingState: showExecutingState)
-                        } else {
-                            ForEach(tools) { tool in
-                                WhisperToolCallRow(
-                                    tool: tool,
-                                    children: children[tool.id] ?? [],
-                                    childrenByParentId: children,
-                                    isPending: pendingToolUseIds.contains(tool.id),
-                                    isDismissed: dismissedToolCallIds.contains(tool.id),
-                                    showExecutingState: showExecutingState
-                                )
-                            }
-                        }
-                    }
-                    .environment(\.timelineDisclosureKey, "\(message.sessionId):\(message.id):\(entry.identity)")
-                }
-            }
-        }
-    }
-}
-
-// MARK: - Whisper Tool Calls Block
-
-private let collapseThreshold = 3
-private let hiddenTaskToolNames: Set<String> = ["TaskUpdate", "TodoList"]
-
-private struct ToolCallTree {
-    let rootTools: [ToolCall]
-    let childrenByParentId: [String: [ToolCall]]
-
-    init(toolCalls: [ToolCall]) {
-        let visibleTools = toolCalls.filter { !hiddenTaskToolNames.contains($0.name) }
-        rootTools = visibleTools.filter { $0.parentToolUseId == nil }
-        childrenByParentId = buildChildrenMap(visibleTools)
-    }
-}
-
-private struct WhisperToolCallsBlock: View {
-    let toolCalls: [ToolCall]
-    var pendingToolUseIds: Set<String> = []
-    var dismissedToolCallIds: Set<String> = []
-    var showExecutingState = false
-    @State private var groupExpanded = false
-
-    var body: some View {
-        let tree = ToolCallTree(toolCalls: toolCalls)
-        let shouldCollapse = tree.rootTools.count >= collapseThreshold
-
-        VStack(alignment: .leading, spacing: 2) {
-            if shouldCollapse {
-                CollapsedToolSummary(
-                    tools: tree.rootTools,
-                    isExpanded: groupExpanded,
-                    isStreaming: showExecutingState,
-                    onToggle: {
-                        withoutAnimation { groupExpanded.toggle() }
-                    }
-                )
-            }
-
-            if !shouldCollapse || groupExpanded {
-                ForEach(tree.rootTools) { tool in
-                    WhisperToolCallRow(
-                        tool: tool,
-                        children: tree.childrenByParentId[tool.id] ?? [],
-                        childrenByParentId: tree.childrenByParentId,
-                        isPending: pendingToolUseIds.contains(tool.id),
-                        isDismissed: dismissedToolCallIds.contains(tool.id),
-                        showExecutingState: showExecutingState
-                    )
-                }
-            }
-        }
-    }
-}
-
-// MARK: - Collapsed Tool Summary
-
-private struct CollapsedToolSummary: View {
-    let tools: [ToolCall]
-    let isExpanded: Bool
-    let isStreaming: Bool
-    let onToggle: () -> Void
-
-    private var summaryLabel: String {
-        let subagentCount = tools.filter { $0.name == "Task" || $0.name == "Agent" }.count
-        let toolCount = tools.count - subagentCount
-        var parts: [String] = []
-        if toolCount > 0 { parts.append("\(toolCount) tool call\(toolCount != 1 ? "s" : "")") }
-        if subagentCount > 0 { parts.append("\(subagentCount) subagent\(subagentCount != 1 ? "s" : "")") }
-        return parts.joined(separator: ", ")
-    }
-
-    private var uniqueIcons: [String] {
-        var seen = Set<String>()
-        return tools.compactMap { tool in
-            let icon = toolIcon(for: tool.name)
-            return seen.insert(icon).inserted ? icon : nil
-        }
-    }
-
-    var body: some View {
-        Button(action: onToggle) {
-            ChatActivityRowLabel(
-                label: summaryLabel,
-                isExpanded: isExpanded,
-                accessoryIcons: uniqueIcons,
-                executing: isStreaming
-            )
-        }
-        .buttonStyle(.plain)
-    }
-}
-
-// MARK: - Tool Call Row
-
-private struct WhisperToolCallRow: View {
-    let tool: ToolCall
-    let children: [ToolCall]
-    let childrenByParentId: [String: [ToolCall]]
-    var isPending = false
-    var isDismissed = false
-    var showExecutingState = false
-    private var disclosure = TimelineDisclosureState()
-    private var isExpanded: Bool { disclosure.isExpanded("tool:" + tool.id) }
-
-    var body: some View {
-        let display = getToolDisplay(
-            tool,
-            children: children,
-            childrenByParentId: childrenByParentId,
-            isPending: isPending,
-            isDismissed: isDismissed,
-            showExecutingState: showExecutingState
-        )
-        let summary = !isExpanded && display.stats == nil ? (display.overrideSummary ?? getOutputSummary(tool)) : nil
-
-        VStack(alignment: .leading, spacing: 0) {
-            Button {
-                withoutAnimation { disclosure.toggle("tool:" + tool.id) }
-            } label: {
-                ChatActivityRowLabel(icon: display.icon, label: display.label, detail: display.detail, stats: display.stats, summary: summary, badgeText: display.badgeText, badgeIcon: display.badgeIcon, executing: display.executing)
-            }
-            .buttonStyle(.plain)
-
-            if isExpanded {
-                VStack(alignment: .leading, spacing: 0) {
-                    if tool.name == "Edit" || tool.name == "Write" {
-                        DiffContentView(tool: tool)
-                    } else if tool.name == "AskUserQuestion" {
-                        AskUserQuestionContent(tool: tool)
-                    } else if let output = tool.output, !output.isEmpty, !display.hideOutput {
-                        ToolContentPanel {
-                            VStack(alignment: .leading, spacing: 8) {
-                                Text("OUTPUT")
-                                    .font(WhisperFont.mono(9))
-                                    .foregroundStyle(WhisperColor.textMuted)
-                                    .tracking(1)
-                                Text(output)
-                                    .font(WhisperFont.mono(11))
-                                    .foregroundStyle(WhisperColor.textSecondary)
-                                    .lineLimit(20)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                            }
-                        }
-                    }
-
-                    if !children.isEmpty {
-                        VStack(alignment: .leading, spacing: 2) {
-                            ForEach(children) { child in
-                                WhisperToolCallRow(
-                                    tool: child,
-                                    children: childrenByParentId[child.id] ?? [],
-                                    childrenByParentId: childrenByParentId,
-                                    showExecutingState: showExecutingState
-                                )
-                            }
-                        }
-                        .padding(.leading, 14)
-                        .overlay(alignment: .leading) {
-                            Rectangle()
-                                .fill(WhisperColor.textMuted.opacity(0.15))
-                                .frame(width: 2)
-                                .padding(.leading, 5)
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-// MARK: - Diff Content View (Edit tool expanded)
-
-/// Compute display-ready diff lines from old/new strings.
-private func computeDiffLines(oldString: String, newString: String) -> [DiffLine] {
-    let oldLines = oldString.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
-    let newLines = newString.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
-
-    // Common prefix
-    var pfx = 0
-    while pfx < oldLines.count && pfx < newLines.count && oldLines[pfx] == newLines[pfx] {
-        pfx += 1
-    }
-    // Common suffix (not overlapping with prefix)
-    var sfx = 0
-    while sfx < oldLines.count - pfx && sfx < newLines.count - pfx
-            && oldLines[oldLines.count - 1 - sfx] == newLines[newLines.count - 1 - sfx] {
-        sfx += 1
-    }
-
-    var result: [DiffLine] = []
-    var idx = 0
-
-    // Prefix context (show last 3 lines max)
-    let ctxBefore = max(0, pfx - 3)
-    for i in ctxBefore..<pfx {
-        result.append(DiffLine(id: idx, kind: .context, text: oldLines[i])); idx += 1
-    }
-    // Removed lines
-    for i in pfx..<(oldLines.count - sfx) {
-        result.append(DiffLine(id: idx, kind: .removed, text: oldLines[i])); idx += 1
-    }
-    // Added lines
-    for i in pfx..<(newLines.count - sfx) {
-        result.append(DiffLine(id: idx, kind: .added, text: newLines[i])); idx += 1
-    }
-    // Suffix context (show first 3 lines max)
-    let ctxAfter = min(sfx, 3)
-    for i in 0..<ctxAfter {
-        let lineIdx = oldLines.count - sfx + i
-        result.append(DiffLine(id: idx, kind: .context, text: oldLines[lineIdx])); idx += 1
-    }
-
-    return result
-}
-
-private struct DiffContentView: View {
-    let tool: ToolCall
-    private let parsed: (filePath: String?, lines: [DiffLine])
-
-    init(tool: ToolCall) {
-        self.tool = tool
-        self.parsed = DiffContentView.buildParsed(tool)
-    }
-
-    private static func buildParsed(_ tool: ToolCall) -> (filePath: String?, lines: [DiffLine]) {
-        guard let input = parsedToolInputObject(tool.input) else {
-            return (nil, [])
-        }
-        let filePath = resolveFilePath(input)
-
-        // Write tool: all-new content
-        if let content = input["content"] as? String, !content.isEmpty {
-            let lines = content.split(separator: "\n", omittingEmptySubsequences: false)
-            let diffLines = lines.enumerated().map { DiffLine(id: $0.offset, kind: .added, text: String($0.element)) }
-            return (filePath, diffLines)
-        }
-
-        // Codex format: unified diff string
-        if let diff = input["diff"] as? String, !diff.isEmpty {
-            return (filePath, parseUnifiedDiffLines(diff))
-        }
-        // Claude format: old_string + new_string
-        let oldString = input["old_string"] as? String ?? ""
-        let newString = input["new_string"] as? String ?? ""
-        return (filePath, computeDiffLines(oldString: oldString, newString: newString))
-    }
-
-    var body: some View {
-        let result = parsed
-
-        ToolContentPanel {
-            VStack(alignment: .leading, spacing: 0) {
-                if let path = result.filePath {
-                    Text(path)
-                        .font(WhisperFont.mono(10))
-                        .foregroundStyle(WhisperColor.textMuted)
-                        .lineLimit(1)
-                        .padding(.bottom, 6)
-                }
-
-                DiffLinesView(lines: result.lines)
-            }
-        }
-    }
-}
-
-// MARK: - AskUserQuestion Expanded Content
-
-private struct AskUserQuestionContent: View {
-    let tool: ToolCall
-
-    private var questions: [(text: String, options: [String])] {
-        guard let input = parsedToolInputObject(tool.input),
-              let arr = input["questions"] as? [[String: Any]] else {
-            return []
-        }
-        return arr.enumerated().map { idx, q in
-            let text = q["question"] as? String ?? "Question \(idx + 1)"
-            let options = (q["options"] as? [[String: Any]])?.compactMap { $0["label"] as? String } ?? []
-            return (text: text, options: options)
-        }
-    }
-
-    var body: some View {
-        ToolContentPanel {
-            VStack(alignment: .leading, spacing: 10) {
-                ForEach(Array(questions.enumerated()), id: \.offset) { _, q in
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(q.text)
-                            .font(WhisperFont.scaled(12, weight: .medium))
-                            .foregroundStyle(WhisperColor.textSecondary)
-                        ForEach(q.options, id: \.self) { option in
-                            HStack(spacing: 5) {
-                                Circle()
-                                    .stroke(WhisperColor.textMuted, lineWidth: 1)
-                                    .frame(width: 6, height: 6)
-                                Text(option)
-                                    .font(WhisperFont.mono(11))
-                                    .foregroundStyle(WhisperColor.textMuted)
-                            }
-                        }
-                    }
-                }
-            }
         }
     }
 }

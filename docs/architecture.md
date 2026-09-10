@@ -114,6 +114,8 @@ current step's line with a shimmer on its subject; any run followed by prose is 
 finished run of two or more steps collapses into a "N tools used" line that expands to its steps at
 the same level, and a step opens at most one detail panel, the only bordered surface. Agents are steps
 whose children indent under them, recursively, with the agent's prompt and result as plain lines.
+The iOS client renders assistant turns through the same grammar (`ios/HiveMobile/Models/TimelineSteps.swift`
+builds the rows, `MessageBubble` draws them).
 
 **Script stream** — `ws://<host>/ws/script/:wsId?type=<scriptType>` · binary frames are PTY bytes; JSON control messages are `ready`, `exit`, `error`.
 

@@ -21,6 +21,48 @@ struct ShimmerModifier: ViewModifier {
     }
 }
 
+// MARK: - Step shimmer (live timeline text)
+
+/// A neutral highlight sweeping over muted text while a step runs: the text stays
+/// `WhisperColor.textMuted` and a brighter band travels across it. Reduce Motion
+/// renders the static muted text. Mirrors the web `step-live-text` keyframes.
+struct StepShimmerModifier: ViewModifier {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private static let period: TimeInterval = 1.6
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if reduceMotion {
+            content
+        } else {
+            content
+                .overlay {
+                    TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { context in
+                        let elapsed = context.date.timeIntervalSinceReferenceDate
+                        let phase = elapsed.truncatingRemainder(dividingBy: Self.period) / Self.period
+                        GeometryReader { geo in
+                            LinearGradient(
+                                stops: [
+                                    .init(color: WhisperColor.textMuted, location: 0.25),
+                                    .init(color: WhisperColor.text, location: 0.5),
+                                    .init(color: WhisperColor.textMuted, location: 0.75),
+                                ],
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            )
+                            .frame(width: geo.size.width)
+                            .offset(x: (phase * 2 - 1) * geo.size.width)
+                        }
+                    }
+                    .transaction { $0.animation = nil }
+                    .allowsHitTesting(false)
+                }
+                .mask { content }
+        }
+    }
+}
+
 // MARK: - Pulse (active workspace glow)
 
 struct PulseModifier: ViewModifier {
@@ -62,6 +104,11 @@ struct GlowModifier: ViewModifier {
 
 extension View {
     func shimmer() -> some View { modifier(ShimmerModifier()) }
+    /// Live step text; `active` false leaves the view untouched.
+    @ViewBuilder
+    func stepShimmer(_ active: Bool = true) -> some View {
+        if active { modifier(StepShimmerModifier()) } else { self }
+    }
     func pulse(isActive: Bool) -> some View { modifier(PulseModifier(isActive: isActive)) }
     func accentGlow(color: Color, radius: CGFloat = 8, isActive: Bool = true) -> some View {
         modifier(GlowModifier(color: color, radius: radius, isActive: isActive))

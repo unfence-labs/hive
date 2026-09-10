@@ -27,6 +27,7 @@ let package = Package(
                 "Models/ConversationSurfaceModels.swift",
                 "Models/ConversationTimeline.swift",
                 "Models/Models.swift",
+                "Models/TimelineSteps.swift",
                 "Models/WebSocketTypes.swift",
                 "Services/APIClient.swift",
                 "Services/HiveHTTP.swift",
@@ -54,6 +55,7 @@ let package = Package(
                 "Stores/SubAgentStatus.swift",
                 "Stores/TaskDerivation.swift",
                 "Stores/TokenFormatting.swift",
+                "Stores/ToolDisplay.swift",
                 "Stores/ToolInputParsing.swift",
                 "Stores/WorkspaceDiff.swift"
             ]
