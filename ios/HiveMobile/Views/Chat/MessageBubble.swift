@@ -81,17 +81,17 @@ struct MessageBubble: View, Equatable {
     @ViewBuilder
     private func textRow(id: String, text: String) -> some View {
         let highlight = textHighlight(rowId: id)
-        if isStreaming {
-            StreamingMarkdownView(text: text, baseSize: markdownBaseSize)
-        } else if highlight == nil, markdownNeedsRichRenderer(text) {
-            // MarkdownUI cannot paint arbitrary ranges; while this text has
-            // find matches it falls back to the selectable renderer so
-            // highlights stay visible.
+        if highlight == nil, markdownContainsCodeBlock(text) || (!isStreaming && markdownNeedsRichRenderer(text)) {
+            // Keep the same renderer mounted when a code-bearing response finishes.
             Markdown(text)
                 .markdownTextStyle { FontSize(markdownBaseSize) }
                 .markdownTheme(.whisperChat)
                 .textSelection(.enabled)
+                .environment(\.completedCodeBlocks, isStreaming ? completedMarkdownCodeBlocks(text) : nil)
+        } else if isStreaming {
+            StreamingMarkdownView(text: text, baseSize: markdownBaseSize)
         } else {
+            // Preserve native find-range highlighting, including matches inside code.
             SelectableMarkdownText(markdown: text, findHighlight: highlight)
         }
     }
@@ -583,19 +583,8 @@ extension Theme {
         }
         // ── Code blocks ──
         .codeBlock { configuration in
-            ScrollView(.horizontal) {
-                configuration.label
-                    .fixedSize(horizontal: true, vertical: false)
-            }
-            .scrollIndicators(.hidden)
-            .markdownTextStyle {
-                FontFamilyVariant(.monospaced)
-                FontSize(.em(12.0 / 14))
-                ForegroundColor(WhisperColor.codeText)
-            }
-            .padding(12)
-            .background(WhisperColor.codeBlockBg, in: RoundedRectangle(cornerRadius: 8))
-            .markdownMargin(top: .em(0.4), bottom: .em(0.4))
+            MarkdownCodeBlock(code: configuration.content, language: configuration.language)
+                .markdownMargin(top: .em(0.4), bottom: .em(0.4))
         }
         // ── Tables ──
         // The stock table style squeezes columns into the bubble width, which

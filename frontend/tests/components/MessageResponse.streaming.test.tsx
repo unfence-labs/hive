@@ -7,7 +7,7 @@ describe("MessageResponse streaming controls", () => {
   it("enables copying when streaming ends without changing the code", async () => {
     const user = userEvent.setup();
     const writeText = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue();
-    const markdown = "```bash\nnpm run dev\n```";
+    const markdown = "```bash\nnpm run dev\n";
     const { rerender } = render(
       <MessageResponse isAnimating>{markdown}</MessageResponse>,
     );
@@ -21,6 +21,25 @@ describe("MessageResponse streaming controls", () => {
     expect(screen.getByRole("button", { name: /download file/i })).toBeEnabled();
     await user.click(screen.getByRole("button", { name: /copy code/i }));
     expect(writeText).toHaveBeenCalledWith("npm run dev\n");
+  });
+
+  it("enables a closed block while the response continues and keeps an open block disabled", async () => {
+    const user = userEvent.setup();
+    const writeText = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue();
+    const first = "```bash\nnpm run dev\n";
+    const { rerender } = render(<MessageResponse isAnimating>{first}</MessageResponse>);
+    expect(await screen.findByRole("button", { name: /copy code/i })).toBeDisabled();
+
+    rerender(<MessageResponse isAnimating>{first + "```"}</MessageResponse>);
+    await waitFor(() => expect(screen.getByRole("button", { name: /copy code/i })).toBeEnabled());
+    expect(screen.getByRole("button", { name: /download file/i })).toBeEnabled();
+    await user.click(screen.getByRole("button", { name: /copy code/i }));
+    expect(writeText).toHaveBeenCalledWith("npm run dev\n");
+
+    rerender(<MessageResponse isAnimating>{first + "```\n\nNext command:\n\n```bash\nnpm test"}</MessageResponse>);
+    await waitFor(() => expect(screen.getAllByRole("button", { name: /copy code/i })).toHaveLength(2));
+    expect(screen.getAllByRole("button", { name: /copy code/i })[0]).toBeEnabled();
+    expect(screen.getAllByRole("button", { name: /copy code/i })[1]).toBeDisabled();
   });
 
   it("updates table controls across streaming state changes with unchanged Markdown", async () => {
