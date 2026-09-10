@@ -2,6 +2,9 @@ import SwiftUI
 import UIKit
 
 /// Presentation only: MarkdownUI supplies the code; the caller owns stream completion.
+///
+/// Chrome mirrors the web renderer: a tinted header carrying the lowercase
+/// language and the block actions, a hairline, then the code on the card fill.
 struct CodeBlockView: View {
     let code: String
     let language: String?
@@ -10,47 +13,100 @@ struct CodeBlockView: View {
     @ScaledMetric(relativeTo: .body) private var fontSize: CGFloat = 12
     @State private var copied = false
 
+    private static let cornerRadius: CGFloat = 10
+
+    /// Actions stay mounted while a fence is open so the header never reflows.
+    private var actionsEnabled: Bool { isComplete && !code.isEmpty }
+
+    private var languageLabel: String {
+        guard let language, !language.trimmingCharacters(in: .whitespaces).isEmpty else { return "code" }
+        return language.trimmingCharacters(in: .whitespaces).lowercased()
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack {
-                Text(language ?? "Code")
-                    .font(.caption.monospaced())
-                    .lineLimit(1)
-                Spacer(minLength: 8)
-                Button {
-                    UIPasteboard.general.string = code
-                    copied = true
-                } label: {
-                    Image(systemName: copied ? "checkmark" : "doc.on.doc")
-                        .frame(width: 44, height: 44)
-                }
-                .accessibilityLabel(copied ? "Copied" : "Copy code")
-                ShareLink(item: code) {
-                    Image(systemName: "square.and.arrow.up")
-                        .frame(width: 44, height: 44)
-                }
-                .accessibilityLabel("Share code")
-            }
-            .buttonStyle(.plain)
-            .disabled(!isComplete || code.isEmpty)
-            .foregroundStyle(WhisperColor.textSecondary)
-
-            ScrollView(.horizontal) {
-                SelectableCodeText(code: code, fontSize: fontSize)
-                    .fixedSize(horizontal: true, vertical: false)
-            }
-            .padding(.bottom, 12)
+            header
+            Divider().overlay(WhisperColor.separator)
+            codeBody
         }
-        .padding(.horizontal, 12)
-        .background(WhisperColor.codeBlockBg, in: RoundedRectangle(cornerRadius: 8))
+        .background(WhisperColor.codeBlockBg)
+        .clipShape(RoundedRectangle(cornerRadius: Self.cornerRadius, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: Self.cornerRadius, style: .continuous)
+                .strokeBorder(WhisperColor.border, lineWidth: 1)
+        )
         .task(id: copied) {
             guard copied else { return }
             do {
                 try await Task.sleep(for: .seconds(2))
-                copied = false
+                withAnimation(.snappy(duration: 0.2)) { copied = false }
             } catch {}
         }
         .onChange(of: code) { copied = false }
+    }
+
+    // MARK: - Header
+
+    private var header: some View {
+        HStack(spacing: 0) {
+            Text(languageLabel)
+                .font(WhisperFont.mono(10))
+                .foregroundStyle(WhisperColor.textMuted)
+                .lineLimit(1)
+                .padding(.leading, 12)
+
+            Spacer(minLength: 8)
+
+            Button {
+                UIPasteboard.general.string = code
+                withAnimation(.snappy(duration: 0.2)) { copied = true }
+            } label: {
+                actionIcon(
+                    copied ? "checkmark" : "doc.on.doc",
+                    tint: copied ? WhisperColor.success : WhisperColor.textSecondary
+                )
+            }
+            .accessibilityLabel(copied ? "Copied" : "Copy code")
+
+            ShareLink(item: code) {
+                actionIcon("square.and.arrow.up", tint: WhisperColor.textSecondary)
+            }
+            .accessibilityLabel("Share code")
+        }
+        .buttonStyle(.plain)
+        .disabled(!actionsEnabled)
+        .background(WhisperColor.codeBg)
+    }
+
+    /// Matches the message footer's hit area (44 x 38) so the header stays
+    /// compact while every action clears the touch-target minimum.
+    private func actionIcon(_ systemName: String, tint: Color) -> some View {
+        Image(systemName: systemName)
+            .font(.system(size: 12, weight: .medium))
+            .foregroundStyle(tint)
+            .contentTransition(.symbolEffect(.replace))
+            .frame(width: 16, height: 16)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 11)
+            .contentShape(Rectangle())
+            .opacity(actionsEnabled ? 1 : 0.4)
+            .animation(.easeOut(duration: 0.2), value: actionsEnabled)
+    }
+
+    // MARK: - Code
+
+    private var codeBody: some View {
+        ScrollView(.horizontal) {
+            SelectableCodeText(code: code, fontSize: fontSize)
+                .fixedSize(horizontal: true, vertical: false)
+        }
+        .scrollIndicators(.hidden)
+        .scrollBounceBehavior(.basedOnSize)
+        // Full-bleed scrolling: the code slides to the card edge instead of
+        // vanishing into a padded gutter, but rests inset like the header.
+        .contentMargins(.horizontal, 12, for: .scrollContent)
+        .padding(.vertical, 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
@@ -117,4 +173,26 @@ struct MarkdownCodeBlock: View {
             isComplete: completed.map { $0.contains(code.trimmingCharacters(in: .newlines)) } ?? true
         )
     }
+}
+
+// MARK: - Preview
+
+private let previewCode = """
+func login(using credentials: Credentials) async throws -> Session {
+    let token = try await tokenStore.token(for: credentials)
+    return try await validate(token)
+}
+"""
+
+#Preview("Code block") {
+    ScrollView {
+        VStack(alignment: .leading, spacing: 16) {
+            CodeBlockView(code: previewCode, language: "Swift")
+            CodeBlockView(code: "npm run test -- --watch", language: "bash")
+            CodeBlockView(code: previewCode, language: nil)
+            CodeBlockView(code: "let partial = ", language: "swift", isComplete: false)
+        }
+        .padding()
+    }
+    .background(WhisperColor.appBackground)
 }
