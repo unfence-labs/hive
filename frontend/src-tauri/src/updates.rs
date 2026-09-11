@@ -125,6 +125,11 @@ mod tests {
         assert!(validate_target_version("0.1.4", "0.1.4").is_ok());
         assert!(validate_target_version("0.1.3", "0.1.4").is_err());
         assert!(validate_target_version("0.1.4-beta.1", "0.1.4").is_err());
+        assert!(validate_target_version("0.1.5-beta.1", "0.1.4").is_ok());
+        assert!(validate_target_version("0.1.5-beta.10", "0.1.5-beta.2").is_ok());
+        assert!(validate_target_version("0.1.5", "0.1.5-beta.10").is_ok());
+        assert!(validate_target_version("0.1.5-beta.1", "0.1.5").is_err());
+        assert!(validate_target_version("0.1.5-beta.2", "0.1.5-beta.10").is_err());
         for target in ["v0.1.5", "0.1", "../latest", "0.1.5/path"] {
             assert!(validate_target_version(target, "0.1.4").is_err());
         }

@@ -134,17 +134,34 @@ export function connectionIdentity(connection: ServerConnection) {
   return serverUrlFor(connection);
 }
 
-/** Releases currently use stable semantic versions; reject unknown formats instead of guessing. */
+/** Compare release precedence, including explicitly targeted prereleases. */
 export function compareVersions(a: string, b: string): number {
   const parse = (value: string) => {
-    if (!/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(value))
+    const match = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$/.exec(value);
+    const prerelease = match?.[4]?.split(".") ?? [];
+    if (!match || match[0] !== value || prerelease.some((part) => /^0\d+$/.test(part)))
       throw new Error(`Unsupported release version: ${value}`);
-    return value.split(".").map(BigInt);
+    return { core: match.slice(1, 4).map(BigInt), prerelease };
   };
   const left = parse(a),
     right = parse(b);
   for (let i = 0; i < 3; i++)
-    if (left[i] !== right[i]) return left[i]! > right[i]! ? 1 : -1;
+    if (left.core[i] !== right.core[i]) return left.core[i]! > right.core[i]! ? 1 : -1;
+  if (left.prerelease.length === 0 || right.prerelease.length === 0) {
+    return left.prerelease.length === right.prerelease.length
+      ? 0
+      : left.prerelease.length === 0 ? 1 : -1;
+  }
+  for (let i = 0; i < Math.max(left.prerelease.length, right.prerelease.length); i++) {
+    const leftPart = left.prerelease[i], rightPart = right.prerelease[i];
+    if (leftPart === rightPart) continue;
+    if (leftPart === undefined) return -1;
+    if (rightPart === undefined) return 1;
+    const leftNumeric = /^\d+$/.test(leftPart), rightNumeric = /^\d+$/.test(rightPart);
+    if (leftNumeric && rightNumeric) return BigInt(leftPart) > BigInt(rightPart) ? 1 : -1;
+    if (leftNumeric !== rightNumeric) return leftNumeric ? -1 : 1;
+    return leftPart > rightPart ? 1 : -1;
+  }
   return 0;
 }
 function errorMessage(error: unknown) {

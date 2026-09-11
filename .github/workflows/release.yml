@@ -8,7 +8,7 @@ on:
         required: true
         type: string
       test_release:
-        description: Build a disposable X.Y.Z version as a non-latest prerelease
+        description: Build a disposable version (for example 0.1.5-beta.1) as a non-latest prerelease
         required: false
         default: false
         type: boolean
@@ -49,10 +49,6 @@ jobs:
             exit 1
           fi
           if [ "$TEST_RELEASE" = true ]; then
-            if ! [[ "$REQUESTED_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-              echo "test releases require an X.Y.Z version for the desktop version gate" >&2
-              exit 1
-            fi
             node scripts/release/release-version.mjs set "$REQUESTED_VERSION"
           fi
           node scripts/release/release-version.mjs check "$REQUESTED_VERSION"

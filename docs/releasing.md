@@ -146,8 +146,8 @@ release. Publish the draft only after the relevant smoke tests pass.
 ## Smoke-test a desktop update
 
 To test the complete managed-backend and desktop sequence before a stable release,
-dispatch `release` from `main` with `test_release=true` and an unused plain `X.Y.Z`
-version greater than the installed baseline (for example `0.1.9001` for a `0.1.4`
+dispatch `release` from `main` with `test_release=true` and an unused prerelease
+version greater than the installed baseline (for example `0.1.5-beta.1` for a `0.1.4`
 baseline). This overrides the build version without committing a version bump,
 uses the protected signing environment, and creates a draft marked prerelease
 and non-latest. Publish it with those flags retained; never promote a disposable
@@ -175,8 +175,12 @@ points its updater directly to the selected release. For the version-gated flow,
 backend already on the selected stable release and confirm that Hive updates the Mac to that exact
 version. Test the full backend-then-desktop sequence separately with an older installed app and
 backend on matching versions. Confirm that a backend failure prevents desktop installation, and
-that reopening an interrupted update offers **Resume update**. Prerelease update flows are outside
-the current version gate's supported scope.
+that reopening an interrupted update offers **Resume update**. Explicitly targeted prereleases
+use the same flow and exact version gate, including when a stable client joins a beta backend.
+Version precedence is `0.1.4 < 0.1.5-beta.1 < 0.1.5-beta.2 < 0.1.5`. No beta discovery channel
+is exposed: normal clients still check only stable releases. To discover the stable release after
+a pinned beta test, rebuild the test client with the normal updater endpoint, retaining its installed
+Cargo version. The update then advances both components to the stable version.
 
 The first release introducing the coupled updater is still installed by the old desktop updater.
 After restarting, its version gate requires backend alignment. Subsequent updates use the coupled

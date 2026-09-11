@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { readFile, mkdtemp, mkdir, copyFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { spawnSync } from "node:child_process";
 import test from "node:test";
 
 const workflow = await readFile(
@@ -114,4 +117,35 @@ test("test releases retain protected signing and cannot become the stable update
   const desktop = workflow.slice(workflow.indexOf("  desktop-macos-arm64:"));
   assert.ok(desktop.indexOf('release-version.mjs set "$RELEASE_VERSION"') < desktop.indexOf("npm run tauri build"));
   assert.match(desktop, /release-version.mjs set "\$RELEASE_VERSION"/);
+});
+
+
+test("test mode accepts beta versions while ordinary releases still require the recorded version", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "hive-beta-release-"));
+  try {
+    for (const directory of ["scripts/release", "frontend/src-tauri"]) {
+      await mkdir(path.join(root, directory), { recursive: true });
+    }
+    for (const file of ["scripts/release/release-version.mjs", "frontend/src-tauri/Cargo.toml", "frontend/src-tauri/Cargo.lock"]) {
+      await copyFile(new URL(`../../${file}`, import.meta.url), path.join(root, file));
+    }
+    const start = workflow.indexOf('          if [ "$TEST_RELEASE" = true ]; then');
+    const end = workflow.indexOf('          version="$(node', start);
+    assert.ok(start !== -1 && end > start);
+    const validation = workflow.slice(start, end);
+    const run = (version, mode) => spawnSync("bash", ["-e", "-c", validation], {
+      cwd: root,
+      env: { ...process.env, TEST_RELEASE: String(mode), REQUESTED_VERSION: version },
+      encoding: "utf8",
+    });
+    const initial = spawnSync("node", ["scripts/release/release-version.mjs", "set", "0.1.4"], { cwd: root });
+    assert.equal(initial.status, 0);
+    assert.notEqual(run("0.1.5-beta.1", false).status, 0);
+    const beta = run("0.1.5-beta.1", true);
+    assert.equal(beta.status, 0, beta.stderr);
+    assert.equal(spawnSync("node", ["scripts/release/release-version.mjs", "get"], { cwd: root, encoding: "utf8" }).stdout.trim(), "0.1.5-beta.1");
+    assert.notEqual(run("0.1.5-beta.01", true).status, 0);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });

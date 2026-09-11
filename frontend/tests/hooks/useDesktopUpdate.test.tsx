@@ -143,6 +143,43 @@ afterEach(() => {
 });
 
 describe("coupled updates", () => {
+
+  it.each([
+    ["0.1.4", "0.1.5-beta.1"],
+    ["0.1.5-beta.1", "0.1.5-beta.2"],
+    ["0.1.5-beta.2", "0.1.5"],
+  ])("updates matching app/backend %s to explicitly offered %s", async (current, target) => {
+    appVersion = serverVersion = current;
+    mocks.check.mockResolvedValue({ version: target, close: mocks.close });
+    await offer();
+    await launch();
+    expect(order).toEqual(["download", "provision", "install", "relaunch"]);
+    expect(mocks.provision).toHaveBeenCalledWith(
+      expect.objectContaining({ options: { update: true, targetVersion: target, expectedVersion: current } }),
+      expect.any(Function),
+    );
+  });
+
+  it("catches a stable client up to its beta backend without provisioning again", async () => {
+    serverVersion = "0.1.5-beta.1";
+    await refreshServerCompatibility();
+    await launch();
+    expect(order).toEqual(["download", "install", "relaunch"]);
+    expect(mocks.invoke).toHaveBeenCalledWith("check_desktop_update", { targetVersion: serverVersion });
+  });
+
+  it("resumes an interrupted beta update after the backend already finished", async () => {
+    serverVersion = "0.1.5-beta.1";
+    localStorage.setItem("hive-pending-update", JSON.stringify({
+      targetVersion: serverVersion, serverIdentity: "http://server.test:9420",
+    }));
+    const { result } = store();
+    await refreshServerCompatibility();
+    expect(result.current.update).toEqual({ phase: "resume", version: serverVersion });
+    await launch();
+    expect(order).toEqual(["download", "install", "relaunch"]);
+  });
+
   it("downloads and verifies the exact desktop release before provisioning, then installs and relaunches", async () => {
     const { result } = store();
     await offer();
@@ -748,5 +785,20 @@ describe("compatibility watcher", () => {
   it("rejects unknown versions and compares numeric version segments", () => {
     expect(compareVersions("0.10.0", "0.9.9")).toBe(1);
     expect(() => compareVersions("garbage", "0.1.4")).toThrow("Unsupported");
+  });
+});
+
+
+describe("release version precedence", () => {
+  it("orders prereleases numerically and lexically before their stable release", () => {
+    const versions = ["0.1.4", "0.1.5-alpha", "0.1.5-alpha.1", "0.1.5-alpha.beta", "0.1.5-beta", "0.1.5-beta.2", "0.1.5-beta.11", "0.1.5-rc.1", "0.1.5"];
+    for (let i = 1; i < versions.length; i++) {
+      expect(compareVersions(versions[i - 1]!, versions[i]!)).toBe(-1);
+      expect(compareVersions(versions[i]!, versions[i - 1]!)).toBe(1);
+    }
+    expect(compareVersions("0.1.5-beta.1", "0.1.5-beta.1")).toBe(0);
+  });
+  it.each(["0.1.5-beta.01", "0.1.5-beta..1", "0.1.5-", "0.1.5-beta/1", "v0.1.5-beta.1", "0.01.5-beta.1", "0.1.5-beta.1\n"])("rejects invalid release %j", (value) => {
+    expect(() => compareVersions(value, "0.1.4")).toThrow("Unsupported");
   });
 });
