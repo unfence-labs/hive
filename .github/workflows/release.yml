@@ -7,6 +7,11 @@ on:
         description: Exact Cargo version to release (for example 0.1.0-beta.1)
         required: true
         type: string
+      test_release:
+        description: Build a disposable version (for example 0.1.5-beta.1) as a non-latest prerelease
+        required: false
+        default: false
+        type: boolean
 
 concurrency:
   group: release
@@ -36,11 +41,15 @@ jobs:
         name: Validate main and release version
         env:
           REQUESTED_VERSION: ${{ inputs.version }}
+          TEST_RELEASE: ${{ inputs.test_release }}
         shell: bash
         run: |
           if [ "$GITHUB_REF" != "refs/heads/main" ]; then
             echo "releases must be dispatched from main, not $GITHUB_REF" >&2
             exit 1
+          fi
+          if [ "$TEST_RELEASE" = true ]; then
+            node scripts/release/release-version.mjs set "$REQUESTED_VERSION"
           fi
           node scripts/release/release-version.mjs check "$REQUESTED_VERSION"
           version="$(node scripts/release/release-version.mjs get)"
@@ -49,6 +58,7 @@ jobs:
           commit="$(git rev-parse HEAD)"
           prerelease=false
           case "$version" in *-*) prerelease=true ;; esac
+          if [ "$TEST_RELEASE" = true ]; then prerelease=true; fi
 
           if git ls-remote --exit-code --tags origin "refs/tags/v$version" >/dev/null 2>&1; then
             echo "tag v$version already exists" >&2
@@ -147,7 +157,14 @@ jobs:
 
       - name: Build frontend
         working-directory: frontend
-        run: npm run build
+        env:
+          TEST_RELEASE: ${{ inputs.test_release }}
+          RELEASE_VERSION: ${{ needs.validate.outputs.version }}
+        run: |
+          if [ "$TEST_RELEASE" = true ]; then
+            node ../scripts/release/release-version.mjs set "$RELEASE_VERSION"
+          fi
+          npm run build
 
       - name: Build signed and notarized Apple Silicon DMG
         working-directory: frontend
@@ -250,6 +267,14 @@ jobs:
             "$tarball.sig" \
             src-tauri/tauri.conf.json
 
+          bash ../scripts/provision/build.sh "$RELEASE_VERSION"
+          npm run tauri signer sign -- ../scripts/provision/dist/provision.sh
+          node ../scripts/release/verify-updater-signature.mjs \
+            ../scripts/provision/dist/provision.sh \
+            ../scripts/provision/dist/provision.sh.sig \
+            src-tauri/tauri.conf.json
+          cp ../scripts/provision/dist/provision.sh.sig ../dist-release/provision.sh.sig
+
           # The updater signature exists only in this job, so latest.json is written here.
           jq -n \
             --arg version "$RELEASE_VERSION" \
@@ -275,6 +300,7 @@ jobs:
             dist-release/Hive-${{ needs.validate.outputs.version }}-macos-arm64.app.tar.gz.sig
             dist-release/Hive-${{ needs.validate.outputs.version }}-macos-arm64.app.tar.gz.sha256
             dist-release/latest.json
+            dist-release/provision.sh.sig
           if-no-files-found: error
 
   draft-release:
@@ -308,13 +334,14 @@ jobs:
             "Hive-$VERSION-macos-arm64.app.tar.gz.sig" \
             "Hive-$VERSION-macos-arm64.app.tar.gz.sha256" \
             "latest.json" \
-            "provision.sh"; do
+            "provision.sh" \
+            "provision.sh.sig"; do
             test -f "release/$asset" || {
               echo "missing release asset: $asset" >&2
               exit 1
             }
           done
-          test "$(find release -type f | wc -l)" = 11
+          test "$(find release -type f | wc -l)" = 12
 
       - name: Create draft GitHub release
         uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
@@ -327,3 +354,4 @@ jobs:
           generate_release_notes: true
           draft: true
           prerelease: ${{ needs.validate.outputs.prerelease }}
+          make_latest: ${{ inputs.test_release && 'false' || '' }}

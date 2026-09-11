@@ -109,10 +109,22 @@ the generated uninstall script are all covered in **[Prerequisites](prerequisite
 
 ### Update the backend
 
-The desktop app offers this flow from Settings > Updates: it converges the server to the app's
-version, whether that means an upgrade or a visible downgrade. It runs the update over SSH, warns
-when agents are still running, and asks for the escalation password only when the server requires
-one. To run it by hand instead, wait for active agents, terminals, and automations to finish, then
+In an installed macOS app, choose **Update Hive** from the update notification or Settings > Updates.
+For a managed server, Hive downloads and verifies the app update first, updates the backend over
+SSH, checks that it reports the target version, then installs and restarts the app. The existing
+running-agent confirmation, SSH key selection, and escalation password prompt still apply.
+
+Workspace access requires matching app and backend versions. When another Mac has already updated
+the server, Hive updates only this Mac to that release; it never automatically downgrades either
+component. Manual servers must be updated separately. Development builds, browser clients, and iOS
+are outside this version gate. Initial setup installs the current app's backend version before
+offering updates.
+
+If an update fails, retry it from the update screen. After an interrupted update, choose
+**Resume update**; Hive checks installed versions and completes the remaining work. A desktop
+installation failure after a successful backend update does not roll back the backend.
+
+To update the backend by hand, wait for active agents, terminals, and automations to finish, then
 run the provisioner from the exact release you want:
 
 ```bash

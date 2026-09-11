@@ -1,5 +1,6 @@
 export type AppCommand =
   | "open-spotlight"
+  | "open-updates"
   | "toggle-sidebar"
   | "find-in-conversation"
   | "new-chat"

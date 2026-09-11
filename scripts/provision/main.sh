@@ -20,6 +20,7 @@ OPT_ALLOWED_HOST=""
 OPT_RELEASE_FILE=""
 OPT_PREFLIGHT=0
 OPT_UPDATE=0
+OPT_EXPECTED_VERSION=""
 ARCH_TAG=""
 HIVE_VERSION=""
 DO_RESET=0
@@ -39,6 +40,7 @@ Options:
                             nothing at all. Always exits 0.
   --update                  Update an existing completed Hive installation to
                             this script's version
+  --expected-version <v>    Refuse an update if the installed version changed
   --install-dir <path>      Where Hive and its private runtime live
                             (default /opt/hive, $HIVE_INSTALL_DIR)
   --data-dir <path>         Where projects, worktrees and sessions live — the
@@ -88,6 +90,7 @@ parse_args() {
       --release-file) [ $# -ge 2 ] || missing "$1"; OPT_RELEASE_FILE="$2"; shift ;;
       --preflight) OPT_PREFLIGHT=1 ;;
       --update) OPT_UPDATE=1 ;;
+      --expected-version) [ $# -ge 2 ] || missing "$1"; OPT_EXPECTED_VERSION="$2"; shift ;;
       --reset) DO_RESET=1 ;;
       -h|--help) usage; exit 0 ;;
       *) echo "unknown option: $1" >&2; usage >&2; exit 2 ;;
@@ -127,6 +130,12 @@ parse_args() {
   if [ "$OPT_UPDATE" = 1 ] &&
      { [ -n "$OPT_ALLOWED_HOST" ] || [ -n "$OPT_SSH_KEY" ]; }; then
     echo "--allowed-host and --ssh-public-key cannot be changed during an update" >&2
+    exit 2
+  fi
+
+  if [ -n "$OPT_EXPECTED_VERSION" ] &&
+     { [ "$OPT_UPDATE" != 1 ] || [[ ! "$OPT_EXPECTED_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+([+-][A-Za-z0-9.+-]+)?$ ]]; }; then
+    echo "--expected-version requires --update and a valid version" >&2
     exit 2
   fi
 

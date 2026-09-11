@@ -18,6 +18,7 @@ import {
   Sparkles,
   Users,
   Wifi,
+  type LucideIcon,
 } from "lucide-react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -69,91 +70,7 @@ export default function SettingsSidebar({ isResyncing = false }: { isResyncing?:
     <SidebarShell footerActions={footerActions}>
       <ScrollArea className="flex-1">
         <div className="px-3 py-3">
-          <SidebarSection label="General">
-            <NavItem
-              to="/settings/appearance"
-              label="Appearance"
-              icon={<Paintbrush className="h-4 w-4" />}
-              active={pathname === "/settings/appearance"}
-            />
-            <NavItem
-              to="/settings/account"
-              label="Account"
-              icon={<CircleUser className="h-4 w-4" />}
-              active={pathname === "/settings/account"}
-            />
-            <NavItem
-              to="/settings/connection"
-              label="Connection"
-              icon={<Wifi className="h-4 w-4" />}
-              active={pathname === "/settings/connection"}
-            />
-            {isDesktopShell() && (
-              <NavItem
-                to="/settings/server"
-                label="Server"
-                icon={<Server className="h-4 w-4" />}
-                active={pathname === "/settings/server"}
-              />
-            )}
-            <NavItem
-              to="/settings/notifications"
-              label="Notifications"
-              icon={<Bell className="h-4 w-4" />}
-              active={pathname === "/settings/notifications"}
-            />
-            <NavItem
-              to="/settings/updates"
-              label="Updates"
-              icon={<Download className="h-4 w-4" />}
-              active={pathname === "/settings/updates"}
-            />
-          </SidebarSection>
-
-          <SidebarSection label="Agents">
-            <NavItem
-              to="/settings/cli"
-              label="Harness"
-              icon={<Bot className="h-4 w-4" />}
-              active={pathname === "/settings/cli"}
-            />
-            <NavItem
-              to="/settings/models"
-              label="Models"
-              icon={<Cpu className="h-4 w-4" />}
-              active={pathname === "/settings/models"}
-            />
-            <NavItem
-              to="/settings/instructions"
-              label="Instructions"
-              icon={<BookOpen className="h-4 w-4" />}
-              active={pathname === "/settings/instructions"}
-            />
-            <NavItem
-              to="/settings/prompt"
-              label="Prompt"
-              icon={<FileText className="h-4 w-4" />}
-              active={pathname === "/settings/prompt"}
-            />
-            <NavItem
-              to="/settings/skills"
-              label="Skills"
-              icon={<Sparkles className="h-4 w-4" />}
-              active={pathname === "/settings/skills"}
-            />
-            <NavItem
-              to="/settings/team"
-              label="Team"
-              icon={<Users className="h-4 w-4" />}
-              active={pathname === "/settings/team"}
-            />
-            <NavItem
-              to="/settings/subagents"
-              label="Subagents"
-              icon={<FileCode2 className="h-4 w-4" />}
-              active={pathname === "/settings/subagents"}
-            />
-          </SidebarSection>
+          <SettingsNavigation />
 
           {projects.length > 0 && (
             <SidebarSection label="Repositories">
@@ -178,6 +95,92 @@ export default function SettingsSidebar({ isResyncing = false }: { isResyncing?:
         </div>
       </ScrollArea>
     </SidebarShell>
+  );
+}
+
+export function UpdateSidebar({
+  connectionAvailable,
+}: {
+  connectionAvailable: boolean;
+}) {
+  return (
+    <SidebarShell footerActions={null} showServerStatus={false}>
+      <ScrollArea className="flex-1">
+        <div className="px-3 py-3">
+          <SettingsNavigation restricted={{ connectionAvailable }} />
+        </div>
+      </ScrollArea>
+    </SidebarShell>
+  );
+}
+
+interface NavEntry {
+  to: string;
+  label: string;
+  icon: LucideIcon;
+  desktopOnly?: boolean;
+}
+
+/**
+ * The settings destinations, in sidebar order. Declared once: the restricted
+ * shell shown by the compatibility gate renders the very same list, only with
+ * everything it cannot reach turned off.
+ */
+const GENERAL_NAV: NavEntry[] = [
+  { to: "/settings/appearance", label: "Appearance", icon: Paintbrush },
+  { to: "/settings/account", label: "Account", icon: CircleUser },
+  { to: "/settings/connection", label: "Connection", icon: Wifi },
+  { to: "/settings/server", label: "Server", icon: Server, desktopOnly: true },
+  { to: "/settings/notifications", label: "Notifications", icon: Bell },
+  { to: "/settings/updates", label: "Updates", icon: Download },
+];
+
+const AGENTS_NAV: NavEntry[] = [
+  { to: "/settings/cli", label: "Harness", icon: Bot },
+  { to: "/settings/models", label: "Models", icon: Cpu },
+  { to: "/settings/instructions", label: "Instructions", icon: BookOpen },
+  { to: "/settings/prompt", label: "Prompt", icon: FileText },
+  { to: "/settings/skills", label: "Skills", icon: Sparkles },
+  { to: "/settings/team", label: "Team", icon: Users },
+  { to: "/settings/subagents", label: "Subagents", icon: FileCode2 },
+];
+
+function SettingsNavigation({
+  restricted,
+}: {
+  /** Set by the compatibility gate: only Updates, and maybe Connection, work. */
+  restricted?: { connectionAvailable: boolean };
+}) {
+  const { pathname } = useLocation();
+  const isReachable = (to: string) => {
+    if (!restricted) return true;
+    if (to === "/settings/updates") return true;
+    return to === "/settings/connection" && restricted.connectionAvailable;
+  };
+  // The gate routes everything but Connection to the update screen, so Updates
+  // is what the user is looking at whenever Connection is not.
+  const isActive = (to: string) =>
+    restricted && to === "/settings/updates"
+      ? pathname !== "/settings/connection" || !restricted.connectionAvailable
+      : pathname === to;
+  const items = (entries: NavEntry[]) =>
+    entries
+      .filter((entry) => !entry.desktopOnly || isDesktopShell())
+      .map((entry) => (
+        <NavItem
+          key={entry.to}
+          to={entry.to}
+          label={entry.label}
+          icon={<entry.icon className="h-4 w-4" />}
+          active={isActive(entry.to)}
+          disabled={!isReachable(entry.to)}
+        />
+      ));
+  return (
+    <>
+      <SidebarSection label="General">{items(GENERAL_NAV)}</SidebarSection>
+      <SidebarSection label="Agents">{items(AGENTS_NAV)}</SidebarSection>
+    </>
   );
 }
 
@@ -282,7 +285,30 @@ function RepositoryNavItem({
   );
 }
 
-function NavItem({ to, label, icon, active }: { to: string; label: string; icon: React.ReactNode; active: boolean }) {
+function NavItem({
+  to,
+  label,
+  icon,
+  active,
+  disabled = false,
+}: {
+  to: string;
+  label: string;
+  icon: React.ReactNode;
+  active: boolean;
+  disabled?: boolean;
+}) {
+  if (disabled) {
+    return (
+      <span
+        aria-disabled="true"
+        className="flex items-center gap-2.5 rounded-md px-2 py-1.5 text-sm text-muted-foreground opacity-50"
+      >
+        {icon}
+        {label}
+      </span>
+    );
+  }
   return (
     <Link
       to={to}

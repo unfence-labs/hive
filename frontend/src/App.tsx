@@ -1,7 +1,9 @@
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
-import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import AppLayout from "@/components/AppLayout";
+import AppLayout, { AppShell, SettingsHeader } from "@/components/AppLayout";
+import { UpdateSidebar } from "@/components/SettingsSidebar";
+import { CenterCard } from "@/components/CenterCard";
 import AddProjectDialog from "@/components/AddProjectDialog";
 import WorkspaceLauncher from "@/components/WorkspaceLauncher";
 import HomeView from "@/pages/HomeView";
@@ -11,12 +13,25 @@ import { useConnection } from "@/hooks/useConnection";
 import { isDesktopShell } from "@/lib/is-desktop";
 import { BRAIN_WORKSPACE_ID } from "@/lib/brain";
 import type { Project } from "@/types";
-import { WorkspaceLiveDataProvider } from "@/contexts/WorkspaceLiveDataContext";
+import {
+  WorkspaceLiveDataProvider,
+  useWorkspaceLiveDataContext,
+} from "@/contexts/WorkspaceLiveDataContext";
 import { useWsCacheInvalidation } from "@/hooks/useWsCacheInvalidation";
 import { useActiveSessionPrewarm } from "@/hooks/useActiveSessionPrewarm";
 import { useNotificationToasts } from "@/hooks/useNotificationToasts";
-import { useDesktopUpdate } from "@/hooks/useDesktopUpdate";
-import { ServerUpdatePrompt } from "@/components/ServerUpdatePrompt";
+import {
+  useDesktopUpdate,
+  useDesktopUpdateState,
+  useServerCompatibility,
+  serverCompatibilityMatchesConnection,
+  refreshServerCompatibility,
+  shouldCheckForUpdates,
+  desktopUpdateInProgress,
+  setUpdateBusyWorkspaces,
+} from "@/hooks/useDesktopUpdate";
+import { UpdatePanel } from "@/components/UpdatePanel";
+import { UpdateDialogs } from "@/components/UpdateDialogs";
 import { wsTransport } from "@/lib/ws-transport";
 import { HiveToaster } from "@/components/ui/toaster";
 import { useAppResync } from "@/hooks/useAppResync";
@@ -76,26 +91,165 @@ export default function App() {
   }, [requiresSetup]);
   const closeInstaller = useCallback(() => setInstaller(null), []);
 
-  // App-level, not ConfiguredApp-level: an installed build stuck on the
-  // installer gate must still be offered updates — that gate is exactly where
-  // a broken old build would strand its user.
-  useDesktopUpdate();
+  useDesktopUpdate(installer === null && !requiresSetup);
 
   return (
     <>
       <HiveToaster />
+      {installer === null && <UpdateDialogs />}
       {installer === "gate" ? (
         <Suspense fallback={<BootScreen />}>
           <Installer onClose={closeInstaller} />
         </Suspense>
       ) : (
-        <ConfiguredApp
-          installerOpen={installer === "overlay"}
-          onOpenInstaller={() => setInstaller("overlay")}
-          onCloseInstaller={closeInstaller}
-        />
+        <CompatibilityGate enabled={installer === null}>
+          <ConfiguredApp
+            installerOpen={installer === "overlay"}
+            onOpenInstaller={() => setInstaller("overlay")}
+            onCloseInstaller={closeInstaller}
+          />
+        </CompatibilityGate>
       )}
     </>
+  );
+}
+
+function UpdateBusyWorkspacesBridge({
+  workspaceIds,
+  loading,
+}: {
+  workspaceIds: string[];
+  loading: boolean;
+}) {
+  const liveData = useWorkspaceLiveDataContext();
+  const statusesKnown =
+    !loading && workspaceIds.every((id) => liveData[id]?.status !== undefined);
+  const busy = statusesKnown
+    ? workspaceIds.filter((id) => liveData[id]?.status === "busy").length
+    : null;
+  useEffect(() => {
+    setUpdateBusyWorkspaces(busy);
+    return () => setUpdateBusyWorkspaces(null);
+  }, [busy]);
+  useEffect(() => {
+    let previousStatus = wsTransport.getStatus(BRAIN_WORKSPACE_ID);
+    return wsTransport.subscribe(BRAIN_WORKSPACE_ID, () => {
+      const status = wsTransport.getStatus(BRAIN_WORKSPACE_ID);
+      if (status === "connected" && previousStatus !== "connected") {
+        void refreshServerCompatibility();
+      }
+      previousStatus = status;
+    });
+  }, []);
+  return null;
+}
+
+function CompatibilityGate({
+  children,
+  enabled,
+}: {
+  children: ReactNode;
+  enabled: boolean;
+}) {
+  if (!shouldCheckForUpdates()) return children;
+  return (
+    <DesktopCompatibilityGate enabled={enabled}>
+      {children}
+    </DesktopCompatibilityGate>
+  );
+}
+
+function DesktopCompatibilityGate({
+  children,
+  enabled,
+}: {
+  children: ReactNode;
+  enabled: boolean;
+}) {
+  const compatibility = useServerCompatibility();
+  const { connection } = useConnection();
+  const update = useDesktopUpdateState();
+  const inProgress = desktopUpdateInProgress();
+  const unfinished =
+    inProgress ||
+    update.phase === "resume" ||
+    update.phase === "input" ||
+    update.phase === "failed";
+  const matching =
+    serverCompatibilityMatchesConnection(connection) &&
+    compatibility.appVersion !== null &&
+    compatibility.server !== null &&
+    compatibility.appVersion === compatibility.server.version;
+  if (!enabled || (compatibility.phase === "ready" && matching && !unfinished))
+    return children;
+  // An update that owns the connection (or is waiting on a dialog) must not
+  // have it changed underneath it.
+  const connectionAvailable = !inProgress && update.phase !== "input";
+  const heading = unfinished
+    ? "Update Hive"
+    : compatibility.phase === "checking"
+      ? "Checking server…"
+      : compatibility.phase === "unavailable"
+        ? "Server unavailable"
+        : "Update required";
+  return (
+    <BrowserRouter>
+      <Routes>
+        <Route
+          element={
+            <AppShell
+              sidebar={
+                <UpdateSidebar connectionAvailable={connectionAvailable} />
+              }
+            />
+          }
+        >
+          {connectionAvailable && (
+            <Route
+              path="/settings/connection"
+              element={
+                <ConnectionSettings
+                  onRefreshConnection={() => {
+                    void refreshServerCompatibility();
+                  }}
+                />
+              }
+            />
+          )}
+          <Route
+            path="*"
+            element={
+              <div className="flex h-full min-h-0 flex-col overflow-hidden">
+                <SettingsHeader>
+                  <h1 className="text-sm font-medium">{heading}</h1>
+                </SettingsHeader>
+                <CenterCard scroll>
+                  {/*
+                    The same two sections as Settings > Updates: a blocked app
+                    shows what it will keep showing once it is unblocked. A run
+                    in flight speaks for itself, so the failed check is not
+                    reported and is not the user's to retry until it stops.
+                  */}
+                  <UpdatePanel
+                    appVersion={compatibility.appVersion}
+                    server={compatibility.server}
+                    serverState={compatibility.phase}
+                    error={unfinished ? undefined : compatibility.error}
+                    onRetry={
+                      !unfinished && compatibility.phase === "unavailable"
+                        ? () => {
+                            void refreshServerCompatibility();
+                          }
+                        : undefined
+                    }
+                  />
+                </CenterCard>
+              </div>
+            }
+          />
+        </Route>
+      </Routes>
+    </BrowserRouter>
   );
 }
 
@@ -164,7 +318,7 @@ function ConfiguredApp({
           }
         />
         <NotificationToastsBridge projects={projects} />
-        <ServerUpdatePrompt />
+        <UpdateBusyWorkspacesBridge workspaceIds={workspaceIds} loading={loading} />
         <AddProjectDialog
           open={showAddProject}
           onOpenChange={setShowAddProject}
@@ -213,7 +367,14 @@ function ConfiguredApp({
                 path="settings/connection"
                 element={
                   <ConnectionSettings
-                    onRefreshConnection={() => { wsTransport.disconnectAll(); fetchProjects(); }}
+                    onRefreshConnection={() => {
+                      if (shouldCheckForUpdates()) {
+                        void refreshServerCompatibility();
+                      } else {
+                        wsTransport.disconnectAll();
+                        fetchProjects();
+                      }
+                    }}
                   />
                 }
               />
