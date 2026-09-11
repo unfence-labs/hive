@@ -1,6 +1,6 @@
 [package]
 name = "hive"
-version = "0.1.4"
+version = "0.1.5"
 description = "Hive"
 authors = ["419Labs"]
 license = "GPL-3.0-or-later"
