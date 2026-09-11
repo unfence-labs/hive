@@ -368,19 +368,23 @@ describe("SettingsSidebar", () => {
   });
 });
 
-
 describe("UpdateSidebar", () => {
-  it.each([true, false])("keeps restricted navigation without fetching server data (connection available: %s)", (connectionAvailable) => {
-    apiMock.get.mockClear();
-    renderWithProviders(
-      <MemoryRouter initialEntries={["/settings/updates"]}>
-        <UpdateSidebar connectionAvailable={connectionAvailable} />
-      </MemoryRouter>,
-    );
-    expect(screen.getByRole("link", { name: "Updates" })).toBeInTheDocument();
-    expect(screen.getByText("Appearance")).toHaveAttribute("aria-disabled", "true");
-    expect(screen.queryByRole("link", { name: "Connection" }) !== null).toBe(connectionAvailable);
-    expect(screen.queryByRole("button", { name: "Back" })).not.toBeInTheDocument();
-    expect(apiMock.get).not.toHaveBeenCalled();
-  });
+  it.each([true, false])(
+    "keeps restricted navigation without fetching server data (connection available: %s)",
+    (connectionAvailable) => {
+      apiMock.get.mockClear();
+      renderWithProviders(
+        <MemoryRouter initialEntries={["/settings/updates"]}>
+          <UpdateSidebar connectionAvailable={connectionAvailable} />
+        </MemoryRouter>,
+      );
+      expect(screen.getByRole("link", { name: "Updates" })).toBeInTheDocument();
+      expect(screen.getByText("Appearance")).toHaveAttribute("aria-disabled", "true");
+      expect(screen.queryByRole("link", { name: "Connection" }) !== null).toBe(
+        connectionAvailable,
+      );
+      expect(screen.queryByRole("button", { name: "Back" })).not.toBeInTheDocument();
+      expect(apiMock.get).not.toHaveBeenCalled();
+    },
+  );
 });

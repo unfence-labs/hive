@@ -84,7 +84,6 @@ describe("UpdatesSettings", () => {
   });
   it("explains manual server updates and keeps the app action available", async () => {
     mocks.manual = true;
-    mocks.manual = true;
     mocks.get.mockResolvedValue({ version: "1.2.0", updateMethod: "manual" });
     mocks.state = { phase: "available", version: "1.4.0" };
     renderPage();

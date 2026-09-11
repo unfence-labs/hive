@@ -28,9 +28,13 @@ import {
 } from "@/hooks/useDesktopUpdate";
 import type { SshKey } from "@/lib/provision-client";
 
+/**
+ * Everything an update run has to ask for. The coordinator owns the question,
+ * so exactly one of these is open at a time and dismissing any of them cancels
+ * the run.
+ */
 export function UpdateDialogs() {
   const update = useDesktopUpdateState();
-  const { connection } = useConnection();
   if (update.phase !== "input") return null;
   const close = (open: boolean) => {
     if (!open) dismissUpdateInput();
@@ -38,62 +42,25 @@ export function UpdateDialogs() {
   if (update.kind === "agents")
     return (
       <AgentsRunningDialog
-        open
         onOpenChange={close}
         busyWorkspaces={update.busyWorkspaces}
-        onConfirm={() => respondToUpdate({ confirmAgents: true })}
       />
     );
   if (update.kind === "key")
-    return (
-      <SshKeyPickerDialog
-        open
-        onOpenChange={close}
-        keys={update.keys ?? []}
-        onPick={(key) => respondToUpdate({ keyPath: key.path })}
-      />
-    );
-  return (
-    <PasswordPrompt adminUser={connection?.adminUser} onOpenChange={close} />
-  );
-}
-
-function PasswordPrompt({
-  adminUser,
-  onOpenChange,
-}: {
-  adminUser?: string;
-  onOpenChange: (open: boolean) => void;
-}) {
-  const [password, setPassword] = useState("");
-  return (
-    <EscalationPasswordDialog
-      open
-      onOpenChange={onOpenChange}
-      adminUser={adminUser}
-      password={password}
-      onPasswordChange={setPassword}
-      onSubmit={() => {
-        respondToUpdate({ password });
-        setPassword("");
-      }}
-    />
-  );
+    return <SshKeyPickerDialog onOpenChange={close} keys={update.keys ?? []} />;
+  return <EscalationPasswordDialog onOpenChange={close} />;
 }
 
 function AgentsRunningDialog({
-  open,
   onOpenChange,
   busyWorkspaces,
-  onConfirm,
 }: {
-  open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** Unknown when no app window ever observed the workspaces. */
   busyWorkspaces?: number;
-  onConfirm: () => void;
 }) {
   return (
-    <AlertDialog open={open} onOpenChange={onOpenChange}>
+    <AlertDialog open onOpenChange={onOpenChange}>
       <AlertDialogContent>
         <AlertDialogHeader>
           <AlertDialogTitle>
@@ -102,20 +69,16 @@ function AgentsRunningDialog({
               : "Agents are running"}
           </AlertDialogTitle>
           <AlertDialogDescription>
-            {busyWorkspaces === undefined ? (
-              "Updating restarts the server and stops any running agents."
-            ) : (
-              <>
-                {busyWorkspaces} workspace
-                {busyWorkspaces === 1 ? " has" : "s have"} agents running.
-                Updating restarts the server and stops them.
-              </>
-            )}
+            {busyWorkspaces === undefined
+              ? "Updating restarts the server and stops any running agents."
+              : `${busyWorkspaces} workspace${busyWorkspaces === 1 ? " has" : "s have"} agents running. Updating restarts the server and stops them.`}
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
           <AlertDialogCancel>Cancel</AlertDialogCancel>
-          <AlertDialogAction onClick={onConfirm}>
+          <AlertDialogAction
+            onClick={() => respondToUpdate({ confirmAgents: true })}
+          >
             Update anyway
           </AlertDialogAction>
         </AlertDialogFooter>
@@ -125,19 +88,16 @@ function AgentsRunningDialog({
 }
 
 function SshKeyPickerDialog({
-  open,
   onOpenChange,
   keys,
-  onPick,
 }: {
-  open: boolean;
   onOpenChange: (open: boolean) => void;
   keys: SshKey[];
-  onPick: (key: SshKey) => void;
 }) {
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
+    <Dialog open onOpenChange={onOpenChange}>
+      {/* A picker, so it takes the palette surface its rows hover against. */}
+      <DialogContent className="bg-popover text-popover-foreground sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Select an SSH key</DialogTitle>
           <DialogDescription>
@@ -150,18 +110,18 @@ function SshKeyPickerDialog({
             No usable SSH key found in ~/.ssh.
           </p>
         ) : (
-          <div className="space-y-1">
+          <div className="space-y-0.5">
             {keys.map((key) => (
               <button
                 key={key.path}
                 type="button"
-                onClick={() => onPick(key)}
-                className="flex w-full items-center gap-2 rounded-md border border-border/50 px-3 py-2 text-left text-sm transition-colors hover:bg-accent"
+                onClick={() => respondToUpdate({ keyPath: key.path })}
+                className="flex w-full items-center gap-2 rounded-sm px-2 py-2 text-left text-sm transition-colors hover:bg-accent hover:text-accent-foreground"
               >
                 <KeyRound className="h-4 w-4 shrink-0 text-muted-foreground" />
                 <span className="min-w-0 flex-1 truncate">{key.label}</span>
                 {key.keyType && (
-                  <span className="text-xs text-muted-foreground">
+                  <span className="shrink-0 text-xs text-muted-foreground">
                     {key.keyType}
                   </span>
                 )}
@@ -175,44 +135,38 @@ function SshKeyPickerDialog({
 }
 
 function EscalationPasswordDialog({
-  open,
   onOpenChange,
-  adminUser,
-  password,
-  onPasswordChange,
-  onSubmit,
 }: {
-  open: boolean;
   onOpenChange: (open: boolean) => void;
-  adminUser: string | undefined;
-  password: string;
-  onPasswordChange: (value: string) => void;
-  onSubmit: () => void;
 }) {
+  const { connection } = useConnection();
+  const [password, setPassword] = useState("");
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Escalation password</DialogTitle>
           <DialogDescription>
-            {adminUser ?? "root"} needs a password to escalate on the server. It
-            is used for this run only and never stored.
+            {connection?.adminUser ?? "root"} needs a password to escalate on
+            the server. It is used for this run only and never stored.
           </DialogDescription>
         </DialogHeader>
         <form
+          className="grid gap-4"
           onSubmit={(event) => {
             event.preventDefault();
-            onSubmit();
+            respondToUpdate({ password });
+            setPassword("");
           }}
         >
           <Input
             type="password"
             value={password}
-            onChange={(event) => onPasswordChange(event.target.value)}
+            onChange={(event) => setPassword(event.target.value)}
             autoFocus
             aria-label="Password"
           />
-          <DialogFooter className="mt-4">
+          <DialogFooter>
             <Button
               type="button"
               variant="outline"

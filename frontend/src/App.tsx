@@ -1,18 +1,9 @@
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
-import {
-  lazy,
-  Suspense,
-  useCallback,
-  useEffect,
-  useMemo,
-  useState,
-  type ReactNode,
-} from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import AppLayout, { AppShell, SettingsHeader } from "@/components/AppLayout";
 import { UpdateSidebar } from "@/components/SettingsSidebar";
 import { CenterCard } from "@/components/CenterCard";
-import { SettingsPanel } from "@/components/settings/SettingsSection";
 import AddProjectDialog from "@/components/AddProjectDialog";
 import WorkspaceLauncher from "@/components/WorkspaceLauncher";
 import HomeView from "@/pages/HomeView";
@@ -39,9 +30,8 @@ import {
   desktopUpdateInProgress,
   setUpdateBusyWorkspaces,
 } from "@/hooks/useDesktopUpdate";
-import { UpdateControls } from "@/components/UpdateControls";
+import { UpdatePanel } from "@/components/UpdatePanel";
 import { UpdateDialogs } from "@/components/UpdateDialogs";
-import { Button } from "@/components/ui/button";
 import { wsTransport } from "@/lib/ws-transport";
 import { HiveToaster } from "@/components/ui/toaster";
 import { useAppResync } from "@/hooks/useAppResync";
@@ -51,31 +41,19 @@ const AutomationDetail = lazy(() => import("@/pages/AutomationDetail"));
 const WorkspaceView = lazy(() => import("@/pages/WorkspaceView"));
 const BrainView = lazy(() => import("@/pages/BrainView"));
 const AccountSettings = lazy(() => import("@/pages/settings/AccountSettings"));
-const AppearanceSettings = lazy(
-  () => import("@/pages/settings/AppearanceSettings"),
-);
-const ConnectionSettings = lazy(
-  () => import("@/pages/settings/ConnectionSettings"),
-);
+const AppearanceSettings = lazy(() => import("@/pages/settings/AppearanceSettings"));
+const ConnectionSettings = lazy(() => import("@/pages/settings/ConnectionSettings"));
 const ServerSettings = lazy(() => import("@/pages/settings/ServerSettings"));
 const AgentSettings = lazy(() => import("@/pages/settings/AgentSettings"));
 const ModelsSettings = lazy(() => import("@/pages/settings/ModelsSettings"));
 const ProjectDetail = lazy(() => import("@/pages/settings/ProjectDetail"));
 const TeamSettings = lazy(() => import("@/pages/settings/TeamSettings"));
-const PromptTemplatesSettings = lazy(
-  () => import("@/pages/settings/PromptTemplatesSettings"),
-);
+const PromptTemplatesSettings = lazy(() => import("@/pages/settings/PromptTemplatesSettings"));
 const SkillsSettings = lazy(() => import("@/pages/settings/SkillsSettings"));
-const InstructionsSettings = lazy(
-  () => import("@/pages/settings/InstructionsSettings"),
-);
-const SubagentsSettings = lazy(
-  () => import("@/pages/settings/SubagentsSettings"),
-);
+const InstructionsSettings = lazy(() => import("@/pages/settings/InstructionsSettings"));
+const SubagentsSettings = lazy(() => import("@/pages/settings/SubagentsSettings"));
 const UpdatesSettings = lazy(() => import("@/pages/settings/UpdatesSettings"));
-const CreateAutomationDialog = lazy(
-  () => import("@/components/CreateAutomationDialog"),
-);
+const CreateAutomationDialog = lazy(() => import("@/components/CreateAutomationDialog"));
 const Installer = lazy(() => import("@/pages/installer/Installer"));
 
 function NotificationToastsBridge({ projects }: { projects: Project[] }) {
@@ -204,6 +182,16 @@ function DesktopCompatibilityGate({
     compatibility.appVersion === compatibility.server.version;
   if (!enabled || (compatibility.phase === "ready" && matching && !unfinished))
     return children;
+  // An update that owns the connection (or is waiting on a dialog) must not
+  // have it changed underneath it.
+  const connectionAvailable = !inProgress && update.phase !== "input";
+  const heading = unfinished
+    ? "Update Hive"
+    : compatibility.phase === "checking"
+      ? "Checking server…"
+      : compatibility.phase === "unavailable"
+        ? "Server unavailable"
+        : "Update required";
   return (
     <BrowserRouter>
       <Routes>
@@ -211,14 +199,12 @@ function DesktopCompatibilityGate({
           element={
             <AppShell
               sidebar={
-                <UpdateSidebar
-                  connectionAvailable={!inProgress && update.phase !== "input"}
-                />
+                <UpdateSidebar connectionAvailable={connectionAvailable} />
               }
             />
           }
         >
-          {!inProgress && update.phase !== "input" && (
+          {connectionAvailable && (
             <Route
               path="/settings/connection"
               element={
@@ -235,52 +221,28 @@ function DesktopCompatibilityGate({
             element={
               <div className="flex h-full min-h-0 flex-col overflow-hidden">
                 <SettingsHeader>
-                  <h1 className="text-sm font-medium">
-                    {unfinished
-                      ? "Update Hive"
-                      : compatibility.phase === "checking"
-                        ? "Checking server…"
-                        : compatibility.phase === "unavailable"
-                          ? "Server unavailable"
-                          : "Update required"}
-                  </h1>
+                  <h1 className="text-sm font-medium">{heading}</h1>
                 </SettingsHeader>
                 <CenterCard scroll>
-                  <SettingsPanel>
-                    <div className="space-y-4 text-xs">
-                      {!unfinished &&
-                        compatibility.phase === "unavailable" &&
-                        compatibility.error && (
-                          <p role="alert" className="text-destructive">
-                            {compatibility.error}
-                          </p>
-                        )}
-                      {compatibility.appVersion && (
-                        <p>App version {compatibility.appVersion}</p>
-                      )}
-                      {compatibility.server && (
-                        <p>Server version {compatibility.server.version}</p>
-                      )}
-                      {compatibility.server?.updateMethod === "manual" && (
-                        <p>
-                          This server was installed manually. Update it manually
-                          to the same version as the app.
-                        </p>
-                      )}
-                      {unfinished || compatibility.phase === "ready" ? (
-                        <UpdateControls />
-                      ) : compatibility.phase === "unavailable" ? (
-                        <Button
-                          size="sm"
-                          onClick={() => {
+                  {/*
+                    The same two sections as Settings > Updates: a blocked app
+                    shows what it will keep showing once it is unblocked. A run
+                    in flight speaks for itself, so the failed check is not
+                    reported and is not the user's to retry until it stops.
+                  */}
+                  <UpdatePanel
+                    appVersion={compatibility.appVersion}
+                    server={compatibility.server}
+                    serverState={compatibility.phase}
+                    error={unfinished ? undefined : compatibility.error}
+                    onRetry={
+                      !unfinished && compatibility.phase === "unavailable"
+                        ? () => {
                             void refreshServerCompatibility();
-                          }}
-                        >
-                          Retry
-                        </Button>
-                      ) : null}
-                    </div>
-                  </SettingsPanel>
+                          }
+                        : undefined
+                    }
+                  />
                 </CenterCard>
               </div>
             }

@@ -1,11 +1,6 @@
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { Outlet, useLocation, useNavigate, useOutletContext } from "react-router-dom";
-import {
-  Group,
-  Panel,
-  useDefaultLayout,
-  usePanelRef,
-} from "react-resizable-panels";
+import { Group, Panel, useDefaultLayout, usePanelRef } from "react-resizable-panels";
 import Sidebar from "./Sidebar";
 import SettingsSidebar from "./SettingsSidebar";
 import { ResizeHandle } from "./ResizeHandle";
@@ -37,10 +32,7 @@ export interface LayoutContext {
   toggleSidebar: () => void;
 }
 
-const defaultContext: LayoutContext = {
-  collapsed: false,
-  toggleSidebar: () => {},
-};
+const defaultContext: LayoutContext = { collapsed: false, toggleSidebar: () => {} };
 
 export function useLayoutContext(): LayoutContext {
   const ctx = useOutletContext() as LayoutContext | undefined;
@@ -68,11 +60,7 @@ export function PageHeader({
         "relative flex h-12 shrink-0 items-center pr-4 transition-[padding-left] duration-200 ease-in-out",
         className,
       )}
-      style={{
-        paddingLeft: collapsed
-          ? "max(var(--traffic-light-clearance, 0px), 1rem)"
-          : "1rem",
-      }}
+      style={{ paddingLeft: collapsed ? "max(var(--traffic-light-clearance, 0px), 1rem)" : "1rem" }}
       data-tauri-drag-region
     >
       {children}
@@ -121,8 +109,7 @@ export default function AppLayout({
       banner={
         import.meta.env.DEV && (
           <div className="shrink-0 bg-warning/90 px-3 py-0.5 text-center text-xs font-medium text-warning-contrast">
-            Dev frontend →{" "}
-            {backendEnv ? `${backendEnv} backend` : "connecting…"}
+            Dev frontend → {backendEnv ? `${backendEnv} backend` : "connecting…"}
           </div>
         )
       }

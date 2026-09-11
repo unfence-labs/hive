@@ -22,15 +22,18 @@ export function SidebarShell({
 
       {children}
 
-      <div className="shrink-0 border-t border-border">
-        {footerActions}
-        {showServerStatus && (
-          <div className="grid gap-2 border-t border-border px-3 py-2">
-            <ProviderUsage />
-            <ServerMetrics />
-          </div>
-        )}
-      </div>
+      {/* Dropped entirely when empty: an unused footer is a stray rule. */}
+      {(footerActions || showServerStatus) && (
+        <div className="shrink-0 border-t border-border">
+          {footerActions}
+          {showServerStatus && (
+            <div className="grid gap-2 border-t border-border px-3 py-2">
+              <ProviderUsage />
+              <ServerMetrics />
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
