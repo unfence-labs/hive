@@ -330,6 +330,7 @@ describe("describeTool", () => {
       ["started", "Starting agent", "started"],
       ["interacted", "Interacting", "interacted"],
       ["interrupted", "Interrupting", "interrupted"],
+      ["completed", "Completing agent", "completed"],
     ] as const;
     for (const [activityKind, liveVerb, verb] of kinds) {
       const msg = message({

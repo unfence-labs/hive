@@ -2,7 +2,7 @@ import type {
   ToolOperationKind,
   ToolStatus,
 } from "@hive/shared/setup-types";
-import { detectAvailableProviders } from "../../agents/providers/registry.js";
+import { detectAvailableProviders, getProviderUnavailableReason, recordProviderDetection } from "../../agents/providers/registry.js";
 import {
   installCommand,
   isManaged,
@@ -55,10 +55,17 @@ export async function getToolsStatus(deps: ToolsServiceDeps): Promise<ToolStatus
         detectTool(spec, deps.detect),
         isManaged(spec) ? deps.fetchLatestVersion(spec.npmPackage) : Promise.resolve(null),
       ]);
-      const updateAvailable =
-        detection.installed && detection.version != null && latestVersion != null
-          ? isNewerVersion(detection.version, latestVersion)
-          : false;
+      if (spec.authenticatedProviderId) {
+        recordProviderDetection(spec.authenticatedProviderId, detection.installed, detection.version);
+      }
+      const updateRequired = !!spec.authenticatedProviderId
+        && !!getProviderUnavailableReason(spec.authenticatedProviderId);
+      const updateAvailable = detection.installed && isManaged(spec) && (
+        updateRequired || (
+          detection.version != null && latestVersion != null
+          && isNewerVersion(detection.version, latestVersion)
+        )
+      );
 
       return {
         id: spec.id,

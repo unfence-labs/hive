@@ -36,6 +36,26 @@ const CODEX_MODELS: ModelCatalogEntry[] = [
 const ALL_MODELS = [...CLAUDE_MODELS, ...CODEX_MODELS];
 
 describe("ModelSelector", () => {
+  it("explains unavailable models and still allows other providers", async () => {
+    const user = userEvent.setup();
+    const onSelect = vi.fn();
+    render(<ModelSelector
+      models={ALL_MODELS.map((model) => model.provider === "codex" ? { ...model, unavailableReason: "Update Codex in settings" } : model)}
+      selectedModelId="claude:opus-4-7"
+      onSelect={onSelect}
+    />);
+
+    await user.click(screen.getByRole("button", { name: "Model: Opus 4.7" }));
+    const unavailable = screen.getByRole("menuitem", { name: "GPT-5.5: Update Codex in settings" });
+    expect(unavailable).toHaveAttribute("aria-disabled", "true");
+    await user.hover(unavailable);
+    expect(await screen.findByRole("tooltip")).toHaveTextContent("Update Codex in settings");
+    await user.click(unavailable);
+    expect(onSelect).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("menuitem", { name: "Sonnet 4.6" }));
+    expect(onSelect).toHaveBeenCalledWith("claude:sonnet-4-6");
+  });
+
   it("renders a compact accessible loading state without a dropdown", async () => {
     const user = userEvent.setup();
     render(

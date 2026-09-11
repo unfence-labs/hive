@@ -55,6 +55,19 @@ beforeEach(() => {
 });
 
 describe("ModelsSettings", () => {
+  it("keeps an unavailable default selected and explains why it cannot be chosen", async () => {
+    mockApiGet({ ...MOCK_CATALOG, models: MOCK_CATALOG.models.map((model) => model.provider === "codex" ? { ...model, unavailableReason: "Update Codex in settings" } : model) });
+    const user = userEvent.setup();
+    renderModelsSettings();
+    const model = await screen.findByRole("radio", { name: "GPT-5.5" });
+    expect(model).toHaveAttribute("aria-checked", "true");
+    expect(model).toHaveAttribute("aria-disabled", "true");
+    await user.hover(model);
+    expect(await screen.findByRole("tooltip")).toHaveTextContent("Update Codex in settings");
+    await user.click(model);
+    expect(mocks.put).not.toHaveBeenCalled();
+  });
+
   it("renders models grouped by provider with the current default checked", async () => {
     mockApiGet(MOCK_CATALOG);
     renderModelsSettings();

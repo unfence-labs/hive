@@ -67,6 +67,22 @@ beforeEach(() => {
 });
 
 describe("useModels", () => {
+  it("preserves an unavailable default and unlocks it after a catalog refresh", async () => {
+    mockApi.get.mockResolvedValue({
+      ...MOCK_CATALOG,
+      models: MOCK_CATALOG.models.map((model) => model.provider === "codex" ? { ...model, unavailableReason: "Update Codex in settings" } : model),
+    });
+    const queryClient = createQueryClient();
+    const { result } = renderHook(() => useModels(), { wrapper: wrapperFor(queryClient) });
+    await waitFor(() => expect(result.current.selectedModel?.unavailableReason).toBe("Update Codex in settings"));
+    expect(result.current.selectedModelId).toBe("codex:gpt-5.5");
+
+    mockApi.get.mockResolvedValue(MOCK_CATALOG);
+    await act(async () => { await refreshModelCatalog(queryClient); });
+    await waitFor(() => expect(result.current.selectedModel?.unavailableReason).toBeUndefined());
+    expect(result.current.selectedModelId).toBe("codex:gpt-5.5");
+  });
+
   it("loads the shared catalog and seeds the global default", async () => {
     mockApi.get.mockResolvedValue(MOCK_CATALOG);
     const queryClient = createQueryClient();

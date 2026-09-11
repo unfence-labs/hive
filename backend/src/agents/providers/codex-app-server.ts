@@ -43,6 +43,11 @@ type ThreadResumeResponse = {
   thread: { id: string };
 };
 
+type ThreadTurnsListResponse = {
+  data: Array<{ items: ThreadItem[] }>;
+  nextCursor: string | null;
+};
+
 type TurnStartResponse = {
   turn: { id: string };
 };
@@ -217,7 +222,8 @@ const CLIENT_INFO = {
 const MAX_DIAGNOSTIC_DETAILS_LENGTH = 4000;
 /** Keep persisted chat payloads bounded when an image generation result is inline base64. */
 const MAX_IMAGE_GENERATION_RESULT_LENGTH = 262_144;
-const COLLAB_THREAD_REPLAY_TIMEOUT_MS = 1500;
+const COLLAB_HISTORY_PAGE_TIMEOUT_MS = 5000;
+const COLLAB_HISTORY_PAGE_SIZE = 50;
 
 /**
  * Canonical `codex app-server` CLI args. Single source of truth so the real spawn
@@ -264,6 +270,7 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
    *  previous turn's child tools from re-emitting as duplicates. */
   private completedCollabItemIds = new Set<string>();
   private pendingCollabReplays = new Set<Promise<void>>();
+  private collabReplayGeneration = 0;
   private lastUsage: TokenUsage | undefined;
   private lastProtocolError: string | undefined;
   private activeGoalRequestCount = 0;
@@ -451,6 +458,7 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
     if (options.threadId) {
       const resumed = await this.request<ThreadResumeResponse>("thread/resume", {
         threadId: options.threadId,
+        excludeTurns: true,
         cwd: options.cwd,
         approvalPolicy: "never",
         sandbox,
@@ -506,6 +514,7 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
   }
 
   private resetForThreadBoundary(): void {
+    this.collabReplayGeneration += 1;
     this.collabParentByThreadId.clear();
     this.toolParentByItemId.clear();
     this.completedCollabItemIds.clear();
@@ -521,6 +530,7 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
    * tool calls (they'd render top-level instead of nested under their Agent tool call).
    */
   private resetForNewTurn(): void {
+    this.collabReplayGeneration += 1;
     this.activeTurnId = undefined;
     this.emittedToolIds.clear();
     this.commandOutputs.clear();
@@ -656,6 +666,11 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
         break;
       case "item/reasoning/summaryPartAdded":
         break;
+      case "item/plan/delta":
+      case "item/mcpToolCall/progress":
+        // Authoritative plan and MCP tool state arrives through the structured
+        // plan update and item lifecycle notifications.
+        break;
       case "item/reasoning/textDelta":
       case "item/reasoning/summaryTextDelta":
         if (this.isForeignThread(asString(data?.threadId))) break;
@@ -689,8 +704,8 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
         break;
       }
       case "item/commandExecution/terminalInteraction":
-        if (asString(data?.stdin) === "") break;
-        this.emitUnsupportedNotification(method, params);
+        // Command lifecycle items already own the UI. Never persist raw stdin,
+        // which may contain sensitive input.
         break;
       case "item/fileChange/patchUpdated": {
         const itemId = asString(data?.itemId);
@@ -941,12 +956,13 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
         }
         this.emitToolUse(collabItem.id, "Agent", JSON.stringify(collabAgentToolInput(collabItem)), parentToolUseId);
         if (phase === "completed") {
+          const alreadyCompleted = this.completedToolIds.has(collabItem.id);
           this.emitToolResult(collabItem.id, collabAgentToolResult(collabItem));
           // spawnAgent completes at thread creation: the child has no history
           // yet, and reading it races Codex's rollout flush ("rollout is
           // empty"). Catch-up replays only make sense once the child has run,
           // i.e. when a wait/closeAgent on it completes.
-          if (collabItem.tool !== "spawnAgent") {
+          if (collabItem.tool !== "spawnAgent" && !alreadyCompleted) {
             this.queueCollabAgentReplay(collabItem);
           }
         }
@@ -1124,37 +1140,55 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
     // Catch-up items nest under the spawning Agent card when known; the
     // triggering wait/closeAgent card is only a fallback for threads whose
     // spawn was never observed (e.g. resumed session).
-    const replay = Promise.all(threadIds.map((threadId) =>
-      this.replayCollabAgentThread(threadId, this.collabParentByThreadId.get(threadId) ?? item.id)))
-      .then(() => undefined)
-      .catch((err: unknown) => {
-        if (isUnmaterializedThreadReadError(err)) return;
+    const generation = this.collabReplayGeneration;
+    const replay = Promise.all(threadIds.map(async (threadId) => {
+      try {
+        await this.replayCollabAgentThread(
+          threadId,
+          this.collabParentByThreadId.get(threadId) ?? item.id,
+          generation,
+        );
+      } catch (err: unknown) {
+        if (generation !== this.collabReplayGeneration || isEmptyThreadHistoryError(err)) return;
         this.emitDiagnostic({
           id: diagnosticId("codex-collab-replay", item.id),
           severity: "warning",
           title: "Codex sub-agent replay failed",
           message: err instanceof Error ? err.message : "Unable to read Codex sub-agent thread.",
-          method: "thread/read",
+          method: "thread/turns/list",
           details: formatDiagnosticDetails({ receiverThreadIds: threadIds }),
           dedupeKey: `collab-replay:${item.id}`,
         });
-      });
+      }
+    })).then(() => undefined);
     this.pendingCollabReplays.add(replay);
     replay.finally(() => this.pendingCollabReplays.delete(replay));
   }
 
-  private async replayCollabAgentThread(threadId: string, parentToolUseId: string): Promise<void> {
-    const response = await this.request<{ thread?: { turns?: unknown[] } }>("thread/read", {
-      threadId,
-      includeTurns: true,
-    });
-    const turns = asArray(asRecord(response.thread)?.turns) ?? [];
-    for (const turn of turns) {
-      const items = asArray(asRecord(turn)?.items) ?? [];
-      for (const entry of items) {
-        this.handleItem(asRecord(entry) as ThreadItem | null, "completed", { threadId, parentToolUseId });
+  private async replayCollabAgentThread(
+    threadId: string,
+    parentToolUseId: string,
+    generation: number,
+  ): Promise<void> {
+    let cursor: string | null = null;
+    do {
+      // Full items are explicit: the API defaults to summaries. Ascending pages
+      // preserve provider order while avoiding full-thread history hydration.
+      const response: ThreadTurnsListResponse = await withHistoryPageTimeout(this.request<ThreadTurnsListResponse>("thread/turns/list", {
+        threadId,
+        limit: COLLAB_HISTORY_PAGE_SIZE,
+        sortDirection: "asc",
+        itemsView: "full",
+        ...(cursor ? { cursor } : {}),
+      }), COLLAB_HISTORY_PAGE_TIMEOUT_MS);
+      if (generation !== this.collabReplayGeneration) return;
+      for (const turn of response.data) {
+        for (const entry of turn.items) {
+          this.handleItem(entry, "completed", { threadId, parentToolUseId });
+        }
       }
-    }
+      cursor = response.nextCursor;
+    } while (cursor);
   }
 
   private handleTurnCompleted(data: JsonObject | null): void {
@@ -1219,19 +1253,12 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
   }
 
   private async waitForCollabReplays(): Promise<void> {
-    const pending = [...this.pendingCollabReplays];
-    if (pending.length === 0) return;
-    try {
-      await withTimeout(Promise.allSettled(pending), COLLAB_THREAD_REPLAY_TIMEOUT_MS);
-    } catch {
-      this.emitDiagnostic({
-        id: diagnosticId("codex-collab-replay", "timeout"),
-        severity: "warning",
-        title: "Codex sub-agent replay timed out",
-        message: "Hive finished the Codex turn before all sub-agent threads could be read.",
-        method: "thread/read",
-        dedupeKey: "collab-replay:timeout",
-      });
+    const generation = this.collabReplayGeneration;
+    // Each page has its own deadline; responsive multi-page histories must be
+    // emitted before the result. Replayed waits can discover more descendants,
+    // so drain those replays too before finalizing persistence for this turn.
+    while (generation === this.collabReplayGeneration && this.pendingCollabReplays.size > 0) {
+      await Promise.allSettled([...this.pendingCollabReplays]);
     }
   }
 
@@ -1636,9 +1663,9 @@ function formatCollabAgentTool(tool: string | undefined): string {
     .replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
-function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+function withHistoryPageTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
   return new Promise((resolve, reject) => {
-    const timeout = setTimeout(() => reject(new Error("Timed out")), timeoutMs);
+    const timeout = setTimeout(() => reject(new Error("Codex sub-agent history page timed out")), timeoutMs);
     promise.then(
       (value) => {
         clearTimeout(timeout);
@@ -1652,16 +1679,10 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
   });
 }
 
-/** Both variants mean the child thread is too young to be read: it was created
- *  but has not run (or Codex has not flushed its rollout to disk) yet. Nothing
- *  to catch up — not worth a user-facing warning. */
-function isUnmaterializedThreadReadError(err: unknown): boolean {
+/** A newly created child can race the first persisted rollout flush. */
+function isEmptyThreadHistoryError(err: unknown): boolean {
   const message = err instanceof Error ? err.message : String(err);
-  return (
-    (message.includes("not materialized yet") &&
-      message.includes("includeTurns is unavailable before first user message")) ||
-    (message.includes("rollout") && message.includes("is empty"))
-  );
+  return message.includes("rollout") && message.includes("is empty");
 }
 
 function diagnosticId(prefix: string, method: string): string {

@@ -35,6 +35,7 @@ struct ModelCatalogEntry: Codable, Identifiable, Equatable {
     let label: String
     let provider: String
     let providerLabel: String
+    let unavailableReason: String?
     let isDefault: Bool?
     let capabilities: ProviderCapabilities
     let contextWindow: Int?

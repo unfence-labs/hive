@@ -20,6 +20,8 @@ import {
   markProviderAvailable,
   parseVersionFromOutput,
   getAllProviderInfo,
+  getProviderUnavailableReason,
+  recordProviderDetection,
   getDefaultThinkingLevelForModel,
   isKnownModelId,
   isThinkingLevelSupportedForModel,
@@ -361,6 +363,56 @@ describe("markProviderAvailable", () => {
     markProviderAvailable("codex");
 
     expect(getModelCatalog().models.some((m) => m.provider === "codex")).toBe(true);
+  });
+});
+
+describe("harness minimum version", () => {
+  it.each([
+    ["0.153.3", false],
+    ["0.153.4", true],
+    ["0.154.0", true],
+    ["1.0.0", true],
+    [null, false],
+    ["unknown", false],
+    ["0.154.0-alpha.1", false],
+  ])("checks detected version %s without hiding models", (version, compatible) => {
+    recordProviderDetection("codex", true, version);
+    const catalog = getModelCatalog();
+    expect(catalog.models.length).toBeGreaterThan(0);
+    expect(catalog.defaultModelId).toBe("codex:gpt-5.6-sol");
+    const reason = compatible ? undefined : "Update Codex in settings";
+    expect(getProviderUnavailableReason("codex")).toBe(reason);
+    expect(catalog.models.every((model) => model.unavailableReason === reason)).toBe(true);
+  });
+
+  it("does not impose a version requirement on other providers", () => {
+    markProviderAvailable("claude");
+    expect(getProviderUnavailableReason("claude")).toBeUndefined();
+    expect(getModelCatalog().models.every((model) => !model.unavailableReason)).toBe(true);
+  });
+
+  it("does not treat finding a binary as proof of compatibility", () => {
+    markProviderAvailable("codex");
+    expect(getProviderUnavailableReason("codex")).toBe("Update Codex in settings");
+    recordProviderDetection("codex", true, "0.153.3");
+    markProviderAvailable("codex");
+    expect(getProviderUnavailableReason("codex")).toBe("Update Codex in settings");
+  });
+
+  it("unblocks after re-detection and forgets a previously compatible version", async () => {
+    let stdout = "codex-cli 0.153.3";
+    mockExecFile.mockImplementation(
+      (_cmd: string, _args: string[], cb: (...a: unknown[]) => void) => cb(null, { stdout, stderr: "" }),
+    );
+    await detectAvailableProviders();
+    expect(getProviderUnavailableReason("codex")).toBe("Update Codex in settings");
+    stdout = "codex-cli 0.153.4";
+    await detectAvailableProviders();
+    expect(getProviderUnavailableReason("codex")).toBeUndefined();
+    stdout = "unknown";
+    await detectAvailableProviders();
+    expect(getProviderUnavailableReason("codex")).toBe("Update Codex in settings");
+    expect(getAllProviderInfo().find((provider) => provider.id === "codex")?.version).toBeNull();
   });
 });
 

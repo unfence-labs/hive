@@ -19,7 +19,7 @@ export interface AgentActivityToolCall {
   parentToolUseId?: string;
 }
 
-export const AGENT_ACTIVITY_SUBAGENT_ACTIVITY_KINDS = ["started", "interacted", "interrupted"] as const;
+export const AGENT_ACTIVITY_SUBAGENT_ACTIVITY_KINDS = ["started", "interacted", "interrupted", "completed"] as const;
 
 export type AgentActivitySubagentActivityKind = (typeof AGENT_ACTIVITY_SUBAGENT_ACTIVITY_KINDS)[number];
 

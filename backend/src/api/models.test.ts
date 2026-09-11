@@ -4,7 +4,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { modelRoutes } from "./models.js";
-import { getModelCatalog, markProviderAvailable } from "../agents/providers/registry.js";
+import { getModelCatalog, markProviderAvailable, recordProviderDetection } from "../agents/providers/registry.js";
 import { loadConfig, saveConfig } from "../state/config.js";
 import type { ToolAuthenticationState } from "../services/setup/detect.js";
 import type { ProviderAuthenticationReader } from "../services/setup/provider-authentication.js";
@@ -64,6 +64,25 @@ describe("GET /api/models", () => {
 
     expect(res.statusCode).toBe(200);
     expect(res.json().defaultModelId).toMatch(/^claude:/);
+  });
+
+  it("preserves an outdated harness's saved default and clears its restriction after detection", async () => {
+    authenticationStates.codex = "authenticated";
+    const config = await loadConfig(tempDir);
+    await saveConfig({ ...config, defaultModelId: "codex:gpt-5.5" }, tempDir);
+    recordProviderDetection("codex", true, "0.153.3");
+
+    const blocked = (await app.inject({ method: "GET", url: "/api/models" })).json();
+    expect(blocked.defaultModelId).toBe("codex:gpt-5.5");
+    expect(blocked.models).toContainEqual(expect.objectContaining({
+      id: "codex:gpt-5.5", unavailableReason: "Update Codex in settings",
+    }));
+
+    recordProviderDetection("codex", true, "0.153.4");
+    const updated = (await app.inject({ method: "GET", url: "/api/models" })).json();
+    expect(updated.defaultModelId).toBe("codex:gpt-5.5");
+    expect(updated.models.find((model: { id: string }) => model.id === "codex:gpt-5.5"))
+      .not.toHaveProperty("unavailableReason");
   });
 
   it("ignores a saved default whose harness is not authenticated", async () => {

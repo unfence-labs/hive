@@ -32,6 +32,7 @@ enum AgentActivitySubagentActivityKind: String, Codable, Equatable, CaseIterable
     case started
     case interacted
     case interrupted
+    case completed
 }
 
 enum AgentActivity: Codable, Equatable, Identifiable {

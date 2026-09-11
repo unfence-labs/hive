@@ -138,6 +138,30 @@ async function initializeSession(session: CodexAppServerSession, proc: ReturnTyp
   await started;
 }
 
+function completeCollabWait(proc: ReturnType<typeof createMockProcess>, threadIds = ["thread-child"]): void {
+  proc._stdout.push(JSON.stringify({
+    method: "item/completed",
+    params: {
+      threadId: "thread-1",
+      item: {
+        type: "collabAgentToolCall", id: "collab-wait", tool: "wait",
+        status: "completed", receiverThreadIds: threadIds,
+      },
+    },
+  }) + "\n");
+}
+
+function completedChildCommand(id: string) {
+  return { type: "commandExecution", id, command: "npm test", status: "completed", exitCode: 0 };
+}
+
+function completeMainTurn(proc: ReturnType<typeof createMockProcess>): void {
+  proc._stdout.push(JSON.stringify({
+    method: "turn/completed",
+    params: { threadId: "thread-1", turn: { id: "turn-1", status: "completed" } },
+  }) + "\n");
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
 });
@@ -220,7 +244,7 @@ describe("CodexAppServerSession request handling", () => {
     }));
     const threadResume = await waitForMethod(proc, "thread/resume");
     expect(parseWrites(proc).find((write) => write.method === "thread/resume")?.params)
-      .toMatchObject({ threadId: "thread-existing", personality: "pragmatic" });
+      .toMatchObject({ threadId: "thread-existing", personality: "pragmatic", excludeTurns: true });
     proc._stdout.push(appServerResponse(threadResume.id, { thread: { id: "thread-existing" } }));
     const turnStart = await waitForMethod(proc, "turn/start");
     proc._stdout.push(appServerResponse(turnStart.id, { turn: { id: "turn-pragmatic" } }));
@@ -766,7 +790,7 @@ describe("CodexAppServerSession normalized events", () => {
     ]);
   });
 
-  it("absorbs empty terminal interaction polls but keeps non-empty interactions diagnostic-only", async () => {
+  it("absorbs terminal interaction notifications without surfacing stdin", async () => {
     const proc = createMockProcess();
     mockSpawn.mockReturnValue(proc);
     const session = new CodexAppServerSession();
@@ -774,41 +798,20 @@ describe("CodexAppServerSession normalized events", () => {
     session.on("agent_event", (event) => events.push(event));
     await initializeSession(session, proc);
 
-    proc._stdout.push(JSON.stringify({
-      method: "item/commandExecution/terminalInteraction",
-      params: {
-        threadId: "thread-1",
-        turnId: "turn-1",
-        itemId: "cmd-1",
-        processId: "123",
-        stdin: "",
-      },
-    }) + "\n");
+    for (const stdin of ["", "q\n", "\u0003", "sensitive-input\n"]) {
+      proc._stdout.push(JSON.stringify({
+        method: "item/commandExecution/terminalInteraction",
+        params: {
+          threadId: "thread-1",
+          turnId: "turn-1",
+          itemId: "cmd-1",
+          processId: "123",
+          stdin,
+        },
+      }) + "\n");
+    }
 
     expect(events).toEqual([]);
-
-    proc._stdout.push(JSON.stringify({
-      method: "item/commandExecution/terminalInteraction",
-      params: {
-        threadId: "thread-1",
-        turnId: "turn-1",
-        itemId: "cmd-1",
-        processId: "123",
-        stdin: "q\n",
-      },
-    }) + "\n");
-
-    expect(events).toEqual([
-      expect.objectContaining({
-        type: "diagnostic",
-        severity: "info",
-        title: "Unsupported App Server event",
-        message: "Hive does not render \"item/commandExecution/terminalInteraction\" yet.",
-        source: "codex_app_server",
-        method: "item/commandExecution/terminalInteraction",
-        details: expect.stringContaining("\"stdin\": \"q\\n\""),
-      }),
-    ]);
   });
 
   it.each([
@@ -879,6 +882,24 @@ describe("CodexAppServerSession normalized events", () => {
     proc._stdout.push(JSON.stringify({
       method: "thread/compacted",
       params: { threadId: "thread-1" },
+    }) + "\n");
+    proc._stdout.push(JSON.stringify({
+      method: "item/plan/delta",
+      params: {
+        threadId: "thread-1",
+        turnId: "turn-1",
+        itemId: "plan-1",
+        delta: "Draft the implementation",
+      },
+    }) + "\n");
+    proc._stdout.push(JSON.stringify({
+      method: "item/mcpToolCall/progress",
+      params: {
+        threadId: "thread-1",
+        turnId: "turn-1",
+        itemId: "mcp-1",
+        message: "Loading resources",
+      },
     }) + "\n");
 
     expect(events).toEqual([]);
@@ -996,6 +1017,7 @@ describe("CodexAppServerSession normalized events", () => {
   it.each([
     ["interacted", "item/completed"],
     ["interrupted", "item/completed"],
+    ["completed", "item/completed"],
   ] as const)("emits %s sub-agent activity without a diagnostic", async (activityKind, method) => {
     const proc = createMockProcess();
     mockSpawn.mockReturnValue(proc);
@@ -1209,26 +1231,24 @@ describe("CodexAppServerSession normalized events", () => {
       },
     }) + "\n");
 
-    const read = await waitForMethod(proc, "thread/read");
+    const read = await waitForMethod(proc, "thread/turns/list");
     expect(parseWrites(proc).find((write) => write.id === read.id)).toEqual(
       expect.objectContaining({ params: expect.objectContaining({ threadId: "thread-child" }) }),
     );
     proc._stdout.push(appServerResponse(read.id, {
-      thread: {
-        id: "thread-child",
-        turns: [{
-          id: "turn-child",
-          items: [{
-            type: "commandExecution",
-            id: "child-cmd-1",
-            command: "npm test",
-            cwd: "/tmp/project",
-            status: "completed",
-            aggregatedOutput: "ok",
-            exitCode: 0,
-          }],
+      data: [{
+        id: "turn-child",
+        items: [{
+          type: "commandExecution",
+          id: "child-cmd-1",
+          command: "npm test",
+          cwd: "/tmp/project",
+          status: "completed",
+          aggregatedOutput: "ok",
+          exitCode: 0,
         }],
-      },
+      }],
+      nextCursor: null,
     }));
 
     await waitForCondition(() =>
@@ -2248,31 +2268,29 @@ describe("CodexAppServerSession normalized events", () => {
         },
       },
     }) + "\n");
-    const read = await waitForMethod(proc, "thread/read");
+    const read = await waitForMethod(proc, "thread/turns/list");
     proc._stdout.push(appServerResponse(read.id, {
-      thread: {
-        id: "thread-child",
-        turns: [{
-          id: "turn-child",
-          items: [{
-            type: "commandExecution",
-            id: "child-cmd-1",
-            command: "npm test",
-            cwd: "/tmp/project",
-            status: "completed",
-            aggregatedOutput: "ok",
-            exitCode: 0,
-          }, {
-            type: "commandExecution",
-            id: "child-cmd-2",
-            command: "npm run lint",
-            cwd: "/tmp/project",
-            status: "completed",
-            aggregatedOutput: "clean",
-            exitCode: 0,
-          }],
+      data: [{
+        id: "turn-child",
+        items: [{
+          type: "commandExecution",
+          id: "child-cmd-1",
+          command: "npm test",
+          cwd: "/tmp/project",
+          status: "completed",
+          aggregatedOutput: "ok",
+          exitCode: 0,
+        }, {
+          type: "commandExecution",
+          id: "child-cmd-2",
+          command: "npm run lint",
+          cwd: "/tmp/project",
+          status: "completed",
+          aggregatedOutput: "clean",
+          exitCode: 0,
         }],
-      },
+      }],
+      nextCursor: null,
     }));
 
     // The never-seen item is caught up, nested under the ORIGINAL Agent card.
@@ -2357,31 +2375,29 @@ describe("CodexAppServerSession normalized events", () => {
         },
       },
     }) + "\n");
-    const read = await waitForMethod(proc, "thread/read");
+    const read = await waitForMethod(proc, "thread/turns/list");
     proc._stdout.push(appServerResponse(read.id, {
-      thread: {
-        id: "thread-child",
-        turns: [{
-          id: "turn-child",
-          items: [{
-            type: "commandExecution",
-            id: "child-cmd-1",
-            command: "npm test",
-            cwd: "/tmp/project",
-            status: "completed",
-            aggregatedOutput: "ok",
-            exitCode: 0,
-          }, {
-            type: "commandExecution",
-            id: "child-cmd-2",
-            command: "npm run lint",
-            cwd: "/tmp/project",
-            status: "completed",
-            aggregatedOutput: "clean",
-            exitCode: 0,
-          }],
+      data: [{
+        id: "turn-child",
+        items: [{
+          type: "commandExecution",
+          id: "child-cmd-1",
+          command: "npm test",
+          cwd: "/tmp/project",
+          status: "completed",
+          aggregatedOutput: "ok",
+          exitCode: 0,
+        }, {
+          type: "commandExecution",
+          id: "child-cmd-2",
+          command: "npm run lint",
+          cwd: "/tmp/project",
+          status: "completed",
+          aggregatedOutput: "clean",
+          exitCode: 0,
         }],
-      },
+      }],
+      nextCursor: null,
     }));
 
     await waitForCondition(() =>
@@ -2430,8 +2446,8 @@ describe("CodexAppServerSession normalized events", () => {
         },
       },
     }) + "\n");
-    const read = await waitForMethod(proc, "thread/read");
-    proc._stdout.push(appServerResponse(read.id, { thread: { id: "thread-child", turns: [] } }));
+    const read = await waitForMethod(proc, "thread/turns/list");
+    proc._stdout.push(appServerResponse(read.id, { data: [], nextCursor: null }));
 
     proc._stdout.push(JSON.stringify({
       method: "item/started",
@@ -2477,8 +2493,8 @@ describe("CodexAppServerSession normalized events", () => {
         },
       },
     }) + "\n");
-    const read = await waitForMethod(proc, "thread/read");
-    proc._stdout.push(appServerResponse(read.id, { thread: { id: "thread-child", turns: [] } }));
+    const read = await waitForMethod(proc, "thread/turns/list");
+    proc._stdout.push(appServerResponse(read.id, { data: [], nextCursor: null }));
 
     proc._stdout.push(JSON.stringify({
       method: "item/started",
@@ -2785,30 +2801,28 @@ describe("CodexAppServerSession normalized events", () => {
       },
     }) + "\n");
 
-    const read = await waitForMethod(proc, "thread/read");
+    const read = await waitForMethod(proc, "thread/turns/list");
     proc._stdout.push(appServerResponse(read.id, {
-      thread: {
-        id: "thread-child",
-        turns: [{
-          id: "turn-child",
-          items: [{
-            type: "collabAgentToolCall",
-            id: "collab-self",
-            tool: "spawnAgent",
-            status: "completed",
-            receiverThreadIds: ["thread-child"],
-            prompt: "Inspect auth",
-          }, {
-            type: "commandExecution",
-            id: "child-cmd-1",
-            command: "npm test",
-            cwd: "/tmp/project",
-            status: "completed",
-            aggregatedOutput: "ok",
-            exitCode: 0,
-          }],
+      data: [{
+        id: "turn-child",
+        items: [{
+          type: "collabAgentToolCall",
+          id: "collab-self",
+          tool: "spawnAgent",
+          status: "completed",
+          receiverThreadIds: ["thread-child"],
+          prompt: "Inspect auth",
+        }, {
+          type: "commandExecution",
+          id: "child-cmd-1",
+          command: "npm test",
+          cwd: "/tmp/project",
+          status: "completed",
+          aggregatedOutput: "ok",
+          exitCode: 0,
         }],
-      },
+      }],
+      nextCursor: null,
     }));
     proc._stdout.push(JSON.stringify({
       method: "turn/completed",
@@ -2893,27 +2907,25 @@ describe("CodexAppServerSession normalized events", () => {
       },
     }) + "\n");
 
-    const read = await waitForMethod(proc, "thread/read");
+    const read = await waitForMethod(proc, "thread/turns/list");
     expect(parseWrites(proc).find((write) => write.id === read.id)).toMatchObject({
-      method: "thread/read",
-      params: { threadId: "thread-child", includeTurns: true },
+      method: "thread/turns/list",
+      params: { threadId: "thread-child", sortDirection: "asc", itemsView: "full", limit: 50 },
     });
     proc._stdout.push(appServerResponse(read.id, {
-      thread: {
-        id: "thread-child",
-        turns: [{
-          id: "turn-child",
-          items: [{
-            type: "commandExecution",
-            id: "child-cmd-1",
-            command: "npm test",
-            cwd: "/tmp/project",
-            status: "completed",
-            aggregatedOutput: "ok",
-            exitCode: 0,
-          }],
+      data: [{
+        id: "turn-child",
+        items: [{
+          type: "commandExecution",
+          id: "child-cmd-1",
+          command: "npm test",
+          cwd: "/tmp/project",
+          status: "completed",
+          aggregatedOutput: "ok",
+          exitCode: 0,
         }],
-      },
+      }],
+      nextCursor: null,
     }));
 
     await waitForCondition(() =>
@@ -2935,6 +2947,210 @@ describe("CodexAppServerSession normalized events", () => {
       }),
     ]));
     expect(diagnostics).not.toContainEqual(expect.objectContaining({ method: "item/collabToolCall" }));
+  });
+
+  it("pages full child history in order and deduplicates live items before finalizing", async () => {
+    const proc = createMockProcess();
+    mockSpawn.mockReturnValue(proc);
+    const session = new CodexAppServerSession();
+    const emitted: string[] = [];
+    session.on("assistant", (event) => {
+      for (const block of event.message.content) {
+        if (block.type === "tool_use") emitted.push(block.id);
+      }
+    });
+    session.on("result", () => emitted.push("result"));
+    await initializeSession(session, proc);
+    completeCollabWait(proc);
+    const first = await waitForMethod(proc, "thread/turns/list");
+    completeMainTurn(proc);
+    proc._stdout.push(appServerResponse(first.id, {
+      data: [{ id: "child-turn-1", itemsView: "full", items: [completedChildCommand("first")] }],
+      nextCursor: "next-child-turn",
+    }));
+    const second = await waitForNthMethod(proc, "thread/turns/list", 2);
+    expect(parseWrites(proc).find((write) => write.id === second.id)?.params).toEqual({
+      threadId: "thread-child", limit: 50, sortDirection: "asc", itemsView: "full", cursor: "next-child-turn",
+    });
+    expect(emitted).toEqual(["collab-wait", "first"]);
+    proc._stdout.push(JSON.stringify({
+      method: "item/completed",
+      params: { threadId: "thread-child", item: completedChildCommand("live") },
+    }) + "\n");
+    proc._stdout.push(appServerResponse(second.id, {
+      data: [{ id: "child-turn-2", itemsView: "full", items: [
+        completedChildCommand("live"), completedChildCommand("last"),
+      ] }],
+      nextCursor: null,
+    }));
+    await waitForCondition(() => emitted.includes("result"));
+    expect(emitted).toEqual(["collab-wait", "first", "live", "last", "result"]);
+    expect(parseWrites(proc).some((write) => write.method === "thread/read")).toBe(false);
+  });
+
+  it("keeps responsive multi-page replay pending beyond the old finalization deadline", async () => {
+    const proc = createMockProcess();
+    mockSpawn.mockReturnValue(proc);
+    const session = new CodexAppServerSession();
+    const results: unknown[] = [];
+    session.on("result", (event) => results.push(event));
+    await initializeSession(session, proc);
+    vi.useFakeTimers();
+    try {
+      completeCollabWait(proc);
+      const first = parseWrites(proc).find((write) => write.method === "thread/turns/list")!;
+      completeMainTurn(proc);
+      await vi.advanceTimersByTimeAsync(2000);
+      expect(results).toEqual([]);
+      proc._stdout.push(appServerResponse(first.id as number, { data: [], nextCursor: "next" }));
+      await vi.advanceTimersByTimeAsync(0);
+      const second = parseWrites(proc).filter((write) => write.method === "thread/turns/list")[1];
+      await vi.advanceTimersByTimeAsync(2000);
+      expect(results).toEqual([]);
+      proc._stdout.push(appServerResponse(second.id as number, { data: [], nextCursor: null }));
+      await vi.advanceTimersByTimeAsync(0);
+      expect(results).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("stops a stalled history page and ignores its late response after finalization", async () => {
+    const proc = createMockProcess();
+    mockSpawn.mockReturnValue(proc);
+    const session = new CodexAppServerSession();
+    const diagnostics: unknown[] = [];
+    const assistantEvents: unknown[] = [];
+    const results: unknown[] = [];
+    session.on("agent_event", (event) => diagnostics.push(event));
+    session.on("assistant", (event) => assistantEvents.push(event));
+    session.on("result", (event) => results.push(event));
+    await initializeSession(session, proc);
+    vi.useFakeTimers();
+    try {
+      completeCollabWait(proc);
+      const read = parseWrites(proc).find((write) => write.method === "thread/turns/list")!;
+      completeMainTurn(proc);
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(results).toHaveLength(1);
+      expect(diagnostics).toContainEqual(expect.objectContaining({
+        title: "Codex sub-agent replay failed", method: "thread/turns/list",
+      }));
+      const count = assistantEvents.length;
+      proc._stdout.push(appServerResponse(read.id as number, {
+        data: [{ items: [completedChildCommand("late")] }], nextCursor: "unused",
+      }));
+      await vi.advanceTimersByTimeAsync(0);
+      expect(assistantEvents).toHaveLength(count);
+      expect(parseWrites(proc).filter((write) => write.method === "thread/turns/list")).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("waits for other children when one history page fails", async () => {
+    const proc = createMockProcess();
+    mockSpawn.mockReturnValue(proc);
+    const session = new CodexAppServerSession();
+    const results: unknown[] = [];
+    const diagnostics: unknown[] = [];
+    session.on("result", (event) => results.push(event));
+    session.on("agent_event", (event) => diagnostics.push(event));
+    await initializeSession(session, proc);
+    completeCollabWait(proc, ["thread-child", "thread-other"]);
+    const first = await waitForMethod(proc, "thread/turns/list");
+    const other = await waitForNthMethod(proc, "thread/turns/list", 2);
+    completeMainTurn(proc);
+    proc._stdout.push(appServerResponse(first.id, { data: [], nextCursor: "next" }));
+    const next = await waitForNthMethod(proc, "thread/turns/list", 3);
+    proc._stdout.push(appServerError(next.id, "Unable to load history page"));
+    await waitForCondition(() => diagnostics.length > 0);
+    expect(results).toEqual([]);
+    proc._stdout.push(appServerResponse(other.id, { data: [], nextCursor: null }));
+    await waitForCondition(() => results.length === 1);
+    expect(diagnostics).toContainEqual(expect.objectContaining({
+      message: "Unable to load history page", method: "thread/turns/list",
+    }));
+  });
+
+  it("drains grandchild replay discovered in a child page before finalizing", async () => {
+    const proc = createMockProcess();
+    mockSpawn.mockReturnValue(proc);
+    const session = new CodexAppServerSession();
+    const results: unknown[] = [];
+    const assistantEvents: unknown[] = [];
+    session.on("result", (event) => results.push(event));
+    session.on("assistant", (event) => assistantEvents.push(event));
+    await initializeSession(session, proc);
+    completeCollabWait(proc);
+    const child = await waitForMethod(proc, "thread/turns/list");
+    completeMainTurn(proc);
+    proc._stdout.push(appServerResponse(child.id, {
+      data: [{ items: [{
+        type: "collabAgentToolCall", id: "child-wait", tool: "wait",
+        status: "completed", receiverThreadIds: ["thread-grandchild"],
+      }] }],
+      nextCursor: null,
+    }));
+    const grandchild = await waitForNthMethod(proc, "thread/turns/list", 2);
+    expect(parseWrites(proc).find((write) => write.id === grandchild.id)?.params)
+      .toMatchObject({ threadId: "thread-grandchild" });
+    expect(results).toEqual([]);
+    proc._stdout.push(appServerResponse(grandchild.id, {
+      data: [{ items: [completedChildCommand("grandchild-command")] }], nextCursor: null,
+    }));
+    await waitForCondition(() => results.length === 1);
+    expect(assistantEvents).toContainEqual(expect.objectContaining({
+      message: expect.objectContaining({ content: [expect.objectContaining({
+        id: "grandchild-command", parentToolUseId: "child-wait",
+      })] }),
+    }));
+  });
+
+  it("does not recursively replay the same v2 child wait without receiver ids", async () => {
+    const proc = createMockProcess();
+    mockSpawn.mockReturnValue(proc);
+    const session = new CodexAppServerSession();
+    const results: unknown[] = [];
+    session.on("result", (event) => results.push(event));
+    await initializeSession(session, proc);
+    completeCollabWait(proc);
+    const first = await waitForMethod(proc, "thread/turns/list");
+    completeMainTurn(proc);
+    const history = {
+      data: [{ items: [{
+        type: "collabAgentToolCall", id: "child-wait", tool: "wait",
+        status: "completed", receiverThreadIds: [],
+      }] }],
+      nextCursor: null,
+    };
+    proc._stdout.push(appServerResponse(first.id, history));
+    const second = await waitForNthMethod(proc, "thread/turns/list", 2);
+    expect(results).toEqual([]);
+    proc._stdout.push(appServerResponse(second.id, history));
+    await waitForCondition(() => results.length === 1);
+    expect(parseWrites(proc).filter((write) => write.method === "thread/turns/list")).toHaveLength(2);
+  });
+
+  it("discards an old replay page after a new provider turn starts", async () => {
+    const proc = createMockProcess();
+    mockSpawn.mockReturnValue(proc);
+    const session = new CodexAppServerSession();
+    const assistantEvents: unknown[] = [];
+    session.on("assistant", (event) => assistantEvents.push(event));
+    await initializeSession(session, proc);
+    completeCollabWait(proc);
+    const read = await waitForMethod(proc, "thread/turns/list");
+    proc._stdout.push(JSON.stringify({
+      method: "turn/started", params: { threadId: "thread-1", turn: { id: "turn-2" } },
+    }) + "\n");
+    const count = assistantEvents.length;
+    proc._stdout.push(appServerResponse(read.id, {
+      data: [{ items: [completedChildCommand("old")] }], nextCursor: "unused",
+    }));
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(assistantEvents).toHaveLength(count);
+    expect(parseWrites(proc).filter((write) => write.method === "thread/turns/list")).toHaveLength(1);
   });
 
   it("does not replay receiver threads when spawnAgent completes", async () => {
@@ -2967,7 +3183,7 @@ describe("CodexAppServerSession normalized events", () => {
     }) + "\n");
 
     await waitForCondition(() => resultEvents.length === 1);
-    expect(parseWrites(proc).filter((write) => write.method === "thread/read")).toHaveLength(0);
+    expect(parseWrites(proc).filter((write) => write.method === "thread/turns/list")).toHaveLength(0);
   });
 
   it("emits context-window usage from token usage updates", async () => {
@@ -3089,7 +3305,7 @@ describe("CodexAppServerSession normalized events", () => {
     });
   });
 
-  it("does not surface benign too-young-thread replay errors", async () => {
+  it("handles empty child history and a transient empty rollout without warnings", async () => {
     const proc = createMockProcess();
     mockSpawn.mockReturnValue(proc);
     const session = new CodexAppServerSession();
@@ -3112,11 +3328,8 @@ describe("CodexAppServerSession normalized events", () => {
         },
       },
     }) + "\n");
-    const firstRead = await waitForMethod(proc, "thread/read");
-    proc._stdout.push(appServerError(
-      firstRead.id,
-      "thread thread-child is not materialized yet; includeTurns is unavailable before first user message",
-    ));
+    const firstRead = await waitForMethod(proc, "thread/turns/list");
+    proc._stdout.push(appServerResponse(firstRead.id, { data: [], nextCursor: null }));
 
     proc._stdout.push(JSON.stringify({
       method: "item/completed",
@@ -3132,9 +3345,9 @@ describe("CodexAppServerSession normalized events", () => {
       },
     }) + "\n");
     await waitForCondition(() =>
-      parseWrites(proc).filter((write) => write.method === "thread/read").length === 2,
+      parseWrites(proc).filter((write) => write.method === "thread/turns/list").length === 2,
     );
-    const secondRead = parseWrites(proc).filter((write) => write.method === "thread/read")[1] as { id: number };
+    const secondRead = parseWrites(proc).filter((write) => write.method === "thread/turns/list")[1] as { id: number };
     proc._stdout.push(appServerError(
       secondRead.id,
       "failed to read thread: thread-store internal error: failed to read thread /tmp/rollout-x.jsonl: rollout at /tmp/rollout-x.jsonl is empty",

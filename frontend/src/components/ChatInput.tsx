@@ -20,6 +20,7 @@ import { FileAutocompletePopup } from "@/components/chat/FileAutocompletePopup";
 import { MentionHighlightOverlay } from "@/components/chat/MentionHighlightOverlay";
 import { ContextRing } from "@/components/chat/ContextRing";
 import { ModelSelector } from "@/components/chat/ModelSelector";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { ThinkingSelector } from "@/components/chat/ThinkingSelector";
 import { ComposerOptionsMenu } from "@/components/chat/ComposerOptionsMenu";
 import { useCompletions } from "@/hooks/useCompletions";
@@ -154,9 +155,11 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput
     isError: modelsError,
     retry: retryModels,
   } = useModels(lockedProvider, lastRunOptions?.model);
+  const unavailableReason = selectedModel?.unavailableReason;
   const canSubmit =
     !isInputDisabled &&
     selectedModel !== undefined &&
+    !unavailableReason &&
     (value.trim().length > 0 || fileCount > 0);
   const contextUsage = useContextUsage(messages, selectedModel);
   const completionProvider = lockedProvider ?? (selectedModelId ? selectedModelId.split(":")[0] : undefined);
@@ -351,6 +354,8 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput
   );
 
   const handleSubmit = ({ text, files }: PromptInputMessage) => {
+    // PromptInput preserves attachments when submission is rejected.
+    if (unavailableReason) throw new Error(unavailableReason);
     const trimmed = text.trim();
     if (!trimmed && files.length === 0) return;
     if (disabled || isDisconnected || !selectedModel) return;
@@ -502,21 +507,30 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput
                 <SquareIcon className="size-3 text-destructive" />
               </PromptInputButton>
             )}
-            <PromptInputSubmit
-              aria-label="Send"
-              status="ready"
-              variant="ghost"
-              disabled={!canSubmit}
-              size="icon-xs"
-              className={cn(
-                "size-5 border border-border/50",
-                canSubmit && "border-primary bg-primary text-primary-foreground hover:bg-primary/90",
-              )}
-            />
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className="inline-flex" tabIndex={unavailableReason ? 0 : undefined} aria-label={unavailableReason}>
+                    <PromptInputSubmit
+                      aria-label="Send"
+                      status="ready"
+                      variant="ghost"
+                      disabled={!canSubmit}
+                      size="icon-xs"
+                      className={cn(
+                        "size-5 border border-border/50",
+                        canSubmit && "border-primary bg-primary text-primary-foreground hover:bg-primary/90",
+                      )}
+                    />
+                  </span>
+                </TooltipTrigger>
+                {unavailableReason && <TooltipContent>{unavailableReason}</TooltipContent>}
+              </Tooltip>
+            </TooltipProvider>
           </PromptInputTools>
         </PromptInputFooter>
         </PromptInput>
-        {!value.trim() && !isInputDisabled && selectedModel && (
+        {!value.trim() && !isInputDisabled && selectedModel && !unavailableReason && (
           <div className="pointer-events-none absolute top-2 right-2 z-10 flex items-center gap-1.5">
             <button
               type="button"

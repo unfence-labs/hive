@@ -95,6 +95,7 @@ export type StreamAdapter = EventEmitter<StreamParserEvent> & {
 export interface AgentProvider {
   readonly id: string;
   readonly command: string;
+  readonly minimumCliVersion?: string;
   readonly models: ModelDefinition[];
   readonly capabilities: ProviderCapabilities;
 
@@ -116,6 +117,8 @@ export interface ModelCatalogEntry {
   label: string;
   provider: string;
   providerLabel: string;
+  /** Installed harness cannot run this model until it is updated. */
+  unavailableReason?: string;
   isDefault?: boolean;
   capabilities: ProviderCapabilities;
   /** Maximum context window size in tokens. */

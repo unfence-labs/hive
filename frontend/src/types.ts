@@ -471,6 +471,7 @@ export interface ModelCatalogEntry {
   label: string;
   provider: string;
   providerLabel: string;
+  unavailableReason?: string;
   isDefault?: boolean;
   capabilities: ProviderCapabilities;
   /** Maximum context window size in tokens. */
