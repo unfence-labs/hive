@@ -75,20 +75,25 @@ struct CodeBlockView: View {
         }
         .buttonStyle(.plain)
         .disabled(!actionsEnabled)
+        // Each icon carries 6pt of its own slack, so this lands the trailing
+        // one on the same 12pt inset as the language label.
+        .padding(.trailing, 6)
         .background(WhisperColor.codeBg)
     }
 
-    /// Matches the message footer's hit area (44 x 38) so the header stays
-    /// compact while every action clears the touch-target minimum.
+    /// 40 x 36 tap target over 28pt of layout. The negative padding keeps the
+    /// icons 12pt apart instead of 28pt; the reclaimed 6pt per side is exactly
+    /// half the gap, so the two targets tile without overlapping.
     private func actionIcon(_ systemName: String, tint: Color) -> some View {
         Image(systemName: systemName)
             .font(.system(size: 12, weight: .medium))
             .foregroundStyle(tint)
             .contentTransition(.symbolEffect(.replace))
             .frame(width: 16, height: 16)
-            .padding(.horizontal, 14)
-            .padding(.vertical, 11)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
             .contentShape(Rectangle())
+            .padding(.horizontal, -6)
             .opacity(actionsEnabled ? 1 : 0.4)
             .animation(.easeOut(duration: 0.2), value: actionsEnabled)
     }

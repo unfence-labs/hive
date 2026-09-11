@@ -285,6 +285,11 @@ struct MessageBubble: View, Equatable {
                             .padding(.horizontal, 15)
                             .padding(.vertical, 12)
                             .contentShape(Rectangle())
+                            // The padding above buys a 44 x 38 tap target; taking
+                            // it back out of the layout keeps the icon on the same
+                            // rhythm as the metadata instead of inflating the row.
+                            .padding(.horizontal, -15)
+                            .padding(.vertical, -9)
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel(copied ? "Copied" : "Copy message")
