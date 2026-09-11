@@ -33,6 +33,7 @@ import { Streamdown } from "streamdown";
 import type { LinkSafetyModalProps } from "streamdown";
 import { ExternalLinkDialog } from "@/components/ExternalLinkDialog";
 import { openExternal } from "@/lib/open-external";
+import { StreamingCodeBlock } from "@/components/chat/StreamingCodeBlock";
 
 export type MessageProps = HTMLAttributes<HTMLDivElement> & {
   from: UIMessage["role"];
@@ -326,6 +327,7 @@ export const MessageBranchPage = ({
 export type MessageResponseProps = ComponentProps<typeof Streamdown>;
 
 const streamdownPlugins = { cjk, code, math, mermaid };
+const streamdownComponents = { pre: StreamingCodeBlock };
 
 const renderLinkModal = (props: LinkSafetyModalProps) => (
   <ExternalLinkDialog
@@ -349,11 +351,11 @@ export const MessageResponse = memo(
         className
       )}
       plugins={streamdownPlugins}
+      components={streamdownComponents}
       linkSafety={streamdownLinkSafety}
       {...props}
     />
-  ),
-  (prevProps, nextProps) => prevProps.children === nextProps.children
+  )
 );
 
 MessageResponse.displayName = "MessageResponse";

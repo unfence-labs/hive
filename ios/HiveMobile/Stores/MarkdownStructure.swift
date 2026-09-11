@@ -146,6 +146,46 @@ func markdownNeedsRichRenderer(_ markdown: String) -> Bool {
     return false
 }
 
+func markdownContainsCodeBlock(_ markdown: String) -> Bool {
+    markdownRenderSegments(markdown)?.contains { $0.block.isCodeBlock } == true
+}
+
+/// Only closed fences enable actions during streaming. Markdown parsing and code
+/// extraction remain Foundation-owned; this scan only finds a safe source prefix.
+func completedMarkdownCodeBlocks(_ markdown: String) -> Set<String> {
+    var fence: (marker: Character, count: Int)?
+    var completedEnd = markdown.startIndex
+    var lineStart = markdown.startIndex
+    while lineStart < markdown.endIndex {
+        let lineEnd = markdown[lineStart...].firstIndex(of: "\n") ?? markdown.endIndex
+        let rawLine = markdown[lineStart..<lineEnd]
+        let indentation = rawLine.prefix(while: { $0 == " " }).count
+        let line = rawLine.dropFirst(indentation)
+        let nextLine = lineEnd < markdown.endIndex ? markdown.index(after: lineEnd) : lineEnd
+        if indentation <= 3, let marker = line.first, marker == "`" || marker == "~" {
+            let count = line.prefix(while: { $0 == marker }).count
+            let suffix = line.dropFirst(count)
+            if let current = fence {
+                if marker == current.marker, count >= current.count,
+                   suffix.allSatisfy({ $0.isWhitespace }) {
+                    fence = nil
+                    completedEnd = nextLine
+                }
+            } else if count >= 3, marker != "`" || !suffix.contains("`") {
+                fence = (marker, count)
+            }
+        }
+        lineStart = nextLine
+    }
+
+    let segments = markdownRenderSegments(String(markdown[..<completedEnd])) ?? []
+    var blocks: [[Int]: String] = [:]
+    for segment in segments where segment.block.isCodeBlock && segment.kind == .content {
+        blocks[segment.block.identity, default: ""] += segment.text
+    }
+    return Set(blocks.values.map { $0.trimmingCharacters(in: .newlines) })
+}
+
 /// Boundary = blank line outside any ``` / ~~~ fenced block, so the stable
 /// prefix never ends inside an open code block.
 func splitStableMarkdownPrefix(_ text: String) -> (stable: String, tail: String) {

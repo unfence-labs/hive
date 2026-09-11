@@ -18,6 +18,7 @@ struct StreamingMarkdownView: View {
                     .markdownTheme(.whisperChat)
             }
         }
+        .environment(\.completedCodeBlocks, completedMarkdownCodeBlocks(text))
     }
 }
 
