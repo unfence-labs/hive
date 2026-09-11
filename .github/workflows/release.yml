@@ -7,6 +7,11 @@ on:
         description: Exact Cargo version to release (for example 0.1.0-beta.1)
         required: true
         type: string
+      test_release:
+        description: Build a disposable X.Y.Z version as a non-latest prerelease
+        required: false
+        default: false
+        type: boolean
 
 concurrency:
   group: release
@@ -36,11 +41,19 @@ jobs:
         name: Validate main and release version
         env:
           REQUESTED_VERSION: ${{ inputs.version }}
+          TEST_RELEASE: ${{ inputs.test_release }}
         shell: bash
         run: |
           if [ "$GITHUB_REF" != "refs/heads/main" ]; then
             echo "releases must be dispatched from main, not $GITHUB_REF" >&2
             exit 1
+          fi
+          if [ "$TEST_RELEASE" = true ]; then
+            if ! [[ "$REQUESTED_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "test releases require an X.Y.Z version for the desktop version gate" >&2
+              exit 1
+            fi
+            node scripts/release/release-version.mjs set "$REQUESTED_VERSION"
           fi
           node scripts/release/release-version.mjs check "$REQUESTED_VERSION"
           version="$(node scripts/release/release-version.mjs get)"
@@ -49,6 +62,7 @@ jobs:
           commit="$(git rev-parse HEAD)"
           prerelease=false
           case "$version" in *-*) prerelease=true ;; esac
+          if [ "$TEST_RELEASE" = true ]; then prerelease=true; fi
 
           if git ls-remote --exit-code --tags origin "refs/tags/v$version" >/dev/null 2>&1; then
             echo "tag v$version already exists" >&2
@@ -147,7 +161,14 @@ jobs:
 
       - name: Build frontend
         working-directory: frontend
-        run: npm run build
+        env:
+          TEST_RELEASE: ${{ inputs.test_release }}
+          RELEASE_VERSION: ${{ needs.validate.outputs.version }}
+        run: |
+          if [ "$TEST_RELEASE" = true ]; then
+            node ../scripts/release/release-version.mjs set "$RELEASE_VERSION"
+          fi
+          npm run build
 
       - name: Build signed and notarized Apple Silicon DMG
         working-directory: frontend
@@ -337,3 +358,4 @@ jobs:
           generate_release_notes: true
           draft: true
           prerelease: ${{ needs.validate.outputs.prerelease }}
+          make_latest: ${{ inputs.test_release && 'false' || '' }}

@@ -145,7 +145,24 @@ release. Publish the draft only after the relevant smoke tests pass.
 
 ## Smoke-test a desktop update
 
-This workflow is an occasional validation tool, not part of every release. Use it before the first
+To test the complete managed-backend and desktop sequence before a stable release,
+dispatch `release` from `main` with `test_release=true` and an unused plain `X.Y.Z`
+version greater than the installed baseline (for example `0.1.9001` for a `0.1.4`
+baseline). This overrides the build version without committing a version bump,
+uses the protected signing environment, and creates a draft marked prerelease
+and non-latest. Publish it with those flags retained; never promote a disposable
+test release to stable. Its tag still identifies the source commit; the workflow
+input records the overridden artifact version.
+
+Build the baseline Mac app from the code under test in release mode, with an updater
+endpoint pointing to `releases/download/v<TARGET_VERSION>/latest.json` on this
+repository. Use `bundle.createUpdaterArtifacts=false` for a local baseline build;
+the target release still requires signed artifacts. Start with a managed test
+backend matching the baseline app version. Do not use `tauri dev`, which disables
+the production update flow, or an older published app that predates the coordinator.
+Use a disposable backend and test Mac; the test performs real updates on both.
+
+The `updater smoke test` workflow is an occasional validation tool, not part of every release. Use it before the first
 stable release or after changing the updater, its signing key, or the macOS packaging. For ordinary
 stable releases, test by updating an older installed version of Hive normally.
 

@@ -44,7 +44,7 @@ test("release builds the frontend before Tauri", () => {
   const tauriBuild = workflow.indexOf("- name: Build signed and notarized Apple Silicon DMG");
   assert.match(
     workflow,
-    /- name: Build frontend\n\s+working-directory: frontend\n\s+run: npm run build/
+    /- name: Build frontend\n\s+working-directory: frontend[\s\S]*?npm run build/
   );
   assert.notEqual(frontendBuild, -1);
   assert.notEqual(tauriBuild, -1);
@@ -101,4 +101,17 @@ test("release signs the provisioner with the updater key and requires its signat
   assert.match(workflow, /dist-release\/provision\.sh\.sig/);
   assert.match(workflow, /"provision\.sh\.sig"; do/);
   assert.match(workflow, /wc -l\)" = 12/);
+});
+
+test("test releases retain protected signing and cannot become the stable update target", () => {
+  assert.match(workflow, /test_release:[\s\S]*?default: false/);
+  assert.match(workflow, /if \[ "\$TEST_RELEASE" = true \]; then prerelease=true; fi/);
+  assert.ok(workflow.includes("make_latest: ${{ inputs.test_release && 'false' || '' }}"));
+  assert.match(workflow, /GITHUB_REF.*refs\/heads\/main/);
+  assert.match(workflow, /environment:\s*\n\s+name: release/);
+  assert.match(workflow, /draft: true/);
+  assert.match(workflow, /node scripts\/release\/release-version.mjs set "\$REQUESTED_VERSION"/);
+  const desktop = workflow.slice(workflow.indexOf("  desktop-macos-arm64:"));
+  assert.ok(desktop.indexOf('release-version.mjs set "$RELEASE_VERSION"') < desktop.indexOf("npm run tauri build"));
+  assert.match(desktop, /release-version.mjs set "\$RELEASE_VERSION"/);
 });
