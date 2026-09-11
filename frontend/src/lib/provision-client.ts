@@ -75,11 +75,15 @@ export interface ProvisionOptions {
   /** Authorized on the hive service account by the install. */
   sshPublicKey?: string;
   /**
-   * Update an existing completed install to the app's version instead of
+   * Update an existing completed install instead of
    * installing. The script reads everything else from the server's install
-   * manifest, so no other option applies.
+   * manifest. Without a target version, the bundled app version is used.
    */
   update?: boolean;
+  /** Exact release to install; valid only for updates. */
+  targetVersion?: string;
+  /** Version observed immediately before updating, checked under the server lock. */
+  expectedVersion?: string;
 }
 
 /** The sidecar's rejection shape: a taxonomy code plus a raw diagnostic. */

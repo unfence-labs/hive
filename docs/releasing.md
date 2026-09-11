@@ -112,9 +112,12 @@ hive-backend-<version>-linux-x64.tar.gz.sha256
 hive-backend-<version>-linux-arm64.tar.gz
 hive-backend-<version>-linux-arm64.tar.gz.sha256
 provision.sh
+provision.sh.sig
 ```
 
 The `.app.tar.gz` bundle, its `.sig` signature, and `latest.json` serve the desktop updater.
+The app verifies `provision.sh.sig` with the same updater public key before running a future
+release's provisioner over SSH. Keep the script and its signature in the same release as the app.
 Installed apps poll `releases/latest/download/latest.json`, which GitHub resolves only to the
 newest stable release, so prereleases are never offered as automatic updates even though they
 publish the same assets.
@@ -127,7 +130,7 @@ Before publishing the draft:
 
 1. confirm the tag and target commit match the intended `main` commit;
 2. review the generated notes and labels;
-3. confirm all eleven assets exist;
+3. confirm all twelve assets exist;
 4. compare the published checksums with locally calculated SHA-256 values;
 5. install the DMG on a clean Apple Silicon Mac;
 6. confirm Gatekeeper shows only the normal downloaded-from-Internet confirmation;
@@ -146,15 +149,22 @@ This workflow is an occasional validation tool, not part of every release. Use i
 stable release or after changing the updater, its signing key, or the macOS packaging. For ordinary
 stable releases, test by updating an older installed version of Hive normally.
 
-After publishing a beta, run the `updater smoke test` workflow from `main`, enter its exact version,
+After publishing a stable release, run the `updater smoke test` workflow from `main`, enter its exact version,
 and approve the `release` environment. It uploads a signed and notarized test DMG as an Actions
 artifact retained for seven days; it does not create or modify a GitHub release.
 
 Install that DMG on a test Mac. The workflow sets its Cargo and macOS bundle versions to `0.0.0` and
-points its updater directly to the selected release, including a prerelease. Open Hive, accept the
-update notification, and confirm that the app downloads the update, restarts successfully, and does
-not offer the same update again. On a separate pass, dismiss the notification and confirm that
-release stays dismissed after an app restart; a newer release should still be offered.
+points its updater directly to the selected release. For the version-gated flow, connect to a test
+backend already on the selected stable release and confirm that Hive updates the Mac to that exact
+version. Test the full backend-then-desktop sequence separately with an older installed app and
+backend on matching versions. Confirm that a backend failure prevents desktop installation, and
+that reopening an interrupted update offers **Resume update**. Prerelease update flows are outside
+the current version gate's supported scope.
+
+The first release introducing the coupled updater is still installed by the old desktop updater.
+After restarting, its version gate requires backend alignment. Subsequent updates use the coupled
+flow. To test notification dismissal, dismiss an offered update on a matching app/backend pair and
+confirm it stays dismissed after restarting; a newer release should still be offered.
 
 Creating the draft also creates its tag. If a draft is wrong, correct the code through another pull
 request and use a new prerelease version. If a published release is wrong, document the issue and

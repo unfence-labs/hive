@@ -1,306 +1,177 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import UpdatesSettings from "@/pages/settings/UpdatesSettings";
-import { resetDesktopUpdateForTests } from "@/hooks/useDesktopUpdate";
-import { resetServerUpdate } from "@/lib/server-update";
-import { getConnection, replaceConnection } from "@/hooks/useConnection";
-import type { ProvisionClient } from "@/lib/provision-client";
+import { UpdateDialogs } from "@/components/UpdateDialogs";
+import type { DesktopUpdateState } from "@/hooks/useDesktopUpdate";
 import { createWrapper } from "../test-utils";
 
 const mocks = vi.hoisted(() => ({
   get: vi.fn(),
-  invoke: vi.fn(),
   check: vi.fn(),
   install: vi.fn(),
-  listKeys: vi.fn(),
-  liveData: {} as Record<string, { status?: "idle" | "busy" }>,
+  respond: vi.fn(),
+  dismiss: vi.fn(),
+  manual: false,
+  desktop: true,
+  production: true,
+  state: { phase: "idle" } as DesktopUpdateState,
 }));
-
 vi.mock("@/hooks/useApi", () => ({ api: { get: mocks.get } }));
-vi.mock("@tauri-apps/api/core", () => ({ invoke: mocks.invoke }));
-vi.mock("@tauri-apps/plugin-updater", () => ({ check: mocks.check }));
-vi.mock("@/contexts/WorkspaceLiveDataContext", () => ({
-  useWorkspaceLiveDataContext: () => mocks.liveData,
-}));
-vi.mock("@/lib/provision-client", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@/lib/provision-client")>()),
-  createTauriProvisionClient: (): ProvisionClient => ({
-    listKeys: mocks.listKeys,
-    testConnection: vi.fn(),
-    trustHost: vi.fn(),
-    preflight: vi.fn(),
-    install: mocks.install,
+vi.mock("@/hooks/useAppVersion", () => ({ useAppVersion: () => "1.2.3" }));
+vi.mock("@/lib/is-desktop", () => ({ isDesktopShell: () => mocks.desktop }));
+vi.mock("@/hooks/useDesktopUpdate", () => ({
+  useDesktopUpdateState: () => mocks.state,
+  shouldCheckForUpdates: () => mocks.desktop && mocks.production,
+  checkForUpdatesNow: mocks.check,
+  installCurrentUpdate: mocks.install,
+  respondToUpdate: mocks.respond,
+  dismissUpdateInput: mocks.dismiss,
+  useServerCompatibility: () => ({
+    appVersion: "1.2.3",
+    phase: "ready",
+    server: {
+      version: "1.2.3",
+      updateMethod: mocks.manual ? "manual" : "provisioner",
+    },
   }),
 }));
-
-function setDesktopShell(enabled: boolean) {
-  const globals = window as unknown as Record<string, unknown>;
-  if (enabled) globals.__TAURI_INTERNALS__ = {};
-  else delete globals.__TAURI_INTERNALS__;
-}
-
 function renderPage() {
-  const { wrapper: Wrapper } = createWrapper();
-  render(
-    <Wrapper>
+  const { wrapper } = createWrapper();
+  return render(
+    <>
       <UpdatesSettings />
-    </Wrapper>,
+      <UpdateDialogs />
+    </>,
+    { wrapper },
   );
 }
-
-function seedConnection(overrides: Record<string, unknown> = {}) {
-  replaceConnection({
-    host: "203.0.113.10",
-    port: 9420,
-    authToken: "token",
-    adminUser: "root",
-    sshKeyPath: "/home/lenny/.ssh/id_ed25519",
-    ...overrides,
-  });
-}
-
-/** A desktop app on 1.3.0-beta.2 talking to a backend still on 1.2.3. */
-function seedMismatch() {
-  setDesktopShell(true);
-  seedConnection();
-  mocks.invoke.mockResolvedValue("1.3.0-beta.2");
-}
-
 beforeEach(() => {
-  // reset, not clear: a test that aborts mid-flow leaves unconsumed
-  // mock*Once implementations behind, and clear would keep them queued.
-  vi.resetAllMocks();
-  localStorage.clear();
-  resetDesktopUpdateForTests();
-  resetServerUpdate();
-  mocks.liveData = {};
-  mocks.get.mockResolvedValue({ version: "1.2.3", updateMethod: "provisioner" });
-  mocks.invoke.mockResolvedValue("1.2.3");
-  mocks.check.mockResolvedValue(null);
-  mocks.install.mockResolvedValue(undefined);
-  mocks.listKeys.mockResolvedValue([]);
+  vi.clearAllMocks();
+  mocks.manual = false;
+  mocks.desktop = true;
+  mocks.production = true;
+  mocks.state = { phase: "idle" };
+  mocks.get.mockResolvedValue({
+    version: "1.2.3",
+    updateMethod: "provisioner",
+  });
 });
-
-afterEach(() => {
-  vi.unstubAllEnvs();
-  setDesktopShell(false);
-});
-
 describe("UpdatesSettings", () => {
-  it("shows only the server version on the web", async () => {
+  it("shows only the server on the web", async () => {
+    mocks.desktop = false;
     renderPage();
-
     expect(await screen.findByText("Version 1.2.3")).toBeInTheDocument();
-    expect(screen.queryByRole("heading", { name: "Application" })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Check for updates" }),
+    ).not.toBeInTheDocument();
   });
-
-  it("reports an unreachable server", async () => {
-    mocks.get.mockRejectedValue(new Error("down"));
+  it("checks through the shared coordinator", async () => {
     renderPage();
-
-    expect(await screen.findByText("Version unavailable")).toBeInTheDocument();
+    await userEvent.click(
+      screen.getByRole("button", { name: "Check for updates" }),
+    );
+    expect(mocks.check).toHaveBeenCalledOnce();
   });
-
-  it("shows no server action when versions match", async () => {
-    setDesktopShell(true);
-    seedConnection();
+  it("offers only one coordinated action when a release is available", async () => {
+    mocks.state = { phase: "available", version: "1.4.0" };
     renderPage();
-
-    expect(await screen.findByRole("heading", { name: "Application" })).toBeInTheDocument();
-    expect(await screen.findAllByText("Version 1.2.3")).toHaveLength(2);
-    expect(screen.queryByRole("button", { name: /Update server/ })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Update Hive" }));
+    expect(mocks.install).toHaveBeenCalledOnce();
+    expect(
+      screen.queryByRole("button", { name: /Update server|Check for updates/ }),
+    ).not.toBeInTheDocument();
   });
-
-  it("highlights a manual version mismatch without offering an automatic action", async () => {
-    setDesktopShell(true);
-    seedConnection();
-    mocks.get.mockResolvedValue({ version: "1.2.3", updateMethod: "manual" });
-    mocks.invoke.mockResolvedValue("1.3.0");
+  it("explains manual server updates and keeps the app action available", async () => {
+    mocks.manual = true;
+    mocks.manual = true;
+    mocks.get.mockResolvedValue({ version: "1.2.0", updateMethod: "manual" });
+    mocks.state = { phase: "available", version: "1.4.0" };
     renderPage();
-
-    expect(await screen.findByText("Version 1.2.3")).toBeInTheDocument();
+    expect(
+      await screen.findByText(/This server was installed manually/),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Update Hive" }),
+    ).toBeInTheDocument();
+  });
+  it("shows backend progress without an update or cancel action", () => {
+    mocks.state = {
+      phase: "updatingServer",
+      version: "1.4.0",
+      step: "Restarting",
+    };
+    renderPage();
+    expect(screen.getByRole("status")).toHaveTextContent("Restarting");
+    expect(screen.queryByRole("button")).not.toBeInTheDocument();
+  });
+  it("offers explicit resume through the same coordinator", async () => {
+    mocks.state = { phase: "resume", version: "1.4.0" };
+    renderPage();
+    await userEvent.click(
+      screen.getByRole("button", { name: "Resume update" }),
+    );
+    expect(mocks.install).toHaveBeenCalledOnce();
+  });
+  it("preserves the running-agents confirmation", async () => {
+    mocks.state = {
+      phase: "input",
+      version: "1.4.0",
+      kind: "agents",
+      busyWorkspaces: 2,
+    };
+    renderPage();
+    expect(
+      screen.getByText(/2 workspaces have agents running/),
+    ).toBeInTheDocument();
+    await userEvent.click(
+      screen.getByRole("button", { name: "Update anyway" }),
+    );
+    expect(mocks.respond).toHaveBeenCalledWith({ confirmAgents: true });
+  });
+  it("confirms the restart without inventing a busy count when workspaces have not loaded", async () => {
+    mocks.state = { phase: "input", version: "1.4.0", kind: "agents" };
+    renderPage();
+    expect(
+      screen.getByRole("heading", { name: "Restart the server?" }),
+    ).toBeInTheDocument();
     expect(
       screen.getByText(
-        "Server version 1.2.3 doesn't match app version 1.3.0. Update manually to 1.3.0.",
+        "Updating restarts the server and stops any running agents.",
       ),
     ).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /Update server/ })).not.toBeInTheDocument();
-    expect(mocks.install).not.toHaveBeenCalled();
-  });
-
-  it("explains manual updates when versions match", async () => {
-    setDesktopShell(true);
-    seedConnection();
-    mocks.get.mockResolvedValue({ version: "1.2.3", updateMethod: "manual" });
-    renderPage();
-
-    expect(
-      await screen.findByText(
-        "Automatic server updates aren't available for manual installations.",
-      ),
-    ).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /Update server/ })).not.toBeInTheDocument();
-  });
-
-  it("runs a manual check from the button and reports up to date", async () => {
-    setDesktopShell(true);
-    seedConnection();
-    vi.stubEnv("PROD", true);
-    const user = userEvent.setup();
-    renderPage();
-
-    await user.click(await screen.findByRole("button", { name: "Check for updates" }));
-
-    expect(mocks.check).toHaveBeenCalledTimes(1);
-    expect(await screen.findByText("You're on the latest version.")).toBeInTheDocument();
-  });
-
-  it("updates the server in place when the backend differs from the app", async () => {
-    seedMismatch();
-    const user = userEvent.setup();
-    renderPage();
-
-    await user.click(await screen.findByRole("button", { name: "Update server to 1.3.0-beta.2" }));
-
-    await waitFor(() => expect(screen.getByText("Server updated.")).toBeInTheDocument());
-    expect(mocks.install).toHaveBeenCalledWith(
-      {
-        connection: {
-          host: "203.0.113.10",
-          user: "root",
-          keyPath: "/home/lenny/.ssh/id_ed25519",
-        },
-        options: { update: true },
-        password: undefined,
-      },
-      expect.any(Function),
+    expect(screen.queryByText(/0 workspaces/)).not.toBeInTheDocument();
+    await userEvent.click(
+      screen.getByRole("button", { name: "Update anyway" }),
     );
+    expect(mocks.respond).toHaveBeenCalledWith({ confirmAgents: true });
   });
-
-  it("hides the server update while an app update is pending", async () => {
-    seedMismatch();
-    vi.stubEnv("PROD", true);
-    mocks.check.mockResolvedValue({
+  it("passes a selected SSH key to the coordinator", async () => {
+    mocks.state = {
+      phase: "input",
       version: "1.4.0",
-      downloadAndInstall: vi.fn(),
-      close: vi.fn(async () => {}),
-    });
-    const user = userEvent.setup();
+      kind: "key",
+      keys: [
+        {
+          path: "/keys/test",
+          label: "test",
+          usable: true,
+          encrypted: false,
+          agentLoaded: false,
+        },
+      ],
+    };
     renderPage();
-
-    expect(await screen.findByRole("button", { name: /Update server/ })).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Check for updates" }));
-
-    expect(await screen.findByText("Version 1.4.0 is available.")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /Update server/ })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "test" }));
+    expect(mocks.respond).toHaveBeenCalledWith({ keyPath: "/keys/test" });
   });
-
-  it("warns before restarting a server with busy workspaces", async () => {
-    seedMismatch();
-    // Live WS state, not the projects query — the query snapshot can be stale.
-    mocks.liveData = { w1: { status: "busy" }, w2: { status: "idle" } };
-    const user = userEvent.setup();
+  it("collects the escalation password", async () => {
+    mocks.state = { phase: "input", version: "1.4.0", kind: "password" };
     renderPage();
-
-    await user.click(await screen.findByRole("button", { name: /Update server/ }));
-    expect(mocks.install).not.toHaveBeenCalled();
-    expect(screen.getByText(/1 workspace has agents running/)).toBeInTheDocument();
-
-    await user.click(screen.getByRole("button", { name: "Update anyway" }));
-    await waitFor(() => expect(mocks.install).toHaveBeenCalledTimes(1));
-  });
-
-  it("asks for the SSH key once when the stored connection has none", async () => {
-    seedMismatch();
-    seedConnection({ sshKeyPath: undefined });
-    mocks.listKeys.mockResolvedValue([
-      { path: "/home/lenny/.ssh/id_ed25519", label: "id_ed25519", encrypted: false, agentLoaded: false, usable: true },
-      { path: "/home/lenny/.ssh/id_rsa", label: "id_rsa", encrypted: true, agentLoaded: false, usable: false },
-    ]);
-    const user = userEvent.setup();
-    renderPage();
-
-    await user.click(await screen.findByRole("button", { name: /Update server/ }));
-    expect(await screen.findByText("Select an SSH key")).toBeInTheDocument();
-    // Passphrase-protected keys cannot authenticate non-interactively.
-    expect(screen.queryByText("id_rsa")).not.toBeInTheDocument();
-
-    await user.click(screen.getByRole("button", { name: /id_ed25519/ }));
-
-    await waitFor(() => expect(mocks.install).toHaveBeenCalledTimes(1));
-    expect(mocks.install.mock.calls[0][0].connection.keyPath).toBe("/home/lenny/.ssh/id_ed25519");
-    expect(getConnection()?.sshKeyPath).toBe("/home/lenny/.ssh/id_ed25519");
-  });
-
-  it("collects the escalation password when the server requires one", async () => {
-    seedMismatch();
-    mocks.install
-      .mockRejectedValueOnce({ code: "SSH_PASSWORD_REQUIRED", detail: "password needed" })
-      .mockResolvedValueOnce(undefined);
-    const user = userEvent.setup();
-    renderPage();
-
-    await user.click(await screen.findByRole("button", { name: /Update server/ }));
-    expect(await screen.findByRole("heading", { name: "Escalation password" })).toBeInTheDocument();
-
-    await user.type(screen.getByLabelText("Password"), "hunter2");
-    await user.click(screen.getByRole("button", { name: "Update server" }));
-
-    await waitFor(() => expect(screen.getByText("Server updated.")).toBeInTheDocument());
-    expect(mocks.install).toHaveBeenCalledTimes(2);
-    expect(mocks.install.mock.calls[1][0].password).toBe("hunter2");
-  });
-
-  it("offers the manual command as a fallback after a failed run", async () => {
-    seedMismatch();
-    mocks.install.mockRejectedValue({ code: "HEALTH_TIMEOUT", detail: "no health" });
-    const user = userEvent.setup();
-    renderPage();
-
-    await user.click(await screen.findByRole("button", { name: /Update server/ }));
-
-    expect(await screen.findByText("Update failed: no health")).toBeInTheDocument();
-    expect(
-      screen.getByText(/releases\/download\/v1\.3\.0-beta\.2\/provision\.sh/),
-    ).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Update server/ })).toBeInTheDocument();
-  });
-
-  it("keeps the failure visible when the password prompt is dismissed", async () => {
-    seedMismatch();
-    mocks.install.mockRejectedValue({ code: "SSH_PASSWORD_REQUIRED", detail: "password needed" });
-    const user = userEvent.setup();
-    renderPage();
-
-    await user.click(await screen.findByRole("button", { name: /Update server/ }));
-    await user.click(await screen.findByRole("button", { name: "Cancel" }));
-
-    // Dismissing the dialog used to leave the page identical to a run that
-    // never happened, so the failure was invisible.
-    expect(await screen.findByText("Update failed: password needed")).toBeInTheDocument();
-    // A password prompt is retryable in the app, so no shell detour.
-    expect(screen.queryByText("Fallback, from a server shell:")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Update server/ })).toBeInTheDocument();
-  });
-
-  it("withdraws the check button once an app update is available", async () => {
-    setDesktopShell(true);
-    seedConnection();
-    vi.stubEnv("PROD", true);
-    mocks.check.mockResolvedValue({
-      version: "1.4.0",
-      downloadAndInstall: vi.fn(),
-      close: vi.fn(async () => {}),
-    });
-    const user = userEvent.setup();
-    renderPage();
-
-    await user.click(await screen.findByRole("button", { name: "Check for updates" }));
-
-    // Re-checking cannot answer anything new, and it would stack a secondary
-    // button above the primary one that replaces it.
-    expect(await screen.findByRole("button", { name: "Restart & update" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Check for updates" })).not.toBeInTheDocument();
+    await userEvent.type(screen.getByLabelText("Password"), "secret");
+    await userEvent.click(
+      screen.getByRole("button", { name: "Update server" }),
+    );
+    expect(mocks.respond).toHaveBeenCalledWith({ password: "secret" });
   });
 });

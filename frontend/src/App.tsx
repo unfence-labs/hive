@@ -1,7 +1,18 @@
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
-import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import AppLayout from "@/components/AppLayout";
+import AppLayout, { AppShell, SettingsHeader } from "@/components/AppLayout";
+import { UpdateSidebar } from "@/components/SettingsSidebar";
+import { CenterCard } from "@/components/CenterCard";
+import { SettingsPanel } from "@/components/settings/SettingsSection";
 import AddProjectDialog from "@/components/AddProjectDialog";
 import WorkspaceLauncher from "@/components/WorkspaceLauncher";
 import HomeView from "@/pages/HomeView";
@@ -11,12 +22,26 @@ import { useConnection } from "@/hooks/useConnection";
 import { isDesktopShell } from "@/lib/is-desktop";
 import { BRAIN_WORKSPACE_ID } from "@/lib/brain";
 import type { Project } from "@/types";
-import { WorkspaceLiveDataProvider } from "@/contexts/WorkspaceLiveDataContext";
+import {
+  WorkspaceLiveDataProvider,
+  useWorkspaceLiveDataContext,
+} from "@/contexts/WorkspaceLiveDataContext";
 import { useWsCacheInvalidation } from "@/hooks/useWsCacheInvalidation";
 import { useActiveSessionPrewarm } from "@/hooks/useActiveSessionPrewarm";
 import { useNotificationToasts } from "@/hooks/useNotificationToasts";
-import { useDesktopUpdate } from "@/hooks/useDesktopUpdate";
-import { ServerUpdatePrompt } from "@/components/ServerUpdatePrompt";
+import {
+  useDesktopUpdate,
+  useDesktopUpdateState,
+  useServerCompatibility,
+  serverCompatibilityMatchesConnection,
+  refreshServerCompatibility,
+  shouldCheckForUpdates,
+  desktopUpdateInProgress,
+  setUpdateBusyWorkspaces,
+} from "@/hooks/useDesktopUpdate";
+import { UpdateControls } from "@/components/UpdateControls";
+import { UpdateDialogs } from "@/components/UpdateDialogs";
+import { Button } from "@/components/ui/button";
 import { wsTransport } from "@/lib/ws-transport";
 import { HiveToaster } from "@/components/ui/toaster";
 import { useAppResync } from "@/hooks/useAppResync";
@@ -26,19 +51,31 @@ const AutomationDetail = lazy(() => import("@/pages/AutomationDetail"));
 const WorkspaceView = lazy(() => import("@/pages/WorkspaceView"));
 const BrainView = lazy(() => import("@/pages/BrainView"));
 const AccountSettings = lazy(() => import("@/pages/settings/AccountSettings"));
-const AppearanceSettings = lazy(() => import("@/pages/settings/AppearanceSettings"));
-const ConnectionSettings = lazy(() => import("@/pages/settings/ConnectionSettings"));
+const AppearanceSettings = lazy(
+  () => import("@/pages/settings/AppearanceSettings"),
+);
+const ConnectionSettings = lazy(
+  () => import("@/pages/settings/ConnectionSettings"),
+);
 const ServerSettings = lazy(() => import("@/pages/settings/ServerSettings"));
 const AgentSettings = lazy(() => import("@/pages/settings/AgentSettings"));
 const ModelsSettings = lazy(() => import("@/pages/settings/ModelsSettings"));
 const ProjectDetail = lazy(() => import("@/pages/settings/ProjectDetail"));
 const TeamSettings = lazy(() => import("@/pages/settings/TeamSettings"));
-const PromptTemplatesSettings = lazy(() => import("@/pages/settings/PromptTemplatesSettings"));
+const PromptTemplatesSettings = lazy(
+  () => import("@/pages/settings/PromptTemplatesSettings"),
+);
 const SkillsSettings = lazy(() => import("@/pages/settings/SkillsSettings"));
-const InstructionsSettings = lazy(() => import("@/pages/settings/InstructionsSettings"));
-const SubagentsSettings = lazy(() => import("@/pages/settings/SubagentsSettings"));
+const InstructionsSettings = lazy(
+  () => import("@/pages/settings/InstructionsSettings"),
+);
+const SubagentsSettings = lazy(
+  () => import("@/pages/settings/SubagentsSettings"),
+);
 const UpdatesSettings = lazy(() => import("@/pages/settings/UpdatesSettings"));
-const CreateAutomationDialog = lazy(() => import("@/components/CreateAutomationDialog"));
+const CreateAutomationDialog = lazy(
+  () => import("@/components/CreateAutomationDialog"),
+);
 const Installer = lazy(() => import("@/pages/installer/Installer"));
 
 function NotificationToastsBridge({ projects }: { projects: Project[] }) {
@@ -76,26 +113,181 @@ export default function App() {
   }, [requiresSetup]);
   const closeInstaller = useCallback(() => setInstaller(null), []);
 
-  // App-level, not ConfiguredApp-level: an installed build stuck on the
-  // installer gate must still be offered updates — that gate is exactly where
-  // a broken old build would strand its user.
-  useDesktopUpdate();
+  useDesktopUpdate(installer === null && !requiresSetup);
 
   return (
     <>
       <HiveToaster />
+      {installer === null && <UpdateDialogs />}
       {installer === "gate" ? (
         <Suspense fallback={<BootScreen />}>
           <Installer onClose={closeInstaller} />
         </Suspense>
       ) : (
-        <ConfiguredApp
-          installerOpen={installer === "overlay"}
-          onOpenInstaller={() => setInstaller("overlay")}
-          onCloseInstaller={closeInstaller}
-        />
+        <CompatibilityGate enabled={installer === null}>
+          <ConfiguredApp
+            installerOpen={installer === "overlay"}
+            onOpenInstaller={() => setInstaller("overlay")}
+            onCloseInstaller={closeInstaller}
+          />
+        </CompatibilityGate>
       )}
     </>
+  );
+}
+
+function UpdateBusyWorkspacesBridge({
+  workspaceIds,
+  loading,
+}: {
+  workspaceIds: string[];
+  loading: boolean;
+}) {
+  const liveData = useWorkspaceLiveDataContext();
+  const statusesKnown =
+    !loading && workspaceIds.every((id) => liveData[id]?.status !== undefined);
+  const busy = statusesKnown
+    ? workspaceIds.filter((id) => liveData[id]?.status === "busy").length
+    : null;
+  useEffect(() => {
+    setUpdateBusyWorkspaces(busy);
+    return () => setUpdateBusyWorkspaces(null);
+  }, [busy]);
+  useEffect(() => {
+    let previousStatus = wsTransport.getStatus(BRAIN_WORKSPACE_ID);
+    return wsTransport.subscribe(BRAIN_WORKSPACE_ID, () => {
+      const status = wsTransport.getStatus(BRAIN_WORKSPACE_ID);
+      if (status === "connected" && previousStatus !== "connected") {
+        void refreshServerCompatibility();
+      }
+      previousStatus = status;
+    });
+  }, []);
+  return null;
+}
+
+function CompatibilityGate({
+  children,
+  enabled,
+}: {
+  children: ReactNode;
+  enabled: boolean;
+}) {
+  if (!shouldCheckForUpdates()) return children;
+  return (
+    <DesktopCompatibilityGate enabled={enabled}>
+      {children}
+    </DesktopCompatibilityGate>
+  );
+}
+
+function DesktopCompatibilityGate({
+  children,
+  enabled,
+}: {
+  children: ReactNode;
+  enabled: boolean;
+}) {
+  const compatibility = useServerCompatibility();
+  const { connection } = useConnection();
+  const update = useDesktopUpdateState();
+  const inProgress = desktopUpdateInProgress();
+  const unfinished =
+    inProgress ||
+    update.phase === "resume" ||
+    update.phase === "input" ||
+    update.phase === "failed";
+  const matching =
+    serverCompatibilityMatchesConnection(connection) &&
+    compatibility.appVersion !== null &&
+    compatibility.server !== null &&
+    compatibility.appVersion === compatibility.server.version;
+  if (!enabled || (compatibility.phase === "ready" && matching && !unfinished))
+    return children;
+  return (
+    <BrowserRouter>
+      <Routes>
+        <Route
+          element={
+            <AppShell
+              sidebar={
+                <UpdateSidebar
+                  connectionAvailable={!inProgress && update.phase !== "input"}
+                />
+              }
+            />
+          }
+        >
+          {!inProgress && update.phase !== "input" && (
+            <Route
+              path="/settings/connection"
+              element={
+                <ConnectionSettings
+                  onRefreshConnection={() => {
+                    void refreshServerCompatibility();
+                  }}
+                />
+              }
+            />
+          )}
+          <Route
+            path="*"
+            element={
+              <div className="flex h-full min-h-0 flex-col overflow-hidden">
+                <SettingsHeader>
+                  <h1 className="text-sm font-medium">
+                    {unfinished
+                      ? "Update Hive"
+                      : compatibility.phase === "checking"
+                        ? "Checking server…"
+                        : compatibility.phase === "unavailable"
+                          ? "Server unavailable"
+                          : "Update required"}
+                  </h1>
+                </SettingsHeader>
+                <CenterCard scroll>
+                  <SettingsPanel>
+                    <div className="space-y-4 text-xs">
+                      {!unfinished &&
+                        compatibility.phase === "unavailable" &&
+                        compatibility.error && (
+                          <p role="alert" className="text-destructive">
+                            {compatibility.error}
+                          </p>
+                        )}
+                      {compatibility.appVersion && (
+                        <p>App version {compatibility.appVersion}</p>
+                      )}
+                      {compatibility.server && (
+                        <p>Server version {compatibility.server.version}</p>
+                      )}
+                      {compatibility.server?.updateMethod === "manual" && (
+                        <p>
+                          This server was installed manually. Update it manually
+                          to the same version as the app.
+                        </p>
+                      )}
+                      {unfinished || compatibility.phase === "ready" ? (
+                        <UpdateControls />
+                      ) : compatibility.phase === "unavailable" ? (
+                        <Button
+                          size="sm"
+                          onClick={() => {
+                            void refreshServerCompatibility();
+                          }}
+                        >
+                          Retry
+                        </Button>
+                      ) : null}
+                    </div>
+                  </SettingsPanel>
+                </CenterCard>
+              </div>
+            }
+          />
+        </Route>
+      </Routes>
+    </BrowserRouter>
   );
 }
 
@@ -164,7 +356,7 @@ function ConfiguredApp({
           }
         />
         <NotificationToastsBridge projects={projects} />
-        <ServerUpdatePrompt />
+        <UpdateBusyWorkspacesBridge workspaceIds={workspaceIds} loading={loading} />
         <AddProjectDialog
           open={showAddProject}
           onOpenChange={setShowAddProject}
@@ -213,7 +405,14 @@ function ConfiguredApp({
                 path="settings/connection"
                 element={
                   <ConnectionSettings
-                    onRefreshConnection={() => { wsTransport.disconnectAll(); fetchProjects(); }}
+                    onRefreshConnection={() => {
+                      if (shouldCheckForUpdates()) {
+                        void refreshServerCompatibility();
+                      } else {
+                        wsTransport.disconnectAll();
+                        fetchProjects();
+                      }
+                    }}
                   />
                 }
               />

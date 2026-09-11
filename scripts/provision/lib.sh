@@ -286,6 +286,7 @@ bootstrap() {
   : >>"$LOG_FILE"
   chmod 600 "$LOG_FILE"
   acquire_lock
+  assert_expected_version
   # Half-downloaded artifacts from an interrupted run are never reused.
   find "$HIVE_VAR_DIR" -maxdepth 1 -type f \
     \( -name 'download.*' -o -name 'secret.*' \) -delete

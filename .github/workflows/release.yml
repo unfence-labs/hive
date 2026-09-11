@@ -250,6 +250,14 @@ jobs:
             "$tarball.sig" \
             src-tauri/tauri.conf.json
 
+          bash ../scripts/provision/build.sh "$RELEASE_VERSION"
+          npm run tauri signer sign -- ../scripts/provision/dist/provision.sh
+          node ../scripts/release/verify-updater-signature.mjs \
+            ../scripts/provision/dist/provision.sh \
+            ../scripts/provision/dist/provision.sh.sig \
+            src-tauri/tauri.conf.json
+          cp ../scripts/provision/dist/provision.sh.sig ../dist-release/provision.sh.sig
+
           # The updater signature exists only in this job, so latest.json is written here.
           jq -n \
             --arg version "$RELEASE_VERSION" \
@@ -275,6 +283,7 @@ jobs:
             dist-release/Hive-${{ needs.validate.outputs.version }}-macos-arm64.app.tar.gz.sig
             dist-release/Hive-${{ needs.validate.outputs.version }}-macos-arm64.app.tar.gz.sha256
             dist-release/latest.json
+            dist-release/provision.sh.sig
           if-no-files-found: error
 
   draft-release:
@@ -308,13 +317,14 @@ jobs:
             "Hive-$VERSION-macos-arm64.app.tar.gz.sig" \
             "Hive-$VERSION-macos-arm64.app.tar.gz.sha256" \
             "latest.json" \
-            "provision.sh"; do
+            "provision.sh" \
+            "provision.sh.sig"; do
             test -f "release/$asset" || {
               echo "missing release asset: $asset" >&2
               exit 1
             }
           done
-          test "$(find release -type f | wc -l)" = 11
+          test "$(find release -type f | wc -l)" = 12
 
       - name: Create draft GitHub release
         uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2

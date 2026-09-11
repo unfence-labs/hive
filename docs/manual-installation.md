@@ -136,8 +136,9 @@ by `provision.sh`, use the target release's `provision.sh --update` flow documen
 [Getting Started](getting-started.md#update-the-backend).
 
 Hive reports a source checkout as manually managed, so the desktop app does not run
-`provision.sh --update` against it. Version differences remain visible, but you update and roll back
-the checkout with the commands below.
+`provision.sh --update` against it. Installed macOS apps block workspace access until their version
+matches the backend. Update the app and this checkout separately; update and roll back the checkout
+with the commands below. Local development builds are exempt from the version gate.
 
 Back up the configured data directory before changing versions. Build the new version before
 restarting the running process, and keep the previous tag available for rollback.

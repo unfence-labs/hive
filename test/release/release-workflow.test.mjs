@@ -93,3 +93,12 @@ test("updater smoke test builds a protected disposable baseline", () => {
   assert.notEqual(tauriBuild, -1);
   assert.ok(cargoVersionOverride < tauriBuild);
 });
+
+
+test("release signs the provisioner with the updater key and requires its signature", () => {
+  assert.match(workflow, /npm run tauri signer sign -- \.\.\/scripts\/provision\/dist\/provision\.sh/);
+  assert.match(workflow, /verify-updater-signature\.mjs[\s\S]*provision\.sh\.sig[\s\S]*src-tauri\/tauri\.conf\.json/);
+  assert.match(workflow, /dist-release\/provision\.sh\.sig/);
+  assert.match(workflow, /"provision\.sh\.sig"; do/);
+  assert.match(workflow, /wc -l\)" = 12/);
+});

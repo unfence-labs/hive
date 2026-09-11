@@ -1,4 +1,5 @@
 import { useCallback, useSyncExternalStore } from "react";
+import { invalidateServerCompatibility } from "@/hooks/useDesktopUpdate";
 import { isValidPort, normalizeHost } from "@/lib/server-connection";
 
 /**
@@ -127,6 +128,12 @@ export function getConnection(): ServerConnection | null {
 /** Write (or clear) the connection as one atomic record. */
 export function replaceConnection(connection: ServerConnection | null): void {
   const normalized = normalizeConnection(connection);
+  const previous = getConnection();
+  if (serverUrlFor(previous) !== serverUrlFor(normalized) ||
+      previous?.authToken !== normalized?.authToken ||
+      previous?.setupPending !== normalized?.setupPending) {
+    invalidateServerCompatibility();
+  }
   if (normalized) {
     localStorage.setItem(CONNECTION_STORAGE_KEY, JSON.stringify(normalized));
   } else {

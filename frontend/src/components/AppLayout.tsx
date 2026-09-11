@@ -1,6 +1,11 @@
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
-import { Outlet, useLocation, useOutletContext } from "react-router-dom";
-import { Group, Panel, useDefaultLayout, usePanelRef } from "react-resizable-panels";
+import { Outlet, useLocation, useNavigate, useOutletContext } from "react-router-dom";
+import {
+  Group,
+  Panel,
+  useDefaultLayout,
+  usePanelRef,
+} from "react-resizable-panels";
 import Sidebar from "./Sidebar";
 import SettingsSidebar from "./SettingsSidebar";
 import { ResizeHandle } from "./ResizeHandle";
@@ -32,7 +37,10 @@ export interface LayoutContext {
   toggleSidebar: () => void;
 }
 
-const defaultContext: LayoutContext = { collapsed: false, toggleSidebar: () => {} };
+const defaultContext: LayoutContext = {
+  collapsed: false,
+  toggleSidebar: () => {},
+};
 
 export function useLayoutContext(): LayoutContext {
   const ctx = useOutletContext() as LayoutContext | undefined;
@@ -60,7 +68,11 @@ export function PageHeader({
         "relative flex h-12 shrink-0 items-center pr-4 transition-[padding-left] duration-200 ease-in-out",
         className,
       )}
-      style={{ paddingLeft: collapsed ? "max(var(--traffic-light-clearance, 0px), 1rem)" : "1rem" }}
+      style={{
+        paddingLeft: collapsed
+          ? "max(var(--traffic-light-clearance, 0px), 1rem)"
+          : "1rem",
+      }}
       data-tauri-drag-region
     >
       {children}
@@ -91,6 +103,43 @@ export default function AppLayout({
   const isSettings = pathname.startsWith("/settings");
   const { backendEnv } = useConnectionStatus();
 
+  return (
+    <AppShell
+      sidebar={
+        isSettings ? (
+          <SettingsSidebar isResyncing={isResyncing} />
+        ) : (
+          <Sidebar
+            isResyncing={isResyncing}
+            onAddProject={onAddProject}
+            onAddAutomation={onAddAutomation}
+            onNewWorkspaceFrom={onNewWorkspaceFrom}
+            onRestoreWorkspace={onRestoreWorkspace}
+          />
+        )
+      }
+      banner={
+        import.meta.env.DEV && (
+          <div className="shrink-0 bg-warning/90 px-3 py-0.5 text-center text-xs font-medium text-warning-contrast">
+            Dev frontend →{" "}
+            {backendEnv ? `${backendEnv} backend` : "connecting…"}
+          </div>
+        )
+      }
+    />
+  );
+}
+
+/** Shared window chrome; the caller decides which sidebar and routes are available. */
+export function AppShell({
+  sidebar,
+  banner,
+}: {
+  sidebar: React.ReactNode;
+  banner?: React.ReactNode;
+}) {
+  const navigate = useNavigate();
+  useAppCommand("open-updates", () => navigate("/settings/updates"));
   const sidebarPanelRef = usePanelRef();
   const sidebarElementRef = useRef<HTMLDivElement>(null);
   const [collapsed, setCollapsed] = useState(false);
@@ -146,11 +195,7 @@ export default function AppLayout({
   return (
     // h-full, not h-screen: vh units don't rescale under CSS zoom (useAppZoom).
     <div className="flex h-full flex-col bg-sidebar">
-      {import.meta.env.DEV && (
-        <div className="shrink-0 bg-warning/90 px-3 py-0.5 text-center text-xs font-medium text-warning-contrast">
-          Dev frontend → {backendEnv ? `${backendEnv} backend` : "connecting…"}
-        </div>
-      )}
+      {banner}
       <Group
         orientation="horizontal"
         defaultLayout={defaultLayout}
@@ -169,17 +214,7 @@ export default function AppLayout({
           onResize={handleSidebarResize}
           className="overflow-hidden"
         >
-          {isSettings ? (
-            <SettingsSidebar isResyncing={isResyncing} />
-          ) : (
-            <Sidebar
-              isResyncing={isResyncing}
-              onAddProject={onAddProject}
-              onAddAutomation={onAddAutomation}
-              onNewWorkspaceFrom={onNewWorkspaceFrom}
-              onRestoreWorkspace={onRestoreWorkspace}
-            />
-          )}
+          {sidebar}
         </Panel>
         <ResizeHandle orientation="vertical" cardSide="right" />
         <Panel id="main">

@@ -201,14 +201,28 @@ fn provision_script() -> String {
 /// The bytes written to the remote shell's standard input. When a password is
 /// present it is the first line: `sudo -S` reads it one byte at a time and
 /// consumes the newline, so everything after it reaches bash byte-identically.
-fn stdin_payload(password: Option<&Secret>) -> Vec<u8> {
+fn stdin_payload(script: &str, password: Option<&Secret>) -> Vec<u8> {
     let mut payload = Vec::new();
     if let Some(secret) = password {
         payload.extend_from_slice(secret.expose().as_bytes());
         payload.push(b'\n');
     }
-    payload.extend_from_slice(provision_script().as_bytes());
+    payload.extend_from_slice(script.as_bytes());
     payload
+}
+
+/// Newer installers are executable code: verify with the desktop updater key
+/// before making any SSH connection. Initial setup and this app's own release
+/// retain the trusted embedded installer, including releases without a signature.
+fn script_for_options(options: &ProvisionOptions) -> Result<String, ProvisionError> {
+    options.validate()?;
+    match options.target_version.as_deref() {
+        Some(target) if target != env!("CARGO_PKG_VERSION") => {
+            crate::updates::download_provision_script(target)
+                .map_err(|error| ProvisionError::new("RELEASE_DOWNLOAD_FAILED", error))
+        }
+        _ => Ok(provision_script()),
+    }
 }
 
 // ── input validation ─────────────────────────────────────────────────────────
@@ -345,14 +359,36 @@ pub struct ProvisionOptions {
     /// Authorized on the hive service account, so an editor or terminal session
     /// connects as hive rather than as the install account.
     ssh_public_key: Option<String>,
-    /// Update an existing completed install to this build's version. The script
+    /// Update an existing completed install to the selected version. The script
     /// reads port and directories from the server's install manifest, and
     /// rejects `--allowed-host` and `--ssh-public-key` in this mode.
     update: bool,
+    target_version: Option<String>,
+    expected_version: Option<String>,
 }
 
 impl ProvisionOptions {
     fn validate(&self) -> Result<(), ProvisionError> {
+        if let Some(target) = &self.target_version {
+            if !self.update {
+                return Err(ProvisionError::invalid(
+                    "targetVersion requires update mode",
+                ));
+            }
+            crate::updates::validate_target_version(target, env!("CARGO_PKG_VERSION"))
+                .map_err(ProvisionError::invalid)?;
+            let expected = self
+                .expected_version
+                .as_deref()
+                .ok_or_else(|| ProvisionError::invalid("targetVersion requires expectedVersion"))?;
+            crate::updates::validate_target_version(target, expected)
+                .map_err(ProvisionError::invalid)?;
+        }
+        if self.expected_version.is_some() && self.target_version.is_none() {
+            return Err(ProvisionError::invalid(
+                "expectedVersion requires targetVersion",
+            ));
+        }
         if self.port == Some(0) {
             return Err(ProvisionError::invalid("invalid backend port: 0"));
         }
@@ -381,6 +417,9 @@ impl ProvisionOptions {
         }
         if self.update {
             args.push("--update".into());
+            if let Some(expected) = &self.expected_version {
+                args.extend(["--expected-version".into(), expected.clone()]);
+            }
             return Ok(args);
         }
         args.push("--allowed-host".into());
@@ -1090,6 +1129,7 @@ fn build_preflight_report(
 fn execute_preflight(
     connection: &Connection,
     options: &ProvisionOptions,
+    script: &str,
 ) -> Result<PreflightReport, ProvisionError> {
     connection.validate()?;
     let args = options.script_args(true, &connection.host)?;
@@ -1101,7 +1141,7 @@ fn execute_preflight(
     let outcome = run_remote(
         connection,
         &command,
-        stdin_payload(None),
+        stdin_payload(script, None),
         None,
         &mut |record| records.push(record),
     )?;
@@ -1309,10 +1349,12 @@ fn run_install(
         error
     };
 
+    let script = script_for_options(options).map_err(surface)?;
+
     let mode = match cached_privilege_mode(privilege_cache, connection) {
         Some(mode) => mode,
         None => {
-            let mode = execute_preflight(connection, options)
+            let mode = execute_preflight(connection, options, &script)
                 .map_err(surface)?
                 .privilege
                 .mode;
@@ -1351,7 +1393,7 @@ fn run_install(
         );
     }
     let command = remote_command(mode, &args);
-    let payload = stdin_payload(password.as_ref());
+    let payload = stdin_payload(&script, password.as_ref());
     let outcome = run_remote(
         connection,
         &command,
@@ -1523,7 +1565,8 @@ pub async fn provision_preflight(
     options.validate()?;
     let cache = Arc::clone(&state.privilege);
     tauri::async_runtime::spawn_blocking(move || {
-        let report = execute_preflight(&connection, &options)?;
+        let script = script_for_options(&options)?;
+        let report = execute_preflight(&connection, &options, &script)?;
         cache_privilege_mode(&cache, &connection, report.privilege.mode);
         Ok(report)
     })
@@ -1663,6 +1706,8 @@ mod tests {
             data_dir: Some("/srv/hive".into()),
             ssh_public_key: Some(format!("ssh-ed25519 {ED25519_BLOB} lenny@box")),
             update: false,
+            target_version: None,
+            expected_version: None,
         };
         let command = remote_command(PrivilegeMode::Root, &args(&options, false));
         assert!(command.contains(&format!("'--ssh-public-key' 'ssh-ed25519 {ED25519_BLOB}'")));
@@ -1684,6 +1729,28 @@ mod tests {
         };
         assert_eq!(args(&options, false), vec!["--update"]);
         assert_eq!(args(&options, true), vec!["--preflight", "--update"]);
+    }
+
+    #[test]
+    fn coordinated_updates_require_an_expected_version_and_pass_it_to_the_script() {
+        let current = env!("CARGO_PKG_VERSION");
+        let mut options = ProvisionOptions {
+            update: true,
+            target_version: Some(current.into()),
+            expected_version: Some("0.0.1".into()),
+            ..ProvisionOptions::default()
+        };
+        assert_eq!(
+            args(&options, false),
+            vec!["--update", "--expected-version", "0.0.1"]
+        );
+        options.expected_version = None;
+        assert!(options.validate().is_err());
+        options.expected_version = Some("999.0.0".into());
+        assert!(options.validate().is_err());
+        options.expected_version = Some("0.0.1".into());
+        options.update = false;
+        assert!(options.validate().is_err());
     }
 
     // ── dev release upload ───────────────────────────────────────────────────
@@ -1780,10 +1847,10 @@ mod tests {
         let script = provision_script();
         let secret = Secret::from("hunter2");
 
-        let without = stdin_payload(None);
+        let without = stdin_payload(&script, None);
         assert_eq!(without, script.as_bytes());
 
-        let with = stdin_payload(Some(&secret));
+        let with = stdin_payload(&script, Some(&secret));
         assert!(with.starts_with(b"hunter2\n"));
         assert_eq!(&with[8..], script.as_bytes());
         // One line, consumed by sudo whole, and the script that follows is

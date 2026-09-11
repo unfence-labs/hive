@@ -340,6 +340,30 @@ current_release_version() {
   [ -n "$current" ] && cat "$current/.hive-version" 2>/dev/null || printf unknown
 }
 
+# Called after acquiring the provision lock, before any install step. A second
+# client may have updated this server since the desktop last fetched its version.
+assert_expected_version() {
+  [ -n "${OPT_EXPECTED_VERSION:-}" ] || return 0
+  local current current_path pending previous activated
+  current="$(current_release_version)"
+  [ "$current" = "$OPT_EXPECTED_VERSION" ] && return 0
+
+  # current moves before the service restarts. Resume that exact pending
+  # activation when the running API still reports the previous release.
+  current_path="$(readlink -f "$HIVE_OPT/current" 2>/dev/null || true)"
+  pending="$(cat "$HIVE_PENDING_RELEASE" 2>/dev/null || true)"
+  previous="$(readlink -f "$HIVE_OPT/previous" 2>/dev/null || true)"
+  activated="$(cat "$HIVE_ACTIVATED_RELEASE" 2>/dev/null || true)"
+  if [ "$current" = "$HIVE_VERSION" ] && [ -n "$current_path" ] &&
+     [ "$pending" = "$current_path" ] && [ -n "$previous" ] &&
+     [ "$activated" = "$previous" ] &&
+     [ "$(cat "$previous/.hive-version" 2>/dev/null || true)" = "$OPT_EXPECTED_VERSION" ]; then
+    return 0
+  fi
+  die INSTALL_IDENTITY_MISMATCH \
+    "the installed version changed from $OPT_EXPECTED_VERSION to $current; check for updates again"
+}
+
 current_runtime_version() {
   local version
   [ -x "$HIVE_NODE_BIN" ] || { printf unknown; return; }

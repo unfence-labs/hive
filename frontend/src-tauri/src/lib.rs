@@ -1,4 +1,5 @@
 pub mod provision;
+mod updates;
 
 use serde::Serialize;
 use std::path::Path;
@@ -72,6 +73,7 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .invoke_handler(tauri::generate_handler![
             app_version,
+            updates::check_desktop_update,
             detect_terminals,
             open_terminal_ssh,
             provision::provision_list_keys,

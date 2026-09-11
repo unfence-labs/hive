@@ -755,6 +755,42 @@ else
   echo "skip shellcheck (not installed)"
 fi
 
+# The automatic updater compares under the provision lock; manual updates omit
+# the expectation and keep their existing behavior.
+version_guard() {
+  bash -c '
+    source "$1"; source "$2"
+    HIVE_OPT="$3/releases"
+    HIVE_PENDING_RELEASE="$3/pending"
+    HIVE_ACTIVATED_RELEASE="$3/activated"
+    HIVE_VERSION=0.1.5
+    mkdir -p "$HIVE_OPT/old" "$HIVE_OPT/new"
+    printf "0.1.4\n" >"$HIVE_OPT/old/.hive-version"
+    printf "0.1.5\n" >"$HIVE_OPT/new/.hive-version"
+    ln -sfn "$HIVE_OPT/new" "$HIVE_OPT/current"
+    if [ "$5" != normal ]; then
+      ln -sfn "$HIVE_OPT/old" "$HIVE_OPT/previous"
+      printf "%s\n" "$HIVE_OPT/new" >"$HIVE_PENDING_RELEASE"
+      printf "%s\n" "$HIVE_OPT/old" >"$HIVE_ACTIVATED_RELEASE"
+    fi
+    case "$5" in
+      other-target) HIVE_VERSION=0.1.6 ;;
+      other-previous) printf "0.1.3\n" >"$HIVE_OPT/old/.hive-version" ;;
+      missing-activation) rm "$HIVE_ACTIVATED_RELEASE" ;;
+    esac
+    die() { exit 1; }
+    OPT_EXPECTED_VERSION="$4"
+    assert_expected_version
+  ' _ "$PROV/lib.sh" "$PROV/steps.sh" "$WORK/version-${2:-normal}" "$1" "${2:-normal}"
+}
+expect "unchanged installed version permits the coordinated update" version_guard 0.1.5
+refute "a concurrent update is rejected" version_guard 0.1.4
+expect "manual updates do not require an expected version" version_guard ""
+expect "an interrupted release swap resumes its exact activation" version_guard 0.1.4 interrupted
+refute "a pending swap cannot resume a different target" version_guard 0.1.4 other-target
+refute "a pending swap must preserve the expected previous version" version_guard 0.1.4 other-previous
+refute "a pending swap must identify the activated release" version_guard 0.1.4 missing-activation
+
 if [ "$FAILURES" -ne 0 ]; then
   echo "$FAILURES failing case(s)" >&2
   exit 1

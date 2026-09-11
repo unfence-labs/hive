@@ -33,17 +33,29 @@ import { SidebarRecoveryControl } from "@/components/SidebarRecoveryControl";
 import { isDesktopShell } from "@/lib/is-desktop";
 import type { Project } from "@/types";
 
-export default function SettingsSidebar({ isResyncing = false }: { isResyncing?: boolean }) {
+export default function SettingsSidebar({
+  isResyncing = false,
+}: {
+  isResyncing?: boolean;
+}) {
   const { projects, ready: projectsReady } = useProjects();
   const navigate = useNavigate();
   const location = useLocation();
   const { pathname } = location;
-  const returnTo = useRef((location.state as { from?: string } | null)?.from ?? "/home");
-  const [expandedFolders, setExpandedFolders] = useState<Record<string, boolean>>({});
-  const { folders, rootProjects } = useReadonlySidebarProjectFolders(projects, projectsReady);
+  const returnTo = useRef(
+    (location.state as { from?: string } | null)?.from ?? "/home",
+  );
+  const [expandedFolders, setExpandedFolders] = useState<
+    Record<string, boolean>
+  >({});
+  const { folders, rootProjects } = useReadonlySidebarProjectFolders(
+    projects,
+    projectsReady,
+  );
   const visibleFolders = folders.filter((folder) => folder.projects.length > 0);
 
-  const isFolderExpanded = (folderId: string) => expandedFolders[folderId] ?? false;
+  const isFolderExpanded = (folderId: string) =>
+    expandedFolders[folderId] ?? false;
   const toggleFolder = (folderId: string) => {
     setExpandedFolders((prev) => ({
       ...prev,
@@ -69,91 +81,7 @@ export default function SettingsSidebar({ isResyncing = false }: { isResyncing?:
     <SidebarShell footerActions={footerActions}>
       <ScrollArea className="flex-1">
         <div className="px-3 py-3">
-          <SidebarSection label="General">
-            <NavItem
-              to="/settings/appearance"
-              label="Appearance"
-              icon={<Paintbrush className="h-4 w-4" />}
-              active={pathname === "/settings/appearance"}
-            />
-            <NavItem
-              to="/settings/account"
-              label="Account"
-              icon={<CircleUser className="h-4 w-4" />}
-              active={pathname === "/settings/account"}
-            />
-            <NavItem
-              to="/settings/connection"
-              label="Connection"
-              icon={<Wifi className="h-4 w-4" />}
-              active={pathname === "/settings/connection"}
-            />
-            {isDesktopShell() && (
-              <NavItem
-                to="/settings/server"
-                label="Server"
-                icon={<Server className="h-4 w-4" />}
-                active={pathname === "/settings/server"}
-              />
-            )}
-            <NavItem
-              to="/settings/notifications"
-              label="Notifications"
-              icon={<Bell className="h-4 w-4" />}
-              active={pathname === "/settings/notifications"}
-            />
-            <NavItem
-              to="/settings/updates"
-              label="Updates"
-              icon={<Download className="h-4 w-4" />}
-              active={pathname === "/settings/updates"}
-            />
-          </SidebarSection>
-
-          <SidebarSection label="Agents">
-            <NavItem
-              to="/settings/cli"
-              label="Harness"
-              icon={<Bot className="h-4 w-4" />}
-              active={pathname === "/settings/cli"}
-            />
-            <NavItem
-              to="/settings/models"
-              label="Models"
-              icon={<Cpu className="h-4 w-4" />}
-              active={pathname === "/settings/models"}
-            />
-            <NavItem
-              to="/settings/instructions"
-              label="Instructions"
-              icon={<BookOpen className="h-4 w-4" />}
-              active={pathname === "/settings/instructions"}
-            />
-            <NavItem
-              to="/settings/prompt"
-              label="Prompt"
-              icon={<FileText className="h-4 w-4" />}
-              active={pathname === "/settings/prompt"}
-            />
-            <NavItem
-              to="/settings/skills"
-              label="Skills"
-              icon={<Sparkles className="h-4 w-4" />}
-              active={pathname === "/settings/skills"}
-            />
-            <NavItem
-              to="/settings/team"
-              label="Team"
-              icon={<Users className="h-4 w-4" />}
-              active={pathname === "/settings/team"}
-            />
-            <NavItem
-              to="/settings/subagents"
-              label="Subagents"
-              icon={<FileCode2 className="h-4 w-4" />}
-              active={pathname === "/settings/subagents"}
-            />
-          </SidebarSection>
+          <SettingsNavigation />
 
           {projects.length > 0 && (
             <SidebarSection label="Repositories">
@@ -181,7 +109,138 @@ export default function SettingsSidebar({ isResyncing = false }: { isResyncing?:
   );
 }
 
-function SidebarSection({ label, children }: { label: string; children: React.ReactNode }) {
+export function UpdateSidebar({
+  connectionAvailable,
+}: {
+  connectionAvailable: boolean;
+}) {
+  return (
+    <SidebarShell footerActions={null} showServerStatus={false}>
+      <ScrollArea className="flex-1">
+        <div className="px-3 py-3">
+          <SettingsNavigation restricted={{ connectionAvailable }} />
+        </div>
+      </ScrollArea>
+    </SidebarShell>
+  );
+}
+
+function SettingsNavigation({
+  restricted,
+}: {
+  restricted?: { connectionAvailable: boolean };
+}) {
+  const { pathname } = useLocation();
+  return (
+    <>
+      <SidebarSection label="General">
+        <NavItem
+          to="/settings/appearance"
+          disabled={restricted !== undefined}
+          label="Appearance"
+          icon={<Paintbrush className="h-4 w-4" />}
+          active={pathname === "/settings/appearance"}
+        />
+        <NavItem
+          to="/settings/account"
+          disabled={restricted !== undefined}
+          label="Account"
+          icon={<CircleUser className="h-4 w-4" />}
+          active={pathname === "/settings/account"}
+        />
+        <NavItem
+          to="/settings/connection"
+          disabled={restricted !== undefined && !restricted.connectionAvailable}
+          label="Connection"
+          icon={<Wifi className="h-4 w-4" />}
+          active={pathname === "/settings/connection"}
+        />
+        {isDesktopShell() && (
+          <NavItem
+            to="/settings/server"
+            disabled={restricted !== undefined}
+            label="Server"
+            icon={<Server className="h-4 w-4" />}
+            active={pathname === "/settings/server"}
+          />
+        )}
+        <NavItem
+          to="/settings/notifications"
+          disabled={restricted !== undefined}
+          label="Notifications"
+          icon={<Bell className="h-4 w-4" />}
+          active={pathname === "/settings/notifications"}
+        />
+        <NavItem
+          to="/settings/updates"
+          label="Updates"
+          icon={<Download className="h-4 w-4" />}
+          active={pathname === "/settings/updates" || (restricted !== undefined && (!restricted.connectionAvailable || pathname !== "/settings/connection"))}
+        />
+      </SidebarSection>
+
+      <SidebarSection label="Agents">
+        <NavItem
+          to="/settings/cli"
+          disabled={restricted !== undefined}
+          label="Harness"
+          icon={<Bot className="h-4 w-4" />}
+          active={pathname === "/settings/cli"}
+        />
+        <NavItem
+          to="/settings/models"
+          disabled={restricted !== undefined}
+          label="Models"
+          icon={<Cpu className="h-4 w-4" />}
+          active={pathname === "/settings/models"}
+        />
+        <NavItem
+          to="/settings/instructions"
+          disabled={restricted !== undefined}
+          label="Instructions"
+          icon={<BookOpen className="h-4 w-4" />}
+          active={pathname === "/settings/instructions"}
+        />
+        <NavItem
+          to="/settings/prompt"
+          disabled={restricted !== undefined}
+          label="Prompt"
+          icon={<FileText className="h-4 w-4" />}
+          active={pathname === "/settings/prompt"}
+        />
+        <NavItem
+          to="/settings/skills"
+          disabled={restricted !== undefined}
+          label="Skills"
+          icon={<Sparkles className="h-4 w-4" />}
+          active={pathname === "/settings/skills"}
+        />
+        <NavItem
+          to="/settings/team"
+          disabled={restricted !== undefined}
+          label="Team"
+          icon={<Users className="h-4 w-4" />}
+          active={pathname === "/settings/team"}
+        />
+        <NavItem
+          to="/settings/subagents"
+          disabled={restricted !== undefined}
+          label="Subagents"
+          icon={<FileCode2 className="h-4 w-4" />}
+          active={pathname === "/settings/subagents"}
+        />
+      </SidebarSection>
+    </>
+  );
+}
+
+function SidebarSection({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
   return (
     <div className="mb-5">
       <h3 className="mb-1.5 px-2 text-[11px] font-medium uppercase tracking-wider text-muted-foreground/70">
@@ -215,7 +274,9 @@ function SettingsRepositoryFolder({
         aria-expanded={expanded}
         className={cn(
           "flex w-full items-center gap-1.5 rounded-md px-1 py-1 text-left text-sm transition-colors hover:bg-sidebar-accent/40",
-          containsActiveProject ? "text-sidebar-foreground" : "text-muted-foreground",
+          containsActiveProject
+            ? "text-sidebar-foreground"
+            : "text-muted-foreground",
         )}
       >
         <ChevronRight
@@ -275,14 +336,35 @@ function RepositoryNavItem({
         faviconVersion={project.faviconVersion}
       />
       <span className="min-w-0 flex-1 truncate">{project.name}</span>
-      {isActive && (
-        <GitFork className="h-3 w-3 shrink-0 text-primary/60" />
-      )}
+      {isActive && <GitFork className="h-3 w-3 shrink-0 text-primary/60" />}
     </Link>
   );
 }
 
-function NavItem({ to, label, icon, active }: { to: string; label: string; icon: React.ReactNode; active: boolean }) {
+function NavItem({
+  to,
+  label,
+  icon,
+  active,
+  disabled = false,
+}: {
+  to: string;
+  label: string;
+  icon: React.ReactNode;
+  active: boolean;
+  disabled?: boolean;
+}) {
+  if (disabled) {
+    return (
+      <span
+        aria-disabled="true"
+        className="flex items-center gap-2.5 rounded-md px-2 py-1.5 text-sm text-muted-foreground opacity-40"
+      >
+        {icon}
+        {label}
+      </span>
+    );
+  }
   return (
     <Link
       to={to}

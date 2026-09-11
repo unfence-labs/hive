@@ -1,9 +1,10 @@
-import { render, screen } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import { lazy, Suspense, type ComponentType, type ReactNode } from "react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import AppLayout from "@/components/AppLayout";
+import { dispatchAppCommand } from "@/lib/app-commands";
 
 vi.mock("react-resizable-panels", () => {
   const React = require("react");
@@ -46,6 +47,7 @@ function renderLayout(
             >
               <Route path="/workspaces/:wsId" element={workspaceElement} />
               <Route path="/settings/appearance" element={<div data-testid="settings-content">settings</div>} />
+              <Route path="/settings/updates" element={<div>Update available</div>} />
             </Route>
           </Routes>
         </Suspense>
@@ -55,6 +57,12 @@ function renderLayout(
 }
 
 describe("AppLayout", () => {
+  it("opens the Updates page from an app command", () => {
+    renderLayout();
+    act(() => dispatchAppCommand("open-updates"));
+    expect(screen.getByText("Update available")).toBeInTheDocument();
+    expect(screen.queryByTestId("workspace-content")).not.toBeInTheDocument();
+  });
   it("renders sidebar and workspace content", async () => {
     renderLayout();
     expect(screen.getByTestId("sidebar")).toBeInTheDocument();
