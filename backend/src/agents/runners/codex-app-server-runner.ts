@@ -47,6 +47,7 @@ interface CodexAppServerRunnerOptions {
 export class CodexAppServerRunner extends EventEmitter<AgentRunnerEvent> implements AgentRunner {
   private readonly appServer: CodexAppServerClient;
   private interruptTimer: ReturnType<typeof setTimeout> | null = null;
+  private startGeneration = 0;
 
   constructor(appServer?: CodexAppServerClient, options: CodexAppServerRunnerOptions = {}) {
     super();
@@ -66,7 +67,10 @@ export class CodexAppServerRunner extends EventEmitter<AgentRunnerEvent> impleme
 
   startTurn(turn: CodexAppServerRunnerTurn): void {
     this.clearInterruptTimer();
+    const generation = ++this.startGeneration;
     void this.appServer.startTurn(turn).catch((err: unknown) => {
+      // Closing or interrupting a pending start is an expected cancellation.
+      if (generation !== this.startGeneration) return;
       this.emit("error", err instanceof Error ? err : new Error(String(err)));
     });
   }
@@ -91,6 +95,7 @@ export class CodexAppServerRunner extends EventEmitter<AgentRunnerEvent> impleme
   }
 
   stop(reason: StopReason): void {
+    this.startGeneration++;
     const turnId = this.appServer.capturedTurnId;
     this.clearInterruptTimer();
     if (!turnId) {
@@ -117,6 +122,7 @@ export class CodexAppServerRunner extends EventEmitter<AgentRunnerEvent> impleme
   }
 
   close(): void {
+    this.startGeneration++;
     this.clearInterruptTimer();
     this.appServer.close();
   }
