@@ -772,6 +772,61 @@ describe("compatibility watcher", () => {
       expect(mocks.check).not.toHaveBeenCalled();
     },
   );
+  it.each(["focus", "online"])("keeps verified compatibility when a %s check fails, then detects a changed version", async (event) => {
+    const { result } = renderHook(() => {
+      useDesktopUpdate();
+      return useServerCompatibility();
+    });
+    await settle();
+    const verified = result.current;
+    expect(verified.phase).toBe("ready");
+
+    fetchMock.mockRejectedValueOnce(new TypeError("Failed to fetch"));
+    act(() => window.dispatchEvent(new Event(event)));
+    await settle();
+
+    expect(result.current).toBe(verified);
+    expect(serverCompatibilityMatchesConnection(getConnection())).toBe(true);
+
+    serverVersion = "0.1.5";
+    act(() => window.dispatchEvent(new Event(event)));
+    await settle();
+    expect(result.current.server?.version).toBe("0.1.5");
+    expect(result.current.appVersion).toBe("0.1.4");
+  });
+
+  it("preserves a known version mismatch when a later check fails", async () => {
+    serverVersion = "0.1.5";
+    const { result } = store();
+    await act(() => refreshServerCompatibility());
+    const verified = result.current.compatibility;
+
+    fetchMock.mockRejectedValueOnce(new Error("Offline"));
+    await act(() => refreshServerCompatibility());
+
+    expect(result.current.compatibility).toBe(verified);
+    expect(result.current.update).toEqual({ phase: "available", version: "0.1.5" });
+  });
+
+  it.each([
+    { host: "other.test" },
+    { authToken: "new-token" },
+  ])("does not reuse verification after changing the connection: %j", async (change) => {
+    const { result } = renderHook(() => {
+      useDesktopUpdate();
+      return useServerCompatibility();
+    });
+    await settle();
+    expect(serverCompatibilityMatchesConnection(getConnection())).toBe(true);
+
+    fetchMock.mockRejectedValue(new Error("Offline"));
+    act(() => replaceConnection({ ...connection, ...change }));
+    await settle();
+
+    expect(result.current.phase).toBe("unavailable");
+    expect(serverCompatibilityMatchesConnection(getConnection())).toBe(false);
+  });
+
   it("reports inaccessible servers and recovers on focus", async () => {
     fetchMock.mockRejectedValueOnce(new Error("Offline"));
     const { result } = renderHook(() => {
