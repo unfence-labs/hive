@@ -312,6 +312,9 @@ export async function refreshServerCompatibility(): Promise<void> {
       !isCurrentConnection(connection)
     )
       return;
+    // A failed background check does not invalidate a verified connection.
+    // Keep the app mounted so resync can finish and report its existing toast.
+    if (serverCompatibilityMatchesConnection(connection)) return;
     verifiedConnection = null;
     compatibility = {
       ...compatibility,
