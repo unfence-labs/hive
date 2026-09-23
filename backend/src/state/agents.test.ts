@@ -67,7 +67,7 @@ describe("agents persistence", () => {
   });
 
   it("normalizes unsupported thinkingLevel values", async () => {
-    await saveAgents([makeAgent({ modelId: "codex:gpt-5.5", thinkingLevel: "max" })], dataDir);
+    await saveAgents([makeAgent({ modelId: "codex:gpt-6-luna", thinkingLevel: "ultra" })], dataDir);
 
     const loaded = await loadAgents(dataDir);
     expect(loaded[0].thinkingLevel).toBe("high");

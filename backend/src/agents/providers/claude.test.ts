@@ -39,7 +39,7 @@ describe("ClaudeProvider", () => {
   it("includes fable, opus, sonnet, and haiku", () => {
     const ids = provider.models.map((m) => m.id);
     expect(ids).toContain("fable-5-1");
-    expect(ids).toContain("opus-5");
+    expect(ids).toContain("opus-5-5");
     expect(ids).toContain("sonnet-5");
     expect(ids).toContain("haiku-4-5");
   });
@@ -123,11 +123,11 @@ describe("ClaudeProvider", () => {
     expect(args).toContain("claude-sonnet-5");
   });
 
-  it("maps persisted Opus 4.8 and 4.7 selections to Opus 5", () => {
-    for (const model of ["opus-4-8", "opus-4-7"]) {
+  it("maps persisted Opus selections to Opus 5.5", () => {
+    for (const model of ["opus-5", "opus-4-8", "opus-4-7"]) {
       const args = provider.buildArgs("Hello", { model }, baseSession());
       expect(args).toContain("--model");
-      expect(args).toContain("claude-opus-5[1m]");
+      expect(args).toContain("claude-opus-5-5");
     }
   });
 
@@ -290,7 +290,7 @@ describe("ClaudeProvider", () => {
 
   it("marks Opus as supporting fast mode and the others as not", () => {
     const fable = provider.models.find((m) => m.id === "fable-5-1");
-    const opus = provider.models.find((m) => m.id === "opus-5");
+    const opus = provider.models.find((m) => m.id === "opus-5-5");
     const sonnet = provider.models.find((m) => m.id === "sonnet-5");
     const haiku = provider.models.find((m) => m.id === "haiku-4-5");
     expect(opus?.supportsFastMode).toBe(true);
@@ -300,7 +300,7 @@ describe("ClaudeProvider", () => {
   });
 
   it("adds --settings {fastMode:true} when fastMode is on and the model is Opus", () => {
-    const args = provider.buildArgs("Hello", { model: "opus-5", fastMode: true }, baseSession());
+    const args = provider.buildArgs("Hello", { model: "opus-5-5", fastMode: true }, baseSession());
     const idx = args.indexOf("--settings");
     expect(idx).toBeGreaterThan(-1);
     expect(JSON.parse(args[idx + 1])).toEqual({ fastMode: true });
@@ -328,7 +328,7 @@ describe("ClaudeProvider", () => {
   it("keeps a single style-only settings override when fastMode is off", () => {
     const args = provider.buildArgs(
       "Hello",
-      { model: "opus-5", outputStyle: "default" },
+      { model: "opus-5-5", outputStyle: "default" },
       baseSession(),
     );
     expect(args.filter((arg) => arg === "--settings")).toHaveLength(1);

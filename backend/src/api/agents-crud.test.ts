@@ -207,14 +207,14 @@ describe("PATCH /api/agents/:id", () => {
   });
 
   it("resets thinkingLevel when changing to a provider that does not support the current level", async () => {
-    await saveAgents([makeAgent({ thinkingLevel: "max" })], dataDir);
+    await saveAgents([makeAgent({ modelId: "codex:gpt-6-sol", thinkingLevel: "ultra" })], dataDir);
     const res = await app.inject({
       method: "PATCH",
       url: "/api/agents/agent-1",
-      payload: { modelId: "codex:gpt-5.5" },
+      payload: { modelId: "codex:gpt-6-luna" },
     });
     expect(res.statusCode).toBe(200);
-    expect(res.json().modelId).toBe("codex:gpt-5.5");
+    expect(res.json().modelId).toBe("codex:gpt-6-luna");
     expect(res.json().thinkingLevel).toBe("high");
   });
 
@@ -255,7 +255,7 @@ describe("PATCH /api/agents/:id", () => {
     const res = await app.inject({
       method: "PATCH",
       url: "/api/agents/agent-1",
-      payload: { modelId: "codex:gpt-5.5", thinkingLevel: "max" },
+      payload: { modelId: "codex:gpt-6-luna", thinkingLevel: "ultra" },
     });
     expect(res.statusCode).toBe(400);
     expect(res.json().error).toContain("Thinking level");

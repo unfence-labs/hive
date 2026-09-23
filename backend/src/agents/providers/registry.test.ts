@@ -128,7 +128,7 @@ describe("model helpers", () => {
 
   it("validates thinking levels against the resolved model", () => {
     expect(isThinkingLevelSupportedForModel("claude:sonnet-5", "max")).toBe(true);
-    expect(isThinkingLevelSupportedForModel("codex:gpt-5.5", "max")).toBe(false);
+    expect(isThinkingLevelSupportedForModel("codex:gpt-5.5", "max")).toBe(true);
     expect(isThinkingLevelSupportedForModel("codex:gpt-5.6-sol", "ultra")).toBe(true);
     expect(isThinkingLevelSupportedForModel("codex:gpt-5.6-luna", "ultra")).toBe(false);
     expect(isThinkingLevelSupportedForModel("codex:gpt-5.6-luna", "max")).toBe(true);
@@ -200,13 +200,13 @@ describe("getModelCatalog", () => {
     }
   });
 
-  it("advertises Codex personalities only for gpt-5.5", () => {
+  it("advertises Codex personalities only for gpt-6-sol", () => {
     markProviderAvailable("codex");
     const codexModels = getModelCatalog().models.filter((model) => model.provider === "codex");
 
-    expect(codexModels.find((model) => model.id === "codex:gpt-5.5")?.capabilities.outputStyles)
+    expect(codexModels.find((model) => model.id === "codex:gpt-6-sol")?.capabilities.outputStyles)
       .toEqual(["default", "friendly", "pragmatic", "none"]);
-    for (const model of codexModels.filter((model) => model.id !== "codex:gpt-5.5")) {
+    for (const model of codexModels.filter((model) => model.id !== "codex:gpt-6-sol")) {
       expect(model.capabilities.outputStyles).toEqual([]);
     }
   });
@@ -275,8 +275,7 @@ describe("getModelCatalog", () => {
 
     const codexIds = catalog.models.filter((m) => m.provider === "codex").map((m) => m.id);
     expect(codexIds).toEqual([
-      "codex:gpt-6-astra", "codex:gpt-5.6-sol", "codex:gpt-5.6-terra",
-      "codex:gpt-5.6-luna", "codex:gpt-5.3-codex-spark", "codex:gpt-5.5",
+      "codex:gpt-6-astra", "codex:gpt-6-sol", "codex:gpt-6-luna",
     ]);
   });
 
@@ -286,14 +285,8 @@ describe("getModelCatalog", () => {
 
     const byId = new Map(catalog.models.map((m) => [m.id, m]));
     expect(byId.get("codex:gpt-6-astra")?.capabilities.thinkingLevels).toContain("ultra");
-    expect(byId.get("codex:gpt-5.6-sol")?.capabilities.thinkingLevels).toContain("ultra");
-    expect(byId.get("codex:gpt-5.6-luna")?.capabilities.thinkingLevels).not.toContain("ultra");
-    expect(byId.get("codex:gpt-5.5")?.capabilities.thinkingLevels).toEqual([
-      "low", "medium", "high", "xhigh",
-    ]);
-    expect(byId.get("codex:gpt-5.3-codex-spark")?.capabilities.thinkingLevels).toEqual([
-      "low", "medium", "high", "xhigh",
-    ]);
+    expect(byId.get("codex:gpt-6-sol")?.capabilities.thinkingLevels).toContain("ultra");
+    expect(byId.get("codex:gpt-6-luna")?.capabilities.thinkingLevels).not.toContain("ultra");
   });
 });
 
@@ -368,18 +361,18 @@ describe("markProviderAvailable", () => {
 
 describe("harness minimum version", () => {
   it.each([
-    ["0.153.3", false],
-    ["0.153.4", true],
-    ["0.154.0", true],
+    ["0.156.0", false],
+    ["0.156.1", true],
+    ["0.157.0", true],
     ["1.0.0", true],
     [null, false],
     ["unknown", false],
-    ["0.154.0-alpha.1", false],
+    ["0.156.1-alpha.1", false],
   ])("checks detected version %s without hiding models", (version, compatible) => {
     recordProviderDetection("codex", true, version);
     const catalog = getModelCatalog();
     expect(catalog.models.length).toBeGreaterThan(0);
-    expect(catalog.defaultModelId).toBe("codex:gpt-5.6-sol");
+    expect(catalog.defaultModelId).toBe("codex:gpt-6-sol");
     const reason = compatible ? undefined : "Update Codex in settings";
     expect(getProviderUnavailableReason("codex")).toBe(reason);
     expect(catalog.models.every((model) => model.unavailableReason === reason)).toBe(true);
@@ -394,19 +387,19 @@ describe("harness minimum version", () => {
   it("does not treat finding a binary as proof of compatibility", () => {
     markProviderAvailable("codex");
     expect(getProviderUnavailableReason("codex")).toBe("Update Codex in settings");
-    recordProviderDetection("codex", true, "0.153.3");
+    recordProviderDetection("codex", true, "0.156.0");
     markProviderAvailable("codex");
     expect(getProviderUnavailableReason("codex")).toBe("Update Codex in settings");
   });
 
   it("unblocks after re-detection and forgets a previously compatible version", async () => {
-    let stdout = "codex-cli 0.153.3";
+    let stdout = "codex-cli 0.156.0";
     mockExecFile.mockImplementation(
       (_cmd: string, _args: string[], cb: (...a: unknown[]) => void) => cb(null, { stdout, stderr: "" }),
     );
     await detectAvailableProviders();
     expect(getProviderUnavailableReason("codex")).toBe("Update Codex in settings");
-    stdout = "codex-cli 0.153.4";
+    stdout = "codex-cli 0.156.1";
     await detectAvailableProviders();
     expect(getProviderUnavailableReason("codex")).toBeUndefined();
     stdout = "unknown";
@@ -525,7 +518,7 @@ describe("contextWindow in catalog", () => {
 
     const fable = claudeModels.find((m) => m.id === "claude:fable-5-1");
     expect(fable?.contextWindow).toBe(1_000_000);
-    const opus = claudeModels.find((m) => m.id === "claude:opus-5");
+    const opus = claudeModels.find((m) => m.id === "claude:opus-5-5");
     expect(opus?.contextWindow).toBe(1_000_000);
     const sonnet = claudeModels.find((m) => m.id === "claude:sonnet-5");
     expect(sonnet?.contextWindow).toBe(1_000_000);
