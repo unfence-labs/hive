@@ -22,7 +22,7 @@ export interface ModelDefinition {
   supportsFastMode?: boolean;
   /**
    * Reasoning-effort levels for this model when they differ from the
-   * provider-wide capabilities (e.g. GPT-5.6 tiers each support a different
+   * provider-wide capabilities (e.g. GPT-6 tiers each support a different
    * ceiling). Absent means the provider's thinkingLevels apply.
    */
   thinkingLevels?: ThinkingLevel[];

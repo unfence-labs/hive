@@ -64,9 +64,9 @@ const noop = { setPhase: () => {} };
 
 describe("getToolsStatus", () => {
   it.each([
-    { version: "unknown", latest: "0.153.4" },
-    { version: "0.154.0-alpha.1", latest: "0.153.4" },
-    { version: "0.153.3", latest: null },
+    { version: "unknown", latest: "0.156.1" },
+    { version: "0.156.1-alpha.1", latest: "0.156.1" },
+    { version: "0.156.0", latest: null },
     { version: "unknown", latest: null },
   ])("offers recovery for blocked Codex $version even when latest is $latest", async ({ version, latest }) => {
     const { deps } = makeDeps({
@@ -83,11 +83,11 @@ describe("getToolsStatus", () => {
   });
 
   it("refreshes model availability after an externally updated harness is detected", async () => {
-    const probes = { "codex --version": ok("codex-cli 0.153.3") };
+    const probes = { "codex --version": ok("codex-cli 0.156.0") };
     const { deps } = makeDeps({ probes });
     await getToolsStatus(deps);
     expect(getProviderUnavailableReason("codex")).toBe("Update Codex in settings");
-    probes["codex --version"] = ok("codex-cli 0.153.4");
+    probes["codex --version"] = ok("codex-cli 0.156.1");
     await getToolsStatus(deps);
     expect(getProviderUnavailableReason("codex")).toBeUndefined();
     expect(getModelCatalog().models.some((model) => model.provider === "codex")).toBe(true);

@@ -69,19 +69,19 @@ describe("GET /api/models", () => {
   it("preserves an outdated harness's saved default and clears its restriction after detection", async () => {
     authenticationStates.codex = "authenticated";
     const config = await loadConfig(tempDir);
-    await saveConfig({ ...config, defaultModelId: "codex:gpt-5.5" }, tempDir);
-    recordProviderDetection("codex", true, "0.153.3");
+    await saveConfig({ ...config, defaultModelId: "codex:gpt-6-sol" }, tempDir);
+    recordProviderDetection("codex", true, "0.156.0");
 
     const blocked = (await app.inject({ method: "GET", url: "/api/models" })).json();
-    expect(blocked.defaultModelId).toBe("codex:gpt-5.5");
+    expect(blocked.defaultModelId).toBe("codex:gpt-6-sol");
     expect(blocked.models).toContainEqual(expect.objectContaining({
-      id: "codex:gpt-5.5", unavailableReason: "Update Codex in settings",
+      id: "codex:gpt-6-sol", unavailableReason: "Update Codex in settings",
     }));
 
-    recordProviderDetection("codex", true, "0.153.4");
+    recordProviderDetection("codex", true, "0.156.1");
     const updated = (await app.inject({ method: "GET", url: "/api/models" })).json();
-    expect(updated.defaultModelId).toBe("codex:gpt-5.5");
-    expect(updated.models.find((model: { id: string }) => model.id === "codex:gpt-5.5"))
+    expect(updated.defaultModelId).toBe("codex:gpt-6-sol");
+    expect(updated.models.find((model: { id: string }) => model.id === "codex:gpt-6-sol"))
       .not.toHaveProperty("unavailableReason");
   });
 
