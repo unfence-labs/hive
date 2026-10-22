@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import Fastify, { type FastifyInstance } from "fastify";
-import { rm, mkdir, writeFile } from "node:fs/promises";
+import { rm, mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createTempDir, createFixtureRepo } from "../utils/test-helpers.js";
 import { projectRoutes } from "./projects.js";
@@ -403,6 +403,35 @@ describe("DELETE /api/workspaces/:wsId/sessions/:sessionId", () => {
 });
 
 describe("GET /api/workspaces/:wsId/sessions/:sessionId/messages", () => {
+  it.each([false, true])("normalizes legacy image outputs without rewriting history (loaded: %s)", async (loaded) => {
+    const sessionId = loaded
+      ? (await app.inject({ method: "POST", url: `/api/workspaces/${wsId}/session` })).json().sessionId as string
+      : "legacy-images";
+    await writeSessionFixture(sessionId, wsId, {
+      messages: [{
+        id: "legacy-message", sessionId, role: "assistant", content: "Image inspected",
+        timestamp: "2026-02-11T00:00:00.000Z",
+        toolCalls: [{
+          id: "read-image", name: "Read", input: '{"file_path":"image.png"}',
+          output: [
+            { type: "image", source: { type: "base64", media_type: "image/png", data: "A".repeat(700_000) } },
+            { type: "text", text: "Image dimensions: 1024x1024" },
+          ],
+        }],
+      }],
+    });
+    const path = join(dataDir, projectId, "sessions", sessionId, "messages.jsonl");
+    const original = await readFile(path, "utf-8");
+    const res = await app.inject({
+      method: "GET", url: `/api/workspaces/${wsId}/sessions/${sessionId}/messages`,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()[0].toolCalls[0].output)
+      .toBe("[Image output omitted from chat history.]\n\nImage dimensions: 1024x1024");
+    expect(res.body.length).toBeLessThan(1000);
+    expect(await readFile(path, "utf-8")).toBe(original);
+  });
+
   it("returns messages from a specific persisted session", async () => {
     await writeSessionFixture("sess-msgs", wsId, {
       messages: [

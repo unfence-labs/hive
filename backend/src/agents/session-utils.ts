@@ -1,4 +1,5 @@
 import type { ChatMessage } from "../types.js";
+import { normalizeToolOutput } from "./bounded-output.js";
 
 /** Parse a `messages.jsonl` blob into ChatMessages, skipping malformed lines. */
 export function parseJsonlMessages(raw: string): ChatMessage[] {
@@ -6,7 +7,13 @@ export function parseJsonlMessages(raw: string): ChatMessage[] {
   for (const line of raw.split("\n")) {
     if (!line.trim()) continue;
     try {
-      messages.push(JSON.parse(line) as ChatMessage);
+      const message = JSON.parse(line) as ChatMessage;
+      // Older transcripts persisted raw provider image blocks in tool outputs.
+      // Normalize only the response; leave the original transcript on disk intact.
+      for (const tool of message.toolCalls ?? []) {
+        if (tool.output !== undefined) tool.output = normalizeToolOutput(tool.output);
+      }
+      messages.push(message);
     } catch {
       // Skip malformed lines to preserve recoverability.
     }
