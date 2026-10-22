@@ -1,5 +1,24 @@
 export const MAX_AGENT_OUTPUT_CHARS = 128 * 1024;
 
+/** Tool results can contain provider content blocks, including inline image bytes. */
+export function normalizeToolOutput(output: unknown): string {
+  if (typeof output === "string") return boundAgentOutput(output) ?? "";
+  if (output == null) return "";
+  const blocks = Array.isArray(output) ? output : [output];
+  const text = blocks.map((block: unknown) => {
+    if (block && typeof block === "object" && "type" in block) {
+      if (block.type === "text" && "text" in block && typeof block.text === "string") {
+        return block.text;
+      }
+      if (block.type === "image") {
+        return "[Image output omitted from chat history.]";
+      }
+    }
+    return typeof block === "string" ? block : JSON.stringify(block);
+  }).join("\n\n");
+  return boundAgentOutput(text) ?? "";
+}
+
 function truncationPrefix(): string {
   return "[Output truncated by Hive; showing the tail.]\n";
 }
