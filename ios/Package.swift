@@ -30,6 +30,8 @@ let package = Package(
                 "Models/TimelineSteps.swift",
                 "Models/WebSocketTypes.swift",
                 "Services/APIClient.swift",
+                "Services/ChatImageExport.swift",
+                "Services/ChatImageReference.swift",
                 "Services/HiveHTTP.swift",
                 "Services/KeychainTokenStore.swift",
                 "Services/ServerConnection.swift",

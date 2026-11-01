@@ -167,6 +167,7 @@ struct ChatView: View {
                             if !(message.role == .user && message.content == "Question dismissed.") {
                                 MessageBubble(
                                     message: message,
+                                    workspaceId: workspace.id,
                                     pendingToolUseIds: pendingToolUseIds,
                                     dismissedToolCallIds: store.dismissedToolCallIds,
                                     sendState: store.sendState(for: message.id),
@@ -184,6 +185,7 @@ struct ChatView: View {
                         if let message = streamingMessage {
                             MessageBubble(
                                 message: message,
+                                workspaceId: workspace.id,
                                 isStreaming: store.isStreaming,
                                 pendingToolUseIds: pendingToolUseIds,
                                 dismissedToolCallIds: store.dismissedToolCallIds

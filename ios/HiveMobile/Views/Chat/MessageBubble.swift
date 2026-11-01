@@ -3,6 +3,7 @@ import SwiftUI
 
 struct MessageBubble: View, Equatable {
     let message: ChatMessage
+    var workspaceId: String? = nil
     var isStreaming = false
     var pendingToolUseIds: Set<String> = []
     var dismissedToolCallIds: Set<String> = []
@@ -13,6 +14,7 @@ struct MessageBubble: View, Equatable {
 
     static func == (lhs: MessageBubble, rhs: MessageBubble) -> Bool {
         lhs.message == rhs.message
+            && lhs.workspaceId == rhs.workspaceId
             && lhs.isStreaming == rhs.isStreaming
             && lhs.pendingToolUseIds == rhs.pendingToolUseIds
             && lhs.dismissedToolCallIds == rhs.dismissedToolCallIds
@@ -23,6 +25,7 @@ struct MessageBubble: View, Equatable {
     @AppStorage("hiveAccent") private var accentId = AccentOption.defaultId
     @State private var copied = false
     @State private var bubbleMenuVisible = false
+    @State private var linkedImage: LinkedChatImage?
     /// Scales the Markdown base font with Dynamic Type; the theme's relative
     /// (`.em`) sizes grow proportionally from it.
     @ScaledMetric(relativeTo: .body) private var markdownBaseSize: CGFloat = 14
@@ -53,6 +56,30 @@ struct MessageBubble: View, Equatable {
 
             if message.role == .assistant { Spacer(minLength: 40) }
         }
+        .markdownImageProvider(ChatMarkdownImageProvider(workspaceId: workspaceId))
+        .environment(\.openURL, OpenURLAction { url in
+            openImageURL(url) ? .handled : .systemAction
+        })
+        .fullScreenCover(item: $linkedImage) { image in
+            ChatImageLightbox(
+                source: image.source,
+                isPresented: Binding(
+                    get: { linkedImage != nil },
+                    set: { if !$0 { linkedImage = nil } }
+                ),
+                sourceFrame: .zero,
+                sourceSize: CGSize(width: 240, height: 180),
+                sourceCornerRadius: 0,
+                initialImage: nil
+            )
+            .presentationBackground(.clear)
+        }
+    }
+
+    private func openImageURL(_ url: URL) -> Bool {
+        guard let source = ChatImageReference.source(for: url, workspaceId: workspaceId) else { return false }
+        linkedImage = LinkedChatImage(source: source)
+        return true
     }
 
     // MARK: - Assistant Rows
@@ -92,7 +119,7 @@ struct MessageBubble: View, Equatable {
             StreamingMarkdownView(text: text, baseSize: markdownBaseSize)
         } else {
             // Preserve native find-range highlighting, including matches inside code.
-            SelectableMarkdownText(markdown: text, findHighlight: highlight)
+            SelectableMarkdownText(markdown: text, findHighlight: highlight, onOpenImageURL: openImageURL)
         }
     }
 
@@ -370,6 +397,26 @@ struct MessageBubble: View, Equatable {
         return Self.timeFormatter.string(from: date)
     }
 
+}
+
+private struct LinkedChatImage: Identifiable {
+    let source: String
+    var id: String { source }
+}
+
+/// Keep remote Markdown images on the library's existing network renderer;
+/// server-side images share the authenticated attachment tile and lightbox.
+private struct ChatMarkdownImageProvider: ImageProvider {
+    let workspaceId: String?
+
+    @ViewBuilder
+    func makeImage(url: URL?) -> some View {
+        if let url, let source = ChatImageReference.source(for: url, workspaceId: workspaceId) {
+            ChatImageTileWithLightbox(source: source, size: CGSize(width: 240, height: 180))
+        } else {
+            DefaultImageProvider.default.makeImage(url: url)
+        }
+    }
 }
 
 // MARK: - Bubble Context Menu

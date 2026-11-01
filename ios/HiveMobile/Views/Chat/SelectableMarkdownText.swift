@@ -4,19 +4,31 @@ import UIKit
 struct SelectableMarkdownText: UIViewRepresentable {
     let markdown: String
     var findHighlight: MessageFindHighlight? = nil
+    var onOpenImageURL: ((URL) -> Bool)? = nil
 
     @Environment(\.colorScheme) private var colorScheme
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
-    final class Coordinator {
+    final class Coordinator: NSObject, UITextViewDelegate {
         var lastMarkdown: String?
         var lastFindHighlight: MessageFindHighlight?
         var baseRendered: NSAttributedString?
+        var onOpenImageURL: ((URL) -> Bool)?
+
+        func textView(
+            _ textView: UITextView,
+            shouldInteractWith URL: URL,
+            in characterRange: NSRange,
+            interaction: UITextItemInteraction
+        ) -> Bool {
+            !(onOpenImageURL?(URL) ?? false)
+        }
     }
 
     func makeUIView(context: Context) -> UITextView {
         let view = UITextView()
+        view.delegate = context.coordinator
         view.isEditable = false
         view.isSelectable = true
         view.isScrollEnabled = false
@@ -32,6 +44,7 @@ struct SelectableMarkdownText: UIViewRepresentable {
     func updateUIView(_ uiView: UITextView, context: Context) {
         uiView.overrideUserInterfaceStyle = colorScheme == .dark ? .dark : .light
         let coordinator = context.coordinator
+        coordinator.onOpenImageURL = onOpenImageURL
         guard coordinator.lastMarkdown != markdown || coordinator.lastFindHighlight != findHighlight else {
             return
         }

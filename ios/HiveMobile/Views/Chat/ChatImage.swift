@@ -1,6 +1,7 @@
 import ImageIO
 import SwiftUI
 import UIKit
+import UniformTypeIdentifiers
 
 // MARK: - Loader
 
@@ -21,6 +22,7 @@ final class ChatImageLoader {
 
     private var state: LoadState = .idle
     private var loadedKey: String?
+    private(set) var fullResolutionFailed = false
 
     var loadedImage: UIImage? {
         if case .loaded(let image) = state { return image }
@@ -69,6 +71,7 @@ final class ChatImageLoader {
     /// so a hero zoom has an image to animate from the very first frame, then
     /// swaps to the full image without ever flashing a blank/loading state.
     func loadFull(source: String, previewSize: CGSize) async {
+        fullResolutionFailed = false
         let thumbKey = Self.cacheKey(source: source, maxSize: previewSize)
         if loadedImage == nil, let thumb = ImageCache.shared.image(forKey: thumbKey) {
             state = .loaded(thumb)
@@ -85,6 +88,7 @@ final class ChatImageLoader {
 
         if loadedImage == nil { state = .loading }
         guard let decoded = await Self.decode(source: source, maxSize: nil) else {
+            fullResolutionFailed = true
             if loadedImage == nil { state = .failed }
             return
         }
@@ -117,7 +121,9 @@ final class ChatImageLoader {
                 fetchSource += (source.contains("?") ? "&" : "?") + "w=\(Int(maxPixel.rounded()))"
             }
             guard let url = ChatImageResolver.apiURL(for: fetchSource) else { return nil }
-            guard let (fetched, _) = try? await HiveHTTP.session.data(from: url) else { return nil }
+            guard let (fetched, response) = try? await HiveHTTP.session.data(from: url),
+                  let response = response as? HTTPURLResponse,
+                  (200...299).contains(response.statusCode) else { return nil }
             data = fetched
         }
         if let maxPixel, let downsampled = downsample(data: data, maxPixel: maxPixel) {
@@ -390,6 +396,10 @@ struct ChatImageLightbox: View {
     @State private var loader = ChatImageLoader()
     @State private var revealed = false
     @State private var drag: CGSize = .zero
+    @State private var exportTask: Task<Void, Never>?
+    @State private var isPreparingExport = false
+    @State private var sharedImage: ChatImageExport?
+    @State private var showExportError = false
 
     /// Drag distance (pts) at which the backdrop reaches 0; release past
     /// `dismissThreshold` dismisses, otherwise the image springs back.
@@ -408,28 +418,91 @@ struct ChatImageLightbox: View {
     }
 
     var body: some View {
-        GeometryReader { geo in
-            ZStack {
-                Color.black
-                    .opacity(backdropOpacity)
-                    .ignoresSafeArea()
+        GeometryReader { safeArea in
+            GeometryReader { geo in
+                ZStack {
+                    Color.black
+                        .opacity(backdropOpacity)
+                        .ignoresSafeArea()
 
-                heroImage(screen: geo.size)
+                    heroImage(screen: geo.size)
+                }
+                .frame(width: geo.size.width, height: geo.size.height)
+                .contentShape(Rectangle())
+                .gesture(dragGesture)
+                .onTapGesture { close() }
             }
-            .frame(width: geo.size.width, height: geo.size.height)
-            .contentShape(Rectangle())
-            .gesture(dragGesture)
-            .onTapGesture { close() }
+            // Preserve the window coordinates used by the hero animation.
+            .ignoresSafeArea()
+            .overlay(alignment: .top) {
+                imageControls
+                    .padding(.top, safeArea.safeAreaInsets.top)
+                    .background(.black.opacity(0.6))
+                    .opacity(revealed ? 1 : 0)
+                    .allowsHitTesting(revealed)
+            }
         }
-        // Span the safe areas so the GeometryReader's local space matches the
-        // tile's window-space rect, keeping the zoom origin pixel-accurate.
-        .ignoresSafeArea()
+        .overlay(alignment: .bottom) {
+            if loader.fullResolutionFailed {
+                Text("Couldn't load the original image. Check your connection or try reopening it.")
+                    .font(.callout)
+                    .foregroundStyle(.white)
+                    .padding()
+                    .background(.black.opacity(0.75))
+                    .padding()
+            }
+        }
+        .sheet(item: $sharedImage) { image in
+            ChatImageShareSheet(image: image) { failed in
+                sharedImage = nil
+                showExportError = failed
+            }
+        }
+        .alert("Couldn't share image", isPresented: $showExportError) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text("The original image couldn't be prepared or shared. Check your connection and try again.")
+        }
         .task(id: source) { await loader.loadFull(source: source, previewSize: sourceSize) }
+        .onDisappear {
+            exportTask?.cancel()
+            exportTask = nil
+            isPreparingExport = false
+        }
         .onAppear {
             withAnimation(.spring(response: 0.28, dampingFraction: 0.85)) {
                 revealed = true
             }
         }
+    }
+
+    private var imageControls: some View {
+        HStack {
+            Button(action: close) {
+                Image(systemName: "xmark")
+                    .frame(width: 44, height: 44)
+            }
+            .accessibilityLabel("Close image")
+
+            Spacer()
+
+            Button(action: shareOriginal) {
+                Group {
+                    if isPreparingExport {
+                        ProgressView().tint(.white)
+                    } else {
+                        Image(systemName: "square.and.arrow.up")
+                    }
+                }
+                .frame(width: 44, height: 44)
+            }
+            .disabled(isPreparingExport)
+            .accessibilityLabel(isPreparingExport ? "Preparing original image" : "Share or save original image")
+        }
+        .font(.system(size: 18, weight: .semibold))
+        .foregroundStyle(.white)
+        .buttonStyle(.plain)
+        .padding(.horizontal, 12)
     }
 
     /// The image, animating its frame/position/corner-radius between the tile's
@@ -506,6 +579,7 @@ struct ChatImageLightbox: View {
     /// Reverse the zoom back into the tile (frame/position/radius) while the
     /// backdrop fades out, then remove the cover without the system slide.
     private func close() {
+        exportTask?.cancel()
         withAnimation(.easeInOut(duration: 0.2)) {
             revealed = false
             drag = .zero
@@ -515,4 +589,73 @@ struct ChatImageLightbox: View {
             withTransaction(transaction) { isPresented = false }
         }
     }
+
+    private func shareOriginal() {
+        guard !isPreparingExport else { return }
+        isPreparingExport = true
+        exportTask = Task {
+            defer {
+                isPreparingExport = false
+                exportTask = nil
+            }
+            do {
+                let image = try await Self.prepareExport(source: source)
+                try Task.checkCancellation()
+                sharedImage = image
+            } catch {
+                if !Task.isCancelled { showExportError = true }
+            }
+        }
+    }
+
+    /// Fetch again without a thumbnail width; the display cache can still contain
+    /// a small preview when the full-resolution load failed.
+    nonisolated private static func prepareExport(source: String) async throws -> ChatImageExport {
+        let data: Data
+        if source.hasPrefix("data:") {
+            guard let range = source.range(of: ";base64,"),
+                  let decoded = Data(base64Encoded: String(source[range.upperBound...])) else {
+                throw ChatImageExport.ExportError.invalidImage
+            }
+            data = decoded
+        } else {
+            guard var components = URLComponents(string: source) else {
+                throw ChatImageExport.ExportError.invalidImage
+            }
+            components.queryItems = components.queryItems?.filter { $0.name != "w" }
+            components.percentEncodedQuery = components.percentEncodedQuery?.replacingOccurrences(of: "+", with: "%2B")
+            guard let originalSource = components.string,
+                  let url = ChatImageResolver.apiURL(for: originalSource) else {
+                throw ChatImageExport.ExportError.invalidImage
+            }
+            let (downloaded, response) = try await HiveHTTP.session.data(from: url)
+            guard let response = response as? HTTPURLResponse, (200...299).contains(response.statusCode) else {
+                throw ChatImageExport.ExportError.invalidImage
+            }
+            data = downloaded
+        }
+        try Task.checkCancellation()
+        guard let image = CGImageSourceCreateWithData(data as CFData, nil),
+              CGImageSourceGetCount(image) > 0,
+              let identifier = CGImageSourceGetType(image),
+              let fileExtension = UTType(identifier as String)?.preferredFilenameExtension else {
+            throw ChatImageExport.ExportError.invalidImage
+        }
+        return try ChatImageExport(data: data, fileExtension: fileExtension)
+    }
+}
+
+private struct ChatImageShareSheet: UIViewControllerRepresentable {
+    let image: ChatImageExport
+    let onComplete: (Bool) -> Void
+
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        let controller = UIActivityViewController(activityItems: [image.url], applicationActivities: nil)
+        controller.completionWithItemsHandler = { _, _, _, error in
+            Task { @MainActor in onComplete(error != nil) }
+        }
+        return controller
+    }
+
+    func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) { }
 }
