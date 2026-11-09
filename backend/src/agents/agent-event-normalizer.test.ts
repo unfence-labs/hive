@@ -232,6 +232,26 @@ describe("AgentEventNormalizer", () => {
     ]);
   });
 
+  it("omits inline images while preserving text and errors in provider tool results", () => {
+    const normalizer = new AgentEventNormalizer();
+    const content = [
+      { type: "text", text: "Screenshot captured" },
+      { type: "image", source: { type: "base64", media_type: "image/png", data: "A".repeat(700_000) } },
+    ];
+    const expected = [{
+      type: "tool_completed",
+      id: "read-image",
+      output: "Screenshot captured\n\n[Image output omitted from chat history.]",
+      isError: false,
+    }];
+    expect(normalizer.handleUser(user([{
+      type: "tool_result", tool_use_id: "read-image", content, is_error: false,
+    }]))).toEqual(expected);
+    expect(normalizer.handleAssistant(assistant([{
+      type: "mcp_tool_result", tool_use_id: "read-image", content, is_error: false,
+    }]))).toEqual(expected);
+  });
+
   it("normalizes server tool results as tool completions", () => {
     const normalizer = new AgentEventNormalizer();
 

@@ -6,6 +6,7 @@ import type {
   ServerToolResultType,
 } from "../types.js";
 import type { AgentActivitySubagentActivityKind } from "@hive/shared/agent-activity";
+import { normalizeToolOutput, toolOutputText } from "./bounded-output.js";
 
 type AssistantEvent = Extract<CliJsonLine, { type: "assistant" }>;
 type UserEvent = Extract<CliJsonLine, { type: "user" }>;
@@ -187,7 +188,7 @@ export class AgentEventNormalizer {
       events.push({
         type: "tool_completed",
         id: block.tool_use_id,
-        output: block.content,
+        output: normalizeToolOutput(block.content),
         ...(block.is_error !== undefined ? { isError: block.is_error } : {}),
       });
     }
@@ -232,13 +233,8 @@ function formatServerToolResult(block: ServerResultBlock): string {
       if (c.return_code !== undefined && c.return_code !== 0) parts.push(`exit code: ${c.return_code}`);
       return parts.join("\n") || JSON.stringify(content);
     }
-    case "mcp_tool_result": {
-      if (!Array.isArray(content)) break;
-      const texts = (content as Array<{ type?: string; text?: string }>)
-        .filter((b) => b.type === "text" && b.text)
-        .map((b) => b.text!);
-      return texts.join("\n\n") || JSON.stringify(content);
-    }
+    case "mcp_tool_result":
+      return toolOutputText(content);
   }
 
   return JSON.stringify(content);

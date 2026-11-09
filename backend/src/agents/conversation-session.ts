@@ -9,6 +9,7 @@ import sharp from "sharp";
 import { AgentEventNormalizer, type NormalizedAgentEvent } from "./agent-event-normalizer.js";
 import { parseReasoningThoughts } from "./reasoning-thoughts.js";
 import { appendBoundedAgentOutput, boundAgentOutput } from "./bounded-output.js";
+import { parseJsonlMessages } from "./session-utils.js";
 import type { CodexGoalResult, CodexGoalSetParams, CodexGoalStatus } from "./providers/codex-app-server.js";
 import { codexPersonalityFromOutputStyle, type CodexPersonality } from "./providers/codex.js";
 import { getProviderUnavailableReason, resolveProvider } from "./providers/registry.js";
@@ -466,16 +467,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
     try {
       const messagesPath = join(this.sessionDir, "messages.jsonl");
       const raw = await readFile(messagesPath, "utf-8");
-      const messages: ChatMessage[] = [];
-      for (const line of raw.split("\n")) {
-        if (!line) continue;
-        try {
-          messages.push(JSON.parse(line) as ChatMessage);
-        } catch {
-          console.warn("[session] Skipping corrupted JSONL line in", this.sessionId);
-        }
-      }
-      return messages;
+      return parseJsonlMessages(raw);
     } catch {
       return [];
     }
