@@ -14,6 +14,7 @@ import {
 import { loadPromptTemplates } from "../state/prompt-templates.js";
 import { loadAgents } from "../state/agents.js";
 import { getDataDir } from "../state/state.js";
+import { parseJsonlMessages } from "../agents/session-utils.js";
 import type { AutomationScheduler } from "../services/automation-scheduler.js";
 import type {
   Automation,
@@ -276,11 +277,7 @@ export async function automationRoutes(
 
       let messages: unknown[] = [];
       try {
-        const raw = await readFile(join(sessDir, "messages.jsonl"), "utf-8");
-        messages = raw
-          .split("\n")
-          .filter(Boolean)
-          .map((line) => JSON.parse(line));
+        messages = parseJsonlMessages(await readFile(join(sessDir, "messages.jsonl"), "utf-8"));
       } catch (err: unknown) {
         if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
       }
