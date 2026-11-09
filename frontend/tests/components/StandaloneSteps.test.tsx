@@ -2,23 +2,23 @@ import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import ChatMessage from "@/components/ChatMessage";
-import type { AgentActivity, ChatMessage, ReasoningSegment, ToolCall } from "@/types";
+import type { AgentActivity, ChatMessage as ChatMessageType, ReasoningSegment, ToolCall } from "@/types";
 
 vi.mock("@/components/ai-elements/message", () => ({
   MessageResponse: ({ children }: { children: string }) => <div data-testid="markdown">{children}</div>,
 }));
 
-const base: ChatMessage = { id: "turn", sessionId: "s", role: "assistant", timestamp: "2026-09-08T10:00:00Z", content: "" };
+const base: ChatMessageType = { id: "turn", sessionId: "s", role: "assistant", timestamp: "2026-09-08T10:00:00Z", content: "" };
 
-function activityMessage(activity: AgentActivity): ChatMessage {
+function activityMessage(activity: AgentActivity): ChatMessageType {
   return { ...base, timeline: [{ type: "activity", id: activity.id }], agentActivities: [activity] };
 }
 
-function toolMessage(...toolCalls: ToolCall[]): ChatMessage {
+function toolMessage(...toolCalls: ToolCall[]): ChatMessageType {
   return { ...base, timeline: toolCalls.map((tool) => ({ type: "tool", id: tool.id })), toolCalls };
 }
 
-function reasoningMessage(segments: ReasoningSegment[]): ChatMessage {
+function reasoningMessage(segments: ReasoningSegment[]): ChatMessageType {
   return { ...base, timeline: [{ type: "reasoning", id: "r" }], reasoningSegments: segments };
 }
 
