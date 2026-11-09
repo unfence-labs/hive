@@ -10,14 +10,14 @@ import {
 } from "./types.js";
 
 const CLAUDE_MODELS: ModelDefinition[] = [
-  // Fable 5.1, Opus 5.5, and Sonnet 5 ship with a native 1M context window, so
-  // their cliValues need no explicit `[1m]` opt-in. Fable's adaptive thinking
-  // is always on and depth is controlled via --effort; it has no fast mode on
-  // the first-party API.
-  { id: "fable-5-1", label: "Fable 5.1", cliValue: "claude-fable-5-1", aliases: ["fable-5"], contextWindow: 1_000_000 },
+  // Every current Claude model ships with a native 1M context window, so
+  // cliValues need no explicit `[1m]` opt-in. Fable's adaptive thinking is
+  // always on and depth is controlled via --effort; it has no fast mode on the
+  // first-party API. Fable 5.2 requires Claude Code CLI 2.1.321 or newer.
+  { id: "fable-5-2", label: "Fable 5.2", cliValue: "claude-fable-5-2", aliases: ["fable-5-1", "fable-5"], contextWindow: 1_000_000 },
   { id: "opus-5-5", label: "Opus 5.5", cliValue: "claude-opus-5-5", aliases: ["opus-5", "opus-4-8", "opus-4-7"], isDefault: true, contextWindow: 1_000_000, supportsFastMode: true },
-  { id: "sonnet-5", label: "Sonnet 5", cliValue: "claude-sonnet-5", aliases: ["sonnet-4-6"], contextWindow: 1_000_000 },
-  { id: "haiku-4-5", label: "Haiku 4.5", cliValue: "claude-haiku-4-5", contextWindow: 200_000 },
+  { id: "sonnet-5-5", label: "Sonnet 5.5", cliValue: "claude-sonnet-5-5", aliases: ["sonnet-5", "sonnet-4-6"], contextWindow: 1_000_000 },
+  { id: "haiku-5-5", label: "Haiku 5.5", cliValue: "claude-haiku-5-5", aliases: ["haiku-4-5"], contextWindow: 1_000_000 },
 ];
 
 // Tools that only work inside a persistent, idle Claude Code harness: they

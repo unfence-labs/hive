@@ -207,7 +207,7 @@ describe("PATCH /api/agents/:id", () => {
   });
 
   it("resets thinkingLevel when changing to a provider that does not support the current level", async () => {
-    await saveAgents([makeAgent({ modelId: "codex:gpt-6-sol", thinkingLevel: "ultra" })], dataDir);
+    await saveAgents([makeAgent({ modelId: "codex:gpt-6.1-sol", thinkingLevel: "ultra" })], dataDir);
     const res = await app.inject({
       method: "PATCH",
       url: "/api/agents/agent-1",

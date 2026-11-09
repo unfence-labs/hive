@@ -20,9 +20,9 @@ export function codexPersonalityFromOutputStyle(
   }
 }
 
-// Mirrors the current Codex CLI 0.156.1 lineup, collapsing models with an
-// advertised upgrade target into that replacement while retaining aliases for
-// stored sessions and Team agents.
+// Mirrors the current Codex CLI 0.167 lineup, collapsing previous-generation
+// models into their current replacement while retaining aliases for stored
+// sessions and Team agents. GPT-6.1 Terra requires CLI >= 0.165.
 const CODEX_MODELS: ModelDefinition[] = [
   {
     id: "gpt-6-astra",
@@ -32,14 +32,22 @@ const CODEX_MODELS: ModelDefinition[] = [
     thinkingLevels: ["low", "medium", "high", "xhigh", "max", "ultra"],
   },
   {
-    id: "gpt-6-sol",
-    label: "GPT-6 Sol",
-    cliValue: "gpt-6-sol",
-    aliases: ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.5", "gpt-5.4", "gpt-5.3-codex"],
+    id: "gpt-6.1-sol",
+    label: "GPT-6.1 Sol",
+    cliValue: "gpt-6.1-sol",
+    aliases: ["gpt-6-sol", "gpt-5.6-sol", "gpt-5.5", "gpt-5.4", "gpt-5.3-codex"],
     isDefault: true,
-    contextWindow: 272_000,
+    contextWindow: 500_000,
     thinkingLevels: ["low", "medium", "high", "xhigh", "max", "ultra"],
     outputStyles: ["default", "friendly", "pragmatic", "none"],
+  },
+  {
+    id: "gpt-6.1-terra",
+    label: "GPT-6.1 Terra",
+    cliValue: "gpt-6.1-terra",
+    aliases: ["gpt-5.6-terra"],
+    contextWindow: 500_000,
+    thinkingLevels: ["low", "medium", "high", "xhigh", "max", "ultra"],
   },
   {
     id: "gpt-6-luna",
@@ -63,7 +71,7 @@ const CODEX_CAPABILITIES: ProviderCapabilities = {
 export class CodexProvider implements AgentProvider {
   readonly id = "codex";
   readonly command = "codex";
-  readonly minimumCliVersion = "0.156.1";
+  readonly minimumCliVersion = "0.165.0";
   readonly models = CODEX_MODELS;
   readonly capabilities = CODEX_CAPABILITIES;
 }

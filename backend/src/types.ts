@@ -473,7 +473,7 @@ export interface QuestionInput {
 /** Per-message options that control agent CLI behavior. */
 export interface MessageOptions {
   planMode?: boolean;
-  /** Compound model ID: "provider:model", e.g. "claude:opus-5-5" or "codex:gpt-6-sol" */
+  /** Compound model ID: "provider:model", e.g. "claude:opus-5-5" or "codex:gpt-6.1-sol" */
   model?: string;
   /** Reasoning effort level for providers that support it (Claude `--effort`, Codex `model_reasoning_effort`). */
   thinkingLevel?: ThinkingLevel;

@@ -38,19 +38,19 @@ describe("ClaudeProvider", () => {
 
   it("includes fable, opus, sonnet, and haiku", () => {
     const ids = provider.models.map((m) => m.id);
-    expect(ids).toContain("fable-5-1");
+    expect(ids).toContain("fable-5-2");
     expect(ids).toContain("opus-5-5");
-    expect(ids).toContain("sonnet-5");
-    expect(ids).toContain("haiku-4-5");
+    expect(ids).toContain("sonnet-5-5");
+    expect(ids).toContain("haiku-5-5");
   });
 
-  it("exposes Fable 5.1 as a 1M-context model without fast mode and not default", () => {
-    const fable = provider.models.find((m) => m.id === "fable-5-1");
-    expect(fable?.cliValue).toBe("claude-fable-5-1");
+  it("exposes Fable 5.2 as a 1M-context model without fast mode and not default", () => {
+    const fable = provider.models.find((m) => m.id === "fable-5-2");
+    expect(fable?.cliValue).toBe("claude-fable-5-2");
     expect(fable?.contextWindow).toBe(1_000_000);
     expect(fable?.isDefault).toBeFalsy();
     expect(fable?.supportsFastMode).toBeFalsy();
-    expect(fable?.aliases).toContain("fable-5");
+    expect(fable?.aliases).toEqual(["fable-5-1", "fable-5"]);
   });
 
   it("maps each model to a cli value", () => {
@@ -112,15 +112,23 @@ describe("ClaudeProvider", () => {
   });
 
   it("adds --model with cli value when model is specified", () => {
-    const args = provider.buildArgs("Hello", { model: "sonnet-5" }, baseSession());
+    const args = provider.buildArgs("Hello", { model: "sonnet-5-5" }, baseSession());
     expect(args).toContain("--model");
-    expect(args).toContain("claude-sonnet-5");
+    expect(args).toContain("claude-sonnet-5-5");
   });
 
-  it("maps persisted Sonnet 4.6 selections to Sonnet 5", () => {
-    const args = provider.buildArgs("Hello", { model: "sonnet-4-6" }, baseSession());
+  it("maps persisted Sonnet selections to Sonnet 5.5", () => {
+    for (const model of ["sonnet-5", "sonnet-4-6"]) {
+      const args = provider.buildArgs("Hello", { model }, baseSession());
+      expect(args).toContain("--model");
+      expect(args).toContain("claude-sonnet-5-5");
+    }
+  });
+
+  it("maps persisted Haiku 4.5 selections to Haiku 5.5", () => {
+    const args = provider.buildArgs("Hello", { model: "haiku-4-5" }, baseSession());
     expect(args).toContain("--model");
-    expect(args).toContain("claude-sonnet-5");
+    expect(args).toContain("claude-haiku-5-5");
   });
 
   it("maps persisted Opus selections to Opus 5.5", () => {
@@ -289,10 +297,10 @@ describe("ClaudeProvider", () => {
   });
 
   it("marks Opus as supporting fast mode and the others as not", () => {
-    const fable = provider.models.find((m) => m.id === "fable-5-1");
+    const fable = provider.models.find((m) => m.id === "fable-5-2");
     const opus = provider.models.find((m) => m.id === "opus-5-5");
-    const sonnet = provider.models.find((m) => m.id === "sonnet-5");
-    const haiku = provider.models.find((m) => m.id === "haiku-4-5");
+    const sonnet = provider.models.find((m) => m.id === "sonnet-5-5");
+    const haiku = provider.models.find((m) => m.id === "haiku-5-5");
     expect(opus?.supportsFastMode).toBe(true);
     expect(fable?.supportsFastMode).toBeFalsy();
     expect(sonnet?.supportsFastMode).toBeFalsy();
@@ -314,7 +322,7 @@ describe("ClaudeProvider", () => {
   });
 
   it("keeps a single style-only settings override when the model does not support fast mode", () => {
-    for (const model of ["sonnet-5", "haiku-4-5"]) {
+    for (const model of ["sonnet-5-5", "haiku-5-5"]) {
       const args = provider.buildArgs(
         "Hello",
         { model, fastMode: true, outputStyle: "default" },
