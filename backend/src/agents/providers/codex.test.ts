@@ -17,27 +17,31 @@ describe("CodexProvider", () => {
 
   // ── Models ─────────────────────────────────────────────────────────
 
-  it("exposes the current Codex 0.156.1 model catalog", () => {
+  it("exposes the current Codex 0.167 model catalog", () => {
     expect(provider.models.map((m) => m.id)).toEqual([
-      "gpt-6-astra", "gpt-6-sol", "gpt-6-luna",
+      "gpt-6-astra", "gpt-6.1-sol", "gpt-6.1-terra", "gpt-6-luna",
     ]);
   });
 
-  it("has gpt-6-sol as the only default model", () => {
+  it("has gpt-6.1-sol as the only default model", () => {
     const defaults = provider.models.filter((m) => m.isDefault);
-    expect(defaults.map((m) => m.id)).toEqual(["gpt-6-sol"]);
+    expect(defaults.map((m) => m.id)).toEqual(["gpt-6.1-sol"]);
   });
 
   it("tracks the catalog context windows", () => {
-    for (const id of ["gpt-6-astra", "gpt-6-sol", "gpt-6-luna"]) {
+    for (const id of ["gpt-6-astra", "gpt-6-luna"]) {
       expect(provider.models.find((m) => m.id === id)?.contextWindow).toBe(272_000);
+    }
+    for (const id of ["gpt-6.1-sol", "gpt-6.1-terra"]) {
+      expect(provider.models.find((m) => m.id === id)?.contextWindow).toBe(500_000);
     }
   });
 
   it("aliases retired models to their catalog replacements", () => {
-    for (const id of ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.5", "gpt-5.4", "gpt-5.3-codex"]) {
-      expect(findModel(provider.models, id)?.id).toBe("gpt-6-sol");
+    for (const id of ["gpt-6-sol", "gpt-5.6-sol", "gpt-5.5", "gpt-5.4", "gpt-5.3-codex"]) {
+      expect(findModel(provider.models, id)?.id).toBe("gpt-6.1-sol");
     }
+    expect(findModel(provider.models, "gpt-5.6-terra")?.id).toBe("gpt-6.1-terra");
     for (const id of ["gpt-5.6-luna", "gpt-5.4-mini", "gpt-5.3-codex-spark"]) {
       expect(findModel(provider.models, id)?.id).toBe("gpt-6-luna");
     }
@@ -54,14 +58,15 @@ describe("CodexProvider", () => {
   it("exposes per-model effort ceilings for the GPT-6 tiers", () => {
     const levels = (id: string) => provider.models.find((m) => m.id === id)?.thinkingLevels;
     expect(levels("gpt-6-astra")).toEqual(["low", "medium", "high", "xhigh", "max", "ultra"]);
-    expect(levels("gpt-6-sol")).toEqual(["low", "medium", "high", "xhigh", "max", "ultra"]);
+    expect(levels("gpt-6.1-sol")).toEqual(["low", "medium", "high", "xhigh", "max", "ultra"]);
+    expect(levels("gpt-6.1-terra")).toEqual(["low", "medium", "high", "xhigh", "max", "ultra"]);
     expect(levels("gpt-6-luna")).toEqual(["low", "medium", "high", "xhigh", "max"]);
   });
 
-  it("exposes native personalities only for gpt-6-sol", () => {
-    expect(provider.models.find((model) => model.id === "gpt-6-sol")?.outputStyles)
+  it("exposes native personalities only for gpt-6.1-sol", () => {
+    expect(provider.models.find((model) => model.id === "gpt-6.1-sol")?.outputStyles)
       .toEqual(["default", "friendly", "pragmatic", "none"]);
-    for (const id of ["gpt-6-astra", "gpt-6-luna"]) {
+    for (const id of ["gpt-6-astra", "gpt-6.1-terra", "gpt-6-luna"]) {
       expect(provider.models.find((model) => model.id === id)?.outputStyles).toBeUndefined();
     }
   });
