@@ -103,7 +103,7 @@ struct ChatInputBar: View {
     private var outputStyles: [OutputStyle] { capabilities?.outputStyles ?? [] }
     private var effectiveOutputStyle: OutputStyle? { outputStyle.resolved(in: outputStyles) }
     private var supportsPlanMode: Bool { capabilities?.planMode ?? true }
-    /// Fast mode is gated per-model (Opus-only), not by provider capabilities.
+    /// Fast mode is gated per-model, not by provider capabilities.
     private var supportsFastMode: Bool {
         models.first { $0.id == selectedModelId }?.supportsFastMode ?? false
     }
@@ -643,7 +643,7 @@ private struct ComposerOptionsPopover: View {
                                 .opacity(fastModeEnabled ? 1 : 0)
                                 .frame(width: 15)
                         } else {
-                            Text("Opus only")
+                            Text("Unavailable")
                                 .font(.caption)
                                 .foregroundStyle(WhisperColor.textMuted)
                         }
@@ -658,7 +658,7 @@ private struct ComposerOptionsPopover: View {
                 .opacity(supportsFastMode ? 1 : 0.55)
                 .accessibilityLabel("Fast mode")
                 .accessibilityValue(supportsFastMode ? (fastModeEnabled ? "On" : "Off") : "Unavailable")
-                .accessibilityHint(supportsFastMode ? "Toggles Fast mode." : "Available for Opus only.")
+                .accessibilityHint(supportsFastMode ? "Toggles Fast mode." : "Not available for this model.")
             }
         }
         .padding(.bottom, 5)

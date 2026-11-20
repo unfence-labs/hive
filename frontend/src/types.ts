@@ -447,7 +447,7 @@ export interface MessageOptions {
   model?: string;
   /** Reasoning effort level for providers that support it (Claude `--effort`, Codex `model_reasoning_effort`). */
   thinkingLevel?: ThinkingLevel;
-  /** Claude fast mode: high-speed Opus configuration (lower latency, higher cost). Opus-only. */
+  /** Claude fast mode: high-speed configuration (lower latency, higher cost) for models that support it. */
   fastMode?: boolean;
   /** Provider-native response style, fixed when the conversation starts. */
   outputStyle?: OutputStyle;
@@ -476,7 +476,7 @@ export interface ModelCatalogEntry {
   capabilities: ProviderCapabilities;
   /** Maximum context window size in tokens. */
   contextWindow?: number;
-  /** Whether this model supports Claude fast mode (Opus-only). */
+  /** Whether this model supports Claude fast mode. */
   supportsFastMode?: boolean;
 }
 

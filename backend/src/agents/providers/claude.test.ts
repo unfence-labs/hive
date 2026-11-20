@@ -44,12 +44,12 @@ describe("ClaudeProvider", () => {
     expect(ids).toContain("haiku-5-5");
   });
 
-  it("exposes Fable 5.2 as a 1M-context model without fast mode and not default", () => {
+  it("exposes Fable 5.2 as a 1M-context fast-mode model that is not default", () => {
     const fable = provider.models.find((m) => m.id === "fable-5-2");
     expect(fable?.cliValue).toBe("claude-fable-5-2");
     expect(fable?.contextWindow).toBe(1_000_000);
     expect(fable?.isDefault).toBeFalsy();
-    expect(fable?.supportsFastMode).toBeFalsy();
+    expect(fable?.supportsFastMode).toBe(true);
     expect(fable?.aliases).toEqual(["fable-5-1", "fable-5"]);
   });
 
@@ -296,13 +296,13 @@ describe("ClaudeProvider", () => {
     expect(JSON.parse(args[idx + 1])).toEqual({ outputStyle: "Explanatory" });
   });
 
-  it("marks Opus as supporting fast mode and the others as not", () => {
+  it("marks Opus and Fable as supporting fast mode and the others as not", () => {
     const fable = provider.models.find((m) => m.id === "fable-5-2");
     const opus = provider.models.find((m) => m.id === "opus-5-5");
     const sonnet = provider.models.find((m) => m.id === "sonnet-5-5");
     const haiku = provider.models.find((m) => m.id === "haiku-5-5");
     expect(opus?.supportsFastMode).toBe(true);
-    expect(fable?.supportsFastMode).toBeFalsy();
+    expect(fable?.supportsFastMode).toBe(true);
     expect(sonnet?.supportsFastMode).toBeFalsy();
     expect(haiku?.supportsFastMode).toBeFalsy();
   });

@@ -743,7 +743,7 @@ struct ChatView: View {
         let levels = caps?.thinkingLevels ?? []
         let supportsThinking = !levels.isEmpty
         let supportsPlanMode = caps?.planMode ?? true
-        // Fast mode is Opus-only; never send it for a model that can't use it.
+        // Fast mode is gated per model; never send it for a model that can't use it.
         let supportsFastMode = selectedModel?.supportsFastMode ?? false
 
         let effectiveThinking: ThinkingLevel = {

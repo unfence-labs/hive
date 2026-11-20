@@ -39,7 +39,7 @@ struct ModelCatalogEntry: Codable, Identifiable, Equatable {
     let isDefault: Bool?
     let capabilities: ProviderCapabilities
     let contextWindow: Int?
-    /// Whether this model supports Claude fast mode (Opus-only).
+    /// Whether this model supports Claude fast mode.
     let supportsFastMode: Bool?
 }
 
@@ -601,7 +601,7 @@ struct MessageOptions: Codable, Hashable {
     let planMode: Bool?
     let model: String?
     let thinkingLevel: ThinkingLevel?
-    /// Claude fast mode: high-speed Opus configuration (lower latency, higher cost). Opus-only.
+    /// Claude fast mode: high-speed configuration (lower latency, higher cost) for models that support it.
     let fastMode: Bool?
     /// Provider-native response style, fixed when the conversation starts.
     let outputStyle: OutputStyle?
