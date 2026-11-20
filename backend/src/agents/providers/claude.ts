@@ -12,9 +12,10 @@ import {
 const CLAUDE_MODELS: ModelDefinition[] = [
   // Every current Claude model ships with a native 1M context window, so
   // cliValues need no explicit `[1m]` opt-in. Fable's adaptive thinking is
-  // always on and depth is controlled via --effort; it has no fast mode on the
-  // first-party API. Fable 5.2 requires Claude Code CLI 2.1.321 or newer.
-  { id: "fable-5-2", label: "Fable 5.2", cliValue: "claude-fable-5-2", aliases: ["fable-5-1", "fable-5"], contextWindow: 1_000_000 },
+  // always on and depth is controlled via --effort. Fast mode is available on
+  // Fable 5.2 and Opus 5.5 only. Fable 5.2 requires Claude Code CLI 2.1.321 or
+  // newer.
+  { id: "fable-5-2", label: "Fable 5.2", cliValue: "claude-fable-5-2", aliases: ["fable-5-1", "fable-5"], contextWindow: 1_000_000, supportsFastMode: true },
   { id: "opus-5-5", label: "Opus 5.5", cliValue: "claude-opus-5-5", aliases: ["opus-5", "opus-4-8", "opus-4-7"], isDefault: true, contextWindow: 1_000_000, supportsFastMode: true },
   { id: "sonnet-5-5", label: "Sonnet 5.5", cliValue: "claude-sonnet-5-5", aliases: ["sonnet-5", "sonnet-4-6"], contextWindow: 1_000_000 },
   { id: "haiku-5-5", label: "Haiku 5.5", cliValue: "claude-haiku-5-5", aliases: ["haiku-4-5"], contextWindow: 1_000_000 },
@@ -61,7 +62,7 @@ export class ClaudeProvider implements AgentProvider {
     session: ProviderSessionState,
   ): string[] {
     const model = findModel(this.models, options.model);
-    // Fast mode is Opus-only; never emit it for models that don't support it,
+    // Fast mode is gated per model; never emit it for models that don't support it,
     // even if the flag leaks through from a stale client selection. There is no
     // `--fast` flag in headless mode, so we override the `fastMode` setting for
     // this session via inline `--settings` JSON (merges over settings.json).

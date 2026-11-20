@@ -149,14 +149,14 @@ describe("POST /api/agents", () => {
     expect(res.json().error).toContain("Thinking level");
   });
 
-  it("defaults K3 agents to high thinking", async () => {
+  it("defaults K3.1 Pro agents to high thinking", async () => {
     const res = await app.inject({
       method: "POST",
       url: "/api/agents",
       payload: {
         name: "Kimi Agent",
         systemPrompt: "You are helpful.",
-        modelId: "kimi:k3",
+        modelId: "kimi:k3.1-pro",
         readOnly: false,
       },
     });
@@ -171,7 +171,7 @@ describe("POST /api/agents", () => {
       payload: {
         name: "Kimi Agent",
         systemPrompt: "You are helpful.",
-        modelId: "kimi:kimi-for-coding",
+        modelId: "kimi:kimi-for-coding-highspeed",
         thinkingLevel: "high",
         readOnly: false,
       },
@@ -207,7 +207,7 @@ describe("PATCH /api/agents/:id", () => {
   });
 
   it("resets thinkingLevel when changing to a provider that does not support the current level", async () => {
-    await saveAgents([makeAgent({ modelId: "codex:gpt-6.1-sol", thinkingLevel: "ultra" })], dataDir);
+    await saveAgents([makeAgent({ modelId: "codex:gpt-6.2-sol", thinkingLevel: "ultra" })], dataDir);
     const res = await app.inject({
       method: "PATCH",
       url: "/api/agents/agent-1",
@@ -278,7 +278,7 @@ describe("PATCH /api/agents/:id", () => {
     const res = await app.inject({
       method: "PATCH",
       url: "/api/agents/agent-1",
-      payload: { modelId: "kimi:kimi-for-coding", thinkingLevel: "high" },
+      payload: { modelId: "kimi:kimi-for-coding-highspeed", thinkingLevel: "high" },
     });
     expect(res.statusCode).toBe(400);
     expect(res.json().error).toContain("Thinking level");

@@ -200,13 +200,13 @@ describe("getModelCatalog", () => {
     }
   });
 
-  it("advertises Codex personalities only for gpt-6.1-sol", () => {
+  it("advertises Codex personalities only for gpt-6.2-sol", () => {
     markProviderAvailable("codex");
     const codexModels = getModelCatalog().models.filter((model) => model.provider === "codex");
 
-    expect(codexModels.find((model) => model.id === "codex:gpt-6.1-sol")?.capabilities.outputStyles)
+    expect(codexModels.find((model) => model.id === "codex:gpt-6.2-sol")?.capabilities.outputStyles)
       .toEqual(["default", "friendly", "pragmatic", "none"]);
-    for (const model of codexModels.filter((model) => model.id !== "codex:gpt-6.1-sol")) {
+    for (const model of codexModels.filter((model) => model.id !== "codex:gpt-6.2-sol")) {
       expect(model.capabilities.outputStyles).toEqual([]);
     }
   });
@@ -275,7 +275,7 @@ describe("getModelCatalog", () => {
 
     const codexIds = catalog.models.filter((m) => m.provider === "codex").map((m) => m.id);
     expect(codexIds).toEqual([
-      "codex:gpt-6-astra", "codex:gpt-6.1-sol", "codex:gpt-6.1-terra", "codex:gpt-6-luna",
+      "codex:gpt-6.2-astra", "codex:gpt-6.2-sol", "codex:gpt-6.1-terra", "codex:gpt-6-luna",
     ]);
   });
 
@@ -284,8 +284,8 @@ describe("getModelCatalog", () => {
     const catalog = getModelCatalog();
 
     const byId = new Map(catalog.models.map((m) => [m.id, m]));
-    expect(byId.get("codex:gpt-6-astra")?.capabilities.thinkingLevels).toContain("ultra");
-    expect(byId.get("codex:gpt-6.1-sol")?.capabilities.thinkingLevels).toContain("ultra");
+    expect(byId.get("codex:gpt-6.2-astra")?.capabilities.thinkingLevels).toContain("ultra");
+    expect(byId.get("codex:gpt-6.2-sol")?.capabilities.thinkingLevels).toContain("ultra");
     expect(byId.get("codex:gpt-6-luna")?.capabilities.thinkingLevels).not.toContain("ultra");
   });
 });
@@ -361,18 +361,18 @@ describe("markProviderAvailable", () => {
 
 describe("harness minimum version", () => {
   it.each([
-    ["0.164.0", false],
-    ["0.165.0", true],
-    ["0.166.0", true],
+    ["0.169.0", false],
+    ["0.170.0", true],
+    ["0.171.0", true],
     ["1.0.0", true],
     [null, false],
     ["unknown", false],
-    ["0.165.0-alpha.1", false],
+    ["0.170.0-alpha.1", false],
   ])("checks detected version %s without hiding models", (version, compatible) => {
     recordProviderDetection("codex", true, version);
     const catalog = getModelCatalog();
     expect(catalog.models.length).toBeGreaterThan(0);
-    expect(catalog.defaultModelId).toBe("codex:gpt-6.1-sol");
+    expect(catalog.defaultModelId).toBe("codex:gpt-6.2-sol");
     const reason = compatible ? undefined : "Update Codex in settings";
     expect(getProviderUnavailableReason("codex")).toBe(reason);
     expect(catalog.models.every((model) => model.unavailableReason === reason)).toBe(true);
@@ -387,19 +387,19 @@ describe("harness minimum version", () => {
   it("does not treat finding a binary as proof of compatibility", () => {
     markProviderAvailable("codex");
     expect(getProviderUnavailableReason("codex")).toBe("Update Codex in settings");
-    recordProviderDetection("codex", true, "0.164.0");
+    recordProviderDetection("codex", true, "0.169.0");
     markProviderAvailable("codex");
     expect(getProviderUnavailableReason("codex")).toBe("Update Codex in settings");
   });
 
   it("unblocks after re-detection and forgets a previously compatible version", async () => {
-    let stdout = "codex-cli 0.164.0";
+    let stdout = "codex-cli 0.169.0";
     mockExecFile.mockImplementation(
       (_cmd: string, _args: string[], cb: (...a: unknown[]) => void) => cb(null, { stdout, stderr: "" }),
     );
     await detectAvailableProviders();
     expect(getProviderUnavailableReason("codex")).toBe("Update Codex in settings");
-    stdout = "codex-cli 0.165.0";
+    stdout = "codex-cli 0.170.0";
     await detectAvailableProviders();
     expect(getProviderUnavailableReason("codex")).toBeUndefined();
     stdout = "unknown";
@@ -443,8 +443,9 @@ describe("kimi in catalog", () => {
     const catalog = getModelCatalog();
     const kimiIds = catalog.models.filter((m) => m.provider === "kimi").map((m) => m.id);
     expect(kimiIds).toEqual([
-      "kimi:k3",
-      "kimi:k3-1m",
+      "kimi:k3.1-pro",
+      "kimi:k3.1-pro-1m",
+      "kimi:k3.1-pro-highspeed",
       "kimi:kimi-for-coding",
       "kimi:kimi-for-coding-highspeed",
     ]);
@@ -459,8 +460,8 @@ describe("kimi in catalog", () => {
     await updateConfig((c) => { c.kimi.apiKey = "sk-kimi"; }, tempDir);
 
     const byId = new Map(getModelCatalog().models.map((m) => [m.id, m]));
-    const k3 = byId.get("kimi:k3")!;
-    expect(k3.label).toBe("K3");
+    const k3 = byId.get("kimi:k3.1-pro")!;
+    expect(k3.label).toBe("K3.1 Pro");
     expect(k3.providerLabel).toBe("Kimi");
     expect(k3.isDefault).toBe(true);
     expect(k3.contextWindow).toBe(262_144);
@@ -470,12 +471,17 @@ describe("kimi in catalog", () => {
     expect(k3.capabilities.outputStyles).toEqual([
       "default", "proactive", "concise", "explanatory", "learning",
     ]);
-    expect(byId.get("kimi:k3-1m")?.contextWindow).toBe(1_048_576);
-    expect(byId.get("kimi:k3-1m")?.capabilities.thinkingLevels).toEqual(["low", "high", "max"]);
+    expect(byId.get("kimi:k3.1-pro-1m")?.contextWindow).toBe(1_048_576);
+    expect(byId.get("kimi:k3.1-pro-1m")?.capabilities.thinkingLevels).toEqual(["low", "high", "max"]);
+    expect(byId.get("kimi:k3.1-pro-highspeed")).toMatchObject({
+      label: "K3.1 Pro Highspeed",
+      contextWindow: 1_048_576,
+      capabilities: { thinkingLevels: ["low", "high", "max"] },
+    });
     expect(byId.get("kimi:kimi-for-coding")).toMatchObject({
-      label: "K2.7 Coding",
+      label: "K2.8 Preview",
       contextWindow: 262_144,
-      capabilities: { thinkingLevels: [] },
+      capabilities: { thinkingLevels: ["low", "high", "max"] },
     });
     expect(byId.get("kimi:kimi-for-coding-highspeed")).toMatchObject({
       label: "K2.7 Coding Highspeed",
@@ -501,12 +507,12 @@ describe("kimi in catalog", () => {
     expect(isKnownModelId("kimi:k3-1m")).toBe(true);
   });
 
-  it("defaults K3 to high while keeping K2.7 free of effort control", () => {
-    expect(getDefaultThinkingLevelForModel("kimi:k3")).toBe("high");
-    expect(isThinkingLevelSupportedForModel("kimi:k3", "low")).toBe(true);
-    expect(isThinkingLevelSupportedForModel("kimi:k3", "medium")).toBe(false);
-    expect(getDefaultThinkingLevelForModel("kimi:kimi-for-coding")).toBeUndefined();
-    expect(isThinkingLevelSupportedForModel("kimi:kimi-for-coding", "high")).toBe(false);
+  it("defaults K3.1 Pro to high while keeping K2.7 free of effort control", () => {
+    expect(getDefaultThinkingLevelForModel("kimi:k3.1-pro")).toBe("high");
+    expect(isThinkingLevelSupportedForModel("kimi:k3.1-pro", "low")).toBe(true);
+    expect(isThinkingLevelSupportedForModel("kimi:k3.1-pro", "medium")).toBe(false);
+    expect(getDefaultThinkingLevelForModel("kimi:kimi-for-coding-highspeed")).toBeUndefined();
+    expect(isThinkingLevelSupportedForModel("kimi:kimi-for-coding-highspeed", "high")).toBe(false);
   });
 });
 

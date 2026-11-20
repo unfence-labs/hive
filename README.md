@@ -69,8 +69,8 @@ Through an encrypted private network, your Hive server is easily accessible from
 | Provider | Runtime | Models |
 |---|---|---|
 | Anthropic | Claude Code | Fable 5.2, Opus 5.5, Sonnet 5.5, Haiku 5.5 |
-| OpenAI | Codex | GPT-6 Astra, GPT-6.1 Sol, GPT-6.1 Terra, GPT-6 Luna |
-| Moonshot | Claude Code | K3, K3 1M, K2.7 Coding, K2.7 Coding Highspeed |
+| OpenAI | Codex | GPT-6.2 Astra, GPT-6.2 Sol, GPT-6.1 Terra, GPT-6 Luna |
+| Moonshot | Claude Code | K3.1 Pro, K3.1 Pro 1M, K3.1 Pro Highspeed, K2.8 Preview, K2.7 Coding Highspeed |
 
 ## Getting Started
 

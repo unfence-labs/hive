@@ -18,7 +18,7 @@ export interface ModelDefinition {
   isDefault?: boolean;
   /** Maximum context window size in tokens. */
   contextWindow?: number;
-  /** Whether this model supports Claude fast mode (Opus-only). */
+  /** Whether this model supports Claude fast mode. */
   supportsFastMode?: boolean;
   /**
    * Reasoning-effort levels for this model when they differ from the
@@ -123,7 +123,7 @@ export interface ModelCatalogEntry {
   capabilities: ProviderCapabilities;
   /** Maximum context window size in tokens. */
   contextWindow?: number;
-  /** Whether this model supports Claude fast mode (Opus-only). */
+  /** Whether this model supports Claude fast mode. */
   supportsFastMode?: boolean;
 }
 

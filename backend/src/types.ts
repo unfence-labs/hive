@@ -473,11 +473,11 @@ export interface QuestionInput {
 /** Per-message options that control agent CLI behavior. */
 export interface MessageOptions {
   planMode?: boolean;
-  /** Compound model ID: "provider:model", e.g. "claude:opus-5-5" or "codex:gpt-6.1-sol" */
+  /** Compound model ID: "provider:model", e.g. "claude:opus-5-5" or "codex:gpt-6.2-sol" */
   model?: string;
   /** Reasoning effort level for providers that support it (Claude `--effort`, Codex `model_reasoning_effort`). */
   thinkingLevel?: ThinkingLevel;
-  /** Claude fast mode: high-speed Opus configuration (lower latency, higher cost). Opus-only. */
+  /** Claude fast mode: high-speed configuration (lower latency, higher cost) for models that support it. */
   fastMode?: boolean;
   /** Provider-native response style, fixed when the conversation starts. */
   outputStyle?: OutputStyle;

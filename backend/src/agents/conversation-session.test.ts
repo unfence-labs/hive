@@ -280,7 +280,7 @@ describe("ConversationSession", () => {
   beforeEach(() => {
     mockProc = createMockProcess();
     mockSpawn.mockReturnValue(mockProc);
-    providerRegistry.markProviderAvailable("codex", "0.165.0");
+    providerRegistry.markProviderAvailable("codex", "0.170.0");
   });
 
   function createSession(opts?: { sessionId?: string; command?: string; skipPermissions?: boolean; sessionKind?: "chat" | "automation" | "brain"; draftPrompt?: string }) {
@@ -300,7 +300,7 @@ describe("ConversationSession", () => {
     const session = createSession({ sessionKind, draftPrompt: "Keep this draft" });
     const messages: WsOutgoing[] = [];
     session.on("message", (message) => messages.push(message));
-    providerRegistry.recordProviderDetection("codex", true, "0.164.0");
+    providerRegistry.recordProviderDetection("codex", true, "0.169.0");
 
     expect(() => session.sendMessage("Run this", { model: "codex:gpt-5.5" }))
       .toThrow("Update Codex in settings");
@@ -320,7 +320,7 @@ describe("ConversationSession", () => {
     expect(() => session.sendMessage("/goal Ship this", { model: "codex:gpt-5.5" }))
       .toThrow("Update Codex in settings");
     expect(await session.getMessages()).toEqual([]);
-    providerRegistry.recordProviderDetection("codex", true, "0.165.0");
+    providerRegistry.recordProviderDetection("codex", true, "0.170.0");
     session.sendMessage("Run this", { model: "codex:gpt-5.5" });
     await completeAppServerTurn(mockProc, "updated-thread", "updated-turn");
     await session.drain();
@@ -336,7 +336,7 @@ describe("ConversationSession", () => {
     const history = await session.getMessages();
     const runOptions = session.metadata.lastRunOptions;
 
-    providerRegistry.recordProviderDetection("codex", true, "0.164.0");
+    providerRegistry.recordProviderDetection("codex", true, "0.169.0");
     expect(() => session.sendMessage("Next turn", { model: "codex:gpt-5.6-sol" }))
       .toThrow("Update Codex in settings");
     expect(session.metadata.lastRunOptions).toEqual(runOptions);
@@ -1957,10 +1957,10 @@ describe("ConversationSession", () => {
     expect(args).not.toContain("--effort");
   });
 
-  it("routes K3 model and effort through every Claude harness path", () => {
+  it("routes K3.1 Pro model and effort through every Claude harness path", () => {
     const session = createSession({ sessionId: "sess-kimi-k3" });
 
-    session.sendMessage("Hello", { model: "kimi:k3-1m", thinkingLevel: "low" });
+    session.sendMessage("Hello", { model: "kimi:k3.1-pro-1m", thinkingLevel: "low" });
 
     const [command, args, spawnOptions] = mockSpawn.mock.calls[0] as [
       string,
@@ -1968,14 +1968,14 @@ describe("ConversationSession", () => {
       { env?: Record<string, string> },
     ];
     expect(command).toBe("claude");
-    expect(args).toEqual(expect.arrayContaining(["--model", "k3[1m]", "--effort", "low"]));
+    expect(args).toEqual(expect.arrayContaining(["--model", "k3.1-pro[1m]", "--effort", "low"]));
     expect(spawnOptions.env).toMatchObject({
-      ANTHROPIC_MODEL: "k3[1m]",
-      ANTHROPIC_DEFAULT_HAIKU_MODEL: "k3[1m]",
-      ANTHROPIC_DEFAULT_SONNET_MODEL: "k3[1m]",
-      ANTHROPIC_DEFAULT_OPUS_MODEL: "k3[1m]",
-      ANTHROPIC_DEFAULT_FABLE_MODEL: "k3[1m]",
-      CLAUDE_CODE_SUBAGENT_MODEL: "k3[1m]",
+      ANTHROPIC_MODEL: "k3.1-pro[1m]",
+      ANTHROPIC_DEFAULT_HAIKU_MODEL: "k3.1-pro[1m]",
+      ANTHROPIC_DEFAULT_SONNET_MODEL: "k3.1-pro[1m]",
+      ANTHROPIC_DEFAULT_OPUS_MODEL: "k3.1-pro[1m]",
+      ANTHROPIC_DEFAULT_FABLE_MODEL: "k3.1-pro[1m]",
+      CLAUDE_CODE_SUBAGENT_MODEL: "k3.1-pro[1m]",
       CLAUDE_CODE_EFFORT_LEVEL: "low",
     });
   });
@@ -2087,7 +2087,7 @@ describe("ConversationSession", () => {
       cwd: "/tmp/test",
       approvalPolicy: "never",
       sandbox: "danger-full-access",
-      model: "gpt-6.1-sol",
+      model: "gpt-6.2-sol",
       personality: "friendly",
     });
     mockProc._stdout.push(appServerResponse(threadStart.id, {
@@ -2100,7 +2100,7 @@ describe("ConversationSession", () => {
       cwd: "/tmp/test",
       approvalPolicy: "never",
       sandboxPolicy: { type: "dangerFullAccess" },
-      model: "gpt-6.1-sol",
+      model: "gpt-6.2-sol",
       effort: "low",
     });
     mockProc._stdout.push(appServerResponse(turnStart.id, {
@@ -2593,7 +2593,7 @@ describe("ConversationSession", () => {
       cwd: "/tmp/test",
       approvalPolicy: "never",
       sandbox: "danger-full-access",
-      model: "gpt-6.1-sol",
+      model: "gpt-6.2-sol",
     });
     mockProc._stdout.push(appServerResponse(threadResume.id, {
       thread: { id: "thread-app-reuse" },
@@ -2851,7 +2851,7 @@ describe("ConversationSession", () => {
         cwd: "/tmp/test",
         approvalPolicy: "never",
         sandbox: "danger-full-access",
-        model: "gpt-6.1-sol",
+        model: "gpt-6.2-sol",
       });
       expect(countStdinMethod(restartedProc, "thread/resume")).toBe(0);
     } finally {
@@ -4544,11 +4544,11 @@ describe("ConversationSession", () => {
   it("locks provider on first sendMessage based on model prefix", () => {
     const session = createSession({ sessionId: "lock-test" });
 
-    // Retired gpt-5.3-codex aliases to gpt-6.1-sol in the canonical run options.
+    // Retired gpt-5.3-codex aliases to gpt-6.2-sol in the canonical run options.
     session.sendMessage("Hello", { model: "codex:gpt-5.3-codex", thinkingLevel: "low" });
     expect(session.metadata.lockedProvider).toBe("codex");
     expect(session.metadata.lastRunOptions).toEqual({
-      model: "codex:gpt-6.1-sol",
+      model: "codex:gpt-6.2-sol",
       planMode: false,
       thinkingLevel: "low",
       fastMode: false,
@@ -4635,9 +4635,9 @@ describe("ConversationSession", () => {
     const session = createSession({ sessionId: "reject-unsupported-codex-personality" });
 
     expect(() => session.sendMessage("Hello", {
-      model: "codex:gpt-6-astra",
+      model: "codex:gpt-6.2-astra",
       outputStyle: "friendly",
-    })).toThrow('Output style "friendly" is not supported by model "codex:gpt-6-astra"');
+    })).toThrow('Output style "friendly" is not supported by model "codex:gpt-6.2-astra"');
   });
 
   it("rejects switching a locked Codex personality to an unsupported model", async () => {
@@ -4645,7 +4645,7 @@ describe("ConversationSession", () => {
     const messages: WsOutgoing[] = [];
     session.on("message", (message) => messages.push(message));
 
-    session.sendMessage("First", { model: "codex:gpt-6.1-sol", outputStyle: "pragmatic" });
+    session.sendMessage("First", { model: "codex:gpt-6.2-sol", outputStyle: "pragmatic" });
     await completeAppServerTurn(mockProc, "thread-codex-style", "turn-codex-style");
     await waitForMessages(messages, "done");
 
@@ -4658,7 +4658,7 @@ describe("ConversationSession", () => {
     const messages: WsOutgoing[] = [];
     session.on("message", (message) => messages.push(message));
 
-    session.sendMessage("First", { model: "codex:gpt-6.1-sol", outputStyle: "default" });
+    session.sendMessage("First", { model: "codex:gpt-6.2-sol", outputStyle: "default" });
     await respondToAppServerThreadStart(mockProc, "thread-codex-default");
     expect(getStdinMethod(mockProc, "thread/start").params).not.toHaveProperty("personality");
     const turnStart = await waitForStdinMethod(mockProc, "turn/start");
@@ -4669,21 +4669,21 @@ describe("ConversationSession", () => {
     }));
     await waitForMessages(messages, "done");
 
-    expect(() => session.sendMessage("Second", { model: "codex:gpt-6-astra" })).not.toThrow();
+    expect(() => session.sendMessage("Second", { model: "codex:gpt-6.2-astra" })).not.toThrow();
     expect(session.metadata.lastRunOptions?.outputStyle).toBe("default");
   });
 
-  it("settles on Default when switching from unsupported Codex to gpt-6.1-sol", async () => {
+  it("settles on Default when switching from unsupported Codex to gpt-6.2-sol", async () => {
     const session = createSession({ sessionId: "codex-add-default-after-switch" });
     const messages: WsOutgoing[] = [];
     session.on("message", (message) => messages.push(message));
 
-    session.sendMessage("First", { model: "codex:gpt-6-astra" });
+    session.sendMessage("First", { model: "codex:gpt-6.2-astra" });
     await completeAppServerTurn(mockProc, "thread-codex-unsupported", "turn-codex-unsupported");
     await waitForMessages(messages, "done");
 
     expect(() => session.sendMessage("Second", {
-      model: "codex:gpt-6.1-sol",
+      model: "codex:gpt-6.2-sol",
       outputStyle: "default",
     })).not.toThrow();
     expect(session.metadata.lastRunOptions?.outputStyle).toBe("default");

@@ -8,16 +8,21 @@ import {
   type ProviderSessionState,
 } from "./types.js";
 
+// Mirrors the Kimi Code subscription model IDs. K3.1 Pro Highspeed requires an
+// Allegretto / Pro plan, which always includes the 1M window, and
+// `kimi-for-coding` now routes to K2.8 Preview.
 const KIMI_MODELS: ModelDefinition[] = [
-  { id: "k3", label: "K3", cliValue: "k3", isDefault: true, contextWindow: 262_144, thinkingLevels: ["low", "high", "max"] },
-  { id: "k3-1m", label: "K3 1M", cliValue: "k3[1m]", contextWindow: 1_048_576, thinkingLevels: ["low", "high", "max"] },
-  { id: "kimi-for-coding", label: "K2.7 Coding", cliValue: "kimi-for-coding", contextWindow: 262_144 },
+  { id: "k3.1-pro", label: "K3.1 Pro", cliValue: "k3.1-pro", aliases: ["k3"], isDefault: true, contextWindow: 262_144, thinkingLevels: ["low", "high", "max"] },
+  { id: "k3.1-pro-1m", label: "K3.1 Pro 1M", cliValue: "k3.1-pro[1m]", aliases: ["k3-1m"], contextWindow: 1_048_576, thinkingLevels: ["low", "high", "max"] },
+  { id: "k3.1-pro-highspeed", label: "K3.1 Pro Highspeed", cliValue: "k3.1-pro-highspeed[1m]", contextWindow: 1_048_576, thinkingLevels: ["low", "high", "max"] },
+  { id: "kimi-for-coding", label: "K2.8 Preview", cliValue: "kimi-for-coding", contextWindow: 262_144, thinkingLevels: ["low", "high", "max"] },
   { id: "kimi-for-coding-highspeed", label: "K2.7 Coding Highspeed", cliValue: "kimi-for-coding-highspeed", contextWindow: 262_144 },
 ];
 
 const KIMI_CAPABILITIES: ProviderCapabilities = {
-  // K2.7 has always-on thinking but no selectable effort. K3 opts into effort
-  // control through its per-model thinkingLevels above.
+  // K2.7 Code Highspeed has always-on thinking but no selectable effort. The
+  // other models opt into effort control through their per-model
+  // thinkingLevels above.
   thinkingLevels: [],
   planMode: true,
   blockingTools: true,

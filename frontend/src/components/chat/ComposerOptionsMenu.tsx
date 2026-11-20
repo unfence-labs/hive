@@ -147,7 +147,7 @@ export function ComposerOptionsMenu({
                       sideOffset={4}
                       className="animate-in fade-in-0 zoom-in-95 z-50 rounded-md border border-border/30 bg-muted px-3 py-1.5 text-xs text-muted-foreground shadow-md"
                     >
-                      Only available with Opus
+                      Not available for this model
                     </TooltipPrimitive.Content>
                   </TooltipPrimitive.Portal>
                 </Tooltip>
